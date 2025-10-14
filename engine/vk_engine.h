@@ -122,8 +122,8 @@ public:
 
 	AllocatedImage white_image{};
 	AllocatedImage black_image{};
-	AllocatedImage default_metal_rough{};
-	AllocatedImage default_normal{};
+	AllocatedImage default_mr_image{};
+	AllocatedImage default_normal_image{};
 	AllocatedImage error_image{};
 	VkSampler default_linear_sampler{};
 	VkSampler default_nearest_sampler{};

@@ -614,7 +614,7 @@ void VulkanEngine::init_pipelines()
 	// handle layouts
 	VkPipelineLayoutCreateInfo pipeline_layout_info{};
 	pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-	pipeline_layout_info.setLayoutCount = set_layouts.size();
+	pipeline_layout_info.setLayoutCount = static_cast<uint32_t>(set_layouts.size());
 	pipeline_layout_info.pSetLayouts = set_layouts.data();
 	pipeline_layout_info.pushConstantRangeCount = 1;
 
@@ -832,33 +832,33 @@ void VulkanEngine::init_default_data()
 	draw_extent.width = draw_image.extent.width;
 	draw_extent.height = draw_image.extent.height;
 
-	uint32_t white = glm::packUnorm4x8(glm::vec4(1));
-	white_image = create_image(static_cast<void*>(&white), VkExtent3D{ 1, 1, 1 },
+	uint32_t white_color = glm::packUnorm4x8(glm::vec4(1));
+	white_image = create_image(static_cast<void*>(&white_color), VkExtent3D{ 1, 1, 1 },
 		VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_USAGE_SAMPLED_BIT, 
 		VK_IMAGE_ASPECT_COLOR_BIT);
 
-	uint32_t black = glm::packUnorm4x8(glm::vec4(0));
-	black_image = create_image(static_cast<void*>(&black), VkExtent3D{ 1, 1, 1 },
+	uint32_t black_color = glm::packUnorm4x8(glm::vec4(0));
+	black_image = create_image(static_cast<void*>(&black_color), VkExtent3D{ 1, 1, 1 },
 		VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_USAGE_SAMPLED_BIT,
 		VK_IMAGE_ASPECT_COLOR_BIT);
 
-	uint32_t placeholder_metal_rough = glm::packUnorm4x8(glm::vec4(0, 0.5, 0, 0));
-	default_metal_rough = create_image(static_cast<void*>(&placeholder_metal_rough), VkExtent3D{ 1, 1, 1 },
-		VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_USAGE_SAMPLED_BIT,
+	uint32_t metal_rough_color = glm::packUnorm4x8(glm::vec4(0, 0.5, 0, 0));
+	default_mr_image = create_image(static_cast<void*>(&metal_rough_color), VkExtent3D{ 1, 1, 1 },
+		VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT,
 		VK_IMAGE_ASPECT_COLOR_BIT);
 
-	uint32_t placeholder_normal = glm::packUnorm4x8(glm::vec4(0.5, 0.5, 1, 0));
-	default_normal = create_image(static_cast<void*>(&default_normal), VkExtent3D{ 1, 1, 1 },
-		VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_USAGE_SAMPLED_BIT,
+	uint32_t normal_color = glm::packUnorm4x8(glm::vec4(0.5, 0.5, 1, 0));
+	default_normal_image = create_image(static_cast<void*>(&normal_color), VkExtent3D{ 1, 1, 1 },
+		VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT,
 		VK_IMAGE_ASPECT_COLOR_BIT);
 
-	uint32_t magenta = glm::packUnorm4x8(glm::vec4(1, 0, 1, 1));
-	std::array<uint32_t, 16*16 > pixels; //for 16x16 checkerboard texture
+	uint32_t magenta_color = glm::packUnorm4x8(glm::vec4(1, 0, 1, 1));
+	std::array<uint32_t, 16 * 16 > pixels{}; //for 16x16 checkerboard texture
 	for (int x = 0; x < 16; x++) 
 	{
 		for (int y = 0; y < 16; y++) 
 		{
-			pixels[y * 16 + x] = ((x % 2) ^ (y % 2)) ? magenta : black;
+			pixels[y * 16 + x] = ((x % 2) ^ (y % 2)) ? magenta_color : black_color;
 		}
 	}
 
@@ -880,15 +880,15 @@ void VulkanEngine::init_default_data()
 
 	texture_cache.add_texture(white_image.view, default_linear_sampler); 
 	texture_cache.add_texture(black_image.view, default_linear_sampler);
-	texture_cache.add_texture(default_metal_rough.view, default_linear_sampler);
-	texture_cache.add_texture(default_normal.view, default_linear_sampler);
+	texture_cache.add_texture(default_mr_image.view, default_linear_sampler);
+	texture_cache.add_texture(default_normal_image.view, default_linear_sampler);
 	texture_cache.add_texture(error_image.view, default_linear_sampler);
 
 	main_deletion_queue.push_function([&]() {
 		destroy_image(white_image);
 		destroy_image(black_image);
-		destroy_image(default_metal_rough);
-		destroy_image(default_normal);
+		destroy_image(default_mr_image);
+		destroy_image(default_normal_image);
 		destroy_image(error_image);
 		vkDestroySampler(device, default_linear_sampler, nullptr);
 		vkDestroySampler(device, default_nearest_sampler, nullptr);
@@ -898,6 +898,7 @@ void VulkanEngine::init_default_data()
 void VulkanEngine::init_renderables()
 {
 	std::string asset_path = "../../assets/DamagedHelmet/GLTF-Embedded/DamagedHelmet.gltf";
+	//std::string asset_path = "../../assets/sphere.gltf";
 	auto asset_file = load_gltf(this, asset_path, true);
 	assert(asset_file.has_value());
 	loaded_scenes["DamagedHelmet"] = *asset_file;
@@ -921,7 +922,7 @@ void VulkanEngine::init_bindless_textures()
 	write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 	write.dstSet = pbr_ds;
 	write.dstBinding = 0;
-	write.descriptorCount = texture_cache.image_infos.size(); // (!) validation layer does not report if smaller count than req used; fragment sample simply returns black
+	write.descriptorCount = static_cast<uint32_t>(texture_cache.image_infos.size()); // (!) validation layer does not report if smaller count than req used; fragment sample simply returns black
 	write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 	write.pImageInfo = texture_cache.image_infos.data();
 
@@ -931,19 +932,21 @@ void VulkanEngine::init_bindless_textures()
 void VulkanEngine::register_object(Node& node, const glm::mat4& top_matrix, DrawContext& ctx)
 {
 	glm::mat4 node_matrix = top_matrix * node.world_transform;
-
-	for (auto& s : node.mesh->surfaces)
+	if (node.mesh != nullptr)
 	{
-		RenderObject obj{};
-		obj.index_count = s.count;
-		obj.first_index = s.start_index;
-		obj.index_buffer = node.mesh->mesh_buffer.index_buffer.buffer;
-		obj.vertex_buffer_address = node.mesh->mesh_buffer.vertex_buffer_address;
-		obj.material_id = s.material_id;
-		obj.bounds = s.bounds;
-		obj.transform = node_matrix;
+		for (auto& s : node.mesh->surfaces)
+		{
+			RenderObject obj{};
+			obj.index_count = s.count;
+			obj.first_index = s.start_index;
+			obj.index_buffer = node.mesh->mesh_buffer.index_buffer.buffer;
+			obj.vertex_buffer_address = node.mesh->mesh_buffer.vertex_buffer_address;
+			obj.material_id = s.material_id;
+			obj.bounds = s.bounds;
+			obj.transform = node_matrix;
 
-		ctx.opaque_objects.push_back(obj);
+			ctx.opaque_objects.push_back(obj);
+		}
 	}
 
 	for (auto& c : node.children)
@@ -978,10 +981,10 @@ uint32_t TextureCache::add_texture(const VkImageView& view, VkSampler sampler)
 	for (size_t i = 0; i < image_infos.size(); i++)
 	{
 		if (image_infos[i].imageView == view) // TODO: implement sampler check
-			return i;
+			return static_cast<uint32_t>(i);
 	}
 
-	uint32_t id = image_infos.size();
+	uint32_t id = static_cast<uint32_t>(image_infos.size());
 
 	image_infos.emplace_back(VkDescriptorImageInfo{ sampler, view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL });
 

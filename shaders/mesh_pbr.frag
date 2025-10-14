@@ -177,6 +177,7 @@ void main()
 	outFragColor = vec4(color);
 	//outFragColor = albedo;
 	//outFragColor = vec4(N, 1);
+	//outFragColor = vec4(inNormal, 1);
 	//outFragColor = vec4(vec3(metallic), 1.0);
 	//outFragColor.xyz = outFragColor.xyz * 0.5 + 0.5;
 }

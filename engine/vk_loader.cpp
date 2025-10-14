@@ -203,29 +203,37 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 	for (fastgltf::Image& image : gltf.images)
 		fmt::println("image: {}", image.name.c_str()); // debug
 
-	MaterialData* scene_material_data{};
 	fmt::println("gltf file has {} materials", gltf.materials.size());
-	if (gltf.materials.size() > 0)
+	const size_t materials_size = (gltf.materials.size() > 0) ? gltf.materials.size() : 1; // default material fallback
+
+	file.material_buffer = engine->create_buffer(
+		materials_size * sizeof(MaterialData), VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
+		VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
+	);
+
+	MaterialData* scene_material_data{};
+	scene_material_data = static_cast<MaterialData*>(file.material_buffer.info.pMappedData);
+
+	if (gltf.materials.size() == 0)
 	{
-		file.material_buffer = engine->create_buffer(
-			gltf.materials.size() * sizeof(MaterialData), VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-			VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
-		);
-
-		scene_material_data = static_cast<MaterialData*>(file.material_buffer.info.pMappedData);
-
-		VkBufferDeviceAddressInfo address_info{};
-		address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
-		address_info.buffer = file.material_buffer.buffer;
-
-		file.material_buffer_address = vkGetBufferDeviceAddress(engine->device, &address_info);
-
+		MaterialData mat_data{};
+		mat_data.base_color_factor = glm::vec4(1);
+		mat_data.metallic_factor = 1.0;
+		mat_data.roughness_factor = 1.0;
+		mat_data.diffuse_id = 0;
+		mat_data.metal_roughness_id = 2;
+		mat_data.normal_id = 3;
+		mat_data.occlusion_id = 0;
+		mat_data.emissive_id = 1; // placeholders
+		scene_material_data[0] = mat_data;
+		materials.push_back(0);
 	}
-	else
-	{
-		fmt::println("TODO: HANDLE NO MATERIALS");
-		return {};
-	}
+
+	VkBufferDeviceAddressInfo address_info{};
+	address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
+	address_info.buffer = file.material_buffer.buffer;
+
+	file.material_buffer_address = vkGetBufferDeviceAddress(engine->device, &address_info);
 
 	// need to implement MaterialCache as its common for gltf to have same material under different name
 	// current implementation simply duplicates this in the material buffer
@@ -249,7 +257,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 		mat_data.metal_roughness_id = 2;
 		mat_data.normal_id = 3;
 		mat_data.occlusion_id = 0;
-		mat_data.emissive_id = 1; // placeholders, to change
+		mat_data.emissive_id = 1; // placeholders
 
 		MaterialPass pass_type = MaterialPass::MainColor;
 		if (mat.alphaMode == fastgltf::AlphaMode::Blend)
@@ -270,14 +278,17 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 				if (img.has_value())
 					images[idx] = (*img);
 				else
-					images.push_back(engine->white_image); // should be error checkerboard or relevant placeholder
+				{
+					images.push_back(engine->error_image); // should be error checkerboard or relevant placeholder
+					img = engine->error_image;
+				}
 				file.images[std::to_string(idx).c_str()] = images[idx];
 			}
 			else
 			{
 				img = images[idx];
 			}
-			mat_data.diffuse_id = engine->texture_cache.add_texture(img.value().view, engine->default_linear_sampler);
+			mat_data.diffuse_id = engine->texture_cache.add_texture(img.value().view, engine->default_linear_sampler); // img guaranteed to have value
 		}
 
 		if (mat.pbrData.metallicRoughnessTexture.has_value())
@@ -293,7 +304,10 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 				if (img.has_value())
 					images[idx] = (*img);
 				else
-					images.push_back(engine->white_image);
+				{
+					images.push_back(engine->error_image);
+					img = engine->error_image;
+				}
 				file.images[std::to_string(idx).c_str()] = images[idx];
 			}
 			else
@@ -314,7 +328,10 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 				if (img.has_value())
 					images[idx] = (*img);
 				else
-					images.push_back(engine->white_image);
+				{
+					images.push_back(engine->error_image);
+					img = engine->error_image;
+				}
 				file.images[std::to_string(idx).c_str()] = images[idx];
 			}
 			else
@@ -335,7 +352,10 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 				if (img.has_value())
 					images[idx] = (*img);
 				else
-					images.push_back(engine->white_image);
+				{
+					images.push_back(engine->error_image);
+					img = engine->error_image;
+				}
 				file.images[std::to_string(idx).c_str()] = images[idx];
 			}
 			else
@@ -356,7 +376,10 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 				if (img.has_value())
 					images[idx] = (*img);
 				else
-					images.push_back(engine->white_image);
+				{
+					images.push_back(engine->error_image);
+					img = engine->error_image;
+				}
 				file.images[std::to_string(idx).c_str()] = images[idx];
 			}
 			else
@@ -458,7 +481,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 			{
 				// TODO: HANDLE PRIMITIVE WITH NO MATERIAL
 				// currently assigning first material as default; rare to have no material so we settle this way for now
-				// handle case where there's 0 materials
+				// also handles gltf with no materials
 				new_surface.material_id = materials[0]; 
 			}
 
@@ -497,6 +520,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 		{
 			// TODO, how to handle?
 			fmt::println("node has no mesh");
+			new_node = std::make_shared<Node>();
 		}
 
 		nodes.push_back(new_node);
