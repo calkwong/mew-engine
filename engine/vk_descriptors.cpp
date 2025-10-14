@@ -129,21 +129,21 @@ VkDescriptorPool DescriptorAllocatorGrowable::get_pool(VkDevice device)
 	return new_pool;
 }
 
-VkDescriptorPool DescriptorAllocatorGrowable::create_pool(VkDevice device, uint32_t set_count, std::span<PoolSizeRatio> pool_ratios) 
+VkDescriptorPool DescriptorAllocatorGrowable::create_pool(VkDevice device, uint32_t max_sets, std::span<PoolSizeRatio> pool_ratios) 
 {
 	std::vector<VkDescriptorPoolSize> pool_sizes{};
 	for (PoolSizeRatio& ratio : pool_ratios)
 	{
 		pool_sizes.push_back(VkDescriptorPoolSize{
 			.type = ratio.type,
-			.descriptorCount = static_cast<uint32_t>(ratio.ratio * set_count)
+			.descriptorCount = static_cast<uint32_t>(ratio.ratio * max_sets) // pool total = count * sets
 		});
 	}
 
 	VkDescriptorPoolCreateInfo pool_info{};
 	pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
 	pool_info.flags = 0; // (!) bindless indexing? update after bind?
-	pool_info.maxSets = set_count;
+	pool_info.maxSets = max_sets;
 	pool_info.poolSizeCount = static_cast<uint32_t>(pool_sizes.size());
 	pool_info.pPoolSizes = pool_sizes.data();
 

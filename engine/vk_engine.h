@@ -42,7 +42,7 @@ struct FrameData
 
 	DescriptorAllocatorGrowable frame_descriptor_allocator{};
 	AllocatedBuffer scene_buffer{};
-	VkDescriptorSet scene_ds{};
+	VkDescriptorSet scene_descriptor{};
 
 	DeletionQueue deletion_queue{};
 
@@ -146,22 +146,21 @@ public:
 	std::unordered_map<std::string, std::shared_ptr<LoadedGLTF>> loaded_scenes{};
 
 	// (!) temp, refactor and move elsewhere?
-	VkDescriptorSetLayout scene_ds_layout{};
 	VkPipeline pbr_pipeline{};
 	VkPipelineLayout pbr_pipeline_layout{};
-	VkDescriptorSet pbr_ds{};
-	VkDescriptorSetLayout pbr_ds_layout{};
+	VkDescriptorSet bindless_tex_descriptor{};
+	VkDescriptorSetLayout bindless_tex_layout{};
+	VkDescriptorSetLayout scene_descriptor_layout{};
 
-	// (!) currently exceeds hardware min size 128 bytes
-	struct PBRPushConstants
+	// (!) hardware min size 128 bytes
+	struct PushConstants
 	{
 		glm::mat4 world_transform{};
-		//glm::mat4 viewproj{};
-		//glm::vec4 camera_position{};
 		VkDeviceAddress vertex_buffer_address{};
 		VkDeviceAddress material_buffer_address{};
 		uint32_t material_id{};
 	};
+
 	static VulkanEngine& get();
 
 	void init();

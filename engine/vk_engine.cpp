@@ -172,8 +172,8 @@ void VulkanEngine::draw()
 
 	// shader
 	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pbr_pipeline);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pbr_pipeline_layout, 0, 1, &get_current_frame().scene_ds, 0, nullptr);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pbr_pipeline_layout, 1, 1, &pbr_ds, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pbr_pipeline_layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pbr_pipeline_layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
 
 	glm::mat4 view = main_camera.get_view_matrix();
 	glm::mat4 proj = glm::perspective(glm::radians(60.0f), static_cast<float>(draw_extent.width) / draw_extent.height, 10000.0f, 0.1f);
@@ -182,7 +182,7 @@ void VulkanEngine::draw()
 	auto draw = [&](const RenderObject& obj) {
 		vkCmdBindIndexBuffer(cmd, obj.index_buffer, 0, VK_INDEX_TYPE_UINT32);
 
-		PBRPushConstants pc{};
+		PushConstants pc{};
 		pc.world_transform = obj.transform;
 		//pc.viewproj = viewproj;
 		//pc.camera_position = glm::vec4(main_camera.position, 1.0);
@@ -190,7 +190,7 @@ void VulkanEngine::draw()
 		pc.material_buffer_address = loaded_scenes["DamagedHelmet"]->material_buffer_address;
 		pc.material_id = obj.material_id;
 
-		vkCmdPushConstants(cmd, pbr_pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PBRPushConstants), &pc);
+		vkCmdPushConstants(cmd, pbr_pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushConstants), &pc);
 		vkCmdDrawIndexed(cmd, obj.index_count, 1, obj.first_index, 0, 0);
 	};
 
@@ -524,11 +524,11 @@ void VulkanEngine::init_descriptors()
 	{
 		DescriptorLayoutBuilder builder{};
 		builder.add_binding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
-		scene_ds_layout = builder.build(device);
+		scene_descriptor_layout = builder.build(device);
 	}
 
 	std::vector<DescriptorAllocatorGrowable::PoolSizeRatio> uniform_sizes = {
-		{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1}
+		{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1} 
 	};
 
 	DescriptorWriter writer{};
@@ -544,26 +544,27 @@ void VulkanEngine::init_descriptors()
 			VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT
 		);
 
-		frames[i].scene_ds = frames[i].frame_descriptor_allocator.allocate(device, scene_ds_layout);
+		frames[i].scene_descriptor = frames[i].frame_descriptor_allocator.allocate(device, scene_descriptor_layout);
 
 		writer.clear();
 		writer.write_buffer(0, frames[i].scene_buffer.buffer, sizeof(SceneData), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
-		writer.update_set(device, frames[i].scene_ds);
+		writer.update_set(device, frames[i].scene_descriptor);
 	}
 
+	// (!) TODO: account for samplers
 	std::vector<DescriptorAllocatorGrowable::PoolSizeRatio> sizes = {
-		{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1}
+		{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000}
 	};
 
-	global_descriptor_allocator.init(device, 10, sizes);
+	global_descriptor_allocator.init(device, 1, sizes);
 
 	//> building bindless textures layout
 	{
 		DescriptorLayoutBuilder builder{};
 		builder.add_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT);
-		builder.bindings[0].descriptorCount = 10; // UPPER BOUND?
+		builder.bindings[0].descriptorCount = 1000; // UPPER BOUND
 		
-		std::array<VkDescriptorBindingFlags, 1> flags{}; // include array?
+		std::array<VkDescriptorBindingFlags, 1> flags{}; 
 		flags[0] = VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT
 			| VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT;
 			//| VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
@@ -573,15 +574,15 @@ void VulkanEngine::init_descriptors()
 		binding_flags_info.bindingCount = 1;
 		binding_flags_info.pBindingFlags = flags.data();
 
-		pbr_ds_layout = builder.build(device, &binding_flags_info); // update after bind req if included above?
+		bindless_tex_layout = builder.build(device, &binding_flags_info); // update after bind req if included above?
 	}
 
 
 
 	main_deletion_queue.push_function([&]() {
 		global_descriptor_allocator.destroy_pools(device);
-		vkDestroyDescriptorSetLayout(device, pbr_ds_layout, nullptr);
-		vkDestroyDescriptorSetLayout(device, scene_ds_layout, nullptr);
+		vkDestroyDescriptorSetLayout(device, bindless_tex_layout, nullptr);
+		vkDestroyDescriptorSetLayout(device, scene_descriptor_layout, nullptr);
 	});
 }
 
@@ -611,7 +612,7 @@ void VulkanEngine::immediate_submit(std::function<void(VkCommandBuffer cmd)>&& f
 
 void VulkanEngine::init_pipelines()
 {
-	std::vector<VkDescriptorSetLayout> set_layouts{ scene_ds_layout, pbr_ds_layout };
+	std::vector<VkDescriptorSetLayout> set_layouts{ scene_descriptor_layout, bindless_tex_layout};
 
 	// handle layouts
 	VkPipelineLayoutCreateInfo pipeline_layout_info{};
@@ -622,7 +623,7 @@ void VulkanEngine::init_pipelines()
 
 	VkPushConstantRange pc{};
 	pc.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-	pc.size = sizeof(PBRPushConstants);
+	pc.size = sizeof(PushConstants);
 	pipeline_layout_info.pPushConstantRanges = &pc;
 
 
@@ -918,11 +919,11 @@ void VulkanEngine::init_bindless_textures()
 	variable_desc_info.pDescriptorCounts = variable_desc_counts.data();
 	variable_desc_info.descriptorSetCount = static_cast<uint32_t>(variable_desc_counts.size());
 
-	pbr_ds = global_descriptor_allocator.allocate(device, pbr_ds_layout, &variable_desc_info);
+	bindless_tex_descriptor = global_descriptor_allocator.allocate(device, bindless_tex_layout, &variable_desc_info);
 
 	VkWriteDescriptorSet write{};
 	write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-	write.dstSet = pbr_ds;
+	write.dstSet = bindless_tex_descriptor;
 	write.dstBinding = 0;
 	write.descriptorCount = static_cast<uint32_t>(texture_cache.image_infos.size()); // (!) validation layer does not report if smaller count than req used; fragment sample simply returns black
 	write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
