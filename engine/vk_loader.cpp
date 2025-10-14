@@ -1,0 +1,648 @@
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+#include <iostream>
+#include <vk_loader.h>
+
+#include "vk_engine.h"
+#include "vk_initializers.h"
+#include "vk_types.h"
+#include <glm/gtx/quaternion.hpp>
+
+#include <fastgltf/glm_element_traits.hpp>
+#include <fastgltf/parser.hpp>
+#include <fastgltf/tools.hpp>
+#include <fmt/core.h>
+VkFilter extract_filter(fastgltf::Filter filter)
+{
+	switch (filter)
+	{
+	case fastgltf::Filter::Nearest:
+	case fastgltf::Filter::NearestMipMapNearest:
+	case fastgltf::Filter::NearestMipMapLinear:
+		return VK_FILTER_NEAREST;
+
+	case fastgltf::Filter::Linear:
+	case fastgltf::Filter::LinearMipMapNearest:
+	case fastgltf::Filter::LinearMipMapLinear:
+	default:
+		return VK_FILTER_LINEAR;
+	}
+}
+
+VkSamplerMipmapMode extract_mipmap(fastgltf::Filter filter)
+{
+	switch (filter) {
+	case fastgltf::Filter::NearestMipMapNearest:
+	case fastgltf::Filter::LinearMipMapNearest:
+		return VK_SAMPLER_MIPMAP_MODE_NEAREST;
+
+	case fastgltf::Filter::NearestMipMapLinear:
+	case fastgltf::Filter::LinearMipMapLinear:
+	default:
+		return VK_SAMPLER_MIPMAP_MODE_LINEAR;
+	}
+}
+
+std::optional<AllocatedImage> load_image(VulkanEngine* engine, fastgltf::Asset& asset, fastgltf::Image& image, VkFormat format)
+{
+	AllocatedImage new_image{};
+
+	int width{};
+	int height{};
+	int channels{};
+
+	std::visit(
+		fastgltf::visitor{
+			[](auto& arg) {},
+			[&](fastgltf::sources::URI& filePath) {
+					assert(filePath.fileByteOffset == 0); // we don't support offsets with stbi
+					assert(filePath.uri.isLocalPath()); // only capable of loading local files
+
+					const std::string path(filePath.uri.path().begin(), filePath.uri.path().end());
+					unsigned char* data = stbi_load(path.c_str(), &width, &height, &channels, 4);
+					if (data)
+					{
+						VkExtent3D image_size{ width, height, 1};
+						new_image = engine->create_image(data, image_size, format, VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+
+						stbi_image_free(data);
+					}
+				},
+			[&](fastgltf::sources::Vector& vector) {
+					unsigned char* data = stbi_load_from_memory(vector.bytes.data(), static_cast<int>(vector.bytes.size()), &width, &height, &channels, 4);
+					if (data)
+					{
+						VkExtent3D image_size{ width, height, 1 };
+						new_image = engine->create_image(data, image_size, format, VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+
+						stbi_image_free(data);
+					}
+				},
+			[&](fastgltf::sources::BufferView& view) {
+					auto& bufferView = asset.bufferViews[view.bufferViewIndex];
+					auto& buffer = asset.buffers[bufferView.bufferIndex];
+					std::visit(fastgltf::visitor{
+						[](auto& arg) {},
+						[&](fastgltf::sources::Vector& vector) {
+								unsigned char* data = stbi_load_from_memory(vector.bytes.data() + bufferView.byteOffset, 
+									static_cast<int>(bufferView.byteLength), &width, &height, &channels, 4
+								);
+
+								if (data)
+								{
+									VkExtent3D image_size{ width, height, 1};
+
+									new_image = engine->create_image(data, image_size, format, VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+
+									stbi_image_free(data);
+								}
+							},
+						},
+						buffer.data
+					);
+				}
+		},
+		image.data
+	);
+
+	// if any attempts of the above to load image data failed, we haven't written the image
+	// so handle is null
+	if (new_image.image == VK_NULL_HANDLE)
+	{
+		return {};
+	}
+	return new_image;
+}
+
+std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::string_view file_path, bool generate_tangents )
+{
+	fmt::println("Loading GLTF: {}", file_path);
+
+	std::shared_ptr<LoadedGLTF> scene = std::make_shared<LoadedGLTF>();
+	scene->creator = engine;
+	LoadedGLTF& file = *scene;
+
+	fastgltf::Parser parser{};
+
+	constexpr auto gltf_options{
+		fastgltf::Options::DontRequireValidAssetMember |
+		fastgltf::Options::LoadGLBBuffers |
+		fastgltf::Options::AllowDouble |
+		fastgltf::Options::LoadExternalBuffers
+	};
+
+	fastgltf::GltfDataBuffer data{};
+	data.loadFromFile(file_path);
+
+	fastgltf::Asset gltf{};
+
+	std::filesystem::path path{ file_path };
+
+	auto type = fastgltf::determineGltfFileType(&data);
+	if (type == fastgltf::GltfType::glTF)
+	{
+		auto load = parser.loadGLTF(&data, path.parent_path(), gltf_options);
+		if (load)
+		{
+			gltf = std::move(load.get());
+		}
+		else
+		{
+			std::cerr << "Failed to load gltf: " << fastgltf::to_underlying(load.error()) << std::endl;
+			return {};
+		}
+	}
+	else if (type == fastgltf::GltfType::GLB)
+	{
+		auto load{ parser.loadBinaryGLTF(&data, path.parent_path(), gltf_options) };
+		if (load)
+		{
+			gltf = std::move(load.get());
+		}
+		else
+		{
+			std::cerr << "Failed to load gltf: " << fastgltf::to_underlying(load.error()) << std::endl;
+			return {};
+		}
+	}
+	else
+	{
+		std::cerr << "Failed to determine gltf container" << std::endl;
+		return {};
+	}
+
+	// load samplers
+	fmt::println("gltf file has {} samplers", gltf.samplers.size());
+	for (fastgltf::Sampler& sampler : gltf.samplers)
+	{
+		VkSamplerCreateInfo info{};
+		info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+		info.maxLod = VK_LOD_CLAMP_NONE;
+		info.minLod = 0;
+
+		info.magFilter = extract_filter(sampler.magFilter.value_or(fastgltf::Filter::Nearest));
+		info.minFilter = extract_filter(sampler.minFilter.value_or(fastgltf::Filter::Nearest));
+		info.mipmapMode = extract_mipmap(sampler.minFilter.value_or(fastgltf::Filter::Nearest));
+
+		VkSampler sampler{};
+		vkCreateSampler(engine->device, &info, nullptr, &sampler);
+
+		file.samplers.push_back(sampler);
+	}
+
+	std::vector<std::shared_ptr<MeshAsset>> meshes{};
+	std::vector<std::shared_ptr<Node>> nodes{};
+	std::vector<int> materials{}; // id
+
+	// image loading deferred to material creation
+	// to prevent performance overhead from image_create_mutable_bit
+	fmt::println("gltf file has {} images", gltf.images.size());
+	std::vector<AllocatedImage> images(gltf.images.size());
+	std::vector<bool> images_set(gltf.images.size());
+
+	for (fastgltf::Image& image : gltf.images)
+		fmt::println("image: {}", image.name.c_str()); // debug
+
+	MaterialData* scene_material_data{};
+	fmt::println("gltf file has {} materials", gltf.materials.size());
+	if (gltf.materials.size() > 0)
+	{
+		file.material_buffer = engine->create_buffer(
+			gltf.materials.size() * sizeof(MaterialData), VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
+			VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
+		);
+
+		scene_material_data = static_cast<MaterialData*>(file.material_buffer.info.pMappedData);
+
+		VkBufferDeviceAddressInfo address_info{};
+		address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
+		address_info.buffer = file.material_buffer.buffer;
+
+		file.material_buffer_address = vkGetBufferDeviceAddress(engine->device, &address_info);
+
+	}
+	else
+	{
+		fmt::println("TODO: HANDLE NO MATERIALS");
+		return {};
+	}
+
+	// need to implement MaterialCache as its common for gltf to have same material under different name
+	// current implementation simply duplicates this in the material buffer
+	int material_idx{ 0 };
+	for (fastgltf::Material& mat : gltf.materials)
+	{
+		fmt::println("material: {}", mat.name.c_str()); // debug
+
+		//std::shared_ptr<GLTFMaterial> new_mat = std::make_shared<GLTFMaterial>();
+		//materials.push_back(new_mat);
+		//file.materials[mat.name.c_str()] = new_mat; // lines obsolete as we only reference material buffer
+
+		MaterialData mat_data{};
+		mat_data.base_color_factor.x = mat.pbrData.baseColorFactor[0];
+		mat_data.base_color_factor.y = mat.pbrData.baseColorFactor[1];
+		mat_data.base_color_factor.z = mat.pbrData.baseColorFactor[2];
+		mat_data.base_color_factor.w = mat.pbrData.baseColorFactor[3];
+		mat_data.metallic_factor = mat.pbrData.metallicFactor;
+		mat_data.roughness_factor = mat.pbrData.roughnessFactor;
+		mat_data.diffuse_id = 0;
+		mat_data.metal_roughness_id = 2;
+		mat_data.normal_id = 3;
+		mat_data.occlusion_id = 0;
+		mat_data.emissive_id = 1; // placeholders, to change
+
+		MaterialPass pass_type = MaterialPass::MainColor;
+		if (mat.alphaMode == fastgltf::AlphaMode::Blend)
+		{
+			pass_type = MaterialPass::Transparent;
+		}
+
+		if (mat.pbrData.baseColorTexture.has_value())
+		{
+			size_t idx = gltf.textures[mat.pbrData.baseColorTexture.value().textureIndex].imageIndex.value();
+			//size_t sampler = gltf.textures[mat.pbrData.baseColorTexture.value().textureIndex].samplerIndex.value();
+			
+			std::optional<AllocatedImage> img{};
+			if (!images_set[idx])
+			{
+				images_set[idx] = true;
+				img = load_image(engine, gltf, gltf.images[idx], VK_FORMAT_R8G8B8A8_SRGB);
+				if (img.has_value())
+					images[idx] = (*img);
+				else
+					images.push_back(engine->white_image); // should be error checkerboard or relevant placeholder
+				file.images[std::to_string(idx).c_str()] = images[idx];
+			}
+			else
+			{
+				img = images[idx];
+			}
+			mat_data.diffuse_id = engine->texture_cache.add_texture(img.value().view, engine->default_linear_sampler);
+		}
+
+		if (mat.pbrData.metallicRoughnessTexture.has_value())
+		{
+			size_t idx = gltf.textures[mat.pbrData.metallicRoughnessTexture.value().textureIndex].imageIndex.value();
+			//size_t sampler{ gltf.textures[mat.pbrData.metallicRoughnessTexture.value().textureIndex].samplerIndex.value() };
+			
+			std::optional<AllocatedImage> img{};
+			if (!images_set[idx])
+			{
+				images_set[idx] = true;
+				img = load_image(engine, gltf, gltf.images[idx], VK_FORMAT_R8G8B8A8_UNORM);
+				if (img.has_value())
+					images[idx] = (*img);
+				else
+					images.push_back(engine->white_image);
+				file.images[std::to_string(idx).c_str()] = images[idx];
+			}
+			else
+			{
+				img = images[idx];
+			}
+			mat_data.metal_roughness_id = engine->texture_cache.add_texture(img.value().view, engine->default_linear_sampler);
+		}
+
+		if (mat.normalTexture.has_value())
+		{
+			size_t idx = gltf.textures[mat.normalTexture.value().textureIndex].imageIndex.value();
+			std::optional<AllocatedImage> img{};
+			if (!images_set[idx])
+			{
+				images_set[idx] = true;
+				img = load_image(engine, gltf, gltf.images[idx], VK_FORMAT_R8G8B8A8_UNORM);
+				if (img.has_value())
+					images[idx] = (*img);
+				else
+					images.push_back(engine->white_image);
+				file.images[std::to_string(idx).c_str()] = images[idx];
+			}
+			else
+			{
+				img = images[idx];
+			}
+			mat_data.normal_id = engine->texture_cache.add_texture(img.value().view, engine->default_linear_sampler);
+		}
+
+		if (mat.occlusionTexture.has_value())
+		{
+			size_t idx = gltf.textures[mat.occlusionTexture.value().textureIndex].imageIndex.value();
+			std::optional<AllocatedImage> img{};
+			if (!images_set[idx])
+			{
+				images_set[idx] = true;
+				img = load_image(engine, gltf, gltf.images[idx], VK_FORMAT_R8G8B8A8_UNORM);
+				if (img.has_value())
+					images[idx] = (*img);
+				else
+					images.push_back(engine->white_image);
+				file.images[std::to_string(idx).c_str()] = images[idx];
+			}
+			else
+			{
+				img = images[idx];
+			}
+			mat_data.occlusion_id = engine->texture_cache.add_texture(img.value().view, engine->default_linear_sampler);
+		}
+
+		if (mat.emissiveTexture.has_value())
+		{
+			size_t idx = gltf.textures[mat.emissiveTexture.value().textureIndex].imageIndex.value();
+			std::optional<AllocatedImage> img{};
+			if (!images_set[idx])
+			{
+				images_set[idx] = true;
+				img = load_image(engine, gltf, gltf.images[idx], VK_FORMAT_R8G8B8A8_SRGB);
+				if (img.has_value())
+					images[idx] = (*img);
+				else
+					images.push_back(engine->white_image);
+				file.images[std::to_string(idx).c_str()] = images[idx];
+			}
+			else
+			{
+				img = images[idx];
+			}
+			mat_data.emissive_id = engine->texture_cache.add_texture(img.value().view, engine->default_linear_sampler);
+		}
+
+		scene_material_data[material_idx] = mat_data;
+		materials.push_back(material_idx);
+		material_idx++;
+	}
+
+	std::vector<uint32_t> indices{};
+	std::vector<Vertex> vertices{};
+
+	fmt::println("gltf file has {} meshes", gltf.meshes.size());
+	for (fastgltf::Mesh& mesh : gltf.meshes)
+	{
+		std::shared_ptr<MeshAsset> new_mesh{ std::make_shared<MeshAsset>() };
+		meshes.push_back(new_mesh);
+		file.meshes[mesh.name.c_str()] = new_mesh;
+		new_mesh->name = mesh.name;
+
+		indices.clear();
+		vertices.clear();
+
+		for (auto&& p : mesh.primitives)
+		{
+			GeoSurface new_surface{};
+			new_surface.start_index = static_cast<uint32_t>(indices.size());
+			new_surface.count = static_cast<uint32_t>(gltf.accessors[p.indicesAccessor.value()].count);
+
+			size_t initial_vtx = vertices.size();
+
+
+			// load indexes
+			{
+				fastgltf::Accessor& index_accessor = gltf.accessors[p.indicesAccessor.value()];
+				indices.reserve(indices.size() + index_accessor.count);
+
+				fastgltf::iterateAccessor<std::uint32_t>(gltf, index_accessor,
+					[&](std::uint32_t idx) {
+						indices.push_back(idx + initial_vtx);
+					});
+			}
+
+			// load vertex positions
+			{
+				fastgltf::Accessor& pos_accessor{ gltf.accessors[p.findAttribute("POSITION")->second] };
+				vertices.resize(vertices.size() + pos_accessor.count);
+
+				fastgltf::iterateAccessorWithIndex<glm::vec3>(gltf, pos_accessor,
+					[&](glm::vec3 v, size_t index) {
+						Vertex new_vtx{};
+						new_vtx.position = v;
+						vertices[initial_vtx + index] = new_vtx;
+					});
+			}
+
+			// load vertex normals
+			{
+				auto normals = p.findAttribute("NORMAL");
+				if (normals != p.attributes.end())
+				{
+					fastgltf::iterateAccessorWithIndex<glm::vec3>(gltf, gltf.accessors[(*normals).second],
+						[&](glm::vec3 v, size_t index) {
+							vertices[initial_vtx + index].normal = v;
+						});
+				}
+			}
+
+			// load uvs
+			{
+				auto uv = p.findAttribute("TEXCOORD_0");
+				if (uv != p.attributes.end())
+				{
+					fastgltf::iterateAccessorWithIndex<glm::vec2>(gltf, gltf.accessors[(*uv).second],
+						[&](glm::vec2 v, size_t index) {
+							vertices[initial_vtx + index].uv_x = v.x;
+							vertices[initial_vtx + index].uv_y = v.y;
+						});
+				}
+			}
+
+			// mikk tangent generation
+			if (generate_tangents)
+			{
+				MikkMesh mesh{ &vertices, &indices };
+				calculateTangents(mesh);
+			}
+
+			if (p.materialIndex.has_value())
+			{
+				new_surface.material_id = materials[p.materialIndex.value()];
+			}
+			else
+			{
+				// TODO: HANDLE PRIMITIVE WITH NO MATERIAL
+				// currently assigning first material as default; rare to have no material so we settle this way for now
+				// handle case where there's 0 materials
+				new_surface.material_id = materials[0]; 
+			}
+
+			// loop vertices to find min/max bounds
+			glm::vec3 min_pos = vertices[initial_vtx].position;
+			glm::vec3 max_pos = vertices[initial_vtx].position;
+
+			// TODO: could be refactored into loading vertex positions block?
+			for (int i = initial_vtx; i < vertices.size(); i++)
+			{
+				min_pos = glm::min(min_pos, vertices[i].position);
+				max_pos = glm::max(max_pos, vertices[i].position);
+			}
+
+			new_surface.bounds.origin = (max_pos + min_pos) / 2.0f;
+			new_surface.bounds.extents = (max_pos - min_pos) / 2.0f;
+			new_surface.bounds.sphere_radius = glm::length(new_surface.bounds.extents);
+
+			new_mesh->surfaces.push_back(new_surface);
+		}
+
+		new_mesh->mesh_buffer = engine->upload_mesh(indices, vertices);
+	}
+
+	// load all nodes and their meshes
+	for (fastgltf::Node& node : gltf.nodes)
+	{
+		std::shared_ptr<Node> new_node{};
+
+		if (node.meshIndex.has_value())
+		{
+			new_node = std::make_shared<Node>();
+			new_node->mesh = meshes[*(node.meshIndex)];
+		}
+		else
+		{
+			// TODO, how to handle?
+			fmt::println("node has no mesh");
+		}
+
+		nodes.push_back(new_node);
+		file.nodes[node.name.c_str()] = new_node;
+		fmt::println("node: {}", node.name.c_str());
+
+		std::visit(fastgltf::visitor{
+				[&](fastgltf::Node::TransformMatrix matrix) {
+					memcpy(&new_node->local_transform, matrix.data(), sizeof(matrix));
+				},
+				[&](fastgltf::Node::TRS transform) {
+					glm::vec3 tl(transform.translation[0], transform.translation[1],
+						transform.translation[2]);
+					glm::quat rot(transform.rotation[3], transform.rotation[0], transform.rotation[1],
+						transform.rotation[2]);
+					glm::vec3 sc(transform.scale[0], transform.scale[1], transform.scale[2]);
+
+					glm::mat4 tm = glm::translate(glm::mat4(1.f), tl);
+					glm::mat4 rm = glm::toMat4(rot);
+					glm::mat4 sm = glm::scale(glm::mat4(1.f), sc);
+
+					new_node->local_transform = tm * rm * sm;
+				}
+			},
+			node.transform);
+	}
+
+	for (int i = 0; i < gltf.nodes.size(); i++)
+	{
+		fastgltf::Node& node = gltf.nodes[i];
+		std::shared_ptr<Node>& scene_node = nodes[i];
+
+		for (auto& c : node.children)
+		{
+			scene_node->children.push_back(nodes[c]);
+			nodes[c]->parent = scene_node;
+		}
+	}
+
+	for (auto& node : nodes)
+	{
+		if (node->parent.lock() == nullptr)
+		{
+			file.top_nodes.push_back(node);
+			node->refresh_transform(glm::mat4(1.0f));
+		}
+	}
+
+	fmt::println("size of topnodes: {}", scene->top_nodes.size());
+	fmt::println("size of nodes: {}", scene->nodes.size());
+	fmt::println("size of gltf nodes: {}", gltf.nodes.size());
+
+	return scene;
+}
+
+void LoadedGLTF::clear()
+{
+	fmt::println("clearing loadedGLTF");
+	VkDevice device = creator->device;
+
+	descriptor_pool.destroy_pools(device);
+	creator->destroy_buffer(material_buffer);
+
+	for (auto& [k, v] : meshes)
+	{
+		creator->destroy_buffer(v->mesh_buffer.vertex_buffer);
+		creator->destroy_buffer(v->mesh_buffer.index_buffer);
+	}
+
+	for (auto& [k, v] : images)
+	{
+		creator->destroy_image(v); // not performing placeholder image check here
+	}
+
+	for (auto& s : samplers)
+	{
+		vkDestroySampler(device, s, nullptr);
+	}
+}
+
+void calculateTangents(MikkMesh& m)
+{
+	SMikkTSpaceInterface mikkInterface{};
+	mikkInterface.m_getNumFaces = mikk_getNumFaces;
+	mikkInterface.m_getNumVerticesOfFace = mikk_getNumVerticesOfFace;
+	mikkInterface.m_getPosition = mikk_getPosition;
+	mikkInterface.m_getNormal = mikk_getNormal;
+	mikkInterface.m_getTexCoord = mikk_getTexCoord;
+	mikkInterface.m_setTSpaceBasic = mikk_setTSpaceBasic;
+	mikkInterface.m_setTSpace = nullptr;
+
+	SMikkTSpaceContext mikkContext{};
+	mikkContext.m_pInterface = &mikkInterface;
+	mikkContext.m_pUserData = &m;
+
+	genTangSpaceDefault(&mikkContext);
+}
+
+int mikk_getNumFaces(const SMikkTSpaceContext* context)
+{
+	MikkMesh mesh = *(static_cast<MikkMesh*>(context->m_pUserData));
+	return (mesh.indices)->size() / 3;
+
+}
+
+int mikk_getNumVerticesOfFace(const SMikkTSpaceContext* context, int faceIndex)
+{
+	return 3;
+}
+
+void mikk_getPosition(const SMikkTSpaceContext* context, float outPosition[3], int faceIndex, int vertIndex)
+{
+	MikkMesh mesh = *(static_cast<MikkMesh*>(context->m_pUserData));
+	uint32_t idx = (*mesh.indices)[faceIndex * 3 + vertIndex];
+	glm::vec3 pos = (*mesh.vertices)[idx].position;
+	outPosition[0] = pos.x;
+	outPosition[1] = pos.y;
+	outPosition[2] = pos.z;
+}
+
+void mikk_getNormal(const SMikkTSpaceContext* context, float outNormal[3], int faceIndex, int vertIndex)
+{
+	MikkMesh mesh = *(static_cast<MikkMesh*>(context->m_pUserData));
+	uint32_t idx = (*mesh.indices)[faceIndex * 3 + vertIndex];
+	glm::vec3 normal = (*mesh.vertices)[idx].normal;
+	outNormal[0] = normal.x;
+	outNormal[1] = normal.y;
+	outNormal[2] = normal.z;
+}
+
+void mikk_getTexCoord(const SMikkTSpaceContext* context, float outUV[2], int faceIndex, int vertIndex)
+{
+	MikkMesh mesh = *(static_cast<MikkMesh*>(context->m_pUserData));
+	uint32_t idx = (*mesh.indices)[faceIndex * 3 + vertIndex];
+	glm::vec2 uv = glm::vec2((*mesh.vertices)[idx].uv_x, (*mesh.vertices)[idx].uv_y);
+	outUV[0] = uv.x;
+	outUV[1] = uv.y;
+}
+
+void mikk_setTSpaceBasic(const SMikkTSpaceContext* context, const float outTangent[3], float sign, int faceIndex, int vertIndex)
+{
+	MikkMesh mesh = *(static_cast<MikkMesh*>(context->m_pUserData));
+	uint32_t idx = (*mesh.indices)[faceIndex * 3 + vertIndex];
+	glm::vec4& tangent = (*mesh.vertices)[idx].tangent;
+	tangent.x = outTangent[0];
+	tangent.y = outTangent[1];
+	tangent.z = outTangent[2];
+	tangent.w = -sign;
+}
