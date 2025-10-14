@@ -107,7 +107,6 @@ void VulkanEngine::cleanup()
 void VulkanEngine::draw()
 {
 	update_scene();
-
 	VK_CHECK(vkWaitForFences(device, 1, &get_current_frame().render_fence, true, 1000000000));
 	VK_CHECK(vkResetFences(device, 1, &get_current_frame().render_fence));
 
@@ -257,6 +256,8 @@ void VulkanEngine::draw()
 	present_info.pImageIndices = &swapchain_image_idx;
 
 	VK_CHECK(vkQueuePresentKHR(graphics_queue, &present_info));
+
+	frame_number++;
 }
 
 void VulkanEngine::run()
@@ -519,13 +520,44 @@ void VulkanEngine::destroy_swapchain()
 
 void VulkanEngine::init_descriptors()
 {
+	//> building scene descriptor layout
+	{
+		DescriptorLayoutBuilder builder{};
+		builder.add_binding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
+		scene_ds_layout = builder.build(device);
+	}
+
+	std::vector<DescriptorAllocatorGrowable::PoolSizeRatio> uniform_sizes = {
+		{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1}
+	};
+
+	DescriptorWriter writer{};
+	for (int i = 0; i < FRAME_OVERLAP; i++)
+	{
+		frames[i].frame_descriptor_allocator.init(device, 1, uniform_sizes);
+
+		main_deletion_queue.push_function([&, i]() {
+			frames[i].frame_descriptor_allocator.destroy_pools(device);
+		});
+
+		frames[i].scene_buffer = create_buffer(sizeof(SceneData), VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
+			VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT
+		);
+
+		frames[i].scene_ds = frames[i].frame_descriptor_allocator.allocate(device, scene_ds_layout);
+
+		writer.clear();
+		writer.write_buffer(0, frames[i].scene_buffer.buffer, sizeof(SceneData), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+		writer.update_set(device, frames[i].scene_ds);
+	}
+
 	std::vector<DescriptorAllocatorGrowable::PoolSizeRatio> sizes = {
 		{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1}
 	};
 
 	global_descriptor_allocator.init(device, 10, sizes);
 
-	// building pbr ds layout
+	//> building bindless textures layout
 	{
 		DescriptorLayoutBuilder builder{};
 		builder.add_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT);
@@ -545,42 +577,12 @@ void VulkanEngine::init_descriptors()
 	}
 
 
-	std::vector<DescriptorAllocatorGrowable::PoolSizeRatio> uniform_sizes = {
-		{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1}
-	};
-
-	// building scene ds layout
-	{
-		DescriptorLayoutBuilder builder{};
-		builder.add_binding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
-		scene_ds_layout = builder.build(device);
-	}
 
 	main_deletion_queue.push_function([&]() {
 		global_descriptor_allocator.destroy_pools(device);
 		vkDestroyDescriptorSetLayout(device, pbr_ds_layout, nullptr);
 		vkDestroyDescriptorSetLayout(device, scene_ds_layout, nullptr);
 	});
-
-	DescriptorWriter writer{};
-	// TODO or refactor: create frame descriptor allocators
-	for (int i = 0; i < FRAME_OVERLAP; i++)
-	{
-		frames[i].frame_descriptor.init(device, 1, uniform_sizes);
-
-		main_deletion_queue.push_function([&, i]() {
-			frames[i].frame_descriptor.destroy_pools(device);
-		});
-
-		frames[i].scene_buffer = create_buffer(sizeof(SceneData), VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-			VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT
-		);
-
-		frames[i].scene_ds = frames[i].frame_descriptor.allocate(device, scene_ds_layout);
-
-		writer.write_buffer(0, frames[i].scene_buffer.buffer, sizeof(SceneData), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
-		writer.update_set(device, frames[i].scene_ds);
-	}
 }
 
 void VulkanEngine::immediate_submit(std::function<void(VkCommandBuffer cmd)>&& func)

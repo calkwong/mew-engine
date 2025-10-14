@@ -40,7 +40,7 @@ struct FrameData
 	VkSemaphore render_semaphore{};
 	VkFence render_fence{};
 
-	DescriptorAllocatorGrowable frame_descriptor{};
+	DescriptorAllocatorGrowable frame_descriptor_allocator{};
 	AllocatedBuffer scene_buffer{};
 	VkDescriptorSet scene_ds{};
 
@@ -109,7 +109,7 @@ public:
 	VkExtent2D swapchain_extent{};
 
 	FrameData frames[FRAME_OVERLAP]{};
-	FrameData& get_current_frame() { return frames[frame_number & FRAME_OVERLAP]; };
+	FrameData& get_current_frame() { return frames[frame_number % FRAME_OVERLAP]; };
 	DeletionQueue main_deletion_queue{};
 
 	VmaAllocator allocator{};

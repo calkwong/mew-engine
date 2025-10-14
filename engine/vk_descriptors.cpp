@@ -32,7 +32,7 @@ VkDescriptorSetLayout DescriptorLayoutBuilder::build(VkDevice device, void* pNex
 	return layout;
 }
 
-void DescriptorAllocatorGrowable::init(VkDevice device, uint32_t initialSets, std::span<PoolSizeRatio> pool_ratios)
+void DescriptorAllocatorGrowable::init(VkDevice device, uint32_t initial_sets, std::span<PoolSizeRatio> pool_ratios)
 {
 	ratios.clear();
 
@@ -41,9 +41,9 @@ void DescriptorAllocatorGrowable::init(VkDevice device, uint32_t initialSets, st
 		ratios.push_back(r);
 	}
 
-	VkDescriptorPool new_pool = create_pool(device, initialSets, pool_ratios);
+	VkDescriptorPool new_pool = create_pool(device, initial_sets, pool_ratios);
 
-	sets_per_pool = initialSets * 1.5; // grow it next allocation
+	sets_per_pool = initial_sets * 1.5; // grow it next allocation
 
 	ready_pools.push_back(new_pool);
 }
