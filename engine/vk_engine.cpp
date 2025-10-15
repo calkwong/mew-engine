@@ -14,6 +14,7 @@
 #include "vk_mem_alloc.h"
 
 #include <glm/gtx/transform.hpp>
+#include "stb_image.h"
 
 #include <thread>
 
@@ -181,6 +182,7 @@ void VulkanEngine::draw()
 	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
 
 	// (!) capture clause for current_pass?
 	auto draw = [&](const RenderObject& obj) {
@@ -553,17 +555,17 @@ void VulkanEngine::init_descriptors()
 		writer.update_set(device, frames[i].scene_descriptor);
 	}
 
-	// (!) TODO: account for samplers
 	std::vector<DescriptorAllocatorGrowable::PoolSizeRatio> sizes = {
-		{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000}
+		{VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000},
+		{VK_DESCRIPTOR_TYPE_SAMPLER, 10}
 	};
 
 	global_descriptor_allocator.init(device, 1, sizes);
 
-	//> building bindless textures layout
+	//> building bindless layouts
 	{
 		DescriptorLayoutBuilder builder{};
-		builder.add_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT);
+		builder.add_binding(0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_FRAGMENT_BIT);
 		builder.bindings[0].descriptorCount = 1000; // UPPER BOUND
 		
 		std::array<VkDescriptorBindingFlags, 1> flags{}; 
@@ -576,15 +578,20 @@ void VulkanEngine::init_descriptors()
 		binding_flags_info.bindingCount = 1;
 		binding_flags_info.pBindingFlags = flags.data();
 
-		bindless_tex_layout = builder.build(device, &binding_flags_info); // update after bind req if included above?
+		bindless_tex_layout = builder.build(device, &binding_flags_info); // (!) update after bind req if included above?
+
+		builder.clear();
+		builder.add_binding(0, VK_DESCRIPTOR_TYPE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT);
+		builder.bindings[0].descriptorCount = 10; // (!) validation layer not reporting if this is higher than pool maximum
+
+		bindless_sampler_layout = builder.build(device, &binding_flags_info); // (!) update after bind req if included above?
 	}
-
-
 
 	main_deletion_queue.push_function([&]() {
 		global_descriptor_allocator.destroy_pools(device);
-		vkDestroyDescriptorSetLayout(device, bindless_tex_layout, nullptr);
 		vkDestroyDescriptorSetLayout(device, scene_descriptor_layout, nullptr);
+		vkDestroyDescriptorSetLayout(device, bindless_tex_layout, nullptr);
+		vkDestroyDescriptorSetLayout(device, bindless_sampler_layout, nullptr);
 	});
 }
 
@@ -621,23 +628,48 @@ void VulkanEngine::init_pipelines()
 	builder.set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
 	builder.set_multisampling_none();
 	builder.disable_blending();
-	//builder.disable_depth();
-	builder.enable_depth(true, VK_COMPARE_OP_GREATER_OR_EQUAL);
+	builder.disable_depth(); // still need to set depth format?
+	builder.set_depth_format(VK_FORMAT_UNDEFINED);
 	builder.set_color_attachment_format(draw_image.format);
-	builder.set_depth_format(depth_image.format);
 
-	ShaderEffect textured_lit{
-		.layouts = { scene_descriptor_layout, bindless_tex_layout },
-		.pc = { 
-			{VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushConstants)}
+	//>
+	ShaderEffect equi_to_cube{
+		.layouts = { bindless_tex_layout, bindless_sampler_layout },
+		.pc = {
+			{ VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(uint32_t) * 2 }
 		}
 	};
 
+	equi_to_cube.build_effect(device, "../../shaders/full_screen.vert.spv", "../../shaders/equi_to_cube.frag.spv");
+
+	std::unique_ptr<ShaderPass> equi_to_cube_pass = vkutil::build_shader(device, &equi_to_cube, builder);
+
+	//>
+	ShaderEffect textured_lit{
+		.layouts = { scene_descriptor_layout, bindless_tex_layout, bindless_sampler_layout },
+		.pc = { 
+			{ VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushConstants) }
+		}
+	};
 	textured_lit.build_effect(device, "../../shaders/mesh_pbr.vert.spv", "../../shaders/mesh_pbr.frag.spv");
 
+	builder.enable_depth(true, VK_COMPARE_OP_GREATER_OR_EQUAL);
+	builder.set_depth_format(depth_image.format);
 	std::unique_ptr<ShaderPass> textured_lit_pass = vkutil::build_shader(device, &textured_lit, builder);
 
+	//>
+	ShaderEffect skybox{
+		.layouts = { bindless_tex_layout, bindless_sampler_layout },
+		.pc = {
+			{ VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(glm::mat4) + sizeof(uint32_t)}
+		}
+	};
+	skybox.build_effect(device, "../../shaders/skybox.vert.spv", "../../shaders/skybox.frag.spv");
+	std::unique_ptr<ShaderPass> skybox_pass = vkutil::build_shader(device, &skybox, builder);
+
+	shader_passes["equi_to_cube"] = std::move(equi_to_cube_pass);
 	shader_passes["textured_lit"] = std::move(textured_lit_pass);
+	shader_passes["skybox"] = std::move(skybox_pass);
 }
 
 AllocatedBuffer VulkanEngine::create_buffer(size_t alloc_size, VmaAllocationCreateFlags flags, VkBufferUsageFlags usage)
@@ -848,6 +880,9 @@ void VulkanEngine::init_default_data()
 	sampler_info.magFilter = VK_FILTER_LINEAR;
 	sampler_info.minFilter = VK_FILTER_LINEAR;
 
+	sampler_info.maxLod = VK_LOD_CLAMP_NONE;
+	sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+
 	vkCreateSampler(device, &sampler_info, nullptr, &default_linear_sampler);
 
 	sampler_info.magFilter = VK_FILTER_NEAREST;
@@ -855,11 +890,11 @@ void VulkanEngine::init_default_data()
 
 	vkCreateSampler(device, &sampler_info, nullptr, &default_nearest_sampler);
 
-	texture_cache.add_texture(white_image.view, default_linear_sampler); 
-	texture_cache.add_texture(black_image.view, default_linear_sampler);
-	texture_cache.add_texture(default_mr_image.view, default_linear_sampler);
-	texture_cache.add_texture(default_normal_image.view, default_linear_sampler);
-	texture_cache.add_texture(error_image.view, default_linear_sampler);
+	texture_cache.add_texture(white_image.view); 
+	texture_cache.add_texture(black_image.view);
+	texture_cache.add_texture(default_mr_image.view);
+	texture_cache.add_texture(default_normal_image.view);
+	texture_cache.add_texture(error_image.view);
 
 	main_deletion_queue.push_function([&]() {
 		destroy_image(white_image);
@@ -894,14 +929,27 @@ void VulkanEngine::init_bindless_textures()
 	variable_desc_info.descriptorSetCount = static_cast<uint32_t>(variable_desc_counts.size());
 
 	bindless_tex_descriptor = global_descriptor_allocator.allocate(device, bindless_tex_layout, &variable_desc_info);
+	bindless_sampler_descriptor = global_descriptor_allocator.allocate(device, bindless_sampler_layout, &variable_desc_info);
+
 
 	VkWriteDescriptorSet write{};
 	write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 	write.dstSet = bindless_tex_descriptor;
 	write.dstBinding = 0;
 	write.descriptorCount = static_cast<uint32_t>(texture_cache.image_infos.size()); // (!) validation layer does not report if smaller count than req used; fragment sample simply returns black
-	write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	write.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
 	write.pImageInfo = texture_cache.image_infos.data();
+
+	vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+
+	// samplers
+	variable_desc_counts[0] = 1;
+	write.dstSet = bindless_sampler_descriptor;
+	write.descriptorCount = 1;
+	write.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+	VkDescriptorImageInfo image_info{};
+	image_info.sampler = default_linear_sampler;
+	write.pImageInfo = &image_info;
 
 	vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
 }
@@ -953,7 +1001,7 @@ void VulkanEngine::update_scene()
 
 }
 
-uint32_t TextureCache::add_texture(const VkImageView& view, VkSampler sampler)
+uint32_t TextureCache::add_texture(const VkImageView& view)
 {
 	for (size_t i = 0; i < image_infos.size(); i++)
 	{
@@ -963,7 +1011,7 @@ uint32_t TextureCache::add_texture(const VkImageView& view, VkSampler sampler)
 
 	uint32_t id = static_cast<uint32_t>(image_infos.size());
 
-	image_infos.emplace_back(VkDescriptorImageInfo{ sampler, view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL });
+	image_infos.emplace_back(VkDescriptorImageInfo{ 0, view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL });
 
 	return id;
 }

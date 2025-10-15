@@ -67,7 +67,7 @@ struct TextureCache
 	std::vector<VkDescriptorImageInfo> image_infos{};
 	const uint32_t PLACEHOLDERS{ 5 };
 
-	uint32_t add_texture(const VkImageView& view, VkSampler sampler);
+	uint32_t add_texture(const VkImageView& view);
 };
 
 // consider moving to vk_scene
@@ -126,6 +126,9 @@ public:
 	AllocatedImage default_mr_image{};
 	AllocatedImage default_normal_image{};
 	AllocatedImage error_image{};
+	AllocatedImage offscreen_image{};
+	AllocatedImage equirectangular_image{};
+	AllocatedImage cubemap_image{};
 	VkSampler default_linear_sampler{};
 	VkSampler default_nearest_sampler{};
 
@@ -152,6 +155,8 @@ public:
 	VkDescriptorSet bindless_tex_descriptor{};
 	VkDescriptorSetLayout bindless_tex_layout{};
 	VkDescriptorSetLayout scene_descriptor_layout{};
+	VkDescriptorSet bindless_sampler_descriptor{};
+	VkDescriptorSetLayout bindless_sampler_layout{};
 
 	std::unordered_map<std::string, std::unique_ptr<ShaderPass>> shader_passes{};
 
@@ -162,6 +167,18 @@ public:
 		VkDeviceAddress vertex_buffer_address{};
 		VkDeviceAddress material_buffer_address{};
 		uint32_t material_id{};
+	};
+
+	struct CubemapPushConstants
+	{
+		uint32_t face{};
+		uint32_t texture_id{};
+	};
+
+	struct SkyboxPushConstants
+	{
+		glm::mat4 inverse_viewproj{};
+		uint32_t texture_id{};
 	};
 
 	static VulkanEngine& get();

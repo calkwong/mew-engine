@@ -288,7 +288,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 			{
 				img = images[idx];
 			}
-			mat_data.diffuse_id = engine->texture_cache.add_texture(img.value().view, engine->default_linear_sampler); // img guaranteed to have value
+			mat_data.diffuse_id = engine->texture_cache.add_texture(img.value().view); // img guaranteed to have value
 		}
 
 		if (mat.pbrData.metallicRoughnessTexture.has_value())
@@ -314,7 +314,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 			{
 				img = images[idx];
 			}
-			mat_data.metal_roughness_id = engine->texture_cache.add_texture(img.value().view, engine->default_linear_sampler);
+			mat_data.metal_roughness_id = engine->texture_cache.add_texture(img.value().view);
 		}
 
 		if (mat.normalTexture.has_value())
@@ -338,7 +338,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 			{
 				img = images[idx];
 			}
-			mat_data.normal_id = engine->texture_cache.add_texture(img.value().view, engine->default_linear_sampler);
+			mat_data.normal_id = engine->texture_cache.add_texture(img.value().view);
 		}
 
 		if (mat.occlusionTexture.has_value())
@@ -362,7 +362,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 			{
 				img = images[idx];
 			}
-			mat_data.occlusion_id = engine->texture_cache.add_texture(img.value().view, engine->default_linear_sampler);
+			mat_data.occlusion_id = engine->texture_cache.add_texture(img.value().view);
 		}
 
 		if (mat.emissiveTexture.has_value())
@@ -386,7 +386,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 			{
 				img = images[idx];
 			}
-			mat_data.emissive_id = engine->texture_cache.add_texture(img.value().view, engine->default_linear_sampler);
+			mat_data.emissive_id = engine->texture_cache.add_texture(img.value().view);
 		}
 
 		scene_material_data[material_idx] = mat_data;

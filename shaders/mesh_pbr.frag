@@ -63,7 +63,9 @@ layout(set = 0, binding = 0) uniform SceneData
 	
 } sceneData;
 
-layout(set = 1, binding = 0) uniform sampler2D allTextures[];
+layout(set = 1, binding = 0) uniform texture2D allTextures[];
+layout(set = 2, binding = 0) uniform sampler samplers[];
+
 
 vec3 Uncharted2Tonemap(vec3 x)
 {
@@ -111,7 +113,8 @@ void main()
 	MaterialData m = pc.materialBuffer.materials[pc.materialID];
 	vec3 Lo = vec3(0.0);
 	
-	vec4 albedo = texture(allTextures[m.diffuseID], inUV);
+	//vec4 albedo = texture(allTextures[m.diffuseID], inUV);
+	vec4 albedo = texture(sampler2D(allTextures[m.diffuseID], samplers[0]), inUV);
 	vec3 lightColor = vec3(1.0);
 	
 	// normal mapping
@@ -119,14 +122,16 @@ void main()
 	vec3 vT = inTangent.xyz;
 	float sign = inTangent.w; // sign is flipped during tangent generation so mikktspace is consistent with glTF handedness
 	vec3 vB = sign * cross(vN, vT);
-	vec3 sampleNormal = texture(allTextures[m.normalID], inUV).xyz;
+	//vec3 sampleNormal = texture(allTextures[m.normalID], inUV).xyz;
+	vec3 sampleNormal = texture(sampler2D(allTextures[m.normalID], samplers[0]), inUV).xyz;
 	sampleNormal = sampleNormal * 2.0 - 1.0;
 	vec3 N = normalize(sampleNormal.x * vT + sampleNormal.y * vB + sampleNormal.z * vN);
 	
 	//vec3 N = normalize(inNormal);
 	vec3 V = normalize(sceneData.cameraPos.xyz - inWorldPos);
 	
-	vec2 metalRoughness = texture(allTextures[m.metalRoughnessID], inUV).bg;
+	//vec2 metalRoughness = texture(allTextures[m.metalRoughnessID], inUV).bg;
+	vec2 metalRoughness = texture(sampler2D(allTextures[m.metalRoughnessID], samplers[0]), inUV).bg;
 	float metallic = metalRoughness.x;
 	float perceptualRoughness = metalRoughness.y;
 	perceptualRoughness = max(perceptualRoughness, 0.045); // frostbite engine clamp value for analytical lights (fp32)
@@ -164,10 +169,12 @@ void main()
 	
 	// Combine with ambient
 	//vec4 color = vec4(albedo.xyz * 0.1, 1);
-	vec4 color = vec4(albedo.xyz * texture(allTextures[m.occlusionID], inUV).rrr, 1); // 
+	//vec4 color = vec4(albedo.xyz * texture(allTextures[m.occlusionID], inUV).rrr, 1); 
+	vec4 color = vec4(albedo.xyz * texture(sampler2D(allTextures[m.occlusionID], samplers[0]), inUV).rrr, 1); 
 	//vec4 color = vec4(vec3(0), 1.0);
 	color.xyz += Lo;
-	color.xyz += texture(allTextures[m.emissiveID], inUV).xyz;
+	//color.xyz += texture(allTextures[m.emissiveID], inUV).xyz;
+	color.xyz += texture(sampler2D(allTextures[m.emissiveID], samplers[0]), inUV).xyz;
 
 	// tonemapping
 	color.xyz = Uncharted2Tonemap(color.xyz * exposure);
