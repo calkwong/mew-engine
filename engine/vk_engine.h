@@ -5,6 +5,7 @@
 #include <vk_descriptors.h>
 #include <camera.h>
 #include <vk_loader.h>
+#include <vk_pipelines.h>
 
 #include "VkBootstrap.h"
 
@@ -151,6 +152,8 @@ public:
 	VkDescriptorSet bindless_tex_descriptor{};
 	VkDescriptorSetLayout bindless_tex_layout{};
 	VkDescriptorSetLayout scene_descriptor_layout{};
+
+	std::unordered_map<std::string, std::unique_ptr<ShaderPass>> shader_passes{};
 
 	// (!) hardware min size 128 bytes
 	struct PushConstants

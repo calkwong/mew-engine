@@ -88,6 +88,12 @@ void VulkanEngine::cleanup()
 			frames[i].deletion_queue.flush(); // (!) will this clash with final frame still in flight
 		}
 		
+		for (const auto& [k, v] : shader_passes)
+		{
+			vkDestroyPipeline(device, v->pipeline, nullptr);
+			vkDestroyPipelineLayout(device, v->layout, nullptr);
+		}
+
 		main_deletion_queue.flush();
 
 		destroy_swapchain();
@@ -170,27 +176,23 @@ void VulkanEngine::draw()
 	scissor.extent.height = draw_extent.height;
 	vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-	// shader
-	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pbr_pipeline);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pbr_pipeline_layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pbr_pipeline_layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
+	ShaderPass current_pass = *shader_passes["textured_lit"];
 
-	glm::mat4 view = main_camera.get_view_matrix();
-	glm::mat4 proj = glm::perspective(glm::radians(60.0f), static_cast<float>(draw_extent.width) / draw_extent.height, 10000.0f, 0.1f);
-	auto viewproj = proj * view;
+	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
 
+	// (!) capture clause for current_pass?
 	auto draw = [&](const RenderObject& obj) {
 		vkCmdBindIndexBuffer(cmd, obj.index_buffer, 0, VK_INDEX_TYPE_UINT32);
 
 		PushConstants pc{};
 		pc.world_transform = obj.transform;
-		//pc.viewproj = viewproj;
-		//pc.camera_position = glm::vec4(main_camera.position, 1.0);
 		pc.vertex_buffer_address = obj.vertex_buffer_address;
 		pc.material_buffer_address = loaded_scenes["DamagedHelmet"]->material_buffer_address;
 		pc.material_id = obj.material_id;
 
-		vkCmdPushConstants(cmd, pbr_pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushConstants), &pc);
+		vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushConstants), &pc);
 		vkCmdDrawIndexed(cmd, obj.index_count, 1, obj.first_index, 0, 0);
 	};
 
@@ -612,39 +614,8 @@ void VulkanEngine::immediate_submit(std::function<void(VkCommandBuffer cmd)>&& f
 
 void VulkanEngine::init_pipelines()
 {
-	std::vector<VkDescriptorSetLayout> set_layouts{ scene_descriptor_layout, bindless_tex_layout};
-
-	// handle layouts
-	VkPipelineLayoutCreateInfo pipeline_layout_info{};
-	pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-	pipeline_layout_info.setLayoutCount = static_cast<uint32_t>(set_layouts.size());
-	pipeline_layout_info.pSetLayouts = set_layouts.data();
-	pipeline_layout_info.pushConstantRangeCount = 1;
-
-	VkPushConstantRange pc{};
-	pc.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-	pc.size = sizeof(PushConstants);
-	pipeline_layout_info.pPushConstantRanges = &pc;
-
-
-	vkCreatePipelineLayout(device, &pipeline_layout_info, nullptr, &pbr_pipeline_layout);
-	
-	// handle shaders
-	VkShaderModule mesh_vertex_shader{};
-	if (!vkutil::load_shader_module("../../shaders/mesh_pbr.vert.spv", device, &mesh_vertex_shader))
-	{
-		fmt::println("loading vertex shader failed");
-	}
-	VkShaderModule mesh_fragment_shader{};
-	if (!vkutil::load_shader_module("../../shaders/mesh_pbr.frag.spv", device, &mesh_fragment_shader))
-	{
-		fmt::println("loading fragment shader failed");
-	}
-
-	// create pipeline
+	// layout and shaders set later
 	PipelineBuilder builder{};
-	builder.pipeline_layout = pbr_pipeline_layout;
-	builder.set_shaders(mesh_vertex_shader, mesh_fragment_shader);
 	builder.set_input_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
 	builder.set_polygon_mode(VK_POLYGON_MODE_FILL);
 	builder.set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
@@ -655,15 +626,18 @@ void VulkanEngine::init_pipelines()
 	builder.set_color_attachment_format(draw_image.format);
 	builder.set_depth_format(depth_image.format);
 
-	pbr_pipeline = builder.build_pipeline(device);
+	ShaderEffect textured_lit{
+		.layouts = { scene_descriptor_layout, bindless_tex_layout },
+		.pc = { 
+			{VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushConstants)}
+		}
+	};
 
-	vkDestroyShaderModule(device, mesh_vertex_shader, nullptr);
-	vkDestroyShaderModule(device, mesh_fragment_shader, nullptr);
+	textured_lit.build_effect(device, "../../shaders/mesh_pbr.vert.spv", "../../shaders/mesh_pbr.frag.spv");
 
-	main_deletion_queue.push_function([&]() {
-		vkDestroyPipeline(device, pbr_pipeline, nullptr);
-		vkDestroyPipelineLayout(device, pbr_pipeline_layout, nullptr);
-	});
+	std::unique_ptr<ShaderPass> textured_lit_pass = vkutil::build_shader(device, &textured_lit, builder);
+
+	shader_passes["textured_lit"] = std::move(textured_lit_pass);
 }
 
 AllocatedBuffer VulkanEngine::create_buffer(size_t alloc_size, VmaAllocationCreateFlags flags, VkBufferUsageFlags usage)

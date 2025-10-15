@@ -47,7 +47,7 @@ bool vkutil::load_shader_module(const char* path, VkDevice device, VkShaderModul
     {
         return false;
     }
-    *out_shader_module= shader_module;
+    *out_shader_module = shader_module;
     return true;
 }
 
@@ -234,3 +234,41 @@ void PipelineBuilder::enable_blending_alphablend() // review alpha blend eq
     color_blend_attachment.alphaBlendOp = VK_BLEND_OP_ADD;
 }
 
+void ShaderEffect::build_effect(VkDevice device, const char* vert_path, const char* frag_path)
+{
+    if (!vkutil::load_shader_module(vert_path, device, &modules[0]))
+    {
+        fmt::println("loading vertex shader failed: {}", vert_path);
+    }
+
+    if (!vkutil::load_shader_module(frag_path, device, &modules[1]))
+    {
+        fmt::println("loading frag shader failed: {}", frag_path);
+    }
+}
+
+std::unique_ptr<ShaderPass> vkutil::build_shader(VkDevice device, ShaderEffect* effect, PipelineBuilder& builder)
+{
+    std::unique_ptr<ShaderPass> shader = std::make_unique<ShaderPass>();
+
+    VkPipelineLayoutCreateInfo pipeline_layout_info{};
+    pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipeline_layout_info.setLayoutCount = static_cast<uint32_t>(effect->layouts.size());
+    pipeline_layout_info.pSetLayouts = effect->layouts.data();
+    pipeline_layout_info.pushConstantRangeCount = static_cast<uint32_t>(effect->pc.size());
+    pipeline_layout_info.pPushConstantRanges = effect->pc.data();
+
+    vkCreatePipelineLayout(device, &pipeline_layout_info, nullptr, &shader->layout);
+
+    builder.pipeline_layout = shader->layout;
+    builder.set_shaders(effect->modules[0], effect->modules[1]);
+
+    shader->pipeline = builder.build_pipeline(device);
+
+    for (const auto& m : effect->modules)
+    {
+        vkDestroyShaderModule(device, m, nullptr);
+    }
+
+    return shader;
+}

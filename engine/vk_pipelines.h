@@ -4,10 +4,22 @@
 
 #include <vulkan/vulkan.h>
 
-namespace vkutil
+#include <span>
+
+struct ShaderEffect
 {
-	bool load_shader_module(const char* path, VkDevice device, VkShaderModule* out_shader_module);
-}
+    std::array<VkShaderModule, 2> modules{};
+    std::vector<VkDescriptorSetLayout> layouts{};
+    std::vector<VkPushConstantRange> pc{};
+
+    void build_effect(VkDevice device, const char* vert_path, const char* frag_path);
+};
+
+struct ShaderPass
+{
+    VkPipeline pipeline{};
+    VkPipelineLayout layout{};
+};
 
 struct PipelineBuilder
 {
@@ -40,3 +52,10 @@ struct PipelineBuilder
     void enable_blending_additive();
     void enable_blending_alphablend();
 };
+
+namespace vkutil
+{
+	bool load_shader_module(const char* path, VkDevice device, VkShaderModule* out_shader_module);
+
+    std::unique_ptr<ShaderPass> build_shader(VkDevice device, ShaderEffect* effect, PipelineBuilder& builder);
+}
