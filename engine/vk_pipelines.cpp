@@ -247,6 +247,14 @@ void ShaderEffect::build_effect(VkDevice device, const char* vert_path, const ch
     }
 }
 
+void ShaderEffect::build_effect(VkDevice device, const char* comp_path)
+{
+    if (!vkutil::load_shader_module(comp_path, device, &modules[0]))
+    {
+        fmt::println("loading vertex shader failed: {}", comp_path);
+    }
+}
+
 std::unique_ptr<ShaderPass> vkutil::build_shader(VkDevice device, ShaderEffect* effect, PipelineBuilder& builder)
 {
     std::unique_ptr<ShaderPass> shader = std::make_unique<ShaderPass>();
@@ -269,6 +277,43 @@ std::unique_ptr<ShaderPass> vkutil::build_shader(VkDevice device, ShaderEffect* 
     {
         vkDestroyShaderModule(device, m, nullptr);
     }
+
+    return shader;
+}
+
+VkPipeline ComputePipelineBuilder::build_pipeline(VkDevice device)
+{
+    VkPipeline pipeline{};
+    
+    VkComputePipelineCreateInfo compute_info{};
+    compute_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+    compute_info.stage = shader_stages[0];
+    compute_info.layout = pipeline_layout;
+
+    vkCreateComputePipelines(device, 0, 1, &compute_info, nullptr, &pipeline);
+
+    return pipeline;
+}
+
+std::unique_ptr<ShaderPass> vkutil::build_shader(VkDevice device, ShaderEffect* effect, ComputePipelineBuilder& builder)
+{
+    std::unique_ptr<ShaderPass> shader = std::make_unique<ShaderPass>();
+
+    VkPipelineLayoutCreateInfo pipeline_layout_info{};
+    pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipeline_layout_info.setLayoutCount = static_cast<uint32_t>(effect->layouts.size());
+    pipeline_layout_info.pSetLayouts = effect->layouts.data();
+    pipeline_layout_info.pushConstantRangeCount = static_cast<uint32_t>(effect->pc.size());
+    pipeline_layout_info.pPushConstantRanges = effect->pc.data();
+
+    vkCreatePipelineLayout(device, &pipeline_layout_info, nullptr, &shader->layout);
+
+    builder.pipeline_layout = shader->layout;
+    builder.shader_stages[0] = vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_COMPUTE_BIT, effect->modules[0]);
+
+    shader->pipeline = builder.build_pipeline(device);
+
+    vkDestroyShaderModule(device, effect->modules[0], nullptr);
 
     return shader;
 }

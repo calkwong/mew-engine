@@ -13,6 +13,7 @@ struct ShaderEffect
     std::vector<VkPushConstantRange> pc{};
 
     void build_effect(VkDevice device, const char* vert_path, const char* frag_path);
+    void build_effect(VkDevice device, const char* comp_path);
 };
 
 struct ShaderPass
@@ -53,9 +54,19 @@ struct PipelineBuilder
     void enable_blending_alphablend();
 };
 
+struct ComputePipelineBuilder
+{
+    std::array<VkPipelineShaderStageCreateInfo, 1> shader_stages{};
+    VkPipelineLayout pipeline_layout{};
+
+    VkPipeline build_pipeline(VkDevice device);
+};
+
 namespace vkutil
 {
 	bool load_shader_module(const char* path, VkDevice device, VkShaderModule* out_shader_module);
 
     std::unique_ptr<ShaderPass> build_shader(VkDevice device, ShaderEffect* effect, PipelineBuilder& builder);
+
+    std::unique_ptr<ShaderPass> build_shader(VkDevice device, ShaderEffect* effect, ComputePipelineBuilder& builder);
 }

@@ -68,85 +68,86 @@ void vkutil::copy_image(VkCommandBuffer cmd, VkImage src, VkImage dst, VkExtent2
 	vkCmdBlitImage2(cmd, &blit_info);
 }
 
-void vkutil::generate_mipmaps(VkCommandBuffer cmd, VkImage image, VkExtent2D image_size)
+void vkutil::generate_mipmaps(VkCommandBuffer cmd, VkImage image, VkExtent2D image_size, uint32_t layers)
 {
+	// assume image layout for entire image is in dst_format
 	int mip_levels = int(std::floor(std::log2(std::max(image_size.width, image_size.height)))) + 1;
+	int current_layer = layers - 1;
 
-	for (int mip = 0; mip < mip_levels; mip++)
+	VkExtent2D image_size_copy = image_size;
+
+	while (current_layer >= 0)
 	{
-		VkExtent2D half_size = image_size;
-		half_size.width /= 2;
-		half_size.height /= 2;
-
-		VkImageMemoryBarrier2 barrier{};
-		barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-
-		barrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-		barrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-		barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-		barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_TRANSFER_READ_BIT; // (!) read and write or read only? come back after IBL implementation
-
-		barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-		barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-		barrier.image = image;
-
-		VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT;
-		barrier.subresourceRange.aspectMask = aspect;
-		barrier.subresourceRange.baseArrayLayer = 0;
-		barrier.subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
-		barrier.subresourceRange.baseMipLevel = mip;
-		barrier.subresourceRange.levelCount = 1;
-
-		VkDependencyInfo dep_info{};
-		dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-		dep_info.imageMemoryBarrierCount = 1;
-		dep_info.pImageMemoryBarriers = &barrier;
-
-		vkCmdPipelineBarrier2(cmd, &dep_info);
-
-		if (mip < mip_levels - 1)
+		for (int mip = 0; mip < mip_levels; mip++)
 		{
-			VkImageBlit2 blit_region{};
-			blit_region.sType = VK_STRUCTURE_TYPE_IMAGE_BLIT_2;
-			blit_region.srcOffsets[1].x = image_size.width;
-			blit_region.srcOffsets[1].y = image_size.height;
-			blit_region.srcOffsets[1].z = 1;
+			VkExtent2D half_size = image_size_copy;
+			half_size.width /= 2;
+			half_size.height /= 2;
 
-			blit_region.dstOffsets[1].x = half_size.width;
-			blit_region.dstOffsets[1].y = half_size.height;
-			blit_region.dstOffsets[1].z = 1;
+			VkImageMemoryBarrier2 barrier{};
+			barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
 
-			blit_region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-			blit_region.srcSubresource.baseArrayLayer = 0;
-			blit_region.srcSubresource.layerCount = 1;
-			blit_region.srcSubresource.mipLevel = mip;
+			barrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+			barrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+			barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+			barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT; // (!) read and write or read only? come back after IBL implementation
 
-			blit_region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-			blit_region.dstSubresource.baseArrayLayer = 0;
-			blit_region.dstSubresource.layerCount = 1;
-			blit_region.dstSubresource.mipLevel = mip + 1;
+			barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+			barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+			barrier.image = image;
 
-			VkBlitImageInfo2 blit_info{};
-			blit_info.sType = VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2;
-			blit_info.dstImage = image;
-			blit_info.dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-			blit_info.srcImage = image;
-			blit_info.srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-			blit_info.filter = VK_FILTER_LINEAR; // (!) default linear downsample
-			blit_info.regionCount = 1;
-			blit_info.pRegions = &blit_region;
+			VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT;
+			barrier.subresourceRange.aspectMask = aspect;
+			barrier.subresourceRange.baseArrayLayer = current_layer;
+			barrier.subresourceRange.layerCount = 1;
+			barrier.subresourceRange.baseMipLevel = mip;
+			barrier.subresourceRange.levelCount = 1;
 
-			vkCmdBlitImage2(cmd, &blit_info);
+			VkDependencyInfo dep_info{};
+			dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+			dep_info.imageMemoryBarrierCount = 1;
+			dep_info.pImageMemoryBarriers = &barrier;
 
-			image_size = half_size;
+			vkCmdPipelineBarrier2(cmd, &dep_info);
+
+			if (mip < mip_levels - 1)
+			{
+				VkImageBlit2 blit_region{};
+				blit_region.sType = VK_STRUCTURE_TYPE_IMAGE_BLIT_2;
+				blit_region.srcOffsets[1].x = image_size_copy.width;
+				blit_region.srcOffsets[1].y = image_size_copy.height;
+				blit_region.srcOffsets[1].z = 1;
+
+				blit_region.dstOffsets[1].x = half_size.width;
+				blit_region.dstOffsets[1].y = half_size.height;
+				blit_region.dstOffsets[1].z = 1;
+
+				blit_region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+				blit_region.srcSubresource.baseArrayLayer = current_layer; 
+				blit_region.srcSubresource.layerCount = 1;
+				blit_region.srcSubresource.mipLevel = mip;
+
+				blit_region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+				blit_region.dstSubresource.baseArrayLayer = current_layer; 
+				blit_region.dstSubresource.layerCount = 1;
+				blit_region.dstSubresource.mipLevel = mip + 1;
+
+				VkBlitImageInfo2 blit_info{};
+				blit_info.sType = VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2;
+				blit_info.dstImage = image;
+				blit_info.dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+				blit_info.srcImage = image;
+				blit_info.srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+				blit_info.filter = VK_FILTER_LINEAR;
+				blit_info.regionCount = 1;
+				blit_info.pRegions = &blit_region;
+
+				vkCmdBlitImage2(cmd, &blit_info);
+
+				image_size_copy = half_size;
+			}
 		}
+		current_layer--;
+		image_size_copy = image_size;
 	}
-
-	transition_image(
-		cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-		VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-		VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-		VK_ACCESS_2_TRANSFER_WRITE_BIT,
-		VK_ACCESS_2_SHADER_READ_BIT
-	);
 }

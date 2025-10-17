@@ -287,39 +287,6 @@ void VulkanEngine::draw()
 
 void VulkanEngine::init_precomputations()
 {
-	//> set up
-	VkPipelineLayout compute_pipeline_layout{};
-	VkPipeline compute_pipeline{};
-
-	std::vector<VkDescriptorSetLayout> layouts{ bindless_image_layout, bindless_tex_layout, bindless_sampler_layout };
-
-	VkPipelineLayoutCreateInfo info{};
-	info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-	info.setLayoutCount = layouts.size();
-	info.pSetLayouts = layouts.data();
-	info.pushConstantRangeCount = 1;
-	VkPushConstantRange pcrange{};
-	pcrange.size = sizeof(CubemapPushConstants);
-	pcrange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-	info.pPushConstantRanges = &pcrange;
-
-	vkCreatePipelineLayout(device, &info, nullptr, &compute_pipeline_layout);
-
-	VkShaderModule compute_module{};
-	if (!vkutil::load_shader_module("../../shaders/equi_to_cube.comp.spv", device, &compute_module))
-	{
-		fmt::println("compute shader failed to load");
-	}
-
-	VkComputePipelineCreateInfo compute_info{};
-	compute_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-	compute_info.stage = vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_COMPUTE_BIT, compute_module);
-	compute_info.layout = compute_pipeline_layout;
-
-	vkCreateComputePipelines(device, 0, 1, &compute_info, nullptr, &compute_pipeline);
-
-	vkDestroyShaderModule(device, compute_module, nullptr);
-
 	//> draw
 	VkCommandBuffer cmd = imm_command_buffer;
 	VK_CHECK(vkResetFences(device, 1, &imm_fence));
@@ -341,24 +308,42 @@ void VulkanEngine::init_precomputations()
 		VK_ACCESS_2_SHADER_WRITE_BIT
 	);
 
-	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, compute_pipeline);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, compute_pipeline_layout, 0, 1, &bindless_image_descriptor, 0, nullptr);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, compute_pipeline_layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, compute_pipeline_layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
+	ShaderPass current_pass = *shader_passes["equi_to_cube"];
+
+	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &bindless_image_descriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
 	CubemapPushConstants pc{};
 	pc.texture_id = equi_id;
-	pc.image_id = 0;
-	vkCmdPushConstants(cmd, compute_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CubemapPushConstants), &pc);
+	pc.image_id = 0; // (!) still hard coded
+	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CubemapPushConstants), &pc);
 	vkCmdDispatch(cmd, std::ceil(ibl_extent.width / 16.0), std::ceil(ibl_extent.height / 16.0), 1);
 
 	vkutil::transition_image(
 		cmd,
 		cubemap_image.image,
 		VK_IMAGE_LAYOUT_GENERAL,
-		VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 		VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-		VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+		VK_PIPELINE_STAGE_2_TRANSFER_BIT,
 		VK_ACCESS_2_SHADER_WRITE_BIT,
+		VK_ACCESS_2_TRANSFER_WRITE_BIT
+	);
+
+	VkExtent2D extent{ cubemap_image.extent.width, cubemap_image.extent.height };
+
+	// assumes entire image begins in transfer_dst format, and returns in transfer_src format
+	vkutil::generate_mipmaps(cmd, cubemap_image.image, extent, 6);
+
+	vkutil::transition_image(
+		cmd,
+		cubemap_image.image,
+		VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+		VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+		VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+		VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_TRANSFER_READ_BIT,
 		VK_ACCESS_2_SHADER_READ_BIT
 	);
 
@@ -369,9 +354,6 @@ void VulkanEngine::init_precomputations()
 
 	VK_CHECK(vkQueueSubmit2(graphics_queue, 1, &submit, imm_fence));
 	VK_CHECK(vkWaitForFences(device, 1, &imm_fence, true, 9999999999));
-
-	vkDestroyPipeline(device, compute_pipeline, nullptr);
-	vkDestroyPipelineLayout(device, compute_pipeline_layout, nullptr);
 }
 
 void VulkanEngine::run()
@@ -739,28 +721,29 @@ void VulkanEngine::immediate_submit(std::function<void(VkCommandBuffer cmd)>&& f
 
 void VulkanEngine::init_pipelines()
 {
-	// layout and shaders set later
+	ComputePipelineBuilder compute_builder{};
+
+	//>
+	ShaderEffect equi_to_cube{
+		.layouts = { bindless_image_layout, bindless_tex_layout, bindless_sampler_layout },
+		.pc = {
+			{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CubemapPushConstants) }
+		}
+	};
+
+	equi_to_cube.build_effect(device, "../../shaders/equi_to_cube.comp.spv");
+
+	std::unique_ptr<ShaderPass> equi_to_cube_pass = vkutil::build_shader(device, &equi_to_cube, compute_builder);
+
 	PipelineBuilder builder{};
 	builder.set_input_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
 	builder.set_polygon_mode(VK_POLYGON_MODE_FILL);
 	builder.set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
 	builder.set_multisampling_none();
 	builder.disable_blending();
-	builder.disable_depth(); // still need to set depth format?
-	builder.set_depth_format(VK_FORMAT_UNDEFINED);
 	builder.set_color_attachment_format(draw_image.format);
-
-	//>
-	ShaderEffect equi_to_cube{
-		.layouts = { bindless_tex_layout, bindless_sampler_layout },
-		.pc = {
-			{ VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(uint32_t) * 2 }
-		}
-	};
-
-	equi_to_cube.build_effect(device, "../../shaders/full_screen.vert.spv", "../../shaders/equi_to_cube.frag.spv");
-
-	std::unique_ptr<ShaderPass> equi_to_cube_pass = vkutil::build_shader(device, &equi_to_cube, builder);
+	builder.enable_depth(true, VK_COMPARE_OP_GREATER_OR_EQUAL);
+	builder.set_depth_format(depth_image.format);
 
 	//>
 	ShaderEffect textured_lit{
@@ -771,8 +754,6 @@ void VulkanEngine::init_pipelines()
 	};
 	textured_lit.build_effect(device, "../../shaders/mesh_pbr.vert.spv", "../../shaders/mesh_pbr.frag.spv");
 
-	builder.enable_depth(true, VK_COMPARE_OP_GREATER_OR_EQUAL);
-	builder.set_depth_format(depth_image.format);
 	std::unique_ptr<ShaderPass> textured_lit_pass = vkutil::build_shader(device, &textured_lit, builder);
 
 	//>
@@ -788,6 +769,7 @@ void VulkanEngine::init_pipelines()
 	shader_passes["equi_to_cube"] = std::move(equi_to_cube_pass);
 	shader_passes["textured_lit"] = std::move(textured_lit_pass);
 	shader_passes["skybox"] = std::move(skybox_pass);
+
 }
 
 AllocatedBuffer VulkanEngine::create_buffer(size_t alloc_size, VmaAllocationCreateFlags flags, VkBufferUsageFlags usage)
@@ -1093,7 +1075,7 @@ void VulkanEngine::init_renderables()
 
 	cubemap_image = create_cubemap(ibl_extent, VK_FORMAT_R16G16B16A16_SFLOAT,
 		VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-		VK_IMAGE_ASPECT_COLOR_BIT
+		VK_IMAGE_ASPECT_COLOR_BIT, 0, true
 	);
 
 	stbi_image_free(hdr_data);
