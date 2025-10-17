@@ -70,6 +70,21 @@ struct TextureCache
 	uint32_t add_texture(const VkImageView& view);
 };
 
+struct SamplerCache
+{
+	std::vector<VkDescriptorImageInfo> image_infos{};
+
+	// (!) currently performs no checking
+	void add_sampler(const VkSampler& sampler);
+};
+
+struct ImageCache
+{
+	std::vector<VkDescriptorImageInfo> image_infos{};
+
+	uint32_t add_texture(const VkImageView& view);
+};
+
 // consider moving to vk_scene
 // should there be material_buffer_address? or is that in pass object? currently handled by push constant
 struct RenderObject
@@ -150,7 +165,9 @@ public:
 	Camera main_camera{};
 	EngineStats stats{};
 
+	SamplerCache sampler_cache{}; 
 	TextureCache texture_cache{};
+	ImageCache image_cache{};
 
 	std::unordered_map<std::string, std::shared_ptr<LoadedGLTF>> loaded_scenes{};
 

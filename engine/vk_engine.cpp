@@ -77,6 +77,11 @@ void VulkanEngine::cleanup()
 		vkDeviceWaitIdle(device);
 		loaded_scenes.clear();
 
+		for (const auto& info : sampler_cache.image_infos)
+		{
+			vkDestroySampler(device, info.sampler, nullptr);
+		}
+
 		for (int i = 0; i < FRAME_OVERLAP; i++)
 		{
 			vkDestroyCommandPool(device, frames[i].command_pool, nullptr);
@@ -987,6 +992,7 @@ void VulkanEngine::init_default_data()
 	draw_extent.width = draw_image.extent.width;
 	draw_extent.height = draw_image.extent.height;
 
+	//> default textures
 	uint32_t white_color = glm::packUnorm4x8(glm::vec4(1));
 	white_image = create_image(static_cast<void*>(&white_color), VkExtent3D{ 1, 1, 1 },
 		VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_USAGE_SAMPLED_BIT, 
@@ -1021,6 +1027,14 @@ void VulkanEngine::init_default_data()
 		VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_USAGE_SAMPLED_BIT,
 		VK_IMAGE_ASPECT_COLOR_BIT);
 
+	texture_cache.add_texture(white_image.view); 
+	texture_cache.add_texture(black_image.view);
+	texture_cache.add_texture(default_mr_image.view);
+	texture_cache.add_texture(default_normal_image.view);
+	texture_cache.add_texture(error_image.view);
+
+	//> default samplers
+	VkSampler sampler{};
 	VkSamplerCreateInfo sampler_info{};
 	sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
 	sampler_info.magFilter = VK_FILTER_LINEAR;
@@ -1029,26 +1043,24 @@ void VulkanEngine::init_default_data()
 	sampler_info.maxLod = VK_LOD_CLAMP_NONE;
 	sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
 
-	vkCreateSampler(device, &sampler_info, nullptr, &default_linear_sampler);
+	vkCreateSampler(device, &sampler_info, nullptr, &sampler);
+	sampler_cache.add_sampler(sampler);
 
 	sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 	sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 	sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 
-	vkCreateSampler(device, &sampler_info, nullptr, &default_cube_sampler);
+	vkCreateSampler(device, &sampler_info, nullptr, &sampler);
+	sampler_cache.add_sampler(sampler);
 
 	sampler_info.magFilter = VK_FILTER_NEAREST;
 	sampler_info.minFilter = VK_FILTER_NEAREST;
 	sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
 	sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
 	sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-	vkCreateSampler(device, &sampler_info, nullptr, &default_nearest_sampler);
 
-	texture_cache.add_texture(white_image.view); 
-	texture_cache.add_texture(black_image.view);
-	texture_cache.add_texture(default_mr_image.view);
-	texture_cache.add_texture(default_normal_image.view);
-	texture_cache.add_texture(error_image.view);
+	vkCreateSampler(device, &sampler_info, nullptr, &sampler);
+	sampler_cache.add_sampler(sampler);
 
 	main_deletion_queue.push_function([&]() {
 		destroy_image(white_image);
@@ -1056,9 +1068,6 @@ void VulkanEngine::init_default_data()
 		destroy_image(default_mr_image);
 		destroy_image(default_normal_image);
 		destroy_image(error_image);
-		vkDestroySampler(device, default_linear_sampler, nullptr);
-		vkDestroySampler(device, default_cube_sampler, nullptr);
-		vkDestroySampler(device, default_nearest_sampler, nullptr);
 	});
 }
 
@@ -1082,15 +1091,10 @@ void VulkanEngine::init_renderables()
 	ibl_extent.width /= 4;
 	ibl_extent.height = ibl_extent.width;
 
-	//cubemap_image = create_cubemap(ibl_extent, VK_FORMAT_R16G16B16A16_SFLOAT,
-	//	VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-	//	VK_IMAGE_ASPECT_COLOR_BIT
-	//); // holding master view
-
 	cubemap_image = create_cubemap(ibl_extent, VK_FORMAT_R16G16B16A16_SFLOAT,
 		VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
 		VK_IMAGE_ASPECT_COLOR_BIT
-	); // holding master view
+	);
 
 	stbi_image_free(hdr_data);
 
@@ -1101,7 +1105,7 @@ void VulkanEngine::init_renderables()
 
 	equi_id = texture_cache.add_texture(equirectangular_image.view);
 	cube_id = texture_cache.add_texture(cubemap_image.view);
-
+	image_cache.add_texture(cubemap_image.view);
 
 	std::string asset_path = "../../assets/DamagedHelmet/GLTF-Embedded/DamagedHelmet.gltf";
 	//std::string asset_path = "../../assets/sphere.gltf";
@@ -1128,7 +1132,6 @@ void VulkanEngine::init_bindless()
 	variable_desc_counts[0] = 1;
 	bindless_image_descriptor = global_descriptor_allocator.allocate(device, bindless_image_layout, &variable_desc_info);
 
-
 	VkWriteDescriptorSet write{};
 	write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 	write.dstSet = bindless_tex_descriptor;
@@ -1142,29 +1145,16 @@ void VulkanEngine::init_bindless()
 	//> samplers
 	write.dstSet = bindless_sampler_descriptor;
 	write.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
-	std::vector<VkDescriptorImageInfo> sampler_infos{};
-	VkDescriptorImageInfo image_info{};
-	image_info.sampler = default_linear_sampler;
-	sampler_infos.push_back(image_info);
-	image_info.sampler = default_cube_sampler;
-	sampler_infos.push_back(image_info);
-	image_info.sampler = default_nearest_sampler;
-	sampler_infos.push_back(image_info);
-	write.pImageInfo = sampler_infos.data();
-	write.descriptorCount = static_cast<uint32_t>(sampler_infos.size());
-
-	assert(sampler_infos.size() == 3);
+	write.pImageInfo = sampler_cache.image_infos.data();
+	write.descriptorCount = static_cast<uint32_t>(sampler_cache.image_infos.size());
 
 	vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
 
 	//> images
 	write.dstSet = bindless_image_descriptor;
 	write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-	image_info.sampler = 0;
-	image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-	image_info.imageView = cubemap_image.view;
-	write.pImageInfo = &image_info;
-	write.descriptorCount = 1;
+	write.pImageInfo = image_cache.image_infos.data();
+	write.descriptorCount = image_cache.image_infos.size();
 
 	vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
 }
@@ -1220,13 +1210,33 @@ uint32_t TextureCache::add_texture(const VkImageView& view)
 {
 	for (size_t i = 0; i < image_infos.size(); i++)
 	{
-		if (image_infos[i].imageView == view) // TODO: implement sampler check
+		if (image_infos[i].imageView == view)
 			return static_cast<uint32_t>(i);
 	}
 
 	uint32_t id = static_cast<uint32_t>(image_infos.size());
 
 	image_infos.emplace_back(VkDescriptorImageInfo{ 0, view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL });
+
+	return id;
+}
+
+void SamplerCache::add_sampler(const VkSampler& sampler)
+{
+	image_infos.emplace_back(VkDescriptorImageInfo{ .sampler = sampler });
+}
+
+uint32_t ImageCache::add_texture(const VkImageView& view)
+{
+	for (size_t i = 0; i < image_infos.size(); i++)
+	{
+		if (image_infos[i].imageView == view)
+			return static_cast<uint32_t>(i);
+	}
+
+	uint32_t id = static_cast<uint32_t>(image_infos.size());
+
+	image_infos.emplace_back(VkDescriptorImageInfo{ 0, view, VK_IMAGE_LAYOUT_GENERAL });
 
 	return id;
 }
