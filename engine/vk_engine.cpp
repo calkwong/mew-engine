@@ -65,6 +65,8 @@ void VulkanEngine::init()
 
 	main_camera.position = glm::vec3(0, 0, 5);
 
+	draw_outside_loop();
+
 	is_initialized = true;
 }
 
@@ -203,6 +205,20 @@ void VulkanEngine::draw()
 		draw(obj);
 	}
 
+	//> skybox
+	current_pass = *shader_passes["skybox"];
+	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &bindless_tex_descriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_sampler_descriptor, 0, nullptr);
+	SkyboxPushConstants pc{};
+	auto proj = glm::perspective(glm::radians(60.0f), static_cast<float>(draw_extent.width) / draw_extent.height, 10000.0f, 0.1f);
+	auto view_no_translation = glm::mat3(main_camera.get_view_matrix());
+	auto view = glm::mat4(view_no_translation);
+	pc.inverse_viewproj = glm::inverse(view) * glm::inverse(proj); // go in reverse order
+	pc.texture_id = cube_id;
+	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(SkyboxPushConstants), &pc);
+	vkCmdDraw(cmd, 3, 1, 0, 0);
+
 	vkCmdEndRendering(cmd);
 
 	vkutil::transition_image(
@@ -263,6 +279,113 @@ void VulkanEngine::draw()
 
 	frame_number++;
 }
+
+void VulkanEngine::draw_outside_loop()
+{
+	VkExtent2D extent = { ibl_extent.width, ibl_extent.height };
+
+	VkCommandBuffer cmd = imm_command_buffer;
+	VK_CHECK(vkResetFences(device, 1, &imm_fence));
+
+	VK_CHECK(vkResetCommandBuffer(cmd, 0));
+
+	VkCommandBufferBeginInfo cmd_begin_info = vkinit::command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT); // (!)
+
+	VK_CHECK(vkBeginCommandBuffer(cmd, &cmd_begin_info));
+
+	vkutil::transition_image(
+		cmd,
+		cubemap_image.image,
+		VK_IMAGE_LAYOUT_UNDEFINED,
+		VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+		0,
+		VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+		0,
+		VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT
+	);
+
+	// pseudocode
+	// create 6 views
+	std::array<VkImageView, 6> face_views{};
+	for (size_t i = 0; i < face_views.size(); i++)
+	{
+		VkImageViewCreateInfo info{};
+
+		info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+		info.image = cubemap_image.image;
+		info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+		info.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+		info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		info.subresourceRange.baseMipLevel = 0;
+		info.subresourceRange.levelCount = 1;
+		info.subresourceRange.baseArrayLayer = i;
+		info.subresourceRange.layerCount = 1;
+
+		VK_CHECK(vkCreateImageView(device, &info, nullptr, &face_views[i]));
+
+
+		VkRenderingAttachmentInfo color_attachment = vkinit::attachment_info(face_views[i], nullptr);
+		VkRenderingInfo render_info = vkinit::rendering_info(extent, &color_attachment, nullptr);
+
+		vkCmdBeginRendering(cmd, &render_info);
+
+		VkViewport viewport{};
+		viewport.x = 0;
+		viewport.y = static_cast<float>(extent.height);
+		viewport.width = static_cast<float>(extent.width);
+		viewport.height = -static_cast<float>(extent.height);
+		viewport.minDepth = 0.0f;
+		viewport.maxDepth = 1.0f;
+		vkCmdSetViewport(cmd, 0, 1, &viewport);
+
+		VkRect2D scissor{};
+		scissor.offset.x = 0;
+		scissor.offset.y = 0;
+		scissor.extent.width = extent.width;
+		scissor.extent.height = extent.height;
+		vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+		ShaderPass current_pass = *shader_passes["equi_to_cube"];
+
+		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
+		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &bindless_tex_descriptor, 0, nullptr);
+		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_sampler_descriptor, 0, nullptr);
+
+		CubemapPushConstants pc{};
+		pc.face = static_cast<uint32_t>(i);
+		pc.texture_id = equi_id;
+		vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(CubemapPushConstants), &pc);
+		vkCmdDraw(cmd, 3, 1, 0, 0);
+
+		vkCmdEndRendering(cmd);
+	}
+
+	vkutil::transition_image(
+		cmd,
+		cubemap_image.image,
+		VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+		VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+		VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+		VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+		VK_ACCESS_2_SHADER_READ_BIT
+	);
+
+	VK_CHECK(vkEndCommandBuffer(cmd));
+
+	VkCommandBufferSubmitInfo cmd_info = vkinit::command_buffer_submit_info(cmd);
+	VkSubmitInfo2 submit = vkinit::submit_info(&cmd_info, nullptr, nullptr);
+
+	VK_CHECK(vkQueueSubmit2(graphics_queue, 1, &submit, imm_fence));
+	VK_CHECK(vkWaitForFences(device, 1, &imm_fence, true, 9999999999));
+
+	// delete views used for rendering
+	for (size_t i = 0; i < face_views.size(); i++)
+	{
+		vkDestroyImageView(device, face_views[i], nullptr);
+	}
+}
+
 
 void VulkanEngine::run()
 {
@@ -776,8 +899,10 @@ AllocatedImage VulkanEngine::create_image(VkExtent3D extent, VkFormat format, Vk
 AllocatedImage VulkanEngine::create_image(void* data, VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspect, VmaAllocationCreateFlags flags /*= 0*/, bool mipmapped /*= false*/)
 {
 	size_t data_size = extent.depth * extent.width * extent.height * 4; // 4 is # of channels
+	if (format == VK_FORMAT_R32G32B32A32_SFLOAT)
+		data_size *= sizeof(float);
 	AllocatedBuffer upload_buffer = create_buffer(data_size, VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT, VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
-
+	
 	memcpy(upload_buffer.info.pMappedData, data, data_size);
 
 	// dst_bit to account for copy from staging buffer
@@ -823,6 +948,37 @@ AllocatedImage VulkanEngine::create_image(void* data, VkExtent3D extent, VkForma
 		});
 
 	destroy_buffer(upload_buffer);
+
+	return new_image;
+}
+
+AllocatedImage VulkanEngine::create_cubemap(VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspect, VmaAllocationCreateFlags flags /*= 0*/, bool mipmapped /*= false*/)
+{
+	AllocatedImage new_image{};
+	new_image.extent = extent;
+	new_image.format = format;
+
+	VkImageCreateInfo img_info{ vkinit::image_create_info(format, usage, new_image.extent) };
+	img_info.flags = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
+	img_info.arrayLayers = 6;
+
+	if (mipmapped)
+	{
+		img_info.mipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(extent.width, extent.height)))) + 1;
+		img_info.usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT; // for blitzing to higher mip level
+	}
+
+	VmaAllocationCreateInfo alloc_info{};
+	alloc_info.flags = flags;
+	alloc_info.usage = VMA_MEMORY_USAGE_AUTO;
+	alloc_info.requiredFlags = VkMemoryPropertyFlagBits(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+	VK_CHECK(vmaCreateImage(allocator, &img_info, &alloc_info, &new_image.image, &new_image.allocation, nullptr));
+
+	VkImageViewCreateInfo img_view_info{ vkinit::imageview_create_info(format, new_image.image, VK_IMAGE_ASPECT_COLOR_BIT) };
+	img_view_info.viewType = VK_IMAGE_VIEW_TYPE_CUBE;
+
+	VK_CHECK(vkCreateImageView(device, &img_view_info, nullptr, &new_image.view));
 
 	return new_image;
 }
@@ -885,9 +1041,17 @@ void VulkanEngine::init_default_data()
 
 	vkCreateSampler(device, &sampler_info, nullptr, &default_linear_sampler);
 
+	sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+	sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+	sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+
+	vkCreateSampler(device, &sampler_info, nullptr, &default_cube_sampler);
+
 	sampler_info.magFilter = VK_FILTER_NEAREST;
 	sampler_info.minFilter = VK_FILTER_NEAREST;
-
+	sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+	sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+	sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
 	vkCreateSampler(device, &sampler_info, nullptr, &default_nearest_sampler);
 
 	texture_cache.add_texture(white_image.view); 
@@ -903,12 +1067,52 @@ void VulkanEngine::init_default_data()
 		destroy_image(default_normal_image);
 		destroy_image(error_image);
 		vkDestroySampler(device, default_linear_sampler, nullptr);
+		vkDestroySampler(device, default_cube_sampler, nullptr);
 		vkDestroySampler(device, default_nearest_sampler, nullptr);
 	});
 }
 
 void VulkanEngine::init_renderables()
 {
+	const char* hdr_path{ "../../assets/pisa.hdr" };
+	float* hdr_data{};
+
+	int width{};
+	int height{};
+	int channels{};
+
+	hdr_data = stbi_loadf(hdr_path, &width, &height, &channels, STBI_rgb_alpha);
+
+	ibl_extent.width = static_cast<uint32_t>(width);
+	ibl_extent.height = static_cast<uint32_t>(height);
+	ibl_extent.depth = 1;
+
+	equirectangular_image = create_image(static_cast<void*>(hdr_data), ibl_extent, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+
+	ibl_extent.width /= 4;
+	ibl_extent.height = ibl_extent.width;
+
+	cubemap_image = create_cubemap(ibl_extent, VK_FORMAT_R16G16B16A16_SFLOAT,
+		VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+		VK_IMAGE_ASPECT_COLOR_BIT
+	); // holding master view
+
+	//cubemap_image = create_cubemap(ibl_extent, VK_FORMAT_R16G16B16A16_SFLOAT,
+	//	VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+	//	VK_IMAGE_ASPECT_COLOR_BIT
+	//); // holding master view
+
+	stbi_image_free(hdr_data);
+
+	main_deletion_queue.push_function([&]() {
+		destroy_image(equirectangular_image);
+		destroy_image(cubemap_image);
+		});
+
+	equi_id = texture_cache.add_texture(equirectangular_image.view);
+	cube_id = texture_cache.add_texture(cubemap_image.view);
+
+
 	std::string asset_path = "../../assets/DamagedHelmet/GLTF-Embedded/DamagedHelmet.gltf";
 	//std::string asset_path = "../../assets/sphere.gltf";
 	auto asset_file = load_gltf(this, asset_path, true);
@@ -929,6 +1133,7 @@ void VulkanEngine::init_bindless_textures()
 	variable_desc_info.descriptorSetCount = static_cast<uint32_t>(variable_desc_counts.size());
 
 	bindless_tex_descriptor = global_descriptor_allocator.allocate(device, bindless_tex_layout, &variable_desc_info);
+	variable_desc_counts[0] = 3;
 	bindless_sampler_descriptor = global_descriptor_allocator.allocate(device, bindless_sampler_layout, &variable_desc_info);
 
 
@@ -942,16 +1147,26 @@ void VulkanEngine::init_bindless_textures()
 
 	vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
 
-	// samplers
-	variable_desc_counts[0] = 1;
+	//> samplers
 	write.dstSet = bindless_sampler_descriptor;
-	write.descriptorCount = 1;
 	write.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+	std::vector<VkDescriptorImageInfo> sampler_infos{};
 	VkDescriptorImageInfo image_info{};
 	image_info.sampler = default_linear_sampler;
-	write.pImageInfo = &image_info;
+	sampler_infos.push_back(image_info);
+	image_info.sampler = default_cube_sampler;
+	sampler_infos.push_back(image_info);
+	image_info.sampler = default_nearest_sampler;
+	sampler_infos.push_back(image_info);
+	write.pImageInfo = sampler_infos.data();
+	write.descriptorCount = static_cast<uint32_t>(sampler_infos.size());
+
+	assert(sampler_infos.size() == 3);
 
 	vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+
+	//> images
+
 }
 
 void VulkanEngine::register_object(Node& node, const glm::mat4& top_matrix, DrawContext& ctx)

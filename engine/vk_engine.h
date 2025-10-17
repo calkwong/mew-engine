@@ -121,6 +121,8 @@ public:
 	AllocatedImage depth_image{};
 	VkExtent2D depth_extent{};
 
+	VkExtent3D ibl_extent{};
+
 	AllocatedImage white_image{};
 	AllocatedImage black_image{};
 	AllocatedImage default_mr_image{};
@@ -129,7 +131,10 @@ public:
 	AllocatedImage offscreen_image{};
 	AllocatedImage equirectangular_image{};
 	AllocatedImage cubemap_image{};
+	uint32_t equi_id{};
+	uint32_t cube_id{};
 	VkSampler default_linear_sampler{};
+	VkSampler default_cube_sampler{};
 	VkSampler default_nearest_sampler{};
 
 	DescriptorAllocatorGrowable global_descriptor_allocator{};
@@ -186,6 +191,8 @@ public:
 	void init();
 	void cleanup();
 	void draw();
+	void draw_outside_loop();
+	//void compute_draw();
 	void run();
 	void immediate_submit(std::function<void(VkCommandBuffer cmd)>&& func);
 	AllocatedBuffer create_buffer(size_t alloc_size, VmaAllocationCreateFlags flags, VkBufferUsageFlags usage);
@@ -194,6 +201,7 @@ public:
 	// view has access to all mip and layers
 	AllocatedImage create_image(VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspect, VmaAllocationCreateFlags flags = 0, bool mipmapped = false); // does not currently handle priority
 	AllocatedImage create_image(void* data, VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspect, VmaAllocationCreateFlags flags = 0, bool mipmapped = false);
+	AllocatedImage create_cubemap(VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspect, VmaAllocationCreateFlags flags = 0, bool mipmapped = false); 
 	void destroy_image(const AllocatedImage& image);
 
 	void register_object(Node& node, const glm::mat4& top_matrix, DrawContext& ctx);
