@@ -61,11 +61,11 @@ void VulkanEngine::init()
 
 	init_renderables();
 
-	init_bindless_textures();
+	init_bindless();
 
 	main_camera.position = glm::vec3(0, 0, 5);
 
-	draw_outside_loop();
+	init_precomputations();
 
 	is_initialized = true;
 }
@@ -280,10 +280,42 @@ void VulkanEngine::draw()
 	frame_number++;
 }
 
-void VulkanEngine::draw_outside_loop()
+void VulkanEngine::init_precomputations()
 {
-	VkExtent2D extent = { ibl_extent.width, ibl_extent.height };
+	//> set up
+	VkPipelineLayout compute_pipeline_layout{};
+	VkPipeline compute_pipeline{};
 
+	std::vector<VkDescriptorSetLayout> layouts{ bindless_image_layout, bindless_tex_layout, bindless_sampler_layout };
+
+	VkPipelineLayoutCreateInfo info{};
+	info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+	info.setLayoutCount = layouts.size();
+	info.pSetLayouts = layouts.data();
+	info.pushConstantRangeCount = 1;
+	VkPushConstantRange pcrange{};
+	pcrange.size = sizeof(CubemapPushConstants);
+	pcrange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+	info.pPushConstantRanges = &pcrange;
+
+	vkCreatePipelineLayout(device, &info, nullptr, &compute_pipeline_layout);
+
+	VkShaderModule compute_module{};
+	if (!vkutil::load_shader_module("../../shaders/equi_to_cube.comp.spv", device, &compute_module))
+	{
+		fmt::println("compute shader failed to load");
+	}
+
+	VkComputePipelineCreateInfo compute_info{};
+	compute_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+	compute_info.stage = vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_COMPUTE_BIT, compute_module);
+	compute_info.layout = compute_pipeline_layout;
+
+	vkCreateComputePipelines(device, 0, 1, &compute_info, nullptr, &compute_pipeline);
+
+	vkDestroyShaderModule(device, compute_module, nullptr);
+
+	//> draw
 	VkCommandBuffer cmd = imm_command_buffer;
 	VK_CHECK(vkResetFences(device, 1, &imm_fence));
 
@@ -297,77 +329,31 @@ void VulkanEngine::draw_outside_loop()
 		cmd,
 		cubemap_image.image,
 		VK_IMAGE_LAYOUT_UNDEFINED,
-		VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+		VK_IMAGE_LAYOUT_GENERAL,
 		0,
-		VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+		VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
 		0,
-		VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT
+		VK_ACCESS_2_SHADER_WRITE_BIT
 	);
 
-	// pseudocode
-	// create 6 views
-	std::array<VkImageView, 6> face_views{};
-	for (size_t i = 0; i < face_views.size(); i++)
-	{
-		VkImageViewCreateInfo info{};
-
-		info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-		info.image = cubemap_image.image;
-		info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-		info.format = VK_FORMAT_R16G16B16A16_SFLOAT;
-		info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-		info.subresourceRange.baseMipLevel = 0;
-		info.subresourceRange.levelCount = 1;
-		info.subresourceRange.baseArrayLayer = i;
-		info.subresourceRange.layerCount = 1;
-
-		VK_CHECK(vkCreateImageView(device, &info, nullptr, &face_views[i]));
-
-
-		VkRenderingAttachmentInfo color_attachment = vkinit::attachment_info(face_views[i], nullptr);
-		VkRenderingInfo render_info = vkinit::rendering_info(extent, &color_attachment, nullptr);
-
-		vkCmdBeginRendering(cmd, &render_info);
-
-		VkViewport viewport{};
-		viewport.x = 0;
-		viewport.y = static_cast<float>(extent.height);
-		viewport.width = static_cast<float>(extent.width);
-		viewport.height = -static_cast<float>(extent.height);
-		viewport.minDepth = 0.0f;
-		viewport.maxDepth = 1.0f;
-		vkCmdSetViewport(cmd, 0, 1, &viewport);
-
-		VkRect2D scissor{};
-		scissor.offset.x = 0;
-		scissor.offset.y = 0;
-		scissor.extent.width = extent.width;
-		scissor.extent.height = extent.height;
-		vkCmdSetScissor(cmd, 0, 1, &scissor);
-
-		ShaderPass current_pass = *shader_passes["equi_to_cube"];
-
-		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
-		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &bindless_tex_descriptor, 0, nullptr);
-		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_sampler_descriptor, 0, nullptr);
-
-		CubemapPushConstants pc{};
-		pc.face = static_cast<uint32_t>(i);
-		pc.texture_id = equi_id;
-		vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(CubemapPushConstants), &pc);
-		vkCmdDraw(cmd, 3, 1, 0, 0);
-
-		vkCmdEndRendering(cmd);
-	}
+	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, compute_pipeline);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, compute_pipeline_layout, 0, 1, &bindless_image_descriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, compute_pipeline_layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, compute_pipeline_layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
+	CubemapPushConstants pc{};
+	pc.texture_id = equi_id;
+	pc.image_id = 0;
+	vkCmdPushConstants(cmd, compute_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CubemapPushConstants), &pc);
+	vkCmdDispatch(cmd, std::ceil(ibl_extent.width / 16.0), std::ceil(ibl_extent.height / 16.0), 1);
 
 	vkutil::transition_image(
 		cmd,
 		cubemap_image.image,
-		VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+		VK_IMAGE_LAYOUT_GENERAL,
 		VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-		VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+		VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
 		VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-		VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+		VK_ACCESS_2_SHADER_WRITE_BIT,
 		VK_ACCESS_2_SHADER_READ_BIT
 	);
 
@@ -379,13 +365,9 @@ void VulkanEngine::draw_outside_loop()
 	VK_CHECK(vkQueueSubmit2(graphics_queue, 1, &submit, imm_fence));
 	VK_CHECK(vkWaitForFences(device, 1, &imm_fence, true, 9999999999));
 
-	// delete views used for rendering
-	for (size_t i = 0; i < face_views.size(); i++)
-	{
-		vkDestroyImageView(device, face_views[i], nullptr);
-	}
+	vkDestroyPipeline(device, compute_pipeline, nullptr);
+	vkDestroyPipelineLayout(device, compute_pipeline_layout, nullptr);
 }
-
 
 void VulkanEngine::run()
 {
@@ -679,8 +661,9 @@ void VulkanEngine::init_descriptors()
 	}
 
 	std::vector<DescriptorAllocatorGrowable::PoolSizeRatio> sizes = {
-		{VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000},
-		{VK_DESCRIPTOR_TYPE_SAMPLER, 10}
+		{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
+		{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 10 },
+		{ VK_DESCRIPTOR_TYPE_SAMPLER, 10 }
 	};
 
 	global_descriptor_allocator.init(device, 1, sizes);
@@ -688,7 +671,7 @@ void VulkanEngine::init_descriptors()
 	//> building bindless layouts
 	{
 		DescriptorLayoutBuilder builder{};
-		builder.add_binding(0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_FRAGMENT_BIT);
+		builder.add_binding(0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
 		builder.bindings[0].descriptorCount = 1000; // UPPER BOUND
 		
 		std::array<VkDescriptorBindingFlags, 1> flags{}; 
@@ -704,10 +687,16 @@ void VulkanEngine::init_descriptors()
 		bindless_tex_layout = builder.build(device, &binding_flags_info); // (!) update after bind req if included above?
 
 		builder.clear();
-		builder.add_binding(0, VK_DESCRIPTOR_TYPE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT);
+		builder.add_binding(0, VK_DESCRIPTOR_TYPE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
 		builder.bindings[0].descriptorCount = 10; // (!) validation layer not reporting if this is higher than pool maximum
 
 		bindless_sampler_layout = builder.build(device, &binding_flags_info); // (!) update after bind req if included above?
+
+		builder.clear();
+		builder.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT);
+		builder.bindings[0].descriptorCount = 10;
+
+		bindless_image_layout = builder.build(device, &binding_flags_info);
 	}
 
 	main_deletion_queue.push_function([&]() {
@@ -715,6 +704,7 @@ void VulkanEngine::init_descriptors()
 		vkDestroyDescriptorSetLayout(device, scene_descriptor_layout, nullptr);
 		vkDestroyDescriptorSetLayout(device, bindless_tex_layout, nullptr);
 		vkDestroyDescriptorSetLayout(device, bindless_sampler_layout, nullptr);
+		vkDestroyDescriptorSetLayout(device, bindless_image_layout, nullptr);
 	});
 }
 
@@ -965,7 +955,7 @@ AllocatedImage VulkanEngine::create_cubemap(VkExtent3D extent, VkFormat format, 
 	if (mipmapped)
 	{
 		img_info.mipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(extent.width, extent.height)))) + 1;
-		img_info.usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT; // for blitzing to higher mip level
+		img_info.usage |= (VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT); // for blitzing to higher mip level
 	}
 
 	VmaAllocationCreateInfo alloc_info{};
@@ -1092,15 +1082,15 @@ void VulkanEngine::init_renderables()
 	ibl_extent.width /= 4;
 	ibl_extent.height = ibl_extent.width;
 
-	cubemap_image = create_cubemap(ibl_extent, VK_FORMAT_R16G16B16A16_SFLOAT,
-		VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-		VK_IMAGE_ASPECT_COLOR_BIT
-	); // holding master view
-
 	//cubemap_image = create_cubemap(ibl_extent, VK_FORMAT_R16G16B16A16_SFLOAT,
-	//	VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+	//	VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
 	//	VK_IMAGE_ASPECT_COLOR_BIT
 	//); // holding master view
+
+	cubemap_image = create_cubemap(ibl_extent, VK_FORMAT_R16G16B16A16_SFLOAT,
+		VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+		VK_IMAGE_ASPECT_COLOR_BIT
+	); // holding master view
 
 	stbi_image_free(hdr_data);
 
@@ -1120,7 +1110,7 @@ void VulkanEngine::init_renderables()
 	loaded_scenes["DamagedHelmet"] = *asset_file;
 }
 
-void VulkanEngine::init_bindless_textures()
+void VulkanEngine::init_bindless()
 {
 	// TODO: move ds allocation out of this maybe?
 	std::array<uint32_t, 1> variable_desc_counts = {
@@ -1135,6 +1125,8 @@ void VulkanEngine::init_bindless_textures()
 	bindless_tex_descriptor = global_descriptor_allocator.allocate(device, bindless_tex_layout, &variable_desc_info);
 	variable_desc_counts[0] = 3;
 	bindless_sampler_descriptor = global_descriptor_allocator.allocate(device, bindless_sampler_layout, &variable_desc_info);
+	variable_desc_counts[0] = 1;
+	bindless_image_descriptor = global_descriptor_allocator.allocate(device, bindless_image_layout, &variable_desc_info);
 
 
 	VkWriteDescriptorSet write{};
@@ -1166,7 +1158,15 @@ void VulkanEngine::init_bindless_textures()
 	vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
 
 	//> images
+	write.dstSet = bindless_image_descriptor;
+	write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+	image_info.sampler = 0;
+	image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+	image_info.imageView = cubemap_image.view;
+	write.pImageInfo = &image_info;
+	write.descriptorCount = 1;
 
+	vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
 }
 
 void VulkanEngine::register_object(Node& node, const glm::mat4& top_matrix, DrawContext& ctx)

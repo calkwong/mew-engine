@@ -157,11 +157,14 @@ public:
 	// (!) temp, refactor and move elsewhere?
 	VkPipeline pbr_pipeline{};
 	VkPipelineLayout pbr_pipeline_layout{};
-	VkDescriptorSet bindless_tex_descriptor{};
-	VkDescriptorSetLayout bindless_tex_layout{};
 	VkDescriptorSetLayout scene_descriptor_layout{};
-	VkDescriptorSet bindless_sampler_descriptor{};
+	VkDescriptorSetLayout bindless_tex_layout{};
 	VkDescriptorSetLayout bindless_sampler_layout{};
+	VkDescriptorSetLayout bindless_image_layout{};
+
+	VkDescriptorSet bindless_tex_descriptor{};
+	VkDescriptorSet bindless_sampler_descriptor{};
+	VkDescriptorSet bindless_image_descriptor{};
 
 	std::unordered_map<std::string, std::unique_ptr<ShaderPass>> shader_passes{};
 
@@ -176,8 +179,8 @@ public:
 
 	struct CubemapPushConstants
 	{
-		uint32_t face{};
 		uint32_t texture_id{};
+		uint32_t image_id{};
 	};
 
 	struct SkyboxPushConstants
@@ -191,8 +194,6 @@ public:
 	void init();
 	void cleanup();
 	void draw();
-	void draw_outside_loop();
-	//void compute_draw();
 	void run();
 	void immediate_submit(std::function<void(VkCommandBuffer cmd)>&& func);
 	AllocatedBuffer create_buffer(size_t alloc_size, VmaAllocationCreateFlags flags, VkBufferUsageFlags usage);
@@ -216,7 +217,8 @@ private:
 	void init_pipelines();
 	void init_default_data();
 	void init_renderables();
-	void init_bindless_textures(); // MAYBE: split this up and have partial writes/updates 
+	void init_bindless(); 
+	void init_precomputations();
 
 	void create_swapchain(uint32_t width, uint32_t height);
 	void destroy_swapchain();
