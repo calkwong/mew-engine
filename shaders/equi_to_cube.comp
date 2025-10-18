@@ -4,7 +4,7 @@
 
 layout (local_size_x = 16, local_size_y = 16) in;
 
-layout(set = 0, binding = 0, rgba16f) uniform image2DArray allImages[];
+layout(set = 0, binding = 0, rgba32f) uniform image2DArray allImages[];
 layout(set = 1, binding = 0) uniform texture2D allTextures[];
 layout(set = 2, binding = 0) uniform sampler samplers[];
 
@@ -32,7 +32,7 @@ void main()
 
 	ivec2 texelCoord = ivec2(gl_GlobalInvocationID.xy);
 	ivec2 size = imageSize(allImages[pc.image_id]).xy;
-	vec2 uv = vec2(texelCoord) / vec2(size);
+	vec2 uv = vec2(texelCoord + 0.5)  / vec2(size);
 	uv = uv * 2.0 - 1.0;
 
 	for (int face = 0; face < 6; face++)

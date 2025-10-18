@@ -65,7 +65,6 @@ struct EngineStats
 struct TextureCache
 {
 	std::vector<VkDescriptorImageInfo> image_infos{};
-	const uint32_t PLACEHOLDERS{ 5 };
 
 	uint32_t add_texture(const VkImageView& view);
 };
@@ -146,8 +145,9 @@ public:
 	AllocatedImage offscreen_image{};
 	AllocatedImage equirectangular_image{};
 	AllocatedImage cubemap_image{};
-	uint32_t equi_id{};
-	uint32_t cube_id{};
+	AllocatedImage irradiance_image{};
+	AllocatedImage prefiltered_image{};
+	AllocatedImage brdflut_image{};
 	VkSampler default_linear_sampler{};
 	VkSampler default_cube_sampler{};
 	VkSampler default_nearest_sampler{};
@@ -198,6 +198,13 @@ public:
 	{
 		uint32_t texture_id{};
 		uint32_t image_id{};
+	};
+
+	struct PrefilteredPushConstants
+	{
+		uint32_t texture_id{};
+		uint32_t image_id{};
+		float roughness{};
 	};
 
 	struct SkyboxPushConstants

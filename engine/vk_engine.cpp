@@ -24,6 +24,11 @@ VulkanEngine& VulkanEngine::get() { return *loaded_engine; }
 
 constexpr bool USE_VALIDATION_LAYERS = true;
 
+uint32_t equi_id{};
+uint32_t cube_id{};
+uint32_t irradiance_id{};
+uint32_t prefiltered_id{};
+uint32_t brdflut_id{};
 
 void VulkanEngine::init()
 {
@@ -65,7 +70,12 @@ void VulkanEngine::init()
 
 	main_camera.position = glm::vec3(0, 0, 5);
 
+	auto start{ std::chrono::system_clock::now() };
 	init_precomputations();
+	auto end{ std::chrono::system_clock::now() };
+	auto elapsed{ std::chrono::duration_cast<std::chrono::microseconds>(end - start) };
+	float ret = elapsed.count() / 1000.0f;
+	fmt::println("cubemap + irradiance: {}ms", ret);
 
 	is_initialized = true;
 }
@@ -308,6 +318,7 @@ void VulkanEngine::init_precomputations()
 		VK_ACCESS_2_SHADER_WRITE_BIT
 	);
 
+	//> cubemap pass
 	ShaderPass current_pass = *shader_passes["equi_to_cube"];
 
 	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
@@ -318,7 +329,7 @@ void VulkanEngine::init_precomputations()
 	pc.texture_id = equi_id;
 	pc.image_id = 0; // (!) still hard coded
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CubemapPushConstants), &pc);
-	vkCmdDispatch(cmd, std::ceil(ibl_extent.width / 16.0), std::ceil(ibl_extent.height / 16.0), 1);
+	vkCmdDispatch(cmd, std::ceil(cubemap_image.extent.width / 16.0), std::ceil(cubemap_image.extent.height / 16.0), 1);
 
 	vkutil::transition_image(
 		cmd,
@@ -331,10 +342,8 @@ void VulkanEngine::init_precomputations()
 		VK_ACCESS_2_TRANSFER_WRITE_BIT
 	);
 
-	VkExtent2D extent{ cubemap_image.extent.width, cubemap_image.extent.height };
-
 	// assumes entire image begins in transfer_dst format, and returns in transfer_src format
-	vkutil::generate_mipmaps(cmd, cubemap_image.image, extent, 6);
+	vkutil::generate_mipmaps(cmd, cubemap_image.image, { cubemap_image.extent.width, cubemap_image.extent.height }, 6);
 
 	vkutil::transition_image(
 		cmd,
@@ -344,6 +353,114 @@ void VulkanEngine::init_precomputations()
 		VK_PIPELINE_STAGE_2_TRANSFER_BIT,
 		VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
 		VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_TRANSFER_READ_BIT,
+		VK_ACCESS_2_SHADER_READ_BIT
+	);
+
+	//> irradiance pass
+	current_pass = *shader_passes["irradiance"];
+
+	vkutil::transition_image(
+		cmd,
+		irradiance_image.image,
+		VK_IMAGE_LAYOUT_UNDEFINED,
+		VK_IMAGE_LAYOUT_GENERAL,
+		0,
+		VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+		0,
+		VK_ACCESS_2_SHADER_WRITE_BIT
+	);
+
+	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &bindless_image_descriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
+	//CubemapPushConstants pc{};
+	pc.texture_id = cube_id;
+	pc.image_id = 1; // (!) still hard coded
+	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CubemapPushConstants), &pc);
+	vkCmdDispatch(cmd, std::ceil(irradiance_image.extent.width / 8.0), std::ceil(irradiance_image.extent.height / 8.0), 1);
+
+	vkutil::transition_image(
+		cmd,
+		irradiance_image.image,
+		VK_IMAGE_LAYOUT_GENERAL,
+		VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+		VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+		VK_ACCESS_2_SHADER_WRITE_BIT,
+		VK_ACCESS_2_SHADER_READ_BIT
+	);
+
+	//> prefiltered pass
+	current_pass = *shader_passes["prefiltered"];
+
+	vkutil::transition_image(
+		cmd,
+		prefiltered_image.image,
+		VK_IMAGE_LAYOUT_UNDEFINED,
+		VK_IMAGE_LAYOUT_GENERAL,
+		0,
+		VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+		0,
+		VK_ACCESS_2_SHADER_WRITE_BIT
+	);
+
+	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &bindless_image_descriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
+
+	PrefilteredPushConstants prefiltered_pc{};
+	int mip_level = int(std::floor(std::log2(std::max(prefiltered_image.extent.width, prefiltered_image.extent.height)))) + 1;
+	prefiltered_pc.texture_id = cube_id;
+	for (int mip = 0; mip < mip_level; mip++)
+	{
+		prefiltered_pc.image_id = 2 + mip; // (!) still hard coded
+		prefiltered_pc.roughness = static_cast<float>(mip) / (mip_level - 1);
+		vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PrefilteredPushConstants), &prefiltered_pc);
+		vkCmdDispatch(cmd, std::ceil((prefiltered_image.extent.width >> mip) / 8.0), std::ceil((prefiltered_image.extent.height >> mip) / 8.0), 1);
+	}
+
+	vkutil::transition_image(
+		cmd,
+		prefiltered_image.image,
+		VK_IMAGE_LAYOUT_GENERAL,
+		VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+		VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+		VK_ACCESS_2_SHADER_WRITE_BIT,
+		VK_ACCESS_2_SHADER_READ_BIT
+	);
+
+	//> brdf pass
+	current_pass = *shader_passes["brdf"];
+
+	vkutil::transition_image(
+		cmd,
+		brdflut_image.image,
+		VK_IMAGE_LAYOUT_UNDEFINED,
+		VK_IMAGE_LAYOUT_GENERAL,
+		0,
+		VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+		0,
+		VK_ACCESS_2_SHADER_WRITE_BIT
+	);
+
+	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &bindless_image_descriptor, 0, nullptr);
+
+	uint32_t brdf_tex_id = prefiltered_pc.image_id + 1;
+	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(uint32_t), &brdf_tex_id);
+	vkCmdDispatch(cmd, std::ceil(brdflut_image.extent.width / 8.0), std::ceil(brdflut_image.extent.height / 8.0), 1);
+
+	vkutil::transition_image(
+		cmd,
+		brdflut_image.image,
+		VK_IMAGE_LAYOUT_GENERAL,
+		VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+		VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+		VK_ACCESS_2_SHADER_WRITE_BIT,
 		VK_ACCESS_2_SHADER_READ_BIT
 	);
 
@@ -649,7 +766,7 @@ void VulkanEngine::init_descriptors()
 
 	std::vector<DescriptorAllocatorGrowable::PoolSizeRatio> sizes = {
 		{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
-		{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 10 },
+		{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 20 },
 		{ VK_DESCRIPTOR_TYPE_SAMPLER, 10 }
 	};
 
@@ -681,7 +798,7 @@ void VulkanEngine::init_descriptors()
 
 		builder.clear();
 		builder.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT);
-		builder.bindings[0].descriptorCount = 10;
+		builder.bindings[0].descriptorCount = 20;
 
 		bindless_image_layout = builder.build(device, &binding_flags_info);
 	}
@@ -730,10 +847,30 @@ void VulkanEngine::init_pipelines()
 			{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CubemapPushConstants) }
 		}
 	};
-
 	equi_to_cube.build_effect(device, "../../shaders/equi_to_cube.comp.spv");
-
 	std::unique_ptr<ShaderPass> equi_to_cube_pass = vkutil::build_shader(device, &equi_to_cube, compute_builder);
+
+	ShaderEffect irradiance = equi_to_cube;
+	irradiance.build_effect(device, "../../shaders/irradiance.comp.spv");
+	std::unique_ptr<ShaderPass> irradiance_pass = vkutil::build_shader(device, &irradiance, compute_builder);
+
+	ShaderEffect prefiltered{
+		.layouts = { bindless_image_layout, bindless_tex_layout, bindless_sampler_layout },
+		.pc = {
+			{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PrefilteredPushConstants) }
+		}
+	};
+	prefiltered.build_effect(device, "../../shaders/prefiltered.comp.spv");
+	std::unique_ptr<ShaderPass> prefiltered_pass = vkutil::build_shader(device, &prefiltered, compute_builder);
+
+	ShaderEffect brdflut{
+		.layouts = { bindless_image_layout },
+		.pc = {
+			{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(uint32_t) }
+		}
+	};
+	brdflut.build_effect(device, "../../shaders/brdf.comp.spv");
+	std::unique_ptr<ShaderPass> brdf_pass = vkutil::build_shader(device, &brdflut, compute_builder);
 
 	PipelineBuilder builder{};
 	builder.set_input_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
@@ -767,9 +904,11 @@ void VulkanEngine::init_pipelines()
 	std::unique_ptr<ShaderPass> skybox_pass = vkutil::build_shader(device, &skybox, builder);
 
 	shader_passes["equi_to_cube"] = std::move(equi_to_cube_pass);
+	shader_passes["irradiance"] = std::move(irradiance_pass);
+	shader_passes["prefiltered"] = std::move(prefiltered_pass);
+	shader_passes["brdf"] = std::move(brdf_pass);
 	shader_passes["textured_lit"] = std::move(textured_lit_pass);
 	shader_passes["skybox"] = std::move(skybox_pass);
-
 }
 
 AllocatedBuffer VulkanEngine::create_buffer(size_t alloc_size, VmaAllocationCreateFlags flags, VkBufferUsageFlags usage)
@@ -942,7 +1081,7 @@ AllocatedImage VulkanEngine::create_cubemap(VkExtent3D extent, VkFormat format, 
 	if (mipmapped)
 	{
 		img_info.mipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(extent.width, extent.height)))) + 1;
-		img_info.usage |= (VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT); // for blitzing to higher mip level
+		img_info.usage |= (VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT); // (!) prefiltered cubemap wont need these
 	}
 
 	VmaAllocationCreateInfo alloc_info{};
@@ -1070,24 +1209,69 @@ void VulkanEngine::init_renderables()
 
 	equirectangular_image = create_image(static_cast<void*>(hdr_data), ibl_extent, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
 
+	stbi_image_free(hdr_data);
+
 	ibl_extent.width /= 4;
 	ibl_extent.height = ibl_extent.width;
 
-	cubemap_image = create_cubemap(ibl_extent, VK_FORMAT_R16G16B16A16_SFLOAT,
+	cubemap_image = create_cubemap(ibl_extent, VK_FORMAT_R32G32B32A32_SFLOAT,
 		VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
 		VK_IMAGE_ASPECT_COLOR_BIT, 0, true
 	);
 
-	stbi_image_free(hdr_data);
+	irradiance_image = create_cubemap({64, 64, 1}, VK_FORMAT_R32G32B32A32_SFLOAT,
+		VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+		VK_IMAGE_ASPECT_COLOR_BIT
+	);
+
+	prefiltered_image = create_cubemap({ 512, 512, 1 }, VK_FORMAT_R32G32B32A32_SFLOAT,
+		VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+		VK_IMAGE_ASPECT_COLOR_BIT, 0, true
+	);
+
+	brdflut_image = create_image({ 128, 128, 1 }, VK_FORMAT_R16G16_SFLOAT, 
+		VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+		VK_IMAGE_ASPECT_COLOR_BIT
+	);
+
+	equi_id = texture_cache.add_texture(equirectangular_image.view);
+	cube_id = texture_cache.add_texture(cubemap_image.view);
+	irradiance_id = texture_cache.add_texture(irradiance_image.view);
+	prefiltered_id = texture_cache.add_texture(prefiltered_image.view);
+	brdflut_id = texture_cache.add_texture(brdflut_image.view);
+	image_cache.add_texture(cubemap_image.view);
+	image_cache.add_texture(irradiance_image.view);
+
+	// add each prefiltered mip level view (with all layers visible) to imagecache
+	int mip_levels = int(std::floor(std::log2(std::max(prefiltered_image.extent.width, prefiltered_image.extent.height)))) + 1;
+	std::vector<VkImageView> temporary_views(mip_levels);
+	VkImageViewCreateInfo img_view_info = vkinit::imageview_create_info(VK_FORMAT_R32G32B32A32_SFLOAT, prefiltered_image.image, VK_IMAGE_ASPECT_COLOR_BIT);
+	img_view_info.subresourceRange.levelCount = 1;
+	img_view_info.viewType = VK_IMAGE_VIEW_TYPE_CUBE;
+
+	for (int mip = 0; mip < mip_levels; mip++)
+	{
+		img_view_info.subresourceRange.baseMipLevel = mip;
+		vkCreateImageView(device, &img_view_info, nullptr, &temporary_views[mip]);
+		auto id = image_cache.add_texture(temporary_views[mip]);
+	}
+
+	image_cache.add_texture(brdflut_image.view);
+
+	main_deletion_queue.push_function([&, temporary_views]() {
+		for (int mip = 0; mip < temporary_views.size(); mip++)
+		{
+			vkDestroyImageView(device, temporary_views[mip], nullptr);
+		}
+	});
 
 	main_deletion_queue.push_function([&]() {
 		destroy_image(equirectangular_image);
 		destroy_image(cubemap_image);
+		destroy_image(irradiance_image);
+		destroy_image(prefiltered_image);
+		destroy_image(brdflut_image);
 		});
-
-	equi_id = texture_cache.add_texture(equirectangular_image.view);
-	cube_id = texture_cache.add_texture(cubemap_image.view);
-	image_cache.add_texture(cubemap_image.view);
 
 	std::string asset_path = "../../assets/DamagedHelmet/GLTF-Embedded/DamagedHelmet.gltf";
 	//std::string asset_path = "../../assets/sphere.gltf";
@@ -1109,9 +1293,9 @@ void VulkanEngine::init_bindless()
 	variable_desc_info.descriptorSetCount = static_cast<uint32_t>(variable_desc_counts.size());
 
 	bindless_tex_descriptor = global_descriptor_allocator.allocate(device, bindless_tex_layout, &variable_desc_info);
-	variable_desc_counts[0] = 3;
+	variable_desc_counts[0] = sampler_cache.image_infos.size();
 	bindless_sampler_descriptor = global_descriptor_allocator.allocate(device, bindless_sampler_layout, &variable_desc_info);
-	variable_desc_counts[0] = 1;
+	variable_desc_counts[0] = image_cache.image_infos.size();
 	bindless_image_descriptor = global_descriptor_allocator.allocate(device, bindless_image_layout, &variable_desc_info);
 
 	VkWriteDescriptorSet write{};

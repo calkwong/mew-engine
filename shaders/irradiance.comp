@@ -1,0 +1,69 @@
+#version 450
+
+#extension GL_EXT_nonuniform_qualifier : require
+
+layout (local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0, rgba32f) uniform image2DArray allImages[];
+layout(set = 1, binding = 0) uniform textureCube allTextures[];
+layout(set = 2, binding = 0) uniform sampler samplers[];
+
+const float PI = 3.14159265359;
+const float sampleDelta = 0.025; 
+
+// push constant block
+layout (push_constant) uniform constants
+{
+	uint texture_id;
+	uint image_id;
+} pc;
+
+void main()
+{
+	vec3 irradiance = vec3(0.0);
+
+	vec3 direction = vec3(0.0);
+
+	ivec2 texelCoord = ivec2(gl_GlobalInvocationID.xy);
+	ivec2 size = imageSize(allImages[pc.image_id]).xy;
+	vec2 uv = vec2(texelCoord + 0.5) / vec2(size);
+	uv = uv * 2.0 - 1.0;
+
+	for (int face = 0; face < 6; face++)
+	{
+		switch (face)
+		{
+			case 0: direction = normalize(vec3(1.0, -uv.y, -uv.x)); break; // +X
+			case 1: direction = normalize(vec3(-1.0, -uv.y, uv.x)); break; // -X
+			case 2: direction = normalize(vec3(uv.x, 1.0, uv.y)); break; // +Y
+			case 3: direction = normalize(vec3(uv.x, -1.0, -uv.y)); break; // -Y
+			case 4: direction = normalize(vec3(uv.x, -uv.y, 1.0)); break; // +Z
+			case 5: direction = normalize(vec3(-uv.x, -uv.y, -1.0)); break; // -Z
+			default: direction = vec3(0.0); break; 
+		}
+		
+		vec3 N = direction;
+		//vec3 up = vec3(0.0, 0.0, 1.0);
+		vec3 up = abs(N.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
+		vec3 T = normalize(cross(up, N));
+		vec3 B = cross(N, T);
+
+		uint sampleCount = 0;
+		for (float phi = 0.0; phi < (PI * 2.0); phi += sampleDelta)
+		{
+			for (float theta = 0.0; theta < (PI * 0.5); theta += sampleDelta)
+			{
+				vec3 tempVec = cos(phi) * T + sin(phi) * B;
+				vec3 sampleVec = cos(theta) * N + sin(theta) * tempVec;
+
+				//irradiance += textureLod(envmap, sampleVec, 0.0).xyz * cos(theta) * sin(theta); 
+				irradiance += texture(samplerCube(allTextures[pc.texture_id], samplers[1]), sampleVec).xyz * cos(theta) * sin(theta); 
+				sampleCount++;
+			}
+		}
+
+		irradiance = PI * irradiance / float(sampleCount);
+		
+		imageStore(allImages[pc.image_id], ivec3(texelCoord, face), vec4(irradiance, 1));
+	}
+}
