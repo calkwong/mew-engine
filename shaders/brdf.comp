@@ -10,7 +10,9 @@ const float PI = 3.14159265359;
 
 layout (push_constant) uniform constants
 {
+	uint texture_id;
 	uint image_id;
+	float roughness;
 } pc;
 
 

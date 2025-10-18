@@ -16,6 +16,7 @@ layout (push_constant) uniform constants
 {
 	uint texture_id;
 	uint image_id;
+	float roughness;
 } pc;
 
 void main()

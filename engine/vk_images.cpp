@@ -70,7 +70,6 @@ void vkutil::copy_image(VkCommandBuffer cmd, VkImage src, VkImage dst, VkExtent2
 
 void vkutil::generate_mipmaps(VkCommandBuffer cmd, VkImage image, VkExtent2D image_size, uint32_t layers)
 {
-	// assume image layout for entire image is in dst_format
 	int mip_levels = int(std::floor(std::log2(std::max(image_size.width, image_size.height)))) + 1;
 	int current_layer = layers - 1;
 

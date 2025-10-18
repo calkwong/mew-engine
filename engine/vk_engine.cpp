@@ -230,7 +230,7 @@ void VulkanEngine::draw()
 	auto view_no_translation = glm::mat3(main_camera.get_view_matrix());
 	auto view = glm::mat4(view_no_translation);
 	pc.inverse_viewproj = glm::inverse(view) * glm::inverse(proj); // go in reverse order
-	pc.texture_id = cube_id;
+	pc.texture_id = bindless_texture.skybox;
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(SkyboxPushConstants), &pc);
 	vkCmdDraw(cmd, 3, 1, 0, 0);
 
@@ -325,10 +325,10 @@ void VulkanEngine::init_precomputations()
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &bindless_image_descriptor, 0, nullptr);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
-	CubemapPushConstants pc{};
-	pc.texture_id = equi_id;
-	pc.image_id = 0; // (!) still hard coded
-	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CubemapPushConstants), &pc);
+	IBLPushConstants pc{};
+	pc.texture_id = bindless_texture.equi;
+	pc.image_id = bindless_image.skybox; 
+	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IBLPushConstants), &pc);
 	vkCmdDispatch(cmd, std::ceil(cubemap_image.extent.width / 16.0), std::ceil(cubemap_image.extent.height / 16.0), 1);
 
 	vkutil::transition_image(
@@ -342,7 +342,6 @@ void VulkanEngine::init_precomputations()
 		VK_ACCESS_2_TRANSFER_WRITE_BIT
 	);
 
-	// assumes entire image begins in transfer_dst format, and returns in transfer_src format
 	vkutil::generate_mipmaps(cmd, cubemap_image.image, { cubemap_image.extent.width, cubemap_image.extent.height }, 6);
 
 	vkutil::transition_image(
@@ -371,13 +370,9 @@ void VulkanEngine::init_precomputations()
 	);
 
 	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &bindless_image_descriptor, 0, nullptr);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
-	//CubemapPushConstants pc{};
-	pc.texture_id = cube_id;
-	pc.image_id = 1; // (!) still hard coded
-	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CubemapPushConstants), &pc);
+	pc.texture_id = bindless_texture.skybox;
+	pc.image_id = bindless_image.irradiance;
+	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IBLPushConstants), &pc);
 	vkCmdDispatch(cmd, std::ceil(irradiance_image.extent.width / 8.0), std::ceil(irradiance_image.extent.height / 8.0), 1);
 
 	vkutil::transition_image(
@@ -406,18 +401,14 @@ void VulkanEngine::init_precomputations()
 	);
 
 	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &bindless_image_descriptor, 0, nullptr);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
 
-	PrefilteredPushConstants prefiltered_pc{};
 	int mip_level = int(std::floor(std::log2(std::max(prefiltered_image.extent.width, prefiltered_image.extent.height)))) + 1;
-	prefiltered_pc.texture_id = cube_id;
+	pc.texture_id = bindless_texture.skybox;
 	for (int mip = 0; mip < mip_level; mip++)
 	{
-		prefiltered_pc.image_id = 2 + mip; // (!) still hard coded
-		prefiltered_pc.roughness = static_cast<float>(mip) / (mip_level - 1);
-		vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PrefilteredPushConstants), &prefiltered_pc);
+		pc.image_id = bindless_image.prefiltered + mip; 
+		pc.roughness = static_cast<float>(mip) / (mip_level - 1);
+		vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IBLPushConstants), &pc);
 		vkCmdDispatch(cmd, std::ceil((prefiltered_image.extent.width >> mip) / 8.0), std::ceil((prefiltered_image.extent.height >> mip) / 8.0), 1);
 	}
 
@@ -447,10 +438,9 @@ void VulkanEngine::init_precomputations()
 	);
 
 	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &bindless_image_descriptor, 0, nullptr);
 
-	uint32_t brdf_tex_id = prefiltered_pc.image_id + 1;
-	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(uint32_t), &brdf_tex_id);
+	pc.image_id = bindless_image.brdf;
+	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IBLPushConstants), &pc);
 	vkCmdDispatch(cmd, std::ceil(brdflut_image.extent.width / 8.0), std::ceil(brdflut_image.extent.height / 8.0), 1);
 
 	vkutil::transition_image(
@@ -844,7 +834,7 @@ void VulkanEngine::init_pipelines()
 	ShaderEffect equi_to_cube{
 		.layouts = { bindless_image_layout, bindless_tex_layout, bindless_sampler_layout },
 		.pc = {
-			{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CubemapPushConstants) }
+			{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IBLPushConstants) }
 		}
 	};
 	equi_to_cube.build_effect(device, "../../shaders/equi_to_cube.comp.spv");
@@ -857,7 +847,7 @@ void VulkanEngine::init_pipelines()
 	ShaderEffect prefiltered{
 		.layouts = { bindless_image_layout, bindless_tex_layout, bindless_sampler_layout },
 		.pc = {
-			{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PrefilteredPushConstants) }
+			{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IBLPushConstants) }
 		}
 	};
 	prefiltered.build_effect(device, "../../shaders/prefiltered.comp.spv");
@@ -866,7 +856,7 @@ void VulkanEngine::init_pipelines()
 	ShaderEffect brdflut{
 		.layouts = { bindless_image_layout },
 		.pc = {
-			{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(uint32_t) }
+			{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IBLPushConstants) }
 		}
 	};
 	brdflut.build_effect(device, "../../shaders/brdf.comp.spv");
@@ -1148,11 +1138,11 @@ void VulkanEngine::init_default_data()
 		VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_USAGE_SAMPLED_BIT,
 		VK_IMAGE_ASPECT_COLOR_BIT);
 
-	texture_cache.add_texture(white_image.view); 
-	texture_cache.add_texture(black_image.view);
-	texture_cache.add_texture(default_mr_image.view);
-	texture_cache.add_texture(default_normal_image.view);
-	texture_cache.add_texture(error_image.view);
+	bindless_texture.white = texture_cache.add_texture(white_image.view); 
+	bindless_texture.black = texture_cache.add_texture(black_image.view);
+	bindless_texture.metal_roughness = texture_cache.add_texture(default_mr_image.view);
+	bindless_texture.normal = texture_cache.add_texture(default_normal_image.view);
+	bindless_texture.checkerboard = texture_cache.add_texture(error_image.view);
 
 	//> default samplers
 	VkSampler sampler{};
@@ -1234,13 +1224,14 @@ void VulkanEngine::init_renderables()
 		VK_IMAGE_ASPECT_COLOR_BIT
 	);
 
-	equi_id = texture_cache.add_texture(equirectangular_image.view);
-	cube_id = texture_cache.add_texture(cubemap_image.view);
-	irradiance_id = texture_cache.add_texture(irradiance_image.view);
-	prefiltered_id = texture_cache.add_texture(prefiltered_image.view);
-	brdflut_id = texture_cache.add_texture(brdflut_image.view);
-	image_cache.add_texture(cubemap_image.view);
-	image_cache.add_texture(irradiance_image.view);
+	bindless_texture.equi = texture_cache.add_texture(equirectangular_image.view);
+	bindless_texture.skybox = texture_cache.add_texture(cubemap_image.view);
+	bindless_texture.irradiance = texture_cache.add_texture(irradiance_image.view);
+	bindless_texture.prefiltered = texture_cache.add_texture(prefiltered_image.view);
+	bindless_texture.brdf = texture_cache.add_texture(brdflut_image.view);
+
+	bindless_image.skybox = image_cache.add_texture(cubemap_image.view);
+	bindless_image.irradiance = image_cache.add_texture(irradiance_image.view);
 
 	// add each prefiltered mip level view (with all layers visible) to imagecache
 	int mip_levels = int(std::floor(std::log2(std::max(prefiltered_image.extent.width, prefiltered_image.extent.height)))) + 1;
@@ -1249,14 +1240,18 @@ void VulkanEngine::init_renderables()
 	img_view_info.subresourceRange.levelCount = 1;
 	img_view_info.viewType = VK_IMAGE_VIEW_TYPE_CUBE;
 
-	for (int mip = 0; mip < mip_levels; mip++)
+	img_view_info.subresourceRange.baseMipLevel = 0;
+	vkCreateImageView(device, &img_view_info, nullptr, &temporary_views[0]);
+	bindless_image.prefiltered = image_cache.add_texture(temporary_views[0]);
+
+	for (int mip = 1; mip < mip_levels; mip++)
 	{
 		img_view_info.subresourceRange.baseMipLevel = mip;
 		vkCreateImageView(device, &img_view_info, nullptr, &temporary_views[mip]);
-		auto id = image_cache.add_texture(temporary_views[mip]);
+		image_cache.add_texture(temporary_views[mip]);
 	}
 
-	image_cache.add_texture(brdflut_image.view);
+	bindless_image.brdf = image_cache.add_texture(brdflut_image.view);
 
 	main_deletion_queue.push_function([&, temporary_views]() {
 		for (int mip = 0; mip < temporary_views.size(); mip++)
@@ -1298,6 +1293,8 @@ void VulkanEngine::init_bindless()
 	variable_desc_counts[0] = image_cache.image_infos.size();
 	bindless_image_descriptor = global_descriptor_allocator.allocate(device, bindless_image_layout, &variable_desc_info);
 
+	std::vector<VkWriteDescriptorSet> writes{};
+
 	VkWriteDescriptorSet write{};
 	write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 	write.dstSet = bindless_tex_descriptor;
@@ -1305,24 +1302,21 @@ void VulkanEngine::init_bindless()
 	write.descriptorCount = static_cast<uint32_t>(texture_cache.image_infos.size()); // (!) validation layer does not report if smaller count than req used; fragment sample simply returns black
 	write.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
 	write.pImageInfo = texture_cache.image_infos.data();
+	writes.push_back(write);
 
-	vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
-
-	//> samplers
 	write.dstSet = bindless_sampler_descriptor;
 	write.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
 	write.pImageInfo = sampler_cache.image_infos.data();
 	write.descriptorCount = static_cast<uint32_t>(sampler_cache.image_infos.size());
+	writes.push_back(write);
 
-	vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
-
-	//> images
 	write.dstSet = bindless_image_descriptor;
 	write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
 	write.pImageInfo = image_cache.image_infos.data();
-	write.descriptorCount = image_cache.image_infos.size();
+	write.descriptorCount = static_cast<uint32_t>(image_cache.image_infos.size());
+	writes.push_back(write);
 
-	vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+	vkUpdateDescriptorSets(device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
 }
 
 void VulkanEngine::register_object(Node& node, const glm::mat4& top_matrix, DrawContext& ctx)

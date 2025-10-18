@@ -41,6 +41,7 @@ private:
 
 };
 
+// (!) refactor for bindless
 struct DescriptorWriter
 {
 	std::deque<VkDescriptorImageInfo> image_infos{};

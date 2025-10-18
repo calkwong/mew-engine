@@ -220,11 +220,11 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 		mat_data.base_color_factor = glm::vec4(1);
 		mat_data.metallic_factor = 1.0;
 		mat_data.roughness_factor = 1.0;
-		mat_data.diffuse_id = 0;
-		mat_data.metal_roughness_id = 2;
-		mat_data.normal_id = 3;
-		mat_data.occlusion_id = 0;
-		mat_data.emissive_id = 1; // placeholders
+		mat_data.diffuse_id = engine->bindless_texture.white;
+		mat_data.metal_roughness_id = engine->bindless_texture.metal_roughness;
+		mat_data.normal_id = engine->bindless_texture.normal;
+		mat_data.occlusion_id = engine->bindless_texture.white;
+		mat_data.emissive_id = engine->bindless_texture.black; 
 		scene_material_data[0] = mat_data;
 		materials.push_back(0);
 	}
@@ -279,7 +279,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 					images[idx] = (*img);
 				else
 				{
-					images.push_back(engine->error_image); // should be error checkerboard or relevant placeholder
+					images.push_back(engine->error_image); 
 					img = engine->error_image;
 				}
 				file.images[std::to_string(idx).c_str()] = images[idx];

@@ -99,6 +99,29 @@ struct RenderObject
 	VkDeviceAddress vertex_buffer_address{};
 };
 
+// to refactor
+struct BindlessTexture
+{
+	uint8_t checkerboard{};
+	uint8_t white{};
+	uint8_t black{};
+	uint8_t normal{};
+	uint8_t metal_roughness{};
+	uint8_t equi{};
+	uint8_t skybox{};
+	uint8_t irradiance{};
+	uint8_t prefiltered{};
+	uint8_t brdf{};
+};
+
+struct BindlessImage
+{
+	uint8_t skybox{};
+	uint8_t irradiance{};
+	uint8_t prefiltered{};
+	uint8_t brdf{};
+};
+
 class VulkanEngine
 {
 public:
@@ -185,6 +208,9 @@ public:
 
 	std::unordered_map<std::string, std::unique_ptr<ShaderPass>> shader_passes{};
 
+	BindlessTexture bindless_texture{};
+	BindlessImage bindless_image{};
+
 	// (!) hardware min size 128 bytes
 	struct PushConstants
 	{
@@ -194,13 +220,7 @@ public:
 		uint32_t material_id{};
 	};
 
-	struct CubemapPushConstants
-	{
-		uint32_t texture_id{};
-		uint32_t image_id{};
-	};
-
-	struct PrefilteredPushConstants
+	struct IBLPushConstants
 	{
 		uint32_t texture_id{};
 		uint32_t image_id{};
