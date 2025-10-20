@@ -109,6 +109,7 @@ std::optional<AllocatedImage> load_image(VulkanEngine* engine, fastgltf::Asset& 
 	// so handle is null
 	if (new_image.image == VK_NULL_HANDLE)
 	{
+		fmt::println("load image error");
 		return {};
 	}
 	return new_image;
@@ -200,8 +201,8 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 	std::vector<AllocatedImage> images(gltf.images.size());
 	std::vector<bool> images_set(gltf.images.size());
 
-	for (fastgltf::Image& image : gltf.images)
-		fmt::println("image: {}", image.name.c_str()); // debug
+	//for (fastgltf::Image& image : gltf.images)
+	//	fmt::println("image: {}", image.name.c_str()); // debug
 
 	fmt::println("gltf file has {} materials", gltf.materials.size());
 	const size_t materials_size = (gltf.materials.size() > 0) ? gltf.materials.size() : 1; // default material fallback
@@ -240,7 +241,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 	int material_idx{ 0 };
 	for (fastgltf::Material& mat : gltf.materials)
 	{
-		fmt::println("material: {}", mat.name.c_str()); // debug
+		//fmt::println("material: {}", mat.name.c_str()); // debug
 
 		//std::shared_ptr<GLTFMaterial> new_mat = std::make_shared<GLTFMaterial>();
 		//materials.push_back(new_mat);
@@ -525,7 +526,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 
 		nodes.push_back(new_node);
 		file.nodes[node.name.c_str()] = new_node;
-		fmt::println("node: {}", node.name.c_str());
+		//fmt::println("node: {}", node.name.c_str());
 
 		std::visit(fastgltf::visitor{
 				[&](fastgltf::Node::TransformMatrix matrix) {

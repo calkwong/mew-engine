@@ -1230,6 +1230,14 @@ void VulkanEngine::init_renderables()
 	bindless_texture.prefiltered = texture_cache.add_texture(prefiltered_image.view);
 	bindless_texture.brdf = texture_cache.add_texture(brdflut_image.view);
 
+	for (int i = 0; i < FRAME_OVERLAP; i++)
+	{
+		SceneData* scene_uniform_data = static_cast<SceneData*>(frames[i].scene_buffer.info.pMappedData);
+		scene_uniform_data->irradiance_id = bindless_texture.irradiance;
+		scene_uniform_data->prefiltered_id = bindless_texture.prefiltered;
+		scene_uniform_data->brdf_id = bindless_texture.brdf;
+	}
+
 	bindless_image.skybox = image_cache.add_texture(cubemap_image.view);
 	bindless_image.irradiance = image_cache.add_texture(irradiance_image.view);
 
@@ -1268,7 +1276,8 @@ void VulkanEngine::init_renderables()
 		destroy_image(brdflut_image);
 		});
 
-	std::string asset_path = "../../assets/DamagedHelmet/GLTF-Embedded/DamagedHelmet.gltf";
+	//std::string asset_path = "../../assets/DamagedHelmet/GLTF-Embedded/DamagedHelmet.gltf";
+	std::string asset_path = "../../assets/ABeautifulGame.glb";
 	//std::string asset_path = "../../assets/sphere.gltf";
 	auto asset_file = load_gltf(this, asset_path, true);
 	assert(asset_file.has_value());
@@ -1350,13 +1359,14 @@ void VulkanEngine::update_scene()
 	// (!) update scene data; any sync needed? 
 	SceneData* scene_uniform_data = static_cast<SceneData*>(get_current_frame().scene_buffer.info.pMappedData);
 
-	SceneData updated_data{};
-	updated_data.view = main_camera.get_view_matrix();
-	updated_data.proj = glm::perspective(glm::radians(60.0f), static_cast<float>(draw_extent.width) / draw_extent.height, 10000.0f, 0.1f);
-	updated_data.viewproj = updated_data.proj * updated_data.view;
-	updated_data.camera_pos = main_camera.position;
+	scene_uniform_data->view = main_camera.get_view_matrix();
+	scene_uniform_data->proj = glm::perspective(glm::radians(60.0f), static_cast<float>(draw_extent.width) / draw_extent.height, 10000.0f, 0.1f);
+	scene_uniform_data->viewproj = scene_uniform_data->proj * scene_uniform_data->view;
+	scene_uniform_data->camera_pos = main_camera.position;
 
-	*scene_uniform_data = updated_data;
+	//*scene_uniform_data = updated_data;
+
+	scene_uniform_data->view = main_camera.get_view_matrix();
 
 	main_draw_context.opaque_objects.clear();
 	for (auto& n : loaded_scenes["DamagedHelmet"]->top_nodes)

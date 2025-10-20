@@ -52,7 +52,9 @@ layout(set = 0, binding = 0) uniform SceneData
 	mat4 proj;
 	mat4 viewproj;
 	vec3 cameraPos;
-	
+	uint irradiance_id;
+	uint prefiltered_id;
+	uint brdf_id;
 } sceneData;
 
 void main() 

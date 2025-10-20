@@ -101,6 +101,7 @@ struct MaterialData
     uint32_t emissive_id{};
 };
 
+//(!) uniform buffer padding
 // scene lights go here
 struct SceneData
 {
@@ -108,4 +109,7 @@ struct SceneData
     glm::mat4 proj{};
     glm::mat4 viewproj{};
     glm::vec3 camera_pos{};
+    uint32_t irradiance_id{};
+    uint32_t prefiltered_id{};
+    uint32_t brdf_id{};
 };

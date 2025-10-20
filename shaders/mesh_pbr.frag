@@ -60,10 +60,14 @@ layout(set = 0, binding = 0) uniform SceneData
 	mat4 proj;
 	mat4 viewproj;
 	vec3 cameraPos;
+	uint irradiance_id;
+	uint prefiltered_id;
+	uint brdf_id;
 	
 } sceneData;
 
 layout(set = 1, binding = 0) uniform texture2D allTextures[];
+layout(set = 1, binding = 0) uniform textureCube allCubemaps[];
 layout(set = 2, binding = 0) uniform sampler samplers[];
 
 
@@ -78,7 +82,6 @@ vec3 Uncharted2Tonemap(vec3 x)
 	return ((x*(A*x+C*B)+D*E)/(x*(A*x+B)+D*F))-E/F;
 }
 
-// ndf
 float D_GGX(float NdotH, float roughness)
 {
 	float a = NdotH * roughness;
@@ -86,7 +89,6 @@ float D_GGX(float NdotH, float roughness)
 	return k * k * (1.0 / PI);
 }
 
-// geometric
 float V_SmithGGXCorrelated(float NdotV, float NdotL, float roughness)
 {
 	float a2 = roughness * roughness;
@@ -95,7 +97,6 @@ float V_SmithGGXCorrelated(float NdotV, float NdotL, float roughness)
 	return 0.5 / (GGXV + GGXL);
 }
 
-// fresnel with roughness
 vec3 F_SchlickRoughness(float u, vec3 f0, float roughness)
 {
 	return f0 + (max(vec3(1.0 - roughness), f0) - f0) * pow(1.0 - u, 5.0);
@@ -108,12 +109,13 @@ vec3 F_Schlick(float u, vec3 f0)
     return f + f0 * (1.0 - f);
 }
 
+#define PBR
+#define IBL
+
 void main() 
 {	
 	MaterialData m = pc.materialBuffer.materials[pc.materialID];
-	vec3 Lo = vec3(0.0);
 	
-	//vec4 albedo = texture(allTextures[m.diffuseID], inUV);
 	vec4 albedo = texture(sampler2D(allTextures[m.diffuseID], samplers[0]), inUV);
 	vec3 lightColor = vec3(1.0);
 	
@@ -122,59 +124,81 @@ void main()
 	vec3 vT = inTangent.xyz;
 	float sign = inTangent.w; // sign is flipped during tangent generation so mikktspace is consistent with glTF handedness
 	vec3 vB = sign * cross(vN, vT);
-	//vec3 sampleNormal = texture(allTextures[m.normalID], inUV).xyz;
 	vec3 sampleNormal = texture(sampler2D(allTextures[m.normalID], samplers[0]), inUV).xyz;
 	sampleNormal = sampleNormal * 2.0 - 1.0;
 	vec3 N = normalize(sampleNormal.x * vT + sampleNormal.y * vB + sampleNormal.z * vN);
-	
-	//vec3 N = normalize(inNormal);
+	//vec3 N = normalize(inNormal); // use geometry normal
 	vec3 V = normalize(sceneData.cameraPos.xyz - inWorldPos);
 	
-	//vec2 metalRoughness = texture(allTextures[m.metalRoughnessID], inUV).bg;
 	vec2 metalRoughness = texture(sampler2D(allTextures[m.metalRoughnessID], samplers[0]), inUV).bg;
 	float metallic = metalRoughness.x;
 	float perceptualRoughness = metalRoughness.y;
 	perceptualRoughness = max(perceptualRoughness, 0.045); // frostbite engine clamp value for analytical lights (fp32)
 	float roughness = perceptualRoughness * perceptualRoughness;
 	
-	vec3 f0 = mix(vec3(0.04), albedo.xyz, metallic);
-
 	float NdotV = max(dot(N, V), 0.0);
-
-	for	(int i = 0; i < 1; i++)
-	{
-		vec3 Fr = vec3(0.0);
-		
-		//vec3 L = normalize(sceneData.lights[i].xyz - inWorldPos);
-		vec3 L = normalize(vec3(0, 0, 15) - inWorldPos); // hardcoded camera starting position
-		vec3 H = normalize(L + V);
-		
-		float NdotL = max(dot(N, L), 0.0);
-		float NdotH = max(dot(N, H), 0.0);
-		
-		vec3 F = F_Schlick(NdotV, f0);
-			
+	
+	vec3 f0 = vec3(0.04);
+	f0 = mix(f0, albedo.xyz, metallic);
+	
+	vec4 ambient = vec4(0.0);
+	
+	#ifdef IBL
+		vec3 R = reflect(-V, N);
+		float MAX_CURRENT_LOD = 7.0; // make into PC, 7 or 8?
+		float mip_level = perceptualRoughness * MAX_CURRENT_LOD;
+		vec3 irradiance = texture(samplerCube(allCubemaps[sceneData.irradiance_id], samplers[1]), N).rgb;
+		vec3 prefiltered = textureLod(samplerCube(allCubemaps[sceneData.prefiltered_id], samplers[1]), R, mip_level).rgb;
+		vec2 brdf = texture(sampler2D(allTextures[sceneData.brdf_id], samplers[1]), vec2(NdotV, perceptualRoughness)).rg;
+	
+		vec3 F = F_SchlickRoughness(NdotV, f0, perceptualRoughness);
 		vec3 kS = F;
 		vec3 kD = vec3(1.0) - kS;
 		kD *= 1.0 - metallic;
-		vec3 Fd = kD * albedo.xyz / PI;
-		Fd = vec3(0.0);
+	
+		vec3 diffuse = kD * irradiance * albedo.xyz; // division by PI already baked into irradiance map
+		vec3 specular = prefiltered * (F * brdf.x + brdf.y);
 		
-		float D = D_GGX(NdotH, roughness);
-		float G = V_SmithGGXCorrelated(NdotV, NdotL, roughness);
-		Fr = D * G * F;
-		
-		Lo += (Fd + Fr) * lightColor * NdotL;
-	}
+		ambient.xyz = diffuse + specular;
+		ambient.xyz *= texture(sampler2D(allTextures[m.occlusionID], samplers[0]), inUV).r;
+	#endif
+	
+	vec3 Lo = vec3(0.0);
+	
+	#ifdef PBR
+		// loop over lights
+		for	(int i = 0; i < 1; i++)
+		{
+			vec3 Fr = vec3(0.0);
+			
+			vec3 L = normalize(sceneData.cameraPos - inWorldPos);
+			//vec3 L = normalize(vec3(0, 0, 15) - inWorldPos); // hardcoded camera starting position
+			vec3 H = normalize(L + V);
+			
+			float NdotL = max(dot(N, L), 0.0);
+			float NdotH = max(dot(N, H), 0.0);
+			
+			vec3 F = F_Schlick(NdotV, f0);
+				
+			vec3 kS = F;
+			vec3 kD = vec3(1.0) - kS;
+			kD *= 1.0 - metallic;
+			vec3 Fd = kD * albedo.xyz / PI;
+			
+			float D = D_GGX(NdotH, roughness);
+			float G = V_SmithGGXCorrelated(NdotV, NdotL, roughness);
+			Fr = D * G * F;
+			
+			Lo += (Fd + Fr) * lightColor * NdotL; // (!) verify eq with lightColor
+		}
+	#endif
 	
 	// Combine with ambient
-	//vec4 color = vec4(albedo.xyz * 0.1, 1);
-	//vec4 color = vec4(albedo.xyz * texture(allTextures[m.occlusionID], inUV).rrr, 1); 
-	vec4 color = vec4(albedo.xyz * texture(sampler2D(allTextures[m.occlusionID], samplers[0]), inUV).rrr, 1); 
-	//vec4 color = vec4(vec3(0), 1.0);
-	color.xyz += Lo;
-	//color.xyz += texture(allTextures[m.emissiveID], inUV).xyz;
+	//vec4 color = vec4(albedo.xyz * 0.1, 1); // 10% albedo as ambient
+	//vec4 color = vec4(vec3(0), 1.0); // no direct lighting
+	vec4 color = vec4(Lo, 1.0);
 	color.xyz += texture(sampler2D(allTextures[m.emissiveID], samplers[0]), inUV).xyz;
+	color += ambient;
 
 	// tonemapping
 	color.xyz = Uncharted2Tonemap(color.xyz * exposure);
@@ -182,9 +206,8 @@ void main()
 	//color.xyz = pow(color.xyz, vec3(1.0 / gamma));
 
 	outFragColor = vec4(color);
-	//outFragColor = albedo;
+	//outFragColor = ambient;
 	//outFragColor = vec4(N, 1);
 	//outFragColor = vec4(inNormal, 1);
-	//outFragColor = vec4(vec3(metallic), 1.0);
 	//outFragColor.xyz = outFragColor.xyz * 0.5 + 0.5;
 }
