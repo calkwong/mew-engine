@@ -89,6 +89,7 @@ struct DrawContext
 
 // emissive factor not implemented yet
 // samplers not accounted for yet
+// REQUIRES PADDING
 struct MaterialData
 {
     glm::vec4 base_color_factor{};
@@ -99,6 +100,7 @@ struct MaterialData
     uint32_t normal_id{};
     uint32_t occlusion_id{};
     uint32_t emissive_id{};
+    uint32_t padding{};
 };
 
 //(!) uniform buffer padding

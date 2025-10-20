@@ -11,7 +11,24 @@
 #include <vk_loader.h>
 
 #define VMA_IMPLEMENTATION
+
+//#ifndef VMA_DEBUG_LOG_FORMAT 
+//
+//#define VMA_DEBUG_LOG_FORMAT(format, ...) do { \
+//	printf((format), __VA_ARGS__); \
+//	printf("\n"); \
+//} while(false)
+//
+//#endif 
+//
+//#ifndef VMA_DEBUG_LOG 
+//#define VMA_DEBUG_LOG(str)   VMA_DEBUG_LOG_FORMAT("%s", (str)) 
+//#endif 
+
+
 #include "vk_mem_alloc.h"
+
+
 
 #include <glm/gtx/transform.hpp>
 #include "stb_image.h"
@@ -70,12 +87,7 @@ void VulkanEngine::init()
 
 	main_camera.position = glm::vec3(0, 0, 5);
 
-	auto start{ std::chrono::system_clock::now() };
 	init_precomputations();
-	auto end{ std::chrono::system_clock::now() };
-	auto elapsed{ std::chrono::duration_cast<std::chrono::microseconds>(end - start) };
-	float ret = elapsed.count() / 1000.0f;
-	fmt::println("cubemap + irradiance: {}ms", ret);
 
 	is_initialized = true;
 }
@@ -1279,7 +1291,12 @@ void VulkanEngine::init_renderables()
 	//std::string asset_path = "../../assets/DamagedHelmet/GLTF-Embedded/DamagedHelmet.gltf";
 	std::string asset_path = "../../assets/ABeautifulGame.glb";
 	//std::string asset_path = "../../assets/sphere.gltf";
+	auto start{ std::chrono::system_clock::now() };
 	auto asset_file = load_gltf(this, asset_path, true);
+	auto end{ std::chrono::system_clock::now() };
+	auto elapsed{ std::chrono::duration_cast<std::chrono::microseconds>(end - start) };
+	float ret = elapsed.count() / 1000.0f;
+	fmt::println("load gltf: {}ms", ret);
 	assert(asset_file.has_value());
 	loaded_scenes["DamagedHelmet"] = *asset_file;
 }
@@ -1369,10 +1386,17 @@ void VulkanEngine::update_scene()
 	scene_uniform_data->view = main_camera.get_view_matrix();
 
 	main_draw_context.opaque_objects.clear();
+
+	auto start{ std::chrono::system_clock::now() };
 	for (auto& n : loaded_scenes["DamagedHelmet"]->top_nodes)
 	{
 		register_object(*n, glm::mat4(1.0), main_draw_context);
 	}
+	auto end{ std::chrono::system_clock::now() };
+	auto elapsed{ std::chrono::duration_cast<std::chrono::microseconds>(end - start) };
+	float ret = elapsed.count() / 1000.0f;
+	fmt::println("register all objects: {}ms", ret);
+
 
 }
 

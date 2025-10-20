@@ -254,11 +254,11 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 		mat_data.base_color_factor.w = mat.pbrData.baseColorFactor[3];
 		mat_data.metallic_factor = mat.pbrData.metallicFactor;
 		mat_data.roughness_factor = mat.pbrData.roughnessFactor;
-		mat_data.diffuse_id = 0;
-		mat_data.metal_roughness_id = 2;
-		mat_data.normal_id = 3;
-		mat_data.occlusion_id = 0;
-		mat_data.emissive_id = 1; // placeholders
+		mat_data.diffuse_id = engine->bindless_texture.white;
+		mat_data.metal_roughness_id = engine->bindless_texture.metal_roughness;
+		mat_data.normal_id = engine->bindless_texture.normal;
+		mat_data.occlusion_id = engine->bindless_texture.white;
+		mat_data.emissive_id = engine->bindless_texture.black;
 
 		MaterialPass pass_type = MaterialPass::MainColor;
 		if (mat.alphaMode == fastgltf::AlphaMode::Blend)
@@ -277,13 +277,15 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 				images_set[idx] = true;
 				img = load_image(engine, gltf, gltf.images[idx], VK_FORMAT_R8G8B8A8_SRGB);
 				if (img.has_value())
+				{
 					images[idx] = (*img);
+					file.images[std::to_string(idx).c_str()] = images[idx];
+				}
 				else
 				{
 					images.push_back(engine->error_image); 
 					img = engine->error_image;
 				}
-				file.images[std::to_string(idx).c_str()] = images[idx];
 			}
 			else
 			{
@@ -303,13 +305,15 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 				images_set[idx] = true;
 				img = load_image(engine, gltf, gltf.images[idx], VK_FORMAT_R8G8B8A8_UNORM);
 				if (img.has_value())
+				{
 					images[idx] = (*img);
+					file.images[std::to_string(idx).c_str()] = images[idx];
+				}
 				else
 				{
 					images.push_back(engine->error_image);
 					img = engine->error_image;
 				}
-				file.images[std::to_string(idx).c_str()] = images[idx];
 			}
 			else
 			{
@@ -327,13 +331,15 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 				images_set[idx] = true;
 				img = load_image(engine, gltf, gltf.images[idx], VK_FORMAT_R8G8B8A8_UNORM);
 				if (img.has_value())
+				{
 					images[idx] = (*img);
+					file.images[std::to_string(idx).c_str()] = images[idx];
+				}
 				else
 				{
 					images.push_back(engine->error_image);
 					img = engine->error_image;
 				}
-				file.images[std::to_string(idx).c_str()] = images[idx];
 			}
 			else
 			{
@@ -351,13 +357,15 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 				images_set[idx] = true;
 				img = load_image(engine, gltf, gltf.images[idx], VK_FORMAT_R8G8B8A8_UNORM);
 				if (img.has_value())
+				{
 					images[idx] = (*img);
+					file.images[std::to_string(idx).c_str()] = images[idx];
+				}
 				else
 				{
 					images.push_back(engine->error_image);
 					img = engine->error_image;
 				}
-				file.images[std::to_string(idx).c_str()] = images[idx];
 			}
 			else
 			{
@@ -375,13 +383,15 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 				images_set[idx] = true;
 				img = load_image(engine, gltf, gltf.images[idx], VK_FORMAT_R8G8B8A8_SRGB);
 				if (img.has_value())
+				{
 					images[idx] = (*img);
+					file.images[std::to_string(idx).c_str()] = images[idx];
+				}
 				else
 				{
 					images.push_back(engine->error_image);
 					img = engine->error_image;
 				}
-				file.images[std::to_string(idx).c_str()] = images[idx];
 			}
 			else
 			{
@@ -389,7 +399,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 			}
 			mat_data.emissive_id = engine->texture_cache.add_texture(img.value().view);
 		}
-
+		
 		scene_material_data[material_idx] = mat_data;
 		materials.push_back(material_idx);
 		material_idx++;
@@ -399,11 +409,15 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 	std::vector<Vertex> vertices{};
 
 	fmt::println("gltf file has {} meshes", gltf.meshes.size());
+
+	auto mesh_idx = 0;
 	for (fastgltf::Mesh& mesh : gltf.meshes)
 	{
 		std::shared_ptr<MeshAsset> new_mesh{ std::make_shared<MeshAsset>() };
 		meshes.push_back(new_mesh);
-		file.meshes[mesh.name.c_str()] = new_mesh;
+		//file.meshes[mesh.name.c_str()] = new_mesh;
+		file.meshes[std::to_string(mesh_idx).c_str()] = new_mesh;
+		mesh_idx++;
 		new_mesh->name = mesh.name;
 
 		indices.clear();
@@ -508,6 +522,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 	}
 
 	// load all nodes and their meshes
+	auto node_idx = 0;
 	for (fastgltf::Node& node : gltf.nodes)
 	{
 		std::shared_ptr<Node> new_node{};
@@ -525,7 +540,9 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 		}
 
 		nodes.push_back(new_node);
-		file.nodes[node.name.c_str()] = new_node;
+		//file.nodes[node.name.c_str()] = new_node;
+		file.nodes[std::to_string(node_idx).c_str()] = new_node;
+		node_idx++;
 		//fmt::println("node: {}", node.name.c_str());
 
 		std::visit(fastgltf::visitor{
