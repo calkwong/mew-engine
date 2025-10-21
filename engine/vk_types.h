@@ -59,7 +59,7 @@ struct GPUMeshBuffers
     VkDeviceAddress vertex_buffer_address{};
 };
 
-enum class MaterialPass : uint8_t
+enum class MaterialPass : uint32_t
 {
     MainColor,
     Transparent,
@@ -85,6 +85,7 @@ struct RenderObject;
 struct DrawContext
 {
     std::vector<RenderObject> opaque_objects{};
+    std::vector<RenderObject> transparent_objects{};
 };
 
 // emissive factor not implemented yet

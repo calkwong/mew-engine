@@ -1,6 +1,7 @@
 #pragma once
 
 #include <vk_types.h>
+#include <vk_pipelines.h>
 #include <unordered_map>
 #include <filesystem>
 #include <vk_descriptors.h>
@@ -23,10 +24,19 @@ struct GeoSurface // rename this
 {
 	uint32_t start_index{};
 	uint32_t count{};
+
+	ShaderPass* material{};
+
+	uint32_t material_id{};
 	Bounds bounds{};
 
-	//std::shared_ptr<GLTFMaterial> material{};
-	uint32_t material_id{};
+	MaterialPass pass{};
+};
+
+struct MaterialInfo
+{
+	uint8_t index{};
+	MaterialPass pass_type{};
 };
 
 struct MeshAsset

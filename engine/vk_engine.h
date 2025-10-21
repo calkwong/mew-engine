@@ -67,6 +67,16 @@ struct TextureCache
 	std::vector<VkDescriptorImageInfo> image_infos{};
 
 	uint32_t add_texture(const VkImageView& view);
+
+	// (!) refactor
+	void set_draw_image(uint32_t id) { draw_id = id; };
+	void set_draw_image2(uint32_t id) { draw_id2 = id; };
+	uint32_t get_draw_image() { return draw_id; };
+	uint32_t get_draw_image2() { return draw_id2; };
+
+private:
+	uint32_t draw_id{};
+	uint32_t draw_id2{};
 };
 
 struct SamplerCache
@@ -92,6 +102,7 @@ struct RenderObject
 	uint32_t first_index{};
 	VkBuffer index_buffer{};
 
+	ShaderPass* material{};
 	uint32_t material_id{};
 	Bounds bounds{};
 
@@ -153,6 +164,7 @@ public:
 	VmaAllocator allocator{};
 
 	AllocatedImage draw_image{};
+	AllocatedImage draw_image2{};
 	VkExtent2D draw_extent{};
 
 	AllocatedImage depth_image{};
@@ -230,6 +242,11 @@ public:
 	struct SkyboxPushConstants
 	{
 		glm::mat4 inverse_viewproj{};
+		uint32_t texture_id{};
+	};
+
+	struct PostFXPushConstants
+	{
 		uint32_t texture_id{};
 	};
 

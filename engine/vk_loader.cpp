@@ -193,7 +193,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 
 	std::vector<std::shared_ptr<MeshAsset>> meshes{};
 	std::vector<std::shared_ptr<Node>> nodes{};
-	std::vector<int> materials{}; // id
+	std::vector<MaterialInfo> materials{}; // id
 
 	// image loading deferred to material creation
 	// to prevent performance overhead from image_create_mutable_bit
@@ -227,7 +227,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 		mat_data.occlusion_id = engine->bindless_texture.white;
 		mat_data.emissive_id = engine->bindless_texture.black; 
 		scene_material_data[0] = mat_data;
-		materials.push_back(0);
+		materials.emplace_back(MaterialInfo{0, MaterialPass::MainColor});
 	}
 
 	VkBufferDeviceAddressInfo address_info{};
@@ -401,7 +401,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 		}
 		
 		scene_material_data[material_idx] = mat_data;
-		materials.push_back(material_idx);
+		materials.emplace_back(MaterialInfo{ static_cast<uint8_t>(material_idx), pass_type });
 		material_idx++;
 	}
 
@@ -490,14 +490,23 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 
 			if (p.materialIndex.has_value())
 			{
-				new_surface.material_id = materials[p.materialIndex.value()];
+				auto m = materials[p.materialIndex.value()];
+				new_surface.material_id = m.index;
+				new_surface.material = engine->shader_passes["textured_lit"].get();
+				new_surface.pass = m.pass_type;
+				if (m.pass_type == MaterialPass::Transparent) // (!) TODO
+				{
+				}
 			}
 			else
 			{
 				// TODO: HANDLE PRIMITIVE WITH NO MATERIAL
 				// currently assigning first material as default; rare to have no material so we settle this way for now
 				// also handles gltf with no materials
-				new_surface.material_id = materials[0]; 
+				auto m = materials[0];
+				new_surface.material_id = m.index;
+				new_surface.material = engine->shader_passes["textured_lit"].get();
+				new_surface.pass = m.pass_type;
 			}
 
 			// loop vertices to find min/max bounds

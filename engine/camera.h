@@ -6,7 +6,7 @@ class Camera
 public:
 	glm::vec3 position{};
 	glm::vec3 velocity{};
-	float speed{ 15.f };
+	float speed{ 5.f };
 	float sensitivity{ 0.005f };
 
 	float pitch{ 0.0f };

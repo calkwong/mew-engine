@@ -116,7 +116,7 @@ void main()
 {	
 	MaterialData m = pc.materialBuffer.materials[pc.materialID];
 	
-	vec4 albedo = texture(sampler2D(allTextures[m.diffuseID], samplers[0]), inUV);
+	vec4 albedo = texture(sampler2D(allTextures[m.diffuseID], samplers[0]), inUV) * m.baseColorFactor;
 	vec3 lightColor = vec3(1.0);
 	
 	// normal mapping
@@ -131,8 +131,8 @@ void main()
 	vec3 V = normalize(sceneData.cameraPos.xyz - inWorldPos);
 	
 	vec2 metalRoughness = texture(sampler2D(allTextures[m.metalRoughnessID], samplers[0]), inUV).bg;
-	float metallic = metalRoughness.x;
-	float perceptualRoughness = metalRoughness.y;
+	float metallic = metalRoughness.x * m.metallicFactor;
+	float perceptualRoughness = metalRoughness.y * m.roughnessFactor;
 	perceptualRoughness = max(perceptualRoughness, 0.045); // frostbite engine clamp value for analytical lights (fp32)
 	float roughness = perceptualRoughness * perceptualRoughness;
 	
@@ -201,11 +201,12 @@ void main()
 	color += ambient;
 
 	// tonemapping
-	color.xyz = Uncharted2Tonemap(color.xyz * exposure);
-	color.xyz = color.xyz * (1.0 / Uncharted2Tonemap(vec3(11.2)));
+	//color.xyz = Uncharted2Tonemap(color.xyz * exposure);
+	//color.xyz = color.xyz * (1.0 / Uncharted2Tonemap(vec3(11.2)));
 	//color.xyz = pow(color.xyz, vec3(1.0 / gamma));
 
 	outFragColor = vec4(color);
+	//outFragColor = albedo;
 	//outFragColor = ambient;
 	//outFragColor = vec4(N, 1);
 	//outFragColor = vec4(inNormal, 1);
