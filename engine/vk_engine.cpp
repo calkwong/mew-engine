@@ -1237,6 +1237,7 @@ void VulkanEngine::init_renderables()
 	//std::string asset_path = "../../assets/DamagedHelmet/GLTF-Embedded/DamagedHelmet.gltf";
 	std::string asset_path = "../../assets/ABeautifulGame.glb";
 	//std::string asset_path = "../../assets/sphere.gltf";
+	//std::string asset_path = "../../assets/oaktree.gltf";
 	auto start{ std::chrono::system_clock::now() };
 	auto asset_file = load_gltf(this, asset_path, true);
 	auto end{ std::chrono::system_clock::now() };
@@ -1245,6 +1246,9 @@ void VulkanEngine::init_renderables()
 	fmt::println("load gltf: {}ms", ret);
 	assert(asset_file.has_value());
 	loaded_scenes["DamagedHelmet"] = *asset_file;
+	//asset_path = "../../assets/terrain_gridlines.gltf";
+	//asset_file = load_gltf(this, asset_path, true);
+	//loaded_scenes["terrain"] = *asset_file;
 }
 
 void VulkanEngine::init_bindless()
@@ -1332,7 +1336,7 @@ void VulkanEngine::update_scene()
 
 	update_cascade();
 	auto light_dir = glm::normalize(glm::vec3(scene_data.sunlight_dir));
-	auto shadow_view = glm::lookAt(cascade_data.center + cascade_data.radius * light_dir, cascade_data.center, glm::vec3(0, 1, 0));
+	glm::mat4 shadow_view = glm::lookAt(cascade_data.center + cascade_data.radius * light_dir, cascade_data.center, glm::vec3(0, 1, 0));
 	auto extent = cascade_data.radius;
 	auto shadow_proj = glm::ortho(-extent, extent, -extent, extent, extent * 2.0f, 0.0f);
 	cascade_data.viewproj = shadow_proj * shadow_view;
@@ -1348,6 +1352,11 @@ void VulkanEngine::update_scene()
 	{
 		register_object(*n, glm::mat4(1.0), main_draw_context);
 	}
+
+	//for (auto& n : loaded_scenes["terrain"]->top_nodes)
+	//{
+	//	register_object(*n, glm::mat4(1.0), main_draw_context);
+	//}
 }
 
 uint32_t TextureCache::add_texture(const VkImageView& view)
@@ -1658,17 +1667,21 @@ void VulkanEngine::update_cascade()
 	{
 		center += frustum_corners[i];
 	}
-
 	center /= 8.0f;
-	cascade_data.center = center;
 
 	float radius{};
 	for (size_t i = 0; i < frustum_corners.size(); i++)
 	{
 		radius = std::max(radius, glm::length(frustum_corners[i] - center));
 	}
-
-	radius = std::ceil(radius * 16.0f) / 16.0f; // shimmering fix
-
 	cascade_data.radius = radius;
+
+	// texel snapping - https://alextardif.com/shadowmapping.html
+	float texels_per_unit = 4096.0 / (2.0 * radius); // (!) hardcoded
+	glm::mat4 light_aligned_view = glm::lookAt(glm::vec3(0), -glm::normalize(glm::vec3(scene_data.sunlight_dir)), glm::vec3(0, 1, 0));
+	glm::vec4 new_center = light_aligned_view * glm::vec4(center, 1.0);
+	new_center.x = std::floor(new_center.x * texels_per_unit) / texels_per_unit;
+	new_center.y = std::floor(new_center.y * texels_per_unit) / texels_per_unit;
+	new_center = glm::inverse(light_aligned_view) * new_center;
+	cascade_data.center = new_center;
 }

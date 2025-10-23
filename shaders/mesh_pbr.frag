@@ -99,15 +99,31 @@ float calculate_shadow()
 	vec2 uv = vec2(lightFragPos.x, lightFragPos.y);
 	uv = uv * 0.5 + 0.5;
 	uv.y = 1.0 - uv.y;
-	float closestDepth = texture(sampler2D(allTextures[sceneData.shadow_id], samplers[1]), uv).r;
 	
-	if (closestDepth > currentDepth)
-		return 0.0;
-	return 1.0;
+	vec2 offset = 1.0 / textureSize(sampler2D(allTextures[sceneData.shadow_id], samplers[1]), 0);
+	
+	float shadow = 0.0;
+	float closestDepth = 0.0;
+	for (int y = -1; y <= 1; y++)
+	{
+		for (int x = -1; x <= 1; x++)
+		{
+			vec2 sample_uv = vec2(uv.x + x * offset.x, uv.y + y * offset.y);
+			closestDepth = texture(sampler2D(allTextures[sceneData.shadow_id], samplers[1]), sample_uv).r;
+			
+			if (closestDepth > currentDepth)
+				shadow += 0.0;
+			else
+				shadow += 1.0;
+		}
+	}
+	
+	shadow /= 9.0;
+	return shadow;
 }
 
 #define PBR
-//define IBL
+//#define IBL
 
 void main() 
 {	
