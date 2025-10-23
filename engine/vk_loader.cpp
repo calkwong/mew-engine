@@ -419,6 +419,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 		file.meshes[std::to_string(mesh_idx).c_str()] = new_mesh;
 		mesh_idx++;
 		new_mesh->name = mesh.name;
+		new_mesh->material_buffer_address = file.material_buffer_address;
 
 		indices.clear();
 		vertices.clear();
@@ -494,8 +495,9 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 				new_surface.material_id = m.index;
 				new_surface.material = engine->shader_passes["textured_lit"].get();
 				new_surface.pass = m.pass_type;
-				if (m.pass_type == MaterialPass::Transparent) // (!) TODO
+				if (m.pass_type == MaterialPass::Transparent) // (!) to add
 				{
+					//new_surface.material = engine->shader_passes["blend"].get();
 				}
 			}
 			else

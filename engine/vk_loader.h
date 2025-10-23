@@ -8,11 +8,6 @@
 
 #include "mikktspace.h"
 
-struct GLTFMaterial
-{
-	MaterialInstance data{};
-};
-
 struct Bounds
 {
 	glm::vec3 origin{};
@@ -44,6 +39,9 @@ struct MeshAsset
 	std::string name{};
 	std::vector<GeoSurface> surfaces{};
 	GPUMeshBuffers mesh_buffer{};
+
+	// (!) refactor in the future? added for multiple scenes compatibility
+	VkDeviceAddress material_buffer_address{};
 };
 
 struct Node

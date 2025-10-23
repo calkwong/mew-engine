@@ -11,6 +11,39 @@
 
 constexpr unsigned int FRAME_OVERLAP = 2;
 
+// (!) hardware min size 128 bytes
+struct PushConstants
+{
+	glm::mat4 world_transform{};
+	VkDeviceAddress vertex_buffer_address{};
+	VkDeviceAddress material_buffer_address{};
+	uint32_t material_id{};
+};
+
+struct IBLPushConstants
+{
+	uint32_t texture_id{};
+	uint32_t image_id{};
+	float roughness{};
+};
+
+struct ShadowPushConstants
+{
+	glm::mat4 model{};
+	glm::mat4 viewproj{};
+	VkDeviceAddress vertex_buffer_address{};
+};
+
+struct SkyboxPushConstants
+{
+	glm::mat4 inverse_viewproj{};
+	uint32_t texture_id{};
+};
+
+struct PostFXPushConstants
+{
+	uint32_t texture_id{};
+};
 
 struct DeletionQueue
 {
@@ -103,11 +136,14 @@ struct RenderObject
 	VkBuffer index_buffer{};
 
 	ShaderPass* material{};
+
+	// (!) pad?
 	uint32_t material_id{};
 	Bounds bounds{};
 
 	glm::mat4 transform{};
 	VkDeviceAddress vertex_buffer_address{};
+	VkDeviceAddress material_buffer_address{};
 };
 
 // to refactor
@@ -123,6 +159,7 @@ struct BindlessTexture
 	uint8_t irradiance{};
 	uint8_t prefiltered{};
 	uint8_t brdf{};
+	uint8_t shadow{};
 };
 
 struct BindlessImage
@@ -183,6 +220,9 @@ public:
 	AllocatedImage irradiance_image{};
 	AllocatedImage prefiltered_image{};
 	AllocatedImage brdflut_image{};
+
+	AllocatedImage shadow_map{};
+
 	VkSampler default_linear_sampler{};
 	VkSampler default_cube_sampler{};
 	VkSampler default_nearest_sampler{};
@@ -223,32 +263,8 @@ public:
 	BindlessTexture bindless_texture{};
 	BindlessImage bindless_image{};
 
-	// (!) hardware min size 128 bytes
-	struct PushConstants
-	{
-		glm::mat4 world_transform{};
-		VkDeviceAddress vertex_buffer_address{};
-		VkDeviceAddress material_buffer_address{};
-		uint32_t material_id{};
-	};
-
-	struct IBLPushConstants
-	{
-		uint32_t texture_id{};
-		uint32_t image_id{};
-		float roughness{};
-	};
-
-	struct SkyboxPushConstants
-	{
-		glm::mat4 inverse_viewproj{};
-		uint32_t texture_id{};
-	};
-
-	struct PostFXPushConstants
-	{
-		uint32_t texture_id{};
-	};
+	SceneData scene_data{};
+	CascadeData cascade_data{};
 
 	static VulkanEngine& get();
 
@@ -266,8 +282,12 @@ public:
 	AllocatedImage create_cubemap(VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspect, VmaAllocationCreateFlags flags = 0, bool mipmapped = false); 
 	void destroy_image(const AllocatedImage& image);
 
-	void register_object(Node& node, const glm::mat4& top_matrix, DrawContext& ctx);
 	void update_scene();
+
+	void register_object(Node& node, const glm::mat4& top_matrix, DrawContext& ctx);
+	void forward_pass(VkCommandBuffer cmd);
+	void shadow_pass(VkCommandBuffer cmd);
+	void update_cascade();
 
 private:
 	void init_vulkan();

@@ -111,8 +111,19 @@ struct SceneData
     glm::mat4 view{};
     glm::mat4 proj{};
     glm::mat4 viewproj{};
+    glm::mat4 shadow_transform{};
     glm::vec3 camera_pos{};
     uint32_t irradiance_id{};
+    glm::vec4 sunlight_color{};
+    glm::vec4 sunlight_dir{};
     uint32_t prefiltered_id{};
     uint32_t brdf_id{};
+    uint32_t shadow_id{};
+};
+
+struct CascadeData
+{
+    glm::mat4 viewproj{};
+    glm::vec3 center{};
+    float radius{}; // sphere bounds
 };

@@ -102,8 +102,6 @@ VkPipeline PipelineBuilder::build_pipeline(VkDevice device)
     pipeline_info.pDepthStencilState = &depth_stencil;
     pipeline_info.layout = pipeline_layout;
 
-    std::vector<VkDynamicState> dynamic_state{ VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
-
     VkPipelineDynamicStateCreateInfo dynamic_info{};
     dynamic_info.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
     dynamic_info.pDynamicStates = dynamic_state.data();
@@ -129,9 +127,12 @@ void PipelineBuilder::set_shaders(VkShaderModule vert_shader, VkShaderModule fra
         vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_VERTEX_BIT, vert_shader)
     );
 
-    shader_stages.push_back(
-        vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, frag_shader)
-    );
+    if (frag_shader != VK_NULL_HANDLE)
+    {
+        shader_stages.push_back(
+            vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, frag_shader)
+        );
+    }
 }
 
 void PipelineBuilder::set_input_topology(VkPrimitiveTopology topology)
@@ -175,7 +176,7 @@ void PipelineBuilder::set_color_attachment_format(VkFormat format)
 {
     color_attachment_format = format;
     // connect format to render info
-    render_info.colorAttachmentCount = 1;
+    render_info.colorAttachmentCount = (format == VK_FORMAT_UNDEFINED) ? 0 : 1;
     render_info.pColorAttachmentFormats = &color_attachment_format;
 }
 

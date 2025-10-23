@@ -4,6 +4,8 @@
 #extension GL_EXT_buffer_reference : require
 #extension GL_EXT_nonuniform_qualifier : require
 
+#include "scene.glsl"
+
 layout (location = 0) in vec3 inNormal;
 layout (location = 1) in vec3 inWorldPos;
 layout (location = 2) in vec2 inUV;
@@ -54,33 +56,9 @@ layout( push_constant ) uniform constants
 	uint materialID;
 } pc;
 
-layout(set = 0, binding = 0) uniform SceneData
-{   
-	mat4 view;
-	mat4 proj;
-	mat4 viewproj;
-	vec3 cameraPos;
-	uint irradiance_id;
-	uint prefiltered_id;
-	uint brdf_id;
-	
-} sceneData;
-
 layout(set = 1, binding = 0) uniform texture2D allTextures[];
 layout(set = 1, binding = 0) uniform textureCube allCubemaps[];
 layout(set = 2, binding = 0) uniform sampler samplers[];
-
-
-vec3 Uncharted2Tonemap(vec3 x)
-{
-	float A = 0.15;
-	float B = 0.50;
-	float C = 0.10;
-	float D = 0.20;
-	float E = 0.02;
-	float F = 0.30;
-	return ((x*(A*x+C*B)+D*E)/(x*(A*x+B)+D*F))-E/F;
-}
 
 float D_GGX(float NdotH, float roughness)
 {
@@ -109,8 +87,27 @@ vec3 F_Schlick(float u, vec3 f0)
     return f + f0 * (1.0 - f);
 }
 
+float calculate_shadow()
+{
+	vec3 lightFragPos = vec3(sceneData.shadowTransform * vec4(inWorldPos, 1.0)); // ortho, no division by w needed
+	
+	float currentDepth = lightFragPos.z;
+	
+	if (currentDepth < 0.0 || currentDepth > 1.0)
+		return 1.0;
+	
+	vec2 uv = vec2(lightFragPos.x, lightFragPos.y);
+	uv = uv * 0.5 + 0.5;
+	uv.y = 1.0 - uv.y;
+	float closestDepth = texture(sampler2D(allTextures[sceneData.shadow_id], samplers[1]), uv).r;
+	
+	if (closestDepth > currentDepth)
+		return 0.0;
+	return 1.0;
+}
+
 #define PBR
-#define IBL
+//define IBL
 
 void main() 
 {	
@@ -136,7 +133,7 @@ void main()
 	perceptualRoughness = max(perceptualRoughness, 0.045); // frostbite engine clamp value for analytical lights (fp32)
 	float roughness = perceptualRoughness * perceptualRoughness;
 	
-	float NdotV = max(dot(N, V), 0.0);
+	float NdotV = max(dot(N, V), 0.001);
 	
 	vec3 f0 = vec3(0.04);
 	f0 = mix(f0, albedo.xyz, metallic);
@@ -171,8 +168,7 @@ void main()
 		{
 			vec3 Fr = vec3(0.0);
 			
-			vec3 L = normalize(sceneData.cameraPos - inWorldPos);
-			//vec3 L = normalize(vec3(0, 0, 15) - inWorldPos); // hardcoded camera starting position
+			vec3 L = normalize(sceneData.sunlightDir.xyz - inWorldPos);
 			vec3 H = normalize(L + V);
 			
 			float NdotL = max(dot(N, L), 0.0);
@@ -197,17 +193,16 @@ void main()
 	//vec4 color = vec4(albedo.xyz * 0.1, 1); // 10% albedo as ambient
 	//vec4 color = vec4(vec3(0), 1.0); // no direct lighting
 	vec4 color = vec4(Lo, 1.0);
+	float occluded = calculate_shadow();
+	color.xyz *= occluded;
 	color.xyz += texture(sampler2D(allTextures[m.emissiveID], samplers[0]), inUV).xyz;
+	
 	color += ambient;
-
-	// tonemapping
-	//color.xyz = Uncharted2Tonemap(color.xyz * exposure);
-	//color.xyz = color.xyz * (1.0 / Uncharted2Tonemap(vec3(11.2)));
-	//color.xyz = pow(color.xyz, vec3(1.0 / gamma));
 
 	outFragColor = vec4(color);
 	//outFragColor = albedo;
 	//outFragColor = ambient;
+	//outFragColor = vec4(vec3(perceptualRoughness), 1);
 	//outFragColor = vec4(N, 1);
 	//outFragColor = vec4(inNormal, 1);
 	//outFragColor.xyz = outFragColor.xyz * 0.5 + 0.5;

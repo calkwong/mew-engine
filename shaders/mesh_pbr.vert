@@ -3,6 +3,8 @@
 #extension GL_GOOGLE_include_directive : require
 #extension GL_EXT_buffer_reference : require
 
+#include "scene.glsl"
+
 layout (location = 0) out vec3 outNormal;
 layout (location = 1) out vec3 outWorldPos;
 layout (location = 2) out vec2 outUV;
@@ -45,17 +47,6 @@ layout(push_constant) uniform constants
 	MaterialBuffer materialBuffer;
 	uint materialID;
 } pc;
-
-layout(set = 0, binding = 0) uniform SceneData
-{   
-	mat4 view;
-	mat4 proj;
-	mat4 viewproj;
-	vec3 cameraPos;
-	uint irradiance_id;
-	uint prefiltered_id;
-	uint brdf_id;
-} sceneData;
 
 void main() 
 {

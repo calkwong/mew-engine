@@ -25,6 +25,7 @@ struct ShaderPass
 struct PipelineBuilder
 {
     std::vector<VkPipelineShaderStageCreateInfo> shader_stages{};
+    std::vector<VkDynamicState> dynamic_state{ VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
 
     VkPipelineInputAssemblyStateCreateInfo input_assembly{};
     VkPipelineRasterizationStateCreateInfo rasterization{};

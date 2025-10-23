@@ -186,7 +186,7 @@ VkRenderingInfo vkinit::rendering_info(VkExtent2D extent, VkRenderingAttachmentI
     info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
     info.renderArea = VkRect2D{ VkOffset2D { 0, 0 }, extent };
     info.layerCount = 1;
-    info.colorAttachmentCount = 1;
+    info.colorAttachmentCount = (color_attachment == nullptr) ? 0 : 1;
     info.pColorAttachments = color_attachment;
     info.pDepthAttachment = depth_attachment;
     info.pStencilAttachment = nullptr;

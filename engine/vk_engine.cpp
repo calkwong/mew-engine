@@ -28,10 +28,12 @@
 
 #include "vk_mem_alloc.h"
 
-
-
 #include <glm/gtx/transform.hpp>
 #include "stb_image.h"
+
+// for glm debug
+#include "glm/ext.hpp"
+#include "glm/gtx/string_cast.hpp"
 
 #include <thread>
 
@@ -86,6 +88,8 @@ void VulkanEngine::init()
 	init_bindless();
 
 	main_camera.position = glm::vec3(0, 0, 5);
+	// draw_extent set in init_default_data
+	main_camera.perspective = glm::perspective(glm::radians(70.0f), static_cast<float>(draw_extent.width) / draw_extent.height, 45.0f, 0.01f);
 
 	init_precomputations();
 
@@ -148,6 +152,9 @@ void VulkanEngine::draw()
 
 	get_current_frame().deletion_queue.flush();
 
+	SceneData* scene_uniform_data = static_cast<SceneData*>(get_current_frame().scene_buffer.info.pMappedData);
+	*scene_uniform_data = scene_data;
+
 	uint32_t swapchain_image_idx{};
 	VK_CHECK(vkAcquireNextImageKHR(device, swapchain, 1000000000, get_current_frame().swapchain_semaphore, nullptr, &swapchain_image_idx));
 
@@ -159,166 +166,8 @@ void VulkanEngine::draw()
 
 	VK_CHECK(vkBeginCommandBuffer(cmd, &cmd_begin_info));
 
-	vkutil::transition_image(
-		cmd,
-		draw_image.image,
-		VK_IMAGE_LAYOUT_UNDEFINED,
-		VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-		VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-		VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-		VK_ACCESS_2_TRANSFER_READ_BIT,
-		VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT
-	);
-
-	vkutil::transition_image(
-		cmd,
-		depth_image.image,
-		VK_IMAGE_LAYOUT_UNDEFINED,
-		VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
-		VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
-		VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
-		VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-		VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
-		VK_IMAGE_ASPECT_DEPTH_BIT
-	);
-
-	VkClearColorValue clear_color_value{ 0.0f, 0.0f, 0.0f, 1.0f };
-	VkClearValue clear_value{ .color = clear_color_value };
-	VkRenderingAttachmentInfo color_attachment = vkinit::attachment_info(draw_image.view, &clear_value);
-	VkRenderingAttachmentInfo depth_attachment = vkinit::depth_attachment_info(depth_image.view);
-	VkRenderingInfo render_info = vkinit::rendering_info(draw_extent, &color_attachment, &depth_attachment);
-
-	vkCmdBeginRendering(cmd, &render_info);
-
-	VkViewport viewport{};
-	viewport.x = 0;
-	viewport.y = static_cast<float>(draw_extent.height);
-	viewport.width = static_cast<float>(draw_extent.width);
-	viewport.height = -static_cast<float>(draw_extent.height);
-	viewport.minDepth = 0.0f;
-	viewport.maxDepth = 1.0f;
-	vkCmdSetViewport(cmd, 0, 1, &viewport);
-
-	VkRect2D scissor{};
-	scissor.offset.x = 0;
-	scissor.offset.y = 0;
-	scissor.extent.width = draw_extent.width;
-	scissor.extent.height = draw_extent.height;
-	vkCmdSetScissor(cmd, 0, 1, &scissor);
-
-	ShaderPass current_pass = *shader_passes["textured_lit"];
-
-	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
-
-	// (!) capture clause for current_pass?
-	auto draw = [&](const RenderObject& obj) {
-		vkCmdBindIndexBuffer(cmd, obj.index_buffer, 0, VK_INDEX_TYPE_UINT32);
-
-		PushConstants pc{};
-		pc.world_transform = obj.transform;
-		pc.vertex_buffer_address = obj.vertex_buffer_address;
-		pc.material_buffer_address = loaded_scenes["DamagedHelmet"]->material_buffer_address;
-		pc.material_id = obj.material_id;
-
-		vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushConstants), &pc);
-		vkCmdDrawIndexed(cmd, obj.index_count, 1, obj.first_index, 0, 0);
-	};
-
-	for (auto& obj : main_draw_context.opaque_objects)
-	{
-		draw(obj);
-	}
-
-	for (auto& obj : main_draw_context.transparent_objects)
-	{
-		//draw(obj);
-	}
-
-	//> skybox
-	current_pass = *shader_passes["skybox"];
-	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &bindless_tex_descriptor, 0, nullptr);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_sampler_descriptor, 0, nullptr);
-	SkyboxPushConstants pc{};
-	auto proj = glm::perspective(glm::radians(70.0f), static_cast<float>(draw_extent.width) / draw_extent.height, 10000.0f, 0.01f);
-	auto view_no_translation = glm::mat3(main_camera.get_view_matrix());
-	auto view = glm::mat4(view_no_translation);
-	pc.inverse_viewproj = glm::inverse(view) * glm::inverse(proj); // go in reverse order
-	pc.texture_id = bindless_texture.skybox;
-	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(SkyboxPushConstants), &pc);
-	vkCmdDraw(cmd, 3, 1, 0, 0);
-
-	vkCmdEndRendering(cmd);
-
-	vkutil::transition_image(
-		cmd,
-		draw_image.image,
-		VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-		VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-		VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-		VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-		VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-		VK_ACCESS_2_SHADER_READ_BIT
-	);
-
-	//> post fx
-	color_attachment = vkinit::attachment_info(draw_image2.view, &clear_value);
-	//depth_attachment = vkinit::depth_attachment_info(depth_image.view);
-	render_info = vkinit::rendering_info(draw_extent, &color_attachment, nullptr);
-
-	vkutil::transition_image(
-		cmd,
-		draw_image2.image,
-		VK_IMAGE_LAYOUT_UNDEFINED,
-		VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-		VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-		VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-		VK_ACCESS_2_TRANSFER_READ_BIT,
-		VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT
-	);
-
-	vkCmdBeginRendering(cmd, &render_info);
-
-	viewport.x = 0;
-	viewport.y = static_cast<float>(draw_extent.height);
-	viewport.width = static_cast<float>(draw_extent.width);
-	viewport.height = -static_cast<float>(draw_extent.height);
-	viewport.minDepth = 0.0f;
-	viewport.maxDepth = 1.0f;
-	vkCmdSetViewport(cmd, 0, 1, &viewport);
-
-	scissor.offset.x = 0;
-	scissor.offset.y = 0;
-	scissor.extent.width = draw_extent.width;
-	scissor.extent.height = draw_extent.height;
-	vkCmdSetScissor(cmd, 0, 1, &scissor);
-
-
-	current_pass = *shader_passes["tonemap"];
-
-	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &bindless_tex_descriptor, 0, nullptr);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_sampler_descriptor, 0, nullptr);
-	PostFXPushConstants fx_pc{};
-	fx_pc.texture_id = texture_cache.get_draw_image();
-	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PostFXPushConstants), &fx_pc);
-	vkCmdDraw(cmd, 3, 1, 0, 0);
-
-	vkCmdEndRendering(cmd);
-
-	vkutil::transition_image(
-		cmd,
-		draw_image2.image,
-		VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-		VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-		VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-		VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-		VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-		VK_ACCESS_2_TRANSFER_WRITE_BIT
-	);
+	shadow_pass(cmd);
+	forward_pass(cmd);
 
 	vkutil::transition_image(
 		cmd,
@@ -666,11 +515,7 @@ void VulkanEngine::init_swapchain()
 {
 	create_swapchain(window_extent.width, window_extent.height);
 
-	// draw image
 	VkExtent3D draw_image_extent{ window_extent.width, window_extent.height, 1 };
-
-	draw_image.format = VK_FORMAT_R16G16B16A16_SFLOAT;
-	draw_image.extent = draw_image_extent;
 
 	VkImageUsageFlags draw_image_flags{
 		VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
@@ -678,27 +523,13 @@ void VulkanEngine::init_swapchain()
 		VK_IMAGE_USAGE_SAMPLED_BIT // for post FX sampling
 	};
 
-	VkImageCreateInfo img_create_info = vkinit::image_create_info(draw_image.format, draw_image_flags, draw_image.extent);
-
-	VmaAllocationCreateInfo vma_allocation_info{};
-	vma_allocation_info.usage = VMA_MEMORY_USAGE_GPU_ONLY;
-	vma_allocation_info.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-
-	vmaCreateImage(allocator, &img_create_info, &vma_allocation_info, &draw_image.image, &draw_image.allocation, nullptr);
-
-	VkImageViewCreateInfo imgview_create_info = vkinit::imageview_create_info(draw_image.format, draw_image.image, VK_IMAGE_ASPECT_COLOR_BIT);
-	VK_CHECK(vkCreateImageView(device, &imgview_create_info, nullptr, &draw_image.view));
-
-	// (!) test ping pong
-	draw_image2.format = VK_FORMAT_R16G16B16A16_SFLOAT;
-	draw_image2.extent = draw_image_extent;
+	// (!) refactor ping pong
+	draw_image = create_image(draw_image_extent, VK_FORMAT_R16G16B16A16_SFLOAT, draw_image_flags, VK_IMAGE_ASPECT_COLOR_BIT);
+	draw_image2 = create_image(draw_image_extent, VK_FORMAT_R16G16B16A16_SFLOAT, draw_image_flags, VK_IMAGE_ASPECT_COLOR_BIT);
 
 	auto id = texture_cache.add_texture(draw_image.view);
 	texture_cache.set_draw_image(id);
 
-	vmaCreateImage(allocator, &img_create_info, &vma_allocation_info, &draw_image2.image, &draw_image2.allocation, nullptr);
-	imgview_create_info = vkinit::imageview_create_info(draw_image2.format, draw_image2.image, VK_IMAGE_ASPECT_COLOR_BIT);
-	VK_CHECK(vkCreateImageView(device, &imgview_create_info, nullptr, &draw_image2.view));
 	id = texture_cache.add_texture(draw_image2.view);
 	texture_cache.set_draw_image2(id);
 
@@ -706,16 +537,7 @@ void VulkanEngine::init_swapchain()
 	depth_image.format = VK_FORMAT_D32_SFLOAT;
 	depth_image.extent = draw_image_extent;
 
-	VkImageUsageFlagBits depth_image_flags{
-		VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
-	};
-
-	img_create_info = vkinit::image_create_info(depth_image.format, depth_image_flags, depth_image.extent);
-
-	vmaCreateImage(allocator, &img_create_info, &vma_allocation_info, &depth_image.image, &depth_image.allocation, nullptr);
-	
-	imgview_create_info = vkinit::imageview_create_info(depth_image.format, depth_image.image, VK_IMAGE_ASPECT_DEPTH_BIT);
-	VK_CHECK(vkCreateImageView(device, &imgview_create_info, nullptr, &depth_image.view));
+	depth_image = create_image(draw_image_extent, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_IMAGE_ASPECT_DEPTH_BIT);
 
 	main_deletion_queue.push_function([&]() {
 		vkDestroyImageView(device, draw_image.view, nullptr);
@@ -952,17 +774,36 @@ void VulkanEngine::init_pipelines()
 	brdflut.build_effect(device, "../../shaders/brdf.comp.spv");
 	std::unique_ptr<ShaderPass> brdf_pass = vkutil::build_shader(device, &brdflut, compute_builder);
 
+	//> 
 	PipelineBuilder builder{};
 	builder.set_input_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
 	builder.set_polygon_mode(VK_POLYGON_MODE_FILL);
-	builder.set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
+	builder.set_cull_mode(VK_CULL_MODE_FRONT_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
 	builder.set_multisampling_none();
 	builder.disable_blending();
-	builder.set_color_attachment_format(draw_image.format);
 	builder.enable_depth(true, VK_COMPARE_OP_GREATER_OR_EQUAL);
+	builder.set_color_attachment_format(VK_FORMAT_UNDEFINED);
 	builder.set_depth_format(depth_image.format);
 
+	builder.dynamic_state.push_back(VK_DYNAMIC_STATE_DEPTH_BIAS);
+	builder.rasterization.depthBiasEnable = VK_TRUE;
+
+	ShaderEffect shadow{
+		.pc = {
+			{ VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ShadowPushConstants) }
+		}
+	};
+	shadow.build_effect(device, "../../shaders/depth.vert.spv");
+	std::unique_ptr<ShaderPass> shadow_pass = vkutil::build_shader(device, &shadow, builder);
+
 	//>
+	builder.set_color_attachment_format(draw_image.format); 
+	builder.set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
+	builder.disable_blending();
+	builder.enable_depth(true, VK_COMPARE_OP_GREATER_OR_EQUAL);
+	builder.dynamic_state.pop_back();
+	builder.rasterization.depthBiasEnable = VK_FALSE;
+
 	ShaderEffect textured_lit{
 		.layouts = { scene_descriptor_layout, bindless_tex_layout, bindless_sampler_layout },
 		.pc = { 
@@ -972,6 +813,12 @@ void VulkanEngine::init_pipelines()
 	textured_lit.build_effect(device, "../../shaders/mesh_pbr.vert.spv", "../../shaders/mesh_pbr.frag.spv");
 
 	std::unique_ptr<ShaderPass> textured_lit_pass = vkutil::build_shader(device, &textured_lit, builder);
+
+	// transparent
+	//builder.enable_blending_alphablend();
+	//builder.enable_depth(false, VK_COMPARE_OP_GREATER_OR_EQUAL);
+	//textured_lit.build_effect(device, "../../shaders/mesh_pbr.vert.spv", "../../shaders/mesh_pbr.frag.spv"); // rebuild as above destroyed shadermodule
+	//std::unique_ptr<ShaderPass> blend_pass = vkutil::build_shader(device, &textured_lit, builder);
 
 	//>
 	ShaderEffect skybox{
@@ -983,10 +830,10 @@ void VulkanEngine::init_pipelines()
 	skybox.build_effect(device, "../../shaders/skybox.vert.spv", "../../shaders/skybox.frag.spv");
 	std::unique_ptr<ShaderPass> skybox_pass = vkutil::build_shader(device, &skybox, builder);
 
+	//>
 	builder.disable_depth();
 	builder.set_depth_format(VK_FORMAT_UNDEFINED);
 
-	//>
 	ShaderEffect tonemap{
 		.layouts = { bindless_tex_layout, bindless_sampler_layout },
 		.pc = {
@@ -1000,9 +847,11 @@ void VulkanEngine::init_pipelines()
 	shader_passes["irradiance"] = std::move(irradiance_pass);
 	shader_passes["prefiltered"] = std::move(prefiltered_pass);
 	shader_passes["brdf"] = std::move(brdf_pass);
+	shader_passes["shadow"] = std::move(shadow_pass);
 	shader_passes["textured_lit"] = std::move(textured_lit_pass);
 	shader_passes["skybox"] = std::move(skybox_pass);
 	shader_passes["tonemap"] = std::move(tonemap_pass);
+	//shader_passes["blend"] = std::move(blend_pass);
 }
 
 AllocatedBuffer VulkanEngine::create_buffer(size_t alloc_size, VmaAllocationCreateFlags flags, VkBufferUsageFlags usage)
@@ -1277,12 +1126,20 @@ void VulkanEngine::init_default_data()
 	vkCreateSampler(device, &sampler_info, nullptr, &sampler);
 	sampler_cache.add_sampler(sampler);
 
+	//> shadow map
+	shadow_map = create_image(VkExtent3D{ 4096, 4096, 1 }, VK_FORMAT_D32_SFLOAT, 
+		VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_DEPTH_BIT
+	);
+
+	bindless_texture.shadow = texture_cache.add_texture(shadow_map.view);
+
 	main_deletion_queue.push_function([&]() {
 		destroy_image(white_image);
 		destroy_image(black_image);
 		destroy_image(default_mr_image);
 		destroy_image(default_normal_image);
 		destroy_image(error_image);
+		destroy_image(shadow_map);
 	});
 }
 
@@ -1334,13 +1191,10 @@ void VulkanEngine::init_renderables()
 	bindless_texture.prefiltered = texture_cache.add_texture(prefiltered_image.view);
 	bindless_texture.brdf = texture_cache.add_texture(brdflut_image.view);
 
-	for (int i = 0; i < FRAME_OVERLAP; i++)
-	{
-		SceneData* scene_uniform_data = static_cast<SceneData*>(frames[i].scene_buffer.info.pMappedData);
-		scene_uniform_data->irradiance_id = bindless_texture.irradiance;
-		scene_uniform_data->prefiltered_id = bindless_texture.prefiltered;
-		scene_uniform_data->brdf_id = bindless_texture.brdf;
-	}
+	scene_data.brdf_id = bindless_texture.brdf;
+	scene_data.irradiance_id = bindless_texture.irradiance;
+	scene_data.prefiltered_id = bindless_texture.prefiltered;
+	scene_data.shadow_id = bindless_texture.shadow;
 
 	bindless_image.skybox = image_cache.add_texture(cubemap_image.view);
 	bindless_image.irradiance = image_cache.add_texture(irradiance_image.view);
@@ -1380,8 +1234,8 @@ void VulkanEngine::init_renderables()
 		destroy_image(brdflut_image);
 		});
 
-	std::string asset_path = "../../assets/DamagedHelmet/GLTF-Embedded/DamagedHelmet.gltf";
-	//std::string asset_path = "../../assets/ABeautifulGame.glb";
+	//std::string asset_path = "../../assets/DamagedHelmet/GLTF-Embedded/DamagedHelmet.gltf";
+	std::string asset_path = "../../assets/ABeautifulGame.glb";
 	//std::string asset_path = "../../assets/sphere.gltf";
 	auto start{ std::chrono::system_clock::now() };
 	auto asset_file = load_gltf(this, asset_path, true);
@@ -1449,6 +1303,7 @@ void VulkanEngine::register_object(Node& node, const glm::mat4& top_matrix, Draw
 			obj.first_index = s.start_index;
 			obj.index_buffer = node.mesh->mesh_buffer.index_buffer.buffer;
 			obj.vertex_buffer_address = node.mesh->mesh_buffer.vertex_buffer_address;
+			obj.material_buffer_address = node.mesh->material_buffer_address;
 			obj.material = s.material;
 			obj.material_id = s.material_id;
 			obj.bounds = s.bounds;
@@ -1469,19 +1324,25 @@ void VulkanEngine::update_scene()
 {
 	main_camera.update(stats.deltatime);
 
-	// (!) update scene data; any sync needed? 
-	SceneData* scene_uniform_data = static_cast<SceneData*>(get_current_frame().scene_buffer.info.pMappedData);
+	scene_data.view = main_camera.get_view_matrix();
+	scene_data.proj = main_camera.perspective;
+	scene_data.viewproj = scene_data.proj * scene_data.view;
+	scene_data.sunlight_dir = glm::vec4(7.75, 12.5, 12.5, 1.);
+	scene_data.sunlight_color = glm::vec4(1);
 
-	scene_uniform_data->view = main_camera.get_view_matrix();
-	scene_uniform_data->proj = glm::perspective(glm::radians(70.0f), static_cast<float>(draw_extent.width) / draw_extent.height, 10000.0f, 0.01f);
-	scene_uniform_data->viewproj = scene_uniform_data->proj * scene_uniform_data->view;
-	scene_uniform_data->camera_pos = main_camera.position;
-
-	//*scene_uniform_data = updated_data;
-
-	scene_uniform_data->view = main_camera.get_view_matrix();
+	update_cascade();
+	auto light_dir = glm::normalize(glm::vec3(scene_data.sunlight_dir));
+	auto shadow_view = glm::lookAt(cascade_data.center + cascade_data.radius * light_dir, cascade_data.center, glm::vec3(0, 1, 0));
+	auto extent = cascade_data.radius;
+	auto shadow_proj = glm::ortho(-extent, extent, -extent, extent, extent * 2.0f, 0.0f);
+	cascade_data.viewproj = shadow_proj * shadow_view;
+	scene_data.shadow_transform = cascade_data.viewproj;
+	scene_data.camera_pos = main_camera.position;
 
 	main_draw_context.opaque_objects.clear();
+	if (main_draw_context.transparent_objects.size() != 0)
+		fmt::println("transparent_objects not empty"); // (!) debug
+	main_draw_context.transparent_objects.clear();
 
 	for (auto& n : loaded_scenes["DamagedHelmet"]->top_nodes)
 	{
@@ -1522,4 +1383,292 @@ uint32_t ImageCache::add_texture(const VkImageView& view)
 	image_infos.emplace_back(VkDescriptorImageInfo{ 0, view, VK_IMAGE_LAYOUT_GENERAL });
 
 	return id;
+}
+
+void VulkanEngine::forward_pass(VkCommandBuffer cmd)
+{
+	vkutil::transition_image(
+		cmd,
+		draw_image.image,
+		VK_IMAGE_LAYOUT_UNDEFINED,
+		VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+		VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+		VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+		VK_ACCESS_2_TRANSFER_READ_BIT,
+		VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT
+	);
+
+	vkutil::transition_image(
+		cmd,
+		depth_image.image,
+		VK_IMAGE_LAYOUT_UNDEFINED,
+		VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+		VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+		VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+		VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+		VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
+		VK_IMAGE_ASPECT_DEPTH_BIT
+	);
+
+	VkClearColorValue clear_color_value{ 0.0f, 0.0f, 0.0f, 1.0f };
+	VkClearValue clear_value{ .color = clear_color_value };
+	VkRenderingAttachmentInfo color_attachment = vkinit::attachment_info(draw_image.view, &clear_value);
+	VkRenderingAttachmentInfo depth_attachment = vkinit::depth_attachment_info(depth_image.view);
+	VkRenderingInfo render_info = vkinit::rendering_info(draw_extent, &color_attachment, &depth_attachment);
+
+	vkCmdBeginRendering(cmd, &render_info);
+
+	VkViewport viewport{};
+	viewport.x = 0;
+	viewport.y = static_cast<float>(draw_extent.height);
+	viewport.width = static_cast<float>(draw_extent.width);
+	viewport.height = -static_cast<float>(draw_extent.height);
+	viewport.minDepth = 0.0f;
+	viewport.maxDepth = 1.0f;
+	vkCmdSetViewport(cmd, 0, 1, &viewport);
+
+	VkRect2D scissor{};
+	scissor.offset.x = 0;
+	scissor.offset.y = 0;
+	scissor.extent.width = draw_extent.width;
+	scissor.extent.height = draw_extent.height;
+	vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+	ShaderPass current_pass = *shader_passes["textured_lit"];
+
+	//vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
+
+	// (!) capture clause for current_pass?
+	auto draw = [&](const RenderObject& obj) {
+		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, obj.material->pipeline);
+		vkCmdBindIndexBuffer(cmd, obj.index_buffer, 0, VK_INDEX_TYPE_UINT32);
+
+		PushConstants pc{};
+		pc.world_transform = obj.transform;
+		pc.vertex_buffer_address = obj.vertex_buffer_address;
+		pc.material_buffer_address = obj.material_buffer_address;
+		pc.material_id = obj.material_id;
+
+		vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushConstants), &pc);
+		vkCmdDrawIndexed(cmd, obj.index_count, 1, obj.first_index, 0, 0);
+	};
+
+	for (auto& obj : main_draw_context.opaque_objects)
+	{
+		draw(obj);
+	}
+
+	for (auto& obj : main_draw_context.transparent_objects)
+	{
+		//draw(obj);
+	}
+
+	//> skybox
+	current_pass = *shader_passes["skybox"];
+	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &bindless_tex_descriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_sampler_descriptor, 0, nullptr);
+	SkyboxPushConstants pc{};
+	auto proj = main_camera.perspective;
+	auto view_no_translation = glm::mat3(main_camera.get_view_matrix());
+	auto view = glm::mat4(view_no_translation);
+	pc.inverse_viewproj = glm::inverse(view) * glm::inverse(proj); // go in reverse order
+	pc.texture_id = bindless_texture.skybox;
+	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(SkyboxPushConstants), &pc);
+	vkCmdDraw(cmd, 3, 1, 0, 0);
+
+	vkCmdEndRendering(cmd);
+
+	vkutil::transition_image(
+		cmd,
+		draw_image.image,
+		VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+		VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+		VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+		VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+		VK_ACCESS_2_SHADER_READ_BIT
+	);
+
+	//> post fx
+	color_attachment = vkinit::attachment_info(draw_image2.view, &clear_value);
+	//depth_attachment = vkinit::depth_attachment_info(depth_image.view);
+	render_info = vkinit::rendering_info(draw_extent, &color_attachment, nullptr);
+
+	vkutil::transition_image(
+		cmd,
+		draw_image2.image,
+		VK_IMAGE_LAYOUT_UNDEFINED,
+		VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+		VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+		VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+		VK_ACCESS_2_TRANSFER_READ_BIT,
+		VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT
+	);
+
+	vkCmdBeginRendering(cmd, &render_info);
+
+	viewport.x = 0;
+	viewport.y = static_cast<float>(draw_extent.height);
+	viewport.width = static_cast<float>(draw_extent.width);
+	viewport.height = -static_cast<float>(draw_extent.height);
+	viewport.minDepth = 0.0f;
+	viewport.maxDepth = 1.0f;
+	vkCmdSetViewport(cmd, 0, 1, &viewport);
+
+	scissor.offset.x = 0;
+	scissor.offset.y = 0;
+	scissor.extent.width = draw_extent.width;
+	scissor.extent.height = draw_extent.height;
+	vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+
+	current_pass = *shader_passes["tonemap"];
+
+	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &bindless_tex_descriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_sampler_descriptor, 0, nullptr);
+	PostFXPushConstants fx_pc{};
+	fx_pc.texture_id = texture_cache.get_draw_image();
+	//fx_pc.texture_id = bindless_texture.shadow;
+	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PostFXPushConstants), &fx_pc);
+	vkCmdDraw(cmd, 3, 1, 0, 0);
+
+	vkCmdEndRendering(cmd);
+
+	vkutil::transition_image(
+		cmd,
+		draw_image2.image,
+		VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+		VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+		VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+		VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+		VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+		VK_ACCESS_2_TRANSFER_WRITE_BIT
+	);
+}
+
+void VulkanEngine::shadow_pass(VkCommandBuffer cmd)
+{
+	vkutil::transition_image(
+		cmd,
+		shadow_map.image,
+		VK_IMAGE_LAYOUT_UNDEFINED,
+		VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+		VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+		VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
+		VK_ACCESS_2_SHADER_READ_BIT,
+		VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
+		VK_IMAGE_ASPECT_DEPTH_BIT
+	);
+
+	VkRenderingAttachmentInfo depth_attachment = vkinit::depth_attachment_info(shadow_map.view);
+	VkExtent2D shadow_extent = VkExtent2D{ shadow_map.extent.width, shadow_map.extent.height };
+	VkRenderingInfo render_info = vkinit::rendering_info(shadow_extent, nullptr, &depth_attachment);
+	//render_info.colorAttachmentCount = 0; // implemented into above
+
+	vkCmdBeginRendering(cmd, &render_info);
+
+	VkViewport viewport{};
+	viewport.x = 0;
+	viewport.y = static_cast<float>(shadow_extent.height);
+	viewport.width = static_cast<float>(shadow_extent.width);
+	viewport.height = -static_cast<float>(shadow_extent.height);
+	viewport.minDepth = 0.0f;
+	viewport.maxDepth = 1.0f;
+	vkCmdSetViewport(cmd, 0, 1, &viewport);
+
+	VkRect2D scissor{};
+	scissor.offset.x = 0;
+	scissor.offset.y = 0;
+	scissor.extent.width = shadow_extent.width;
+	scissor.extent.height = shadow_extent.height;
+	vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+	auto depth_bias = 0.f;
+	auto slope_scaled_depth_bias = 0.f;
+	vkCmdSetDepthBias(cmd, -depth_bias, 0.0f, -slope_scaled_depth_bias);
+
+	ShaderPass current_pass = *shader_passes["shadow"];
+
+	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
+
+	auto draw = [&](const RenderObject& obj) {
+		vkCmdBindIndexBuffer(cmd, obj.index_buffer, 0, VK_INDEX_TYPE_UINT32);
+
+		ShadowPushConstants pc{};
+		pc.model = obj.transform;
+		pc.viewproj = cascade_data.viewproj;
+		pc.vertex_buffer_address = obj.vertex_buffer_address;
+
+		vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ShadowPushConstants), &pc);
+		vkCmdDrawIndexed(cmd, obj.index_count, 1, obj.first_index, 0, 0);
+	};
+	
+	for (auto& obj : main_draw_context.opaque_objects)
+	{
+		draw(obj);
+	}
+
+	vkCmdEndRendering(cmd);
+
+	vkutil::transition_image(
+		cmd,
+		shadow_map.image,
+		VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+		VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
+		VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+		VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+		VK_ACCESS_2_SHADER_READ_BIT,
+		VK_IMAGE_ASPECT_DEPTH_BIT
+	);
+
+};
+
+void VulkanEngine::update_cascade()
+{
+	std::array<glm::vec3, 8> frustum_corners{
+		glm::vec3(-1,  1,  0),
+		glm::vec3( 1,  1,  0),
+		glm::vec3(-1, -1,  0),
+		glm::vec3( 1, -1,  0),
+		glm::vec3(-1,  1,  1),
+		glm::vec3( 1,  1,  1),
+		glm::vec3(-1, -1,  1),
+		glm::vec3( 1, -1,  1),
+	};
+
+	glm::mat4 view = main_camera.get_view_matrix();
+	// (!) hardcoded near plane, fix
+	glm::mat4 proj = glm::perspective(glm::radians(70.0f), static_cast<float>(draw_extent.width) / draw_extent.height, 2.5f, 0.01f);
+	glm::mat4 inv_viewproj = glm::inverse(proj * view);
+
+	for (size_t i = 0; i < frustum_corners.size(); i++)
+	{
+		glm::vec4 corner = inv_viewproj * glm::vec4(frustum_corners[i], 1.0);
+		frustum_corners[i] = glm::vec3(corner / corner.w);
+	}
+
+	glm::vec3 center{};
+	for (size_t i = 0; i < frustum_corners.size(); i++)
+	{
+		center += frustum_corners[i];
+	}
+
+	center /= 8.0f;
+	cascade_data.center = center;
+
+	float radius{};
+	for (size_t i = 0; i < frustum_corners.size(); i++)
+	{
+		radius = std::max(radius, glm::length(frustum_corners[i] - center));
+	}
+
+	radius = std::ceil(radius * 16.0f) / 16.0f; // shimmering fix
+
+	cascade_data.radius = radius;
 }
