@@ -35,6 +35,19 @@
 #include "glm/ext.hpp"
 #include "glm/gtx/string_cast.hpp"
 
+#include "imgui.h"
+#include "imgui_impl_sdl2.h"
+#include "imgui_impl_vulkan.h"
+
+static void check_vk_result(VkResult err)
+{
+	if (err == 0)
+		return;
+	fprintf(stderr, "[vulkan] Error: VkResult = %d\n", err);
+	if (err < 0)
+		abort();
+}
+
 #include <thread>
 
 VulkanEngine* loaded_engine{};
@@ -87,8 +100,10 @@ void VulkanEngine::init()
 
 	init_bindless();
 
+	init_imgui();
+
 	main_camera.position = glm::vec3(0, 0, 5);
-	// draw_extent set in init_default_data
+	// (!) refactor? draw_extent set in init_default_data
 	main_camera.perspective = glm::perspective(glm::radians(70.0f), static_cast<float>(draw_extent.width) / draw_extent.height, 45.0f, 0.01f);
 
 	init_precomputations();
@@ -186,10 +201,23 @@ void VulkanEngine::draw()
 		cmd,
 		swapchain_images[swapchain_image_idx],
 		VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-		VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+		VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 		VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-		VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT,
+		VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
 		VK_ACCESS_2_TRANSFER_WRITE_BIT,
+		VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT
+	);
+	
+	draw_imgui(cmd, swapchain_image_views[swapchain_image_idx]);
+
+	vkutil::transition_image(
+		cmd,
+		swapchain_images[swapchain_image_idx],
+		VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+		VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+		VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+		VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT,
+		VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
 		0
 	);
 
@@ -423,6 +451,8 @@ void VulkanEngine::run()
 
 			if (!stop_movement)
 				main_camera.process_sdl_event(e);
+
+			ImGui_ImplSDL2_ProcessEvent(&e);
         }
 
         if (stop_rendering) {
@@ -430,11 +460,15 @@ void VulkanEngine::run()
             continue;
         }
 
+		ImGui_ImplVulkan_NewFrame();
+		ImGui_ImplSDL2_NewFrame();
+		ImGui::NewFrame();
+		
+		ImGui::ShowDemoWindow();
+
+		ImGui::Render();
+
         draw();
-
-		//auto end = std::chrono::system_clock::now();
-
-		//auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
     }
 }
 
@@ -669,7 +703,8 @@ void VulkanEngine::init_descriptors()
 	std::vector<DescriptorAllocatorGrowable::PoolSizeRatio> sizes = {
 		{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
 		{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 20 },
-		{ VK_DESCRIPTOR_TYPE_SAMPLER, 10 }
+		{ VK_DESCRIPTOR_TYPE_SAMPLER, 10 },
+		{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1} // imgui
 	};
 
 	global_descriptor_allocator.init(device, 1, sizes);
@@ -1234,8 +1269,8 @@ void VulkanEngine::init_renderables()
 		destroy_image(brdflut_image);
 		});
 
-	//std::string asset_path = "../../assets/DamagedHelmet/GLTF-Embedded/DamagedHelmet.gltf";
-	std::string asset_path = "../../assets/ABeautifulGame.glb";
+	std::string asset_path = "../../assets/DamagedHelmet/GLTF-Embedded/DamagedHelmet.gltf";
+	//std::string asset_path = "../../assets/ABeautifulGame.glb";
 	//std::string asset_path = "../../assets/sphere.gltf";
 	//std::string asset_path = "../../assets/oaktree.gltf";
 	auto start{ std::chrono::system_clock::now() };
@@ -1684,4 +1719,67 @@ void VulkanEngine::update_cascade()
 	new_center.y = std::floor(new_center.y * texels_per_unit) / texels_per_unit;
 	new_center = glm::inverse(light_aligned_view) * new_center;
 	cascade_data.center = new_center;
+}
+
+void VulkanEngine::init_imgui()
+{
+	VkDescriptorPoolSize pool_size{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, IMGUI_IMPL_VULKAN_MINIMUM_IMAGE_SAMPLER_POOL_SIZE };
+
+	VkDescriptorPoolCreateInfo pool_info{};
+	pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+	pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+	pool_info.maxSets = 1;
+	pool_info.poolSizeCount = 1;
+	pool_info.pPoolSizes = &pool_size;
+
+	VkDescriptorPool imgui_pool{};
+	vkCreateDescriptorPool(device, &pool_info, nullptr, &imgui_pool);
+
+	// Setup Dear ImGui context
+	IMGUI_CHECKVERSION();
+	ImGui::CreateContext();
+	ImGuiIO& io = ImGui::GetIO();
+	io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
+
+	// Setup Platform/Renderer backends
+	ImGui_ImplSDL2_InitForVulkan(window);
+	ImGui_ImplVulkan_InitInfo init_info{};
+	init_info.ApiVersion = VK_API_VERSION_1_3; // (!) hardcoded
+	init_info.Instance = instance;
+	init_info.PhysicalDevice = chosen_gpu;
+	init_info.Device = device;
+	init_info.QueueFamily = graphics_queue_family;
+	init_info.Queue = graphics_queue;
+	init_info.DescriptorPool = imgui_pool;
+	init_info.MinImageCount = 2;
+	init_info.ImageCount = 2;
+	init_info.UseDynamicRendering = true;
+	VkPipelineRenderingCreateInfo render_info{};
+	render_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
+	render_info.colorAttachmentCount = 1;
+	render_info.pColorAttachmentFormats = &swapchain_image_format;
+	init_info.PipelineInfoMain.PipelineRenderingCreateInfo = render_info;
+
+	ImGui_ImplVulkan_Init(&init_info);
+
+	main_deletion_queue.push_function([&, imgui_pool]() {
+		ImGui_ImplVulkan_Shutdown();
+		ImGui_ImplSDL2_Shutdown();
+		ImGui::DestroyContext();
+		vkDestroyDescriptorPool(device, imgui_pool, nullptr);
+	});
+}
+
+void VulkanEngine::draw_imgui(VkCommandBuffer cmd, VkImageView swapchain_view)
+{
+	//VkClearColorValue clear_color_value{ 0.0f, 0.0f, 0.0f, 1.0f };
+	//VkClearValue clear_value{ .color = clear_color_value };
+	VkRenderingAttachmentInfo color_attachment = vkinit::attachment_info(swapchain_view, nullptr);
+	VkRenderingInfo render_info = vkinit::rendering_info(swapchain_extent, &color_attachment, nullptr);
+	
+	vkCmdBeginRendering(cmd, &render_info);
+
+	ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
+	
+	vkCmdEndRendering(cmd);
 }

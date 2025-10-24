@@ -31,7 +31,7 @@ public:
 	VkDescriptorSet allocate(VkDevice device, VkDescriptorSetLayout layout, void* pNext = nullptr);
 
 private:
-	VkDescriptorPool get_pool(VkDevice device);
+	VkDescriptorPool get_pool(VkDevice device); 
 	VkDescriptorPool create_pool(VkDevice device, uint32_t max_sets, std::span<PoolSizeRatio> pool_ratios);
 
 	std::vector<PoolSizeRatio> ratios{};

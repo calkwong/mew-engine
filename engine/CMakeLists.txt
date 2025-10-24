@@ -1,14 +1,53 @@
-file(GLOB_RECURSE SOURCES
-	"${CMAKE_CURRENT_SOURCE_DIR}/*.h"
-	"${CMAKE_CURRENT_SOURCE_DIR}/*.cpp"
+add_executable(engine ${SOURCES})
+
+set(imgui_sources 
+	"${PROJECT_SOURCE_DIR}/external/imgui/imconfig.h"
+	"${PROJECT_SOURCE_DIR}/external/imgui/imgui.cpp"
+	"${PROJECT_SOURCE_DIR}/external/imgui/imgui.h"
+	"${PROJECT_SOURCE_DIR}/external/imgui/imgui_demo.cpp"
+	"${PROJECT_SOURCE_DIR}/external/imgui/imgui_draw.cpp"
+	"${PROJECT_SOURCE_DIR}/external/imgui/imgui_internal.h"
+	"${PROJECT_SOURCE_DIR}/external/imgui/imgui_tables.cpp"
+	"${PROJECT_SOURCE_DIR}/external/imgui/imgui_widgets.cpp"
+	"${PROJECT_SOURCE_DIR}/external/imgui/imstb_rectpack.h"
+	"${PROJECT_SOURCE_DIR}/external/imgui/imstb_textedit.h"
+	"${PROJECT_SOURCE_DIR}/external/imgui/imstb_truetype.h"
+	"${PROJECT_SOURCE_DIR}/external/imgui/backends/imgui_impl_sdl2.cpp"
+	"${PROJECT_SOURCE_DIR}/external/imgui/backends/imgui_impl_sdl2.h"
+	"${PROJECT_SOURCE_DIR}/external/imgui/backends/imgui_impl_vulkan.cpp"
+	"${PROJECT_SOURCE_DIR}/external/imgui/backends/imgui_impl_vulkan.h"
 )
 
-add_executable(engine ${SOURCES})
+target_sources(engine PRIVATE
+	camera.cpp
+	camera.h
+	main.cpp
+	vk_descriptors.cpp
+	vk_descriptors.h
+	vk_engine.cpp
+	vk_engine.h
+	vk_images.cpp
+	vk_images.h
+	vk_initializers.cpp
+	vk_initializers.h
+	vk_loader.cpp
+	vk_loader.h
+	vk_pipelines.cpp
+	vk_pipelines.h
+	vk_scene.cpp
+	vk_scene.h
+	vk_types.h
+	${imgui_sources}
+)
 
 set_property(TARGET engine PROPERTY CXX_STANDARD 20)
 target_compile_definitions(engine PUBLIC GLM_FORCE_DEPTH_ZERO_TO_ONE)
 
-target_include_directories(engine PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+target_include_directories(engine PUBLIC 
+	"${CMAKE_CURRENT_SOURCE_DIR}"
+	"${PROJECT_SOURCE_DIR}/external/imgui/"
+	"${PROJECT_SOURCE_DIR}/external/imgui/backends/"
+)
 
 target_link_libraries(engine PUBLIC 
 	vma 
@@ -18,7 +57,6 @@ target_link_libraries(engine PUBLIC
 	stb_image 
 	SDL2::SDL2 
 	vkbootstrap 
-	imgui 
 	fastgltf::fastgltf
 	mikktspace
 )

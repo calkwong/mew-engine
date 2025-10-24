@@ -125,5 +125,5 @@ struct CascadeData
 {
     glm::mat4 viewproj{};
     glm::vec3 center{};
-    float radius{}; // sphere bounds
+    float radius{}; 
 };

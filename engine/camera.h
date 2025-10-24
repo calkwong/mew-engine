@@ -12,11 +12,6 @@ public:
 	float pitch{ 0.0f };
 	float yaw{ 0.0f };
 
-	float fov{};
-	float near{};
-	float far{};
-	float aspectRatio{};
-
 	glm::mat4 perspective{};
 
 	glm::mat4 get_view_matrix() const;

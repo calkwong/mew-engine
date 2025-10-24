@@ -174,7 +174,7 @@ class VulkanEngine
 {
 public:
 	bool is_initialized{ false };
-	int frame_number{ 0 };
+	uint32_t frame_number{ 0 };
 	bool stop_rendering{ false };
 	bool stop_movement{ false };
 	VkExtent2D window_extent{ 1700, 900 };
@@ -288,6 +288,7 @@ public:
 	void forward_pass(VkCommandBuffer cmd);
 	void shadow_pass(VkCommandBuffer cmd);
 	void update_cascade();
+	void draw_imgui(VkCommandBuffer cmd, VkImageView swapchain_view);
 
 private:
 	void init_vulkan();
@@ -300,6 +301,7 @@ private:
 	void init_renderables();
 	void init_bindless(); 
 	void init_precomputations();
+	void init_imgui();
 
 	void create_swapchain(uint32_t width, uint32_t height);
 	void destroy_swapchain();
