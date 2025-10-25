@@ -168,6 +168,7 @@ void VulkanEngine::draw()
 	get_current_frame().deletion_queue.flush();
 
 	SceneData* scene_uniform_data = static_cast<SceneData*>(get_current_frame().scene_buffer.info.pMappedData);
+	fmt::println("shadow transform: {}", glm::to_string(scene_data.shadow_transform));
 	*scene_uniform_data = scene_data;
 
 	uint32_t swapchain_image_idx{};
@@ -1269,10 +1270,10 @@ void VulkanEngine::init_renderables()
 		destroy_image(brdflut_image);
 		});
 
-	std::string asset_path = "../../assets/DamagedHelmet/GLTF-Embedded/DamagedHelmet.gltf";
+	//std::string asset_path = "../../assets/DamagedHelmet/GLTF-Embedded/DamagedHelmet.gltf";
 	//std::string asset_path = "../../assets/ABeautifulGame.glb";
 	//std::string asset_path = "../../assets/sphere.gltf";
-	//std::string asset_path = "../../assets/oaktree.gltf";
+	std::string asset_path = "../../assets/oaktree.gltf";
 	auto start{ std::chrono::system_clock::now() };
 	auto asset_file = load_gltf(this, asset_path, true);
 	auto end{ std::chrono::system_clock::now() };
@@ -1281,9 +1282,9 @@ void VulkanEngine::init_renderables()
 	fmt::println("load gltf: {}ms", ret);
 	assert(asset_file.has_value());
 	loaded_scenes["DamagedHelmet"] = *asset_file;
-	//asset_path = "../../assets/terrain_gridlines.gltf";
-	//asset_file = load_gltf(this, asset_path, true);
-	//loaded_scenes["terrain"] = *asset_file;
+	asset_path = "../../assets/terrain_gridlines.gltf";
+	asset_file = load_gltf(this, asset_path, true);
+	loaded_scenes["terrain"] = *asset_file;
 }
 
 void VulkanEngine::init_bindless()
@@ -1388,10 +1389,10 @@ void VulkanEngine::update_scene()
 		register_object(*n, glm::mat4(1.0), main_draw_context);
 	}
 
-	//for (auto& n : loaded_scenes["terrain"]->top_nodes)
-	//{
-	//	register_object(*n, glm::mat4(1.0), main_draw_context);
-	//}
+	for (auto& n : loaded_scenes["terrain"]->top_nodes)
+	{
+		register_object(*n, glm::mat4(1.0), main_draw_context);
+	}
 }
 
 uint32_t TextureCache::add_texture(const VkImageView& view)
@@ -1688,7 +1689,7 @@ void VulkanEngine::update_cascade()
 
 	glm::mat4 view = main_camera.get_view_matrix();
 	// (!) hardcoded near plane, fix
-	glm::mat4 proj = glm::perspective(glm::radians(70.0f), static_cast<float>(draw_extent.width) / draw_extent.height, 2.5f, 0.01f);
+	glm::mat4 proj = glm::perspective(glm::radians(70.0f), static_cast<float>(draw_extent.width) / draw_extent.height, 30.f, 0.01f);
 	glm::mat4 inv_viewproj = glm::inverse(proj * view);
 
 	for (size_t i = 0; i < frustum_corners.size(); i++)

@@ -93,6 +93,10 @@ float calculate_shadow()
 	
 	float currentDepth = lightFragPos.z;
 	
+	if (lightFragPos.x < -1.0 || lightFragPos.x > 1.0 || lightFragPos.y < -1.0 || lightFragPos.y > 1.0)
+		return 1.0;
+	
+	
 	if (currentDepth < 0.0 || currentDepth > 1.0)
 		return 1.0;
 	
