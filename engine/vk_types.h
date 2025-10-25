@@ -111,19 +111,17 @@ struct SceneData
     glm::mat4 view{};
     glm::mat4 proj{};
     glm::mat4 viewproj{};
-    glm::mat4 shadow_transform{};
-    glm::vec3 camera_pos{};
-    uint32_t irradiance_id{};
+    std::array<glm::mat4, 4> shadow_transforms{};
+    glm::vec4 cascade_splits{}; 
+    glm::vec4 camera_pos{};
     glm::vec4 sunlight_color{};
     glm::vec4 sunlight_dir{};
-    uint32_t prefiltered_id{};
-    uint32_t brdf_id{};
-    uint32_t shadow_id{};
+    glm::vec4 textures{}; // irradiance, prefiltered, brdf, shadow
 };
 
 struct CascadeData
 {
+    AllocatedImage shadow_map{};
     glm::mat4 viewproj{};
-    glm::vec3 center{};
-    float radius{}; 
+    float split_ratio{};
 };

@@ -8,8 +8,9 @@
 
 layout (location = 0) in vec3 inNormal;
 layout (location = 1) in vec3 inWorldPos;
-layout (location = 2) in vec2 inUV;
-layout (location = 3) in vec4 inTangent;
+layout (location = 2) in vec3 inViewPos;
+layout (location = 3) in vec2 inUV;
+layout (location = 4) in vec4 inTangent;
 
 layout (location = 0) out vec4 outFragColor;
 
@@ -87,24 +88,35 @@ vec3 F_Schlick(float u, vec3 f0)
     return f + f0 * (1.0 - f);
 }
 
+#define CASCADE_COUNT 4
+
 float calculate_shadow()
 {
-	vec3 lightFragPos = vec3(sceneData.shadowTransform * vec4(inWorldPos, 1.0)); // ortho, no division by w needed
+	float d = inViewPos.z; 
+	uint cascade_index = 0;;
+	for (uint i = 0; i < CASCADE_COUNT; i++)
+	{
+		if (d > sceneData.cascadeSplits[i])
+		{	
+			cascade_index = i;
+			break;
+		}
+	}
+
+	vec3 lightFragPos = vec3(sceneData.shadowTransforms[cascade_index] * vec4(inWorldPos, 1.0)); // ortho, no division by w needed
 	
 	float currentDepth = lightFragPos.z;
 	
-	if (lightFragPos.x < -1.0 || lightFragPos.x > 1.0 || lightFragPos.y < -1.0 || lightFragPos.y > 1.0)
-		return 1.0;
-	
-	
-	if (currentDepth < 0.0 || currentDepth > 1.0)
+	if (currentDepth < 0.0)
 		return 1.0;
 	
 	vec2 uv = vec2(lightFragPos.x, lightFragPos.y);
 	uv = uv * 0.5 + 0.5;
 	uv.y = 1.0 - uv.y;
 	
-	vec2 offset = 1.0 / textureSize(sampler2D(allTextures[sceneData.shadow_id], samplers[1]), 0);
+	uint shadow_id = uint(sceneData.textures[3]);
+	
+	vec2 offset = 1.0 / textureSize(sampler2D(allTextures[shadow_id + cascade_index], samplers[2]), 0);
 	
 	float shadow = 0.0;
 	float closestDepth = 0.0;
@@ -113,7 +125,7 @@ float calculate_shadow()
 		for (int x = -1; x <= 1; x++)
 		{
 			vec2 sample_uv = vec2(uv.x + x * offset.x, uv.y + y * offset.y);
-			closestDepth = texture(sampler2D(allTextures[sceneData.shadow_id], samplers[1]), sample_uv).r;
+			closestDepth = texture(sampler2D(allTextures[shadow_id + cascade_index], samplers[2]), sample_uv).r;
 			
 			if (closestDepth > currentDepth)
 				shadow += 0.0;
@@ -132,6 +144,10 @@ float calculate_shadow()
 void main() 
 {	
 	MaterialData m = pc.materialBuffer.materials[pc.materialID];
+	
+	uint irradiance_id = uint(sceneData.textures[0]);
+	uint prefiltered_id = uint(sceneData.textures[1]);
+	uint brdf_id = uint(sceneData.textures[2]);
 	
 	vec4 albedo = texture(sampler2D(allTextures[m.diffuseID], samplers[0]), inUV) * m.baseColorFactor;
 	vec3 lightColor = vec3(1.0);
@@ -164,9 +180,9 @@ void main()
 		vec3 R = reflect(-V, N);
 		float MAX_CURRENT_LOD = 7.0; // make into PC, 7 or 8?
 		float mip_level = perceptualRoughness * MAX_CURRENT_LOD;
-		vec3 irradiance = texture(samplerCube(allCubemaps[sceneData.irradiance_id], samplers[1]), N).rgb;
-		vec3 prefiltered = textureLod(samplerCube(allCubemaps[sceneData.prefiltered_id], samplers[1]), R, mip_level).rgb;
-		vec2 brdf = texture(sampler2D(allTextures[sceneData.brdf_id], samplers[1]), vec2(NdotV, perceptualRoughness)).rg;
+		vec3 irradiance = texture(samplerCube(allCubemaps[irradiance_id], samplers[1]), N).rgb;
+		vec3 prefiltered = textureLod(samplerCube(allCubemaps[prefiltered_id], samplers[1]), R, mip_level).rgb;
+		vec2 brdf = texture(sampler2D(allTextures[brdf_id], samplers[1]), vec2(NdotV, perceptualRoughness)).rg;
 	
 		vec3 F = F_SchlickRoughness(NdotV, f0, perceptualRoughness);
 		vec3 kS = F;
@@ -220,10 +236,6 @@ void main()
 	color += ambient;
 
 	outFragColor = vec4(color);
-	//outFragColor = albedo;
-	//outFragColor = ambient;
-	//outFragColor = vec4(vec3(perceptualRoughness), 1);
-	//outFragColor = vec4(N, 1);
 	//outFragColor = vec4(inNormal, 1);
 	//outFragColor.xyz = outFragColor.xyz * 0.5 + 0.5;
 }

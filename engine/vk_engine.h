@@ -223,6 +223,7 @@ public:
 
 	AllocatedImage shadow_map{};
 
+
 	VkSampler default_linear_sampler{};
 	VkSampler default_cube_sampler{};
 	VkSampler default_nearest_sampler{};
@@ -264,7 +265,8 @@ public:
 	BindlessImage bindless_image{};
 
 	SceneData scene_data{};
-	CascadeData cascade_data{};
+	//CascadeData cascade_data{};
+	std::array<CascadeData, 4> cascade_data{};
 
 	static VulkanEngine& get();
 
@@ -286,7 +288,7 @@ public:
 
 	void register_object(Node& node, const glm::mat4& top_matrix, DrawContext& ctx);
 	void forward_pass(VkCommandBuffer cmd);
-	void shadow_pass(VkCommandBuffer cmd);
+	void shadow_pass(VkCommandBuffer cmd, size_t cascade_idx);
 	void update_cascade();
 	void draw_imgui(VkCommandBuffer cmd, VkImageView swapchain_view);
 

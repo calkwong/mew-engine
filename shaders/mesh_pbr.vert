@@ -7,8 +7,9 @@
 
 layout (location = 0) out vec3 outNormal;
 layout (location = 1) out vec3 outWorldPos;
-layout (location = 2) out vec2 outUV;
-layout (location = 3) out vec4 outTangent;
+layout (location = 2) out vec3 outViewPos;
+layout (location = 3) out vec2 outUV;
+layout (location = 4) out vec4 outTangent;
 
 struct Vertex {
 	vec3 position;
@@ -53,6 +54,7 @@ void main()
 	Vertex v = pc.vertexBuffer.vertices[gl_VertexIndex];
 	
 	vec4 position = pc.worldMatrix * vec4(v.position, 1.0);
+	outViewPos = vec3(sceneData.view * position);
 	gl_Position =  sceneData.viewproj * position;
 
 	outNormal = mat3(transpose(inverse(pc.worldMatrix))) * v.normal;

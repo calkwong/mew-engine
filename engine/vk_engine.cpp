@@ -11,21 +11,6 @@
 #include <vk_loader.h>
 
 #define VMA_IMPLEMENTATION
-
-//#ifndef VMA_DEBUG_LOG_FORMAT 
-//
-//#define VMA_DEBUG_LOG_FORMAT(format, ...) do { \
-//	printf((format), __VA_ARGS__); \
-//	printf("\n"); \
-//} while(false)
-//
-//#endif 
-//
-//#ifndef VMA_DEBUG_LOG 
-//#define VMA_DEBUG_LOG(str)   VMA_DEBUG_LOG_FORMAT("%s", (str)) 
-//#endif 
-
-
 #include "vk_mem_alloc.h"
 
 #include <glm/gtx/transform.hpp>
@@ -39,15 +24,6 @@
 #include "imgui_impl_sdl2.h"
 #include "imgui_impl_vulkan.h"
 
-static void check_vk_result(VkResult err)
-{
-	if (err == 0)
-		return;
-	fprintf(stderr, "[vulkan] Error: VkResult = %d\n", err);
-	if (err < 0)
-		abort();
-}
-
 #include <thread>
 
 VulkanEngine* loaded_engine{};
@@ -56,11 +32,7 @@ VulkanEngine& VulkanEngine::get() { return *loaded_engine; }
 
 constexpr bool USE_VALIDATION_LAYERS = true;
 
-uint32_t equi_id{};
-uint32_t cube_id{};
-uint32_t irradiance_id{};
-uint32_t prefiltered_id{};
-uint32_t brdflut_id{};
+constexpr float LIGHT_FAR_PLANE{ 20.0f };
 
 void VulkanEngine::init()
 {
@@ -104,7 +76,7 @@ void VulkanEngine::init()
 
 	main_camera.position = glm::vec3(0, 0, 5);
 	// (!) refactor? draw_extent set in init_default_data
-	main_camera.perspective = glm::perspective(glm::radians(70.0f), static_cast<float>(draw_extent.width) / draw_extent.height, 45.0f, 0.01f);
+	main_camera.perspective = glm::perspective(glm::radians(70.0f), static_cast<float>(draw_extent.width) / draw_extent.height, 50.0f, 0.01f);
 
 	init_precomputations();
 
@@ -168,7 +140,7 @@ void VulkanEngine::draw()
 	get_current_frame().deletion_queue.flush();
 
 	SceneData* scene_uniform_data = static_cast<SceneData*>(get_current_frame().scene_buffer.info.pMappedData);
-	fmt::println("shadow transform: {}", glm::to_string(scene_data.shadow_transform));
+	//fmt::println("shadow transform: {}", glm::to_string(scene_data.shadow_transforms[0]));
 	*scene_uniform_data = scene_data;
 
 	uint32_t swapchain_image_idx{};
@@ -182,7 +154,10 @@ void VulkanEngine::draw()
 
 	VK_CHECK(vkBeginCommandBuffer(cmd, &cmd_begin_info));
 
-	shadow_pass(cmd);
+	for (size_t i = 0; i < cascade_data.size(); i++)
+	{
+		shadow_pass(cmd, i);
+	}
 	forward_pass(cmd);
 
 	vkutil::transition_image(
@@ -503,17 +478,21 @@ void VulkanEngine::init_vulkan()
 	features12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
 	features12.bufferDeviceAddress = true;
 	features12.descriptorIndexing = true;
-	// bindless textures
 	features12.descriptorBindingPartiallyBound = true;
 	features12.descriptorBindingVariableDescriptorCount = true;
 	features12.runtimeDescriptorArray = true;
 	features12.shaderSampledImageArrayNonUniformIndexing = true;
+
+	// vulkan 1.0 features
+	//VkPhysicalDeviceFeatures features10{};
+	//features10.depthClamp = true;
 
 	// use vkbootstrap to select a gpu. 
 	// we want a gpu that can write to the SDL surface and supports vulkan 1.3 with the correct features
 	vkb::PhysicalDeviceSelector selector{ vkb_inst };
 	vkb::PhysicalDevice physicalDevice = selector
 		.set_minimum_version(1, 3)
+		//.set_required_features(features10)
 		.set_required_features_13(features13)
 		.set_required_features_12(features12)
 		.set_surface(surface)
@@ -705,7 +684,6 @@ void VulkanEngine::init_descriptors()
 		{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
 		{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 20 },
 		{ VK_DESCRIPTOR_TYPE_SAMPLER, 10 },
-		{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1} // imgui
 	};
 
 	global_descriptor_allocator.init(device, 1, sizes);
@@ -1153,21 +1131,49 @@ void VulkanEngine::init_default_data()
 	vkCreateSampler(device, &sampler_info, nullptr, &sampler);
 	sampler_cache.add_sampler(sampler);
 
+	sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+	sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+	sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+	sampler_info.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK; // reverse depth
+
+	vkCreateSampler(device, &sampler_info, nullptr, &sampler);
+	sampler_cache.add_sampler(sampler);
+
 	sampler_info.magFilter = VK_FILTER_NEAREST;
 	sampler_info.minFilter = VK_FILTER_NEAREST;
 	sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
 	sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
 	sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+	sampler_info.borderColor = {};
 
 	vkCreateSampler(device, &sampler_info, nullptr, &sampler);
 	sampler_cache.add_sampler(sampler);
 
-	//> shadow map
-	shadow_map = create_image(VkExtent3D{ 4096, 4096, 1 }, VK_FORMAT_D32_SFLOAT, 
-		VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_DEPTH_BIT
-	);
+	//> CSM
+	float far = LIGHT_FAR_PLANE; // (!) hard coded
+	float near = 0.1;
+	float m = cascade_data.size();
+	float range = far - near;
+	float ratio = far / near;
+	float lambda = 0.5;
 
-	bindless_texture.shadow = texture_cache.add_texture(shadow_map.view);
+	for (size_t idx = 0; idx < m; idx++)
+	{
+		size_t i = idx + 1;
+		float log = near * std::pow(ratio, i / m);
+		float uniform = near + range * i / m;
+		float split = lambda * log + (1.0 - lambda) * uniform; // in world units
+		cascade_data[idx].split_ratio = (split - near) / range;
+		scene_data.cascade_splits[idx] = (cascade_data[idx].split_ratio * range + near) * -1.0;
+
+		cascade_data[idx].shadow_map = create_image(VkExtent3D{4096, 4096, 1}, VK_FORMAT_D32_SFLOAT,
+			VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_DEPTH_BIT
+		);
+
+		bindless_texture.shadow = texture_cache.add_texture(cascade_data[idx].shadow_map.view);
+	}
+
+	bindless_texture.shadow -= (cascade_data.size() - 1); // dirty adj
 
 	main_deletion_queue.push_function([&]() {
 		destroy_image(white_image);
@@ -1175,7 +1181,11 @@ void VulkanEngine::init_default_data()
 		destroy_image(default_mr_image);
 		destroy_image(default_normal_image);
 		destroy_image(error_image);
-		destroy_image(shadow_map);
+
+		for (size_t i = 0; i < cascade_data.size(); i++)
+		{
+			destroy_image(cascade_data[i].shadow_map);
+		}
 	});
 }
 
@@ -1227,10 +1237,11 @@ void VulkanEngine::init_renderables()
 	bindless_texture.prefiltered = texture_cache.add_texture(prefiltered_image.view);
 	bindless_texture.brdf = texture_cache.add_texture(brdflut_image.view);
 
-	scene_data.brdf_id = bindless_texture.brdf;
-	scene_data.irradiance_id = bindless_texture.irradiance;
-	scene_data.prefiltered_id = bindless_texture.prefiltered;
-	scene_data.shadow_id = bindless_texture.shadow;
+	// (!) hardcoded
+	scene_data.textures[0] = bindless_texture.brdf;
+	scene_data.textures[1] = bindless_texture.irradiance;
+	scene_data.textures[2] = bindless_texture.prefiltered;
+	scene_data.textures[3] = bindless_texture.shadow;
 
 	bindless_image.skybox = image_cache.add_texture(cubemap_image.view);
 	bindless_image.irradiance = image_cache.add_texture(irradiance_image.view);
@@ -1371,17 +1382,17 @@ void VulkanEngine::update_scene()
 	scene_data.sunlight_color = glm::vec4(1);
 
 	update_cascade();
-	auto light_dir = glm::normalize(glm::vec3(scene_data.sunlight_dir));
-	glm::mat4 shadow_view = glm::lookAt(cascade_data.center + cascade_data.radius * light_dir, cascade_data.center, glm::vec3(0, 1, 0));
-	auto extent = cascade_data.radius;
-	auto shadow_proj = glm::ortho(-extent, extent, -extent, extent, extent * 2.0f, 0.0f);
-	cascade_data.viewproj = shadow_proj * shadow_view;
-	scene_data.shadow_transform = cascade_data.viewproj;
-	scene_data.camera_pos = main_camera.position;
+	for (size_t i = 0; i < cascade_data.size(); i++)
+	{
+		scene_data.shadow_transforms[i] = cascade_data[i].viewproj;
+	}
+	scene_data.camera_pos = glm::vec4(main_camera.position, 1.0);
 
 	main_draw_context.opaque_objects.clear();
 	if (main_draw_context.transparent_objects.size() != 0)
-		fmt::println("transparent_objects not empty"); // (!) debug
+	{
+		//fmt::println("transparent_objects not empty"); // (!) debug
+	}
 	main_draw_context.transparent_objects.clear();
 
 	for (auto& n : loaded_scenes["DamagedHelmet"]->top_nodes)
@@ -1596,11 +1607,13 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 	);
 }
 
-void VulkanEngine::shadow_pass(VkCommandBuffer cmd)
+void VulkanEngine::shadow_pass(VkCommandBuffer cmd, size_t cascade_idx)
 {
+	auto cascade = cascade_data[cascade_idx];
+
 	vkutil::transition_image(
 		cmd,
-		shadow_map.image,
+		cascade.shadow_map.image,
 		VK_IMAGE_LAYOUT_UNDEFINED,
 		VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
 		VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
@@ -1610,8 +1623,8 @@ void VulkanEngine::shadow_pass(VkCommandBuffer cmd)
 		VK_IMAGE_ASPECT_DEPTH_BIT
 	);
 
-	VkRenderingAttachmentInfo depth_attachment = vkinit::depth_attachment_info(shadow_map.view);
-	VkExtent2D shadow_extent = VkExtent2D{ shadow_map.extent.width, shadow_map.extent.height };
+	VkRenderingAttachmentInfo depth_attachment = vkinit::depth_attachment_info(cascade.shadow_map.view);
+	VkExtent2D shadow_extent = VkExtent2D{ cascade.shadow_map.extent.width, cascade.shadow_map.extent.height };
 	VkRenderingInfo render_info = vkinit::rendering_info(shadow_extent, nullptr, &depth_attachment);
 	//render_info.colorAttachmentCount = 0; // implemented into above
 
@@ -1646,7 +1659,7 @@ void VulkanEngine::shadow_pass(VkCommandBuffer cmd)
 
 		ShadowPushConstants pc{};
 		pc.model = obj.transform;
-		pc.viewproj = cascade_data.viewproj;
+		pc.viewproj = cascade.viewproj;
 		pc.vertex_buffer_address = obj.vertex_buffer_address;
 
 		vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ShadowPushConstants), &pc);
@@ -1662,7 +1675,7 @@ void VulkanEngine::shadow_pass(VkCommandBuffer cmd)
 
 	vkutil::transition_image(
 		cmd,
-		shadow_map.image,
+		cascade.shadow_map.image,
 		VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
 		VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 		VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
@@ -1676,50 +1689,69 @@ void VulkanEngine::shadow_pass(VkCommandBuffer cmd)
 
 void VulkanEngine::update_cascade()
 {
-	std::array<glm::vec3, 8> frustum_corners{
-		glm::vec3(-1,  1,  0),
-		glm::vec3( 1,  1,  0),
-		glm::vec3(-1, -1,  0),
-		glm::vec3( 1, -1,  0),
-		glm::vec3(-1,  1,  1),
-		glm::vec3( 1,  1,  1),
-		glm::vec3(-1, -1,  1),
-		glm::vec3( 1, -1,  1),
-	};
+	auto light_dir = glm::normalize(glm::vec3(scene_data.sunlight_dir));
 
 	glm::mat4 view = main_camera.get_view_matrix();
-	// (!) hardcoded near plane, fix
-	glm::mat4 proj = glm::perspective(glm::radians(70.0f), static_cast<float>(draw_extent.width) / draw_extent.height, 30.f, 0.01f);
+	// (!) hardcoded near plane, refactor
+	// (!) refactor draw_extent?
+	glm::mat4 proj = glm::perspective(glm::radians(70.0f), static_cast<float>(draw_extent.width) / draw_extent.height, LIGHT_FAR_PLANE, 0.01f);
 	glm::mat4 inv_viewproj = glm::inverse(proj * view);
-
-	for (size_t i = 0; i < frustum_corners.size(); i++)
+	float last_split = 0.0;
+	for (size_t i = 0; i < cascade_data.size(); i++)
 	{
-		glm::vec4 corner = inv_viewproj * glm::vec4(frustum_corners[i], 1.0);
-		frustum_corners[i] = glm::vec3(corner / corner.w);
-	}
+		float current_split = cascade_data[i].split_ratio;
 
-	glm::vec3 center{};
-	for (size_t i = 0; i < frustum_corners.size(); i++)
-	{
-		center += frustum_corners[i];
-	}
-	center /= 8.0f;
+		std::array<glm::vec3, 8> frustum_corners{
+			glm::vec3(-1,  1,  1),
+			glm::vec3( 1,  1,  1),
+			glm::vec3(-1, -1,  1),
+			glm::vec3( 1, -1,  1),
+			glm::vec3(-1,  1,  0),
+			glm::vec3( 1,  1,  0),
+			glm::vec3(-1, -1,  0),
+			glm::vec3( 1, -1,  0), // reverse depth order
+		};
 
-	float radius{};
-	for (size_t i = 0; i < frustum_corners.size(); i++)
-	{
-		radius = std::max(radius, glm::length(frustum_corners[i] - center));
-	}
-	cascade_data.radius = radius;
+		for (size_t i = 0; i < frustum_corners.size(); i++)
+		{
+			glm::vec4 corner = inv_viewproj * glm::vec4(frustum_corners[i], 1.0);
+			frustum_corners[i] = glm::vec3(corner / corner.w);
+		}
 
-	// texel snapping - https://alextardif.com/shadowmapping.html
-	float texels_per_unit = 4096.0 / (2.0 * radius); // (!) hardcoded
-	glm::mat4 light_aligned_view = glm::lookAt(glm::vec3(0), -glm::normalize(glm::vec3(scene_data.sunlight_dir)), glm::vec3(0, 1, 0));
-	glm::vec4 new_center = light_aligned_view * glm::vec4(center, 1.0);
-	new_center.x = std::floor(new_center.x * texels_per_unit) / texels_per_unit;
-	new_center.y = std::floor(new_center.y * texels_per_unit) / texels_per_unit;
-	new_center = glm::inverse(light_aligned_view) * new_center;
-	cascade_data.center = new_center;
+		for (size_t i = 0; i < 4; i++)
+		{
+			glm::vec3 distance = frustum_corners[i + 4] - frustum_corners[i];
+			frustum_corners[i] = frustum_corners[i] + distance * last_split;
+			frustum_corners[i + 4] = frustum_corners[i] + distance * current_split;
+		}
+		last_split = current_split;
+
+		glm::vec3 center{};
+		for (size_t i = 0; i < frustum_corners.size(); i++)
+		{
+			center += frustum_corners[i];
+		}
+		center /= 8.0f;
+
+		float radius{};
+		// optimization possible?
+		for (size_t i = 0; i < frustum_corners.size(); i++)
+		{
+			radius = std::max(radius, glm::length(frustum_corners[i] - center));
+		}
+
+		// texel snapping - https://alextardif.com/shadowmapping.html
+		float texels_per_unit = 4096.0 / (2.0 * radius); // (!) hardcoded
+		glm::mat4 light_aligned_view = glm::lookAt(glm::vec3(0), -light_dir, glm::vec3(0, 1, 0));
+		glm::vec4 new_center = light_aligned_view * glm::vec4(center, 1.0);
+		new_center.x = std::floor(new_center.x * texels_per_unit) / texels_per_unit;
+		new_center.y = std::floor(new_center.y * texels_per_unit) / texels_per_unit;
+		new_center = glm::inverse(light_aligned_view) * new_center;
+		center = glm::vec3(new_center);
+		glm::mat4 shadow_view = glm::lookAt(center + radius * light_dir, center, glm::vec3(0, 1, 0));
+		glm::mat4 shadow_proj = glm::ortho(-radius, radius, -radius, radius, radius * 2.0f, 0.0f);
+		cascade_data[i].viewproj = shadow_proj * shadow_view;
+	}
 }
 
 void VulkanEngine::init_imgui()
