@@ -247,9 +247,6 @@ public:
 
 	std::unordered_map<std::string, std::shared_ptr<LoadedGLTF>> loaded_scenes{};
 
-	// (!) temp, refactor and move elsewhere?
-	VkPipeline pbr_pipeline{};
-	VkPipelineLayout pbr_pipeline_layout{};
 	VkDescriptorSetLayout scene_descriptor_layout{};
 	VkDescriptorSetLayout bindless_tex_layout{};
 	VkDescriptorSetLayout bindless_sampler_layout{};
@@ -265,7 +262,6 @@ public:
 	BindlessImage bindless_image{};
 
 	SceneData scene_data{};
-	//CascadeData cascade_data{};
 	std::array<CascadeData, 4> cascade_data{};
 
 	static VulkanEngine& get();

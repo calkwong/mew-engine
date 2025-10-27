@@ -9,6 +9,7 @@
 #include <vk_descriptors.h>
 #include <vk_pipelines.h>
 #include <vk_loader.h>
+#include <cvars.h>
 
 #define VMA_IMPLEMENTATION
 #include "vk_mem_alloc.h"
@@ -19,6 +20,7 @@
 // for glm debug
 #include "glm/ext.hpp"
 #include "glm/gtx/string_cast.hpp"
+
 
 #include "imgui.h"
 #include "imgui_impl_sdl2.h"
@@ -33,6 +35,9 @@ VulkanEngine& VulkanEngine::get() { return *loaded_engine; }
 constexpr bool USE_VALIDATION_LAYERS = true;
 
 constexpr float LIGHT_FAR_PLANE{ 20.0f };
+constexpr uint32_t SHADOW_MAP_SIZE{ 4096 };
+
+AutoCVar_Int draw_shadow{ "shadow.draw", "activate shadows", 1, 1, CVarFlags::EditCheckbox };
 
 void VulkanEngine::init()
 {
@@ -76,7 +81,10 @@ void VulkanEngine::init()
 
 	main_camera.position = glm::vec3(0, 0, 5);
 	// (!) refactor? draw_extent set in init_default_data
-	main_camera.perspective = glm::perspective(glm::radians(70.0f), static_cast<float>(draw_extent.width) / draw_extent.height, 50.0f, 0.01f);
+	main_camera.near = 50.0f;
+	main_camera.far = 0.01f;
+	main_camera.fov = 70.0f;
+	main_camera.perspective = glm::perspective(glm::radians(main_camera.fov), static_cast<float>(draw_extent.width) / draw_extent.height, main_camera.near, main_camera.far);
 
 	init_precomputations();
 
@@ -133,7 +141,6 @@ void VulkanEngine::cleanup()
 
 void VulkanEngine::draw()
 {
-	update_scene();
 	VK_CHECK(vkWaitForFences(device, 1, &get_current_frame().render_fence, true, 1000000000));
 	VK_CHECK(vkResetFences(device, 1, &get_current_frame().render_fence));
 
@@ -158,6 +165,7 @@ void VulkanEngine::draw()
 	{
 		shadow_pass(cmd, i);
 	}
+
 	forward_pass(cmd);
 
 	vkutil::transition_image(
@@ -255,7 +263,7 @@ void VulkanEngine::init_precomputations()
 	pc.texture_id = bindless_texture.equi;
 	pc.image_id = bindless_image.skybox; 
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IBLPushConstants), &pc);
-	vkCmdDispatch(cmd, std::ceil(cubemap_image.extent.width / 16.0), std::ceil(cubemap_image.extent.height / 16.0), 1);
+	vkCmdDispatch(cmd, static_cast<uint32_t>(std::ceil(cubemap_image.extent.width / 16.0)), static_cast<uint32_t>(std::ceil(cubemap_image.extent.height / 16.0)), 1);
 
 	vkutil::transition_image(
 		cmd,
@@ -299,7 +307,7 @@ void VulkanEngine::init_precomputations()
 	pc.texture_id = bindless_texture.skybox;
 	pc.image_id = bindless_image.irradiance;
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IBLPushConstants), &pc);
-	vkCmdDispatch(cmd, std::ceil(irradiance_image.extent.width / 8.0), std::ceil(irradiance_image.extent.height / 8.0), 1);
+	vkCmdDispatch(cmd, static_cast<uint32_t>(std::ceil(irradiance_image.extent.width / 8.0)), static_cast<uint32_t>(std::ceil(irradiance_image.extent.height / 8.0)), 1);
 
 	vkutil::transition_image(
 		cmd,
@@ -335,7 +343,7 @@ void VulkanEngine::init_precomputations()
 		pc.image_id = bindless_image.prefiltered + mip; 
 		pc.roughness = static_cast<float>(mip) / (mip_level - 1);
 		vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IBLPushConstants), &pc);
-		vkCmdDispatch(cmd, std::ceil((prefiltered_image.extent.width >> mip) / 8.0), std::ceil((prefiltered_image.extent.height >> mip) / 8.0), 1);
+		vkCmdDispatch(cmd, static_cast<uint32_t>(std::ceil((prefiltered_image.extent.width >> mip) / 8.0)), static_cast<uint32_t>(std::ceil((prefiltered_image.extent.height >> mip) / 8.0)), 1);
 	}
 
 	vkutil::transition_image(
@@ -367,7 +375,7 @@ void VulkanEngine::init_precomputations()
 
 	pc.image_id = bindless_image.brdf;
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IBLPushConstants), &pc);
-	vkCmdDispatch(cmd, std::ceil(brdflut_image.extent.width / 8.0), std::ceil(brdflut_image.extent.height / 8.0), 1);
+	vkCmdDispatch(cmd, static_cast<uint32_t>(std::ceil(brdflut_image.extent.width / 8.0)), static_cast<uint32_t>(std::ceil(brdflut_image.extent.height / 8.0)), 1);
 
 	vkutil::transition_image(
 		cmd,
@@ -440,9 +448,12 @@ void VulkanEngine::run()
 		ImGui_ImplSDL2_NewFrame();
 		ImGui::NewFrame();
 		
-		ImGui::ShowDemoWindow();
+		//ImGui::ShowDemoWindow();
+		CVarSystem::get()->draw_imgui_editor();
 
 		ImGui::Render();
+
+		update_scene();
 
         draw();
     }
@@ -1150,30 +1161,30 @@ void VulkanEngine::init_default_data()
 	sampler_cache.add_sampler(sampler);
 
 	//> CSM
-	float far = LIGHT_FAR_PLANE; // (!) hard coded
-	float near = 0.1;
-	float m = cascade_data.size();
+	float far = LIGHT_FAR_PLANE; 
+	float near = main_camera.far; 
+	size_t m = cascade_data.size();
 	float range = far - near;
 	float ratio = far / near;
 	float lambda = 0.5;
 
 	for (size_t idx = 0; idx < m; idx++)
 	{
-		size_t i = idx + 1;
-		float log = near * std::pow(ratio, i / m);
+		float i = idx + 1.0f;
+		float log = near * std::powf(ratio, i / m);
 		float uniform = near + range * i / m;
-		float split = lambda * log + (1.0 - lambda) * uniform; // in world units
+		float split = lambda * log + (1.0f - lambda) * uniform; // in world units
 		cascade_data[idx].split_ratio = (split - near) / range;
-		scene_data.cascade_splits[idx] = (cascade_data[idx].split_ratio * range + near) * -1.0;
+		scene_data.cascade_splits[static_cast<int>(idx)] = (cascade_data[idx].split_ratio * range + near) * -1.0f;
 
-		cascade_data[idx].shadow_map = create_image(VkExtent3D{4096, 4096, 1}, VK_FORMAT_D32_SFLOAT,
+		cascade_data[idx].shadow_map = create_image(VkExtent3D{SHADOW_MAP_SIZE, SHADOW_MAP_SIZE, 1}, VK_FORMAT_D32_SFLOAT,
 			VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_DEPTH_BIT
 		);
 
 		bindless_texture.shadow = texture_cache.add_texture(cascade_data[idx].shadow_map.view);
 	}
 
-	bindless_texture.shadow -= (cascade_data.size() - 1); // dirty adj
+	bindless_texture.shadow -= (static_cast<uint8_t>(cascade_data.size()) - 1); // dirty adj
 
 	main_deletion_queue.push_function([&]() {
 		destroy_image(white_image);
@@ -1237,7 +1248,6 @@ void VulkanEngine::init_renderables()
 	bindless_texture.prefiltered = texture_cache.add_texture(prefiltered_image.view);
 	bindless_texture.brdf = texture_cache.add_texture(brdflut_image.view);
 
-	// (!) hardcoded
 	scene_data.textures[0] = bindless_texture.brdf;
 	scene_data.textures[1] = bindless_texture.irradiance;
 	scene_data.textures[2] = bindless_texture.prefiltered;
@@ -1311,9 +1321,9 @@ void VulkanEngine::init_bindless()
 	variable_desc_info.descriptorSetCount = static_cast<uint32_t>(variable_desc_counts.size());
 
 	bindless_tex_descriptor = global_descriptor_allocator.allocate(device, bindless_tex_layout, &variable_desc_info);
-	variable_desc_counts[0] = sampler_cache.image_infos.size();
+	variable_desc_counts[0] = static_cast<uint32_t>(sampler_cache.image_infos.size());
 	bindless_sampler_descriptor = global_descriptor_allocator.allocate(device, bindless_sampler_layout, &variable_desc_info);
-	variable_desc_counts[0] = image_cache.image_infos.size();
+	variable_desc_counts[0] = static_cast<uint32_t>(image_cache.image_infos.size());
 	bindless_image_descriptor = global_descriptor_allocator.allocate(device, bindless_image_layout, &variable_desc_info);
 
 	std::vector<VkWriteDescriptorSet> writes{};
@@ -1692,9 +1702,8 @@ void VulkanEngine::update_cascade()
 	auto light_dir = glm::normalize(glm::vec3(scene_data.sunlight_dir));
 
 	glm::mat4 view = main_camera.get_view_matrix();
-	// (!) hardcoded near plane, refactor
 	// (!) refactor draw_extent?
-	glm::mat4 proj = glm::perspective(glm::radians(70.0f), static_cast<float>(draw_extent.width) / draw_extent.height, LIGHT_FAR_PLANE, 0.01f);
+	glm::mat4 proj = glm::perspective(glm::radians(main_camera.fov), static_cast<float>(draw_extent.width) / draw_extent.height, LIGHT_FAR_PLANE, main_camera.far);
 	glm::mat4 inv_viewproj = glm::inverse(proj * view);
 	float last_split = 0.0;
 	for (size_t i = 0; i < cascade_data.size(); i++)
@@ -1734,14 +1743,14 @@ void VulkanEngine::update_cascade()
 		center /= 8.0f;
 
 		float radius{};
-		// optimization possible?
+		// (!) optimization possible? 2 furthest corners already known?
 		for (size_t i = 0; i < frustum_corners.size(); i++)
 		{
 			radius = std::max(radius, glm::length(frustum_corners[i] - center));
 		}
 
 		// texel snapping - https://alextardif.com/shadowmapping.html
-		float texels_per_unit = 4096.0 / (2.0 * radius); // (!) hardcoded
+		float texels_per_unit = SHADOW_MAP_SIZE / (2.0f * radius); 
 		glm::mat4 light_aligned_view = glm::lookAt(glm::vec3(0), -light_dir, glm::vec3(0, 1, 0));
 		glm::vec4 new_center = light_aligned_view * glm::vec4(center, 1.0);
 		new_center.x = std::floor(new_center.x * texels_per_unit) / texels_per_unit;

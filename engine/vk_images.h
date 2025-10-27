@@ -20,5 +20,5 @@ namespace vkutil
 	void copy_image(VkCommandBuffer cmd, VkImage src, VkImage dst, VkExtent2D src_extent, VkExtent2D dst_extent);
 
 	// assumes entire image begins in transfer_dst format, and returns in transfer_src format
-	void generate_mipmaps(VkCommandBuffer cmd, VkImage image, VkExtent2D extent, uint32_t layers = 0);
+	void generate_mipmaps(VkCommandBuffer cmd, VkImage image, VkExtent2D extent, uint32_t layers = 1);
 }

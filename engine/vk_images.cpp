@@ -68,7 +68,7 @@ void vkutil::copy_image(VkCommandBuffer cmd, VkImage src, VkImage dst, VkExtent2
 	vkCmdBlitImage2(cmd, &blit_info);
 }
 
-void vkutil::generate_mipmaps(VkCommandBuffer cmd, VkImage image, VkExtent2D image_size, uint32_t layers)
+void vkutil::generate_mipmaps(VkCommandBuffer cmd, VkImage image, VkExtent2D image_size, uint32_t layers /*= 1*/)
 {
 	int mip_levels = int(std::floor(std::log2(std::max(image_size.width, image_size.height)))) + 1;
 	int current_layer = layers - 1;

@@ -37,6 +37,8 @@ target_sources(engine PRIVATE
 	vk_scene.cpp
 	vk_scene.h
 	vk_types.h
+	cvars.h
+	cvars.cpp
 	${imgui_sources}
 )
 

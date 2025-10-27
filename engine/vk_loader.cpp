@@ -43,7 +43,7 @@ VkSamplerMipmapMode extract_mipmap(fastgltf::Filter filter)
 	}
 }
 
-std::optional<AllocatedImage> load_image(VulkanEngine* engine, fastgltf::Asset& asset, fastgltf::Image& image, VkFormat format)
+std::optional<AllocatedImage> load_image(VulkanEngine* engine, fastgltf::Asset& asset, fastgltf::Image& image, VkFormat format, bool mipmapped = false)
 {
 	AllocatedImage new_image{};
 
@@ -62,8 +62,8 @@ std::optional<AllocatedImage> load_image(VulkanEngine* engine, fastgltf::Asset& 
 					unsigned char* data = stbi_load(path.c_str(), &width, &height, &channels, 4);
 					if (data)
 					{
-						VkExtent3D image_size{ width, height, 1};
-						new_image = engine->create_image(data, image_size, format, VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+						VkExtent3D image_size{ static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1 };
+						new_image = engine->create_image(data, image_size, format, VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT, 0, mipmapped);
 
 						stbi_image_free(data);
 					}
@@ -72,8 +72,8 @@ std::optional<AllocatedImage> load_image(VulkanEngine* engine, fastgltf::Asset& 
 					unsigned char* data = stbi_load_from_memory(vector.bytes.data(), static_cast<int>(vector.bytes.size()), &width, &height, &channels, 4);
 					if (data)
 					{
-						VkExtent3D image_size{ width, height, 1 };
-						new_image = engine->create_image(data, image_size, format, VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+						VkExtent3D image_size{ static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1 };
+						new_image = engine->create_image(data, image_size, format, VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT, 0, mipmapped);
 
 						stbi_image_free(data);
 					}
@@ -90,9 +90,9 @@ std::optional<AllocatedImage> load_image(VulkanEngine* engine, fastgltf::Asset& 
 
 								if (data)
 								{
-									VkExtent3D image_size{ width, height, 1};
+									VkExtent3D image_size{ static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1 };
 
-									new_image = engine->create_image(data, image_size, format, VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+									new_image = engine->create_image(data, image_size, format, VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT, 0, mipmapped);
 
 									stbi_image_free(data);
 								}
@@ -115,7 +115,7 @@ std::optional<AllocatedImage> load_image(VulkanEngine* engine, fastgltf::Asset& 
 	return new_image;
 }
 
-std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::string_view file_path, bool generate_tangents )
+std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::string_view file_path, bool generate_tangents)
 {
 	fmt::println("Loading GLTF: {}", file_path);
 
@@ -275,7 +275,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 			if (!images_set[idx])
 			{
 				images_set[idx] = true;
-				img = load_image(engine, gltf, gltf.images[idx], VK_FORMAT_R8G8B8A8_SRGB);
+				img = load_image(engine, gltf, gltf.images[idx], VK_FORMAT_R8G8B8A8_SRGB, true);
 				if (img.has_value())
 				{
 					images[idx] = (*img);
@@ -440,7 +440,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 
 				fastgltf::iterateAccessor<std::uint32_t>(gltf, index_accessor,
 					[&](std::uint32_t idx) {
-						indices.push_back(idx + initial_vtx);
+						indices.push_back(idx + static_cast<uint32_t>(initial_vtx));
 					});
 			}
 
@@ -516,7 +516,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 			glm::vec3 max_pos = vertices[initial_vtx].position;
 
 			// TODO: could be refactored into loading vertex positions block?
-			for (int i = initial_vtx; i < vertices.size(); i++)
+			for (size_t i = initial_vtx; i < vertices.size(); i++)
 			{
 				min_pos = glm::min(min_pos, vertices[i].position);
 				max_pos = glm::max(max_pos, vertices[i].position);
@@ -651,7 +651,7 @@ void calculateTangents(MikkMesh& m)
 int mikk_getNumFaces(const SMikkTSpaceContext* context)
 {
 	MikkMesh mesh = *(static_cast<MikkMesh*>(context->m_pUserData));
-	return (mesh.indices)->size() / 3;
+	return static_cast<int>((mesh.indices)->size()) / 3;
 
 }
 
