@@ -172,7 +172,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 		return {};
 	}
 
-	// load samplers
+	// (!) load samplers - not used, to handle
 	fmt::println("gltf file has {} samplers", gltf.samplers.size());
 	for (fastgltf::Sampler& sampler : gltf.samplers)
 	{
@@ -265,7 +265,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 		{
 			pass_type = MaterialPass::Transparent;
 		}
-
+		
 		if (mat.pbrData.baseColorTexture.has_value())
 		{
 			size_t idx = gltf.textures[mat.pbrData.baseColorTexture.value().textureIndex].imageIndex.value();
@@ -275,7 +275,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 			if (!images_set[idx])
 			{
 				images_set[idx] = true;
-				img = load_image(engine, gltf, gltf.images[idx], VK_FORMAT_R8G8B8A8_SRGB, true);
+				img = load_image(engine, gltf, gltf.images[idx], VK_FORMAT_R8G8B8A8_SRGB, false); // (!) true for mipmap
 				if (img.has_value())
 				{
 					images[idx] = (*img);

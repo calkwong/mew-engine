@@ -85,13 +85,14 @@ struct FrameData
 struct EngineStats
 {
 	//float frameTime{};
-	//int triangleCount{};
-	//int drawCallCount{};
+	int triangle_count{};
+	int draw_call_count{};
+	float frustum_cull_time{};
+	float scene_update_time{};
 	//float sceneUpdateTime{};
 	//float meshDrawTime{};
 
 	float deltatime{};
-	float last_frame{};
 };
 
 // destruction of textures handled by gltf (not internally); does not support dynamic objs

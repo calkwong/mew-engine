@@ -37,7 +37,76 @@ constexpr bool USE_VALIDATION_LAYERS = true;
 constexpr float LIGHT_FAR_PLANE{ 20.0f };
 constexpr uint32_t SHADOW_MAP_SIZE{ 4096 };
 
-AutoCVar_Int draw_shadow{ "shadow.draw", "activate shadows", 1, 1, CVarFlags::EditCheckbox };
+AutoCVar_Int frustum_cvar{ "frustum_call.reverse", "use reverse depth projection", 0, 0, CVarFlags::EditCheckbox };
+
+bool is_visible(const std::array<glm::vec4, 6>& frustum_planes, const RenderObject& obj)
+{
+	glm::vec3 center = obj.transform * glm::vec4(obj.bounds.origin, 1.0);
+
+	glm::vec3 right = obj.transform[0] * obj.bounds.extents.x;
+	glm::vec3 up = obj.transform[1] * obj.bounds.extents.y;
+	glm::vec3 forward = obj.transform[2] * obj.bounds.extents.z;
+
+	// recompute AABB
+	glm::vec3 updated_extents{};
+	updated_extents.x = std::abs(right.x) + std::abs(up.x) + std::abs(forward.x);
+	updated_extents.y = std::abs(right.y) + std::abs(up.y) + std::abs(forward.y);
+	updated_extents.z = std::abs(right.z) + std::abs(up.z) + std::abs(forward.z);
+
+	bool visible = true;
+
+	for (size_t i = 0; i < frustum_planes.size(); i++)
+	{
+		glm::vec3 normal = glm::vec3(frustum_planes[i]);
+
+		float distance = frustum_planes[i].w;
+
+		// project radius (extent) of box onto line
+		float r = glm::dot(updated_extents, glm::abs(normal)); // (!) abs?
+
+		// distance of box center from plane
+		float s = glm::dot(center, normal) + distance;
+
+		visible = visible && (s >= -r);
+	}
+
+	return visible;
+}
+
+std::vector<uint32_t> frustum_culling(const std::vector<RenderObject>& renderables, glm::mat4& viewproj)
+{
+	auto m0 = glm::row(viewproj, 0);
+	auto m1 = glm::row(viewproj, 1);
+	auto m2 = glm::row(viewproj, 2);
+	auto m3 = glm::row(viewproj, 3);
+
+	std::array<glm::vec4, 6> frustum_planes{
+		m3, // m3 + m2,
+		m2, // m3 - m2,
+		m3 + m1,
+		m3 - m1,
+		m3 + m0,
+		m3 - m0
+	};
+
+	for (size_t i = 0; i < frustum_planes.size(); i++)
+	{
+		float length = glm::length(glm::vec3(frustum_planes[i]));
+
+		frustum_planes[i] /= length;
+	}
+
+	std::vector<uint32_t> indices{};
+
+	for (size_t i = 0; i < renderables.size(); i++)
+	{
+		const auto& obj = renderables[i];
+		if (is_visible(frustum_planes, obj))
+			indices.push_back(i);
+	}
+
+	return indices;
+}
 
 void VulkanEngine::init()
 {
@@ -147,7 +216,6 @@ void VulkanEngine::draw()
 	get_current_frame().deletion_queue.flush();
 
 	SceneData* scene_uniform_data = static_cast<SceneData*>(get_current_frame().scene_buffer.info.pMappedData);
-	//fmt::println("shadow transform: {}", glm::to_string(scene_data.shadow_transforms[0]));
 	*scene_uniform_data = scene_data;
 
 	uint32_t swapchain_image_idx{};
@@ -161,10 +229,10 @@ void VulkanEngine::draw()
 
 	VK_CHECK(vkBeginCommandBuffer(cmd, &cmd_begin_info));
 
-	for (size_t i = 0; i < cascade_data.size(); i++)
-	{
-		shadow_pass(cmd, i);
-	}
+	//for (size_t i = 0; i < cascade_data.size(); i++)
+	//{
+	//	shadow_pass(cmd, i);
+	//}
 
 	forward_pass(cmd);
 
@@ -404,24 +472,24 @@ void VulkanEngine::run()
 
 	auto last_frame = std::chrono::system_clock::now();
 
-    while (!bQuit) {
+    while (!bQuit) 
+	{
 		auto start = std::chrono::system_clock::now();
 		auto deltatime = std::chrono::duration_cast<std::chrono::microseconds>(start - last_frame);
 		stats.deltatime = deltatime.count() / 1000000.0f; // microseconds to seconds
 		last_frame = start;
 
         // Handle events on queue
-        while (SDL_PollEvent(&e) != 0) {
+        while (SDL_PollEvent(&e) != 0) 
+		{
             if (e.type == SDL_QUIT)
                 bQuit = true;
 
             if (e.type == SDL_WINDOWEVENT) {
-                if (e.window.event == SDL_WINDOWEVENT_MINIMIZED) {
+                if (e.window.event == SDL_WINDOWEVENT_MINIMIZED) 
                     stop_rendering = true;
-                }
-                if (e.window.event == SDL_WINDOWEVENT_RESTORED) {
+                if (e.window.event == SDL_WINDOWEVENT_RESTORED) 
                     stop_rendering = false;
-                }
             }
 
 			if (e.type == SDL_KEYDOWN)
@@ -439,7 +507,8 @@ void VulkanEngine::run()
 			ImGui_ImplSDL2_ProcessEvent(&e);
         }
 
-        if (stop_rendering) {
+        if (stop_rendering) 
+		{
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
             continue;
         }
@@ -450,6 +519,17 @@ void VulkanEngine::run()
 		
 		//ImGui::ShowDemoWindow();
 		CVarSystem::get()->draw_imgui_editor();
+
+		{
+			ImGui::Begin("Stats");
+			ImGui::Text("frametime %f ms", stats.deltatime * 1000.0f);
+			ImGui::Text("triangles %i", stats.triangle_count);
+			ImGui::Text("draws %i", stats.draw_call_count);
+			ImGui::Text("scene update time %f ms", stats.scene_update_time);
+			ImGui::Text("frustum cull time %f ms", stats.frustum_cull_time);
+
+			ImGui::End();
+		}
 
 		ImGui::Render();
 
@@ -1293,19 +1373,20 @@ void VulkanEngine::init_renderables()
 
 	//std::string asset_path = "../../assets/DamagedHelmet/GLTF-Embedded/DamagedHelmet.gltf";
 	//std::string asset_path = "../../assets/ABeautifulGame.glb";
+	std::string asset_path = "../../assets/terrain_gridlines.gltf";
 	//std::string asset_path = "../../assets/sphere.gltf";
-	std::string asset_path = "../../assets/oaktree.gltf";
+	//std::string asset_path = "../../assets/oaktree.gltf";
 	auto start{ std::chrono::system_clock::now() };
-	auto asset_file = load_gltf(this, asset_path, true);
+	auto asset_file = load_gltf(this, asset_path, false);
 	auto end{ std::chrono::system_clock::now() };
 	auto elapsed{ std::chrono::duration_cast<std::chrono::microseconds>(end - start) };
 	float ret = elapsed.count() / 1000.0f;
 	fmt::println("load gltf: {}ms", ret);
 	assert(asset_file.has_value());
 	loaded_scenes["DamagedHelmet"] = *asset_file;
-	asset_path = "../../assets/terrain_gridlines.gltf";
-	asset_file = load_gltf(this, asset_path, true);
-	loaded_scenes["terrain"] = *asset_file;
+	//asset_path = "../../assets/terrain_gridlines.gltf";
+	//asset_file = load_gltf(this, asset_path, true);
+	//loaded_scenes["terrain"] = *asset_file;
 }
 
 void VulkanEngine::init_bindless()
@@ -1383,6 +1464,11 @@ void VulkanEngine::register_object(Node& node, const glm::mat4& top_matrix, Draw
 
 void VulkanEngine::update_scene()
 {
+	stats.draw_call_count = 0;
+	stats.triangle_count = 0;
+
+	auto start = std::chrono::system_clock::now();
+
 	main_camera.update(stats.deltatime);
 
 	scene_data.view = main_camera.get_view_matrix();
@@ -1410,10 +1496,14 @@ void VulkanEngine::update_scene()
 		register_object(*n, glm::mat4(1.0), main_draw_context);
 	}
 
-	for (auto& n : loaded_scenes["terrain"]->top_nodes)
-	{
-		register_object(*n, glm::mat4(1.0), main_draw_context);
-	}
+	//for (auto& n : loaded_scenes["terrain"]->top_nodes)
+	//{
+	//	register_object(*n, glm::mat4(1.0), main_draw_context);
+	//}
+
+	auto end = std::chrono::system_clock::now();
+	auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+	stats.scene_update_time = elapsed.count() / 1000.0f; // microseconds to seconds
 }
 
 uint32_t TextureCache::add_texture(const VkImageView& view)
@@ -1520,11 +1610,28 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 
 		vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushConstants), &pc);
 		vkCmdDrawIndexed(cmd, obj.index_count, 1, obj.first_index, 0, 0);
+		stats.triangle_count += obj.index_count / 3;
+		stats.draw_call_count++;
 	};
 
-	for (auto& obj : main_draw_context.opaque_objects)
+
+	//for (auto& obj : main_draw_context.opaque_objects)
+	//{
+	//	draw(obj);
+	//}
+
+	auto start = std::chrono::system_clock::now();
+	std::vector<uint32_t> visible_indices{};
+
+	visible_indices = frustum_culling(main_draw_context.opaque_objects, scene_data.viewproj);
+
+	auto end = std::chrono::system_clock::now();
+	auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+	stats.frustum_cull_time = elapsed.count() / 1000.0f; // microseconds to seconds
+
+	for (auto i : visible_indices)
 	{
-		draw(obj);
+		draw(main_draw_context.opaque_objects[i]);
 	}
 
 	for (auto& obj : main_draw_context.transparent_objects)
@@ -1545,6 +1652,8 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 	pc.texture_id = bindless_texture.skybox;
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(SkyboxPushConstants), &pc);
 	vkCmdDraw(cmd, 3, 1, 0, 0);
+	stats.triangle_count++;
+	stats.draw_call_count++;
 
 	vkCmdEndRendering(cmd);
 
@@ -1599,9 +1708,10 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_sampler_descriptor, 0, nullptr);
 	PostFXPushConstants fx_pc{};
 	fx_pc.texture_id = texture_cache.get_draw_image();
-	//fx_pc.texture_id = bindless_texture.shadow;
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PostFXPushConstants), &fx_pc);
 	vkCmdDraw(cmd, 3, 1, 0, 0);
+	stats.triangle_count++;
+	stats.draw_call_count++;
 
 	vkCmdEndRendering(cmd);
 
@@ -1674,6 +1784,8 @@ void VulkanEngine::shadow_pass(VkCommandBuffer cmd, size_t cascade_idx)
 
 		vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ShadowPushConstants), &pc);
 		vkCmdDrawIndexed(cmd, obj.index_count, 1, obj.first_index, 0, 0);
+		stats.triangle_count += obj.index_count / 3;
+		stats.draw_call_count++;
 	};
 	
 	for (auto& obj : main_draw_context.opaque_objects)
@@ -1825,3 +1937,4 @@ void VulkanEngine::draw_imgui(VkCommandBuffer cmd, VkImageView swapchain_view)
 	
 	vkCmdEndRendering(cmd);
 }
+
