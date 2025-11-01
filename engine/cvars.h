@@ -21,7 +21,8 @@ public:
 enum class CVarFlags : uint32_t
 {
 	None = 0,
-	EditCheckbox = 1
+	EditCheckbox = 1,
+	EditSliderInt = 1 << 1
 };
 
 template<typename T>

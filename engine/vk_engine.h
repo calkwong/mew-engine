@@ -18,6 +18,7 @@ struct PushConstants
 	VkDeviceAddress vertex_buffer_address{};
 	VkDeviceAddress material_buffer_address{};
 	uint32_t material_id{};
+	uint32_t idx{};
 };
 
 struct IBLPushConstants

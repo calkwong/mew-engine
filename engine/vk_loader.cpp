@@ -59,7 +59,10 @@ std::optional<AllocatedImage> load_image(VulkanEngine* engine, fastgltf::Asset& 
 					assert(filePath.uri.isLocalPath()); // only capable of loading local files
 
 					const std::string path(filePath.uri.path().begin(), filePath.uri.path().end());
-					unsigned char* data = stbi_load(path.c_str(), &width, &height, &channels, 4);
+
+					std::string current_path = "../../assets/khronos_sponza/" + path; // (!) TODO handle this properly
+					 
+					unsigned char* data = stbi_load(current_path.c_str(), &width, &height, &channels, 4);
 					if (data)
 					{
 						VkExtent3D image_size{ static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1 };
@@ -115,7 +118,7 @@ std::optional<AllocatedImage> load_image(VulkanEngine* engine, fastgltf::Asset& 
 	return new_image;
 }
 
-std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::string_view file_path, bool generate_tangents)
+std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::string_view file_path)
 {
 	fmt::println("Loading GLTF: {}", file_path);
 
@@ -275,7 +278,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 			if (!images_set[idx])
 			{
 				images_set[idx] = true;
-				img = load_image(engine, gltf, gltf.images[idx], VK_FORMAT_R8G8B8A8_SRGB, false); // (!) true for mipmap
+				img = load_image(engine, gltf, gltf.images[idx], VK_FORMAT_R8G8B8A8_SRGB, true); // (!) true for mipmap
 				if (img.has_value())
 				{
 					images[idx] = (*img);
@@ -303,7 +306,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 			if (!images_set[idx])
 			{
 				images_set[idx] = true;
-				img = load_image(engine, gltf, gltf.images[idx], VK_FORMAT_R8G8B8A8_UNORM);
+				img = load_image(engine, gltf, gltf.images[idx], VK_FORMAT_R8G8B8A8_UNORM, true);
 				if (img.has_value())
 				{
 					images[idx] = (*img);
@@ -329,7 +332,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 			if (!images_set[idx])
 			{
 				images_set[idx] = true;
-				img = load_image(engine, gltf, gltf.images[idx], VK_FORMAT_R8G8B8A8_UNORM);
+				img = load_image(engine, gltf, gltf.images[idx], VK_FORMAT_R8G8B8A8_UNORM, true);
 				if (img.has_value())
 				{
 					images[idx] = (*img);
@@ -355,7 +358,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 			if (!images_set[idx])
 			{
 				images_set[idx] = true;
-				img = load_image(engine, gltf, gltf.images[idx], VK_FORMAT_R8G8B8A8_UNORM);
+				img = load_image(engine, gltf, gltf.images[idx], VK_FORMAT_R8G8B8A8_UNORM, true);
 				if (img.has_value())
 				{
 					images[idx] = (*img);
@@ -381,7 +384,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 			if (!images_set[idx])
 			{
 				images_set[idx] = true;
-				img = load_image(engine, gltf, gltf.images[idx], VK_FORMAT_R8G8B8A8_SRGB);
+				img = load_image(engine, gltf, gltf.images[idx], VK_FORMAT_R8G8B8A8_SRGB, true);
 				if (img.has_value())
 				{
 					images[idx] = (*img);
@@ -469,6 +472,30 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 				}
 			}
 
+			bool generate_tangents{};
+			// load vertex tangents
+			{
+				auto tangents = p.findAttribute("TANGENT");
+				if (tangents != p.attributes.end())
+				{
+					fastgltf::iterateAccessorWithIndex<glm::vec4>(gltf, gltf.accessors[(*tangents).second],
+						[&](glm::vec4 v, size_t index) {
+							vertices[initial_vtx + index].tangent = v;
+						});
+				}
+				else
+				{
+					generate_tangents = true;
+				}
+			}
+
+			// mikk tangent generation
+			if (generate_tangents)
+			{
+				MikkMesh mesh{ &vertices, &indices };
+				calculateTangents(mesh);
+			}
+
 			// load uvs
 			{
 				auto uv = p.findAttribute("TEXCOORD_0");
@@ -480,13 +507,6 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 							vertices[initial_vtx + index].uv_y = v.y;
 						});
 				}
-			}
-
-			// mikk tangent generation
-			if (generate_tangents)
-			{
-				MikkMesh mesh{ &vertices, &indices };
-				calculateTangents(mesh);
 			}
 
 			if (p.materialIndex.has_value())
@@ -546,7 +566,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 		else
 		{
 			// TODO, how to handle?
-			fmt::println("node has no mesh");
+			fmt::println("node has no mesh: ", node.name.c_str());
 			new_node = std::make_shared<Node>();
 		}
 

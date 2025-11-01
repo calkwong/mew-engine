@@ -55,6 +55,7 @@ layout( push_constant ) uniform constants
 	VertexBuffer vertexBuffer;
 	MaterialBuffer materialBuffer;
 	uint materialID;
+	uint idx;
 } pc;
 
 layout(set = 1, binding = 0) uniform texture2D allTextures[];
@@ -102,7 +103,7 @@ float calculate_shadow()
 			break;
 		}
 	}
-
+	
 	vec3 lightFragPos = vec3(sceneData.shadowTransforms[cascade_index] * vec4(inWorldPos, 1.0)); // ortho, no division by w needed
 	
 	float currentDepth = lightFragPos.z;
@@ -139,7 +140,7 @@ float calculate_shadow()
 }
 
 #define PBR
-//#define IBL
+#define IBL
 
 void main() 
 {	
@@ -153,14 +154,16 @@ void main()
 	vec3 lightColor = vec3(1.0);
 	
 	// normal mapping
-	vec3 vN = inNormal;
-	vec3 vT = inTangent.xyz;
+	vec3 vN = normalize(inNormal); // normalize or not? shouldnt mikktspace leave as is? added for khronos sponza
+	vec3 vT = normalize(inTangent.xyz); // normalize or not? shouldnt mikktspace leave as is? added for khronos sponza
 	float sign = inTangent.w; // sign is flipped during tangent generation so mikktspace is consistent with glTF handedness
 	vec3 vB = sign * cross(vN, vT);
+	
+	//vB = sign * cross(inNormal, inTangent.xyz);
+	
 	vec3 sampleNormal = texture(sampler2D(allTextures[m.normalID], samplers[0]), inUV).xyz;
 	sampleNormal = sampleNormal * 2.0 - 1.0;
 	vec3 N = normalize(sampleNormal.x * vT + sampleNormal.y * vB + sampleNormal.z * vN);
-	//vec3 N = normalize(inNormal); // use geometry normal
 	vec3 V = normalize(sceneData.cameraPos.xyz - inWorldPos);
 	
 	vec2 metalRoughness = texture(sampler2D(allTextures[m.metalRoughnessID], samplers[0]), inUV).bg;
@@ -174,7 +177,7 @@ void main()
 	vec3 f0 = vec3(0.04);
 	f0 = mix(f0, albedo.xyz, metallic);
 	
-	vec4 ambient = vec4(0.0);
+	vec3 ambient = vec3(0.0);
 	
 	#ifdef IBL
 		vec3 R = reflect(-V, N);
@@ -226,16 +229,32 @@ void main()
 	#endif
 	
 	// Combine with ambient
-	//vec4 color = vec4(albedo.xyz * 0.1, 1); // 10% albedo as ambient
 	//vec4 color = vec4(vec3(0), 1.0); // no direct lighting
 	vec4 color = vec4(Lo, 1.0);
-	float occluded = calculate_shadow();
-	color.xyz *= occluded;
+	//color += vec4(albedo.xyz * 0.1, 1); // 10% albedo as ambient
+	//float occluded = calculate_shadow();
+	//color.xyz *= occluded;
 	color.xyz += texture(sampler2D(allTextures[m.emissiveID], samplers[0]), inUV).xyz;
 	
-	color += ambient;
+	color.xyz += ambient;
 
-	outFragColor = vec4(color);
+	outFragColor = color;
+	
+	switch (pc.idx)
+	{
+		case 0: break;
+		case 1: outFragColor = vec4(albedo.xyz, 1.0); break;
+		case 2: outFragColor = vec4(vN, 1.0); outFragColor.xyz = outFragColor.xyz * 0.5 + 0.5; break; // geometry 
+		case 3: outFragColor = vec4(sampleNormal, 1.0); outFragColor.xyz = outFragColor.xyz * 0.5 + 0.5; break; // texture normal
+		case 4: outFragColor = vec4(N, 1.0); outFragColor.xyz = outFragColor.xyz * 0.5 + 0.5; break; // shading normal
+		case 5: outFragColor = vec4(normalize(inTangent.xyz), 1.0); outFragColor.xyz = outFragColor.xyz * 0.5 + 0.5; break;
+		case 6: outFragColor = vec4(vec3(metalRoughness.x), 1.0); break;
+		case 7: outFragColor = vec4(vec3(metalRoughness.y), 1.0); break;
+		case 8: outFragColor = vec4(vec2(inUV), 0.0, 1.0); break;
+		case 9: outFragColor = vec4(vec3(inTangent.w), 1.0); break;
+		default: break;
+	}
+	//outFragColor = albedo;
 	//outFragColor = vec4(inNormal, 1);
 	//outFragColor.xyz = outFragColor.xyz * 0.5 + 0.5;
 }

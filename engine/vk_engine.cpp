@@ -38,6 +38,7 @@ constexpr float LIGHT_FAR_PLANE{ 20.0f };
 constexpr uint32_t SHADOW_MAP_SIZE{ 4096 };
 
 AutoCVar_Int frustum_cvar{ "frustum_call.reverse", "use reverse depth projection", 0, 0, CVarFlags::EditCheckbox };
+AutoCVar_Int shader_idx{ "debug.index", "", 0, 0, CVarFlags::EditSliderInt };
 
 bool is_visible(const std::array<glm::vec4, 6>& frustum_planes, const RenderObject& obj)
 {
@@ -575,7 +576,8 @@ void VulkanEngine::init_vulkan()
 	features12.shaderSampledImageArrayNonUniformIndexing = true;
 
 	// vulkan 1.0 features
-	//VkPhysicalDeviceFeatures features10{};
+	VkPhysicalDeviceFeatures features10{};
+	features10.samplerAnisotropy = true;
 	//features10.depthClamp = true;
 
 	// use vkbootstrap to select a gpu. 
@@ -583,7 +585,7 @@ void VulkanEngine::init_vulkan()
 	vkb::PhysicalDeviceSelector selector{ vkb_inst };
 	vkb::PhysicalDevice physicalDevice = selector
 		.set_minimum_version(1, 3)
-		//.set_required_features(features10)
+		.set_required_features(features10)
 		.set_required_features_13(features13)
 		.set_required_features_12(features12)
 		.set_surface(surface)
@@ -1212,9 +1214,13 @@ void VulkanEngine::init_default_data()
 	sampler_info.maxLod = VK_LOD_CLAMP_NONE;
 	sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
 
+	//sampler_info.anisotropyEnable = VK_TRUE;
+	//sampler_info.maxAnisotropy = 16.0f;
+
 	vkCreateSampler(device, &sampler_info, nullptr, &sampler);
 	sampler_cache.add_sampler(sampler);
 
+	//sampler_info.anisotropyEnable = VK_FALSE;
 	sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 	sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 	sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
@@ -1283,6 +1289,7 @@ void VulkanEngine::init_default_data()
 void VulkanEngine::init_renderables()
 {
 	const char* hdr_path{ "../../assets/pisa.hdr" };
+	//const char* hdr_path{ "../../assets/pisa.hdr" };
 	float* hdr_data{};
 
 	int width{};
@@ -1328,9 +1335,9 @@ void VulkanEngine::init_renderables()
 	bindless_texture.prefiltered = texture_cache.add_texture(prefiltered_image.view);
 	bindless_texture.brdf = texture_cache.add_texture(brdflut_image.view);
 
-	scene_data.textures[0] = bindless_texture.brdf;
-	scene_data.textures[1] = bindless_texture.irradiance;
-	scene_data.textures[2] = bindless_texture.prefiltered;
+	scene_data.textures[0] = bindless_texture.irradiance;
+	scene_data.textures[1] = bindless_texture.prefiltered;
+	scene_data.textures[2] = bindless_texture.brdf;
 	scene_data.textures[3] = bindless_texture.shadow;
 
 	bindless_image.skybox = image_cache.add_texture(cubemap_image.view);
@@ -1372,12 +1379,13 @@ void VulkanEngine::init_renderables()
 		});
 
 	//std::string asset_path = "../../assets/DamagedHelmet/GLTF-Embedded/DamagedHelmet.gltf";
-	//std::string asset_path = "../../assets/ABeautifulGame.glb";
-	std::string asset_path = "../../assets/terrain_gridlines.gltf";
+	std::string asset_path = "../../assets/ABeautifulGame.glb";
+	//std::string asset_path = "../../assets/terrain_gridlines.gltf";
 	//std::string asset_path = "../../assets/sphere.gltf";
 	//std::string asset_path = "../../assets/oaktree.gltf";
+	//std::string asset_path = "../../assets/khronos_sponza/Sponza.gltf";
 	auto start{ std::chrono::system_clock::now() };
-	auto asset_file = load_gltf(this, asset_path, false);
+	auto asset_file = load_gltf(this, asset_path);
 	auto end{ std::chrono::system_clock::now() };
 	auto elapsed{ std::chrono::duration_cast<std::chrono::microseconds>(end - start) };
 	float ret = elapsed.count() / 1000.0f;
@@ -1474,7 +1482,8 @@ void VulkanEngine::update_scene()
 	scene_data.view = main_camera.get_view_matrix();
 	scene_data.proj = main_camera.perspective;
 	scene_data.viewproj = scene_data.proj * scene_data.view;
-	scene_data.sunlight_dir = glm::vec4(7.75, 12.5, 12.5, 1.);
+	//scene_data.sunlight_dir = glm::vec4(7.75, 12.5, 12.5, 1.);
+	scene_data.sunlight_dir = glm::vec4(5.0, 12.0, 0.0, 1.);
 	scene_data.sunlight_color = glm::vec4(1);
 
 	update_cascade();
@@ -1607,6 +1616,7 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 		pc.vertex_buffer_address = obj.vertex_buffer_address;
 		pc.material_buffer_address = obj.material_buffer_address;
 		pc.material_id = obj.material_id;
+		pc.idx = shader_idx.get();
 
 		vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushConstants), &pc);
 		vkCmdDrawIndexed(cmd, obj.index_count, 1, obj.first_index, 0, 0);

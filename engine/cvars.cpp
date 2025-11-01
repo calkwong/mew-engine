@@ -187,6 +187,7 @@ void CVarSystemImpl::draw_imgui_editor()
 void CVarSystemImpl::edit_parameters(CVarParameter* param)
 {
 	const bool checkbox_flag = static_cast<uint32_t>(CVarFlags::EditCheckbox) & static_cast<uint32_t>(param->flags);
+	const bool slider_int_flag = static_cast<uint32_t>(CVarFlags::EditSliderInt) & static_cast<uint32_t>(param->flags);
 
 	switch (param->type)
 	{
@@ -197,6 +198,14 @@ void CVarSystemImpl::edit_parameters(CVarParameter* param)
 			if (ImGui::Checkbox(param->name.c_str(), &flag))
 			{
 				get_cvars_array<int>()->set_current(static_cast<uint32_t>(flag), param->array_index);
+			}
+		}
+		if (slider_int_flag)
+		{
+			int value = get_cvars_array<int>()->get_current(param->array_index);
+			if (ImGui::SliderInt(param->name.c_str(), &value, 0, 9));
+			{
+				get_cvars_array<int>()->set_current(value, param->array_index);
 			}
 		}
 		break;
