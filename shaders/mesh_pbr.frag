@@ -90,6 +90,7 @@ vec3 F_Schlick(float u, vec3 f0)
 }
 
 #define CASCADE_COUNT 4
+uint debug_index = 0;
 
 float calculate_shadow()
 {
@@ -100,6 +101,7 @@ float calculate_shadow()
 		if (d > sceneData.cascadeSplits[i])
 		{	
 			cascade_index = i;
+			debug_index = cascade_index;
 			break;
 		}
 	}
@@ -238,12 +240,21 @@ void main()
 	//vec4 color = vec4(Lo, 1.0);
 	//color += vec4(albedo.xyz * 0.1, 1); // 10% albedo as ambient, for debugging without IBL
 	
-	//float occluded = calculate_shadow();
-	//color.xyz *= occluded;
+	float occluded = calculate_shadow();
+	color.xyz *= occluded;
 	
 	color.xyz += texture(sampler2D(allTextures[m.emissiveID], samplers[0]), inUV).xyz;
 	
 	color.xyz += ambient;
+	
+	//switch (debug_index)
+	//{
+	//	case 0: color.xyz *= vec3(1, 0, 0); break;
+	//	case 1: color.xyz *= vec3(0, 1, 0); break;
+	//	case 2: color.xyz *= vec3(1, 0, 1); break;
+	//	case 3: color.xyz *= vec3(0, 0, 1); break;
+	//	default: break;
+	//}
 
 	outFragColor = color;
 	switch (pc.idx)

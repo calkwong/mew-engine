@@ -21,7 +21,7 @@ bool vkutil::load_shader_module(const char* path, VkDevice device, VkShaderModul
 
     // spirv expects the buffer to be on uint32, so make sure to reserve a int
     // vector big enough for the entire file
-    std::vector<uint32_t> buffer(file_size / sizeof(uint32_t)); // (!) {}?
+    std::vector<uint32_t> buffer(file_size / sizeof(uint32_t)); 
 
     // put file cursor at beginning
     file.seekg(0);

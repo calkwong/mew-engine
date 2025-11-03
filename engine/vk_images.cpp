@@ -89,7 +89,7 @@ void vkutil::generate_mipmaps(VkCommandBuffer cmd, VkImage image, VkExtent2D ima
 			barrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
 			barrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
 			barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-			barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT; // (!) read and write or read only? come back after IBL implementation
+			barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
 
 			barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
 			barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;

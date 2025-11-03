@@ -104,8 +104,6 @@ struct MaterialData
     uint32_t padding{};
 };
 
-//(!) uniform buffer padding
-// scene lights go here
 struct SceneData
 {
     glm::mat4 view{};

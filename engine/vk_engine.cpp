@@ -74,7 +74,7 @@ bool is_visible(const std::array<glm::vec4, 6>& frustum_planes, const RenderObje
 	return visible;
 }
 
-std::vector<uint32_t> frustum_culling(const std::vector<RenderObject>& renderables, glm::mat4& viewproj)
+std::vector<uint32_t> frustum_culling(const std::vector<RenderObject>& renderables, glm::mat4& viewproj, bool directional_shadow = false)
 {
 	auto m0 = glm::row(viewproj, 0);
 	auto m1 = glm::row(viewproj, 1);
@@ -96,6 +96,9 @@ std::vector<uint32_t> frustum_culling(const std::vector<RenderObject>& renderabl
 
 		frustum_planes[i] /= length;
 	}
+
+	if (directional_shadow)
+		frustum_planes[0] = -frustum_planes[1]; // frustum_planes[0] is nan/inf due to near plane value of 0 for orthographic projection
 
 	std::vector<uint32_t> indices{};
 
@@ -227,14 +230,14 @@ void VulkanEngine::draw()
 
 	VK_CHECK(vkResetCommandBuffer(cmd, 0));
 
-	VkCommandBufferBeginInfo cmd_begin_info = vkinit::command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT); // (!)
+	VkCommandBufferBeginInfo cmd_begin_info = vkinit::command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT); 
 
 	VK_CHECK(vkBeginCommandBuffer(cmd, &cmd_begin_info));
 
-	//for (size_t i = 0; i < cascade_data.size(); i++)
-	//{
-	//	shadow_pass(cmd, i);
-	//}
+	for (size_t i = 0; i < cascade_data.size(); i++)
+	{
+		shadow_pass(cmd, i);
+	}
 
 	forward_pass(cmd);
 
@@ -307,7 +310,7 @@ void VulkanEngine::init_precomputations()
 
 	VK_CHECK(vkResetCommandBuffer(cmd, 0));
 
-	VkCommandBufferBeginInfo cmd_begin_info = vkinit::command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT); // (!)
+	VkCommandBufferBeginInfo cmd_begin_info = vkinit::command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT); 
 
 	VK_CHECK(vkBeginCommandBuffer(cmd, &cmd_begin_info));
 
@@ -716,7 +719,7 @@ void VulkanEngine::create_swapchain(uint32_t width, uint32_t height)
 
 	vkb::Swapchain vkbSwapchain = swapchainBuilder
 		//.use_default_format_selection()
-		.set_desired_format(VkSurfaceFormatKHR{ .format = swapchain_image_format, .colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR }) // (!)
+		.set_desired_format(VkSurfaceFormatKHR{ .format = swapchain_image_format, .colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR }) 
 		.set_desired_present_mode(VK_PRESENT_MODE_FIFO_KHR) 
 		.set_desired_extent(width, height)
 		.add_image_usage_flags(VK_IMAGE_USAGE_TRANSFER_DST_BIT)
@@ -923,7 +926,6 @@ void VulkanEngine::init_pipelines()
 	std::unique_ptr<ShaderPass> textured_lit_clip_pass = vkutil::build_shader(device, &textured_lit_clip, builder);
 
 	//> DOUBLE SIDED LIT
-	// same shader for double sided 0/1
 	ShaderEffect textured_lit{
 		.layouts = { scene_descriptor_layout, bindless_tex_layout, bindless_sampler_layout },
 		.pc = { 
@@ -1292,7 +1294,6 @@ void VulkanEngine::init_default_data()
 
 		bindless_texture.shadow = texture_cache.add_texture(cascade_data[idx].shadow_map.view);
 	}
-
 	bindless_texture.shadow -= (static_cast<uint8_t>(cascade_data.size()) - 1); // dirty adj
 
 	main_deletion_queue.push_function([&]() {
@@ -1407,6 +1408,7 @@ void VulkanEngine::init_renderables()
 	//std::string asset_path = "../../assets/sphere.gltf";
 	//std::string asset_path = "../../assets/oaktree.gltf";
 	std::string asset_path = "../../assets/khronos_sponza/Sponza.gltf";
+	//std::string asset_path = "../../assets/bevy_bistro/BistroInterior_Wine.gltf";
 	//std::string asset_path = "../../assets/AlphaBlendModeTest.glb";
 	//std::string asset_path = "../../assets/GlassVaseFlowers.glb";
 	//std::string asset_path = "../../assets/structure.glb";
@@ -1508,8 +1510,9 @@ void VulkanEngine::update_scene()
 	scene_data.view = main_camera.get_view_matrix();
 	scene_data.proj = main_camera.perspective;
 	scene_data.viewproj = scene_data.proj * scene_data.view;
-	scene_data.sunlight_dir = glm::vec4(7.75, 12.5, 12.5, 1.);
-	//scene_data.sunlight_dir = glm::vec4(5.0, 12.0, 0.0, 1.);
+	//scene_data.sunlight_dir = glm::vec4(7.75, 12.5, 12.5, 1.);
+	scene_data.sunlight_dir = glm::vec4(1.0, 12.0, 0.0, 1.);
+	//scene_data.sunlight_dir = glm::vec4(0.0, 12.0, 12.0, 1.);
 	scene_data.sunlight_color = glm::vec4(1);
 
 	update_cascade();
@@ -1656,8 +1659,8 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 	//}
 
 	auto start = std::chrono::system_clock::now();
-	std::vector<uint32_t> visible_indices{};
 
+	std::vector<uint32_t> visible_indices{};
 	visible_indices = frustum_culling(main_draw_context.opaque_objects, scene_data.viewproj);
 
 	auto end = std::chrono::system_clock::now();
@@ -1829,6 +1832,15 @@ void VulkanEngine::shadow_pass(VkCommandBuffer cmd, size_t cascade_idx)
 		stats.draw_call_count++;
 	};
 	
+	std::vector<uint32_t> visible_indices{};
+	auto viewproj = cascade.viewproj;
+	visible_indices = frustum_culling(main_draw_context.opaque_objects, viewproj, true);
+
+	for (auto i : visible_indices)
+	{
+		//draw(main_draw_context.opaque_objects[i]);
+	}
+
 	for (auto& obj : main_draw_context.opaque_objects)
 	{
 		draw(obj);
@@ -1871,7 +1883,7 @@ void VulkanEngine::update_cascade()
 			glm::vec3(-1,  1,  0),
 			glm::vec3( 1,  1,  0),
 			glm::vec3(-1, -1,  0),
-			glm::vec3( 1, -1,  0), // reverse depth order
+			glm::vec3( 1, -1,  0), // reverse depth order, flipping z values will be incorrect
 		};
 
 		for (size_t i = 0; i < frustum_corners.size(); i++)
@@ -1901,7 +1913,6 @@ void VulkanEngine::update_cascade()
 		{
 			radius = std::max(radius, glm::length(frustum_corners[i] - center));
 		}
-
 		// texel snapping - https://alextardif.com/shadowmapping.html
 		float texels_per_unit = SHADOW_MAP_SIZE / (2.0f * radius); 
 		glm::mat4 light_aligned_view = glm::lookAt(glm::vec3(0), -light_dir, glm::vec3(0, 1, 0));
