@@ -61,9 +61,9 @@ struct GPUMeshBuffers
 
 enum class MaterialPass : uint32_t
 {
-    MainColor,
-    Transparent,
-    Other
+    Opaque,
+    Mask,
+    Blend
 };
 
 struct MaterialPipeline

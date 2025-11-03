@@ -230,7 +230,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 		mat_data.occlusion_id = engine->bindless_texture.white;
 		mat_data.emissive_id = engine->bindless_texture.black; 
 		scene_material_data[0] = mat_data;
-		materials.emplace_back(MaterialInfo{0, MaterialPass::MainColor});
+		materials.emplace_back(MaterialInfo{MaterialPass::Opaque, 0, 0});
 	}
 
 	VkBufferDeviceAddressInfo address_info{};
@@ -262,12 +262,6 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 		mat_data.normal_id = engine->bindless_texture.normal;
 		mat_data.occlusion_id = engine->bindless_texture.white;
 		mat_data.emissive_id = engine->bindless_texture.black;
-
-		MaterialPass pass_type = MaterialPass::MainColor;
-		if (mat.alphaMode == fastgltf::AlphaMode::Blend)
-		{
-			pass_type = MaterialPass::Transparent;
-		}
 		
 		if (mat.pbrData.baseColorTexture.has_value())
 		{
@@ -404,7 +398,24 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 		}
 		
 		scene_material_data[material_idx] = mat_data;
-		materials.emplace_back(MaterialInfo{ static_cast<uint8_t>(material_idx), pass_type });
+
+		// (!)
+		MaterialPass pass_type = MaterialPass::Opaque;
+		switch (mat.alphaMode)
+		{
+		case fastgltf::AlphaMode::Mask:
+			pass_type = MaterialPass::Mask;
+			break;
+		case fastgltf::AlphaMode::Blend:
+			pass_type = MaterialPass::Blend;
+			break;
+		default: 
+			break;
+		}
+
+		uint32_t double_sided = static_cast<uint32_t>(mat.doubleSided);
+
+		materials.emplace_back(MaterialInfo{ pass_type, double_sided, static_cast<uint8_t>(material_idx) });
 		material_idx++;
 	}
 
@@ -513,11 +524,22 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 			{
 				auto m = materials[p.materialIndex.value()];
 				new_surface.material_id = m.index;
-				new_surface.material = engine->shader_passes["textured_lit"].get();
+
 				new_surface.pass = m.pass_type;
-				if (m.pass_type == MaterialPass::Transparent) // (!) to add
+
+				switch (new_surface.pass)
 				{
-					//new_surface.material = engine->shader_passes["blend"].get();
+				case MaterialPass::Mask: // assumes double-sided. non-double sided with front/back cutout only doesn't make sense if it can be carved into model itself.
+					new_surface.material = engine->shader_passes["textured_lit_clip"].get();
+					break;
+				case MaterialPass::Blend:
+					new_surface.material = engine->shader_passes["blend"].get();
+					break;
+				case MaterialPass::Opaque:
+					new_surface.material = m.double_sided ? engine->shader_passes["textured_lit2"].get() : engine->shader_passes["textured_lit"].get(); // TODO double sided opaque
+					break;
+				default:
+					break;
 				}
 			}
 			else

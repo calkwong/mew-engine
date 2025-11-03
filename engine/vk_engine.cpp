@@ -150,8 +150,9 @@ void VulkanEngine::init()
 	init_imgui();
 
 	main_camera.position = glm::vec3(0, 0, 5);
+	//main_camera.position = glm::vec3(30.f, -00.f, -085.f);
 	// (!) refactor? draw_extent set in init_default_data
-	main_camera.near = 50.0f;
+	main_camera.near = 1000.0f;
 	main_camera.far = 0.01f;
 	main_camera.fov = 70.0f;
 	main_camera.perspective = glm::perspective(glm::radians(main_camera.fov), static_cast<float>(draw_extent.width) / draw_extent.height, main_camera.near, main_camera.far);
@@ -903,14 +904,26 @@ void VulkanEngine::init_pipelines()
 	shadow.build_effect(device, "../../shaders/depth.vert.spv");
 	std::unique_ptr<ShaderPass> shadow_pass = vkutil::build_shader(device, &shadow, builder);
 
-	//>
+	//> DOUBLE SIDED MASK
 	builder.set_color_attachment_format(draw_image.format); 
-	builder.set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
+	builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
 	builder.disable_blending();
 	builder.enable_depth(true, VK_COMPARE_OP_GREATER_OR_EQUAL);
-	builder.dynamic_state.pop_back();
+	builder.dynamic_state.pop_back(); // remove depth bias dynamic state
 	builder.rasterization.depthBiasEnable = VK_FALSE;
 
+	ShaderEffect textured_lit_clip{
+		.layouts = { scene_descriptor_layout, bindless_tex_layout, bindless_sampler_layout },
+		.pc = {
+			{ VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushConstants) }
+		}
+	};
+	textured_lit_clip.build_effect(device, "../../shaders/mesh_pbr.vert.spv", "../../shaders/mesh_pbr_clip.frag.spv");
+
+	std::unique_ptr<ShaderPass> textured_lit_clip_pass = vkutil::build_shader(device, &textured_lit_clip, builder);
+
+	//> DOUBLE SIDED LIT
+	// same shader for double sided 0/1
 	ShaderEffect textured_lit{
 		.layouts = { scene_descriptor_layout, bindless_tex_layout, bindless_sampler_layout },
 		.pc = { 
@@ -919,15 +932,23 @@ void VulkanEngine::init_pipelines()
 	};
 	textured_lit.build_effect(device, "../../shaders/mesh_pbr.vert.spv", "../../shaders/mesh_pbr.frag.spv");
 
+	std::unique_ptr<ShaderPass> textured_lit2_pass = vkutil::build_shader(device, &textured_lit, builder);
+
+	//> NON-DOUBLE SIDED LIT
+	builder.set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
+	textured_lit.build_effect(device, "../../shaders/mesh_pbr.vert.spv", "../../shaders/mesh_pbr.frag.spv"); // rebuild as above destroyed shadermodule
 	std::unique_ptr<ShaderPass> textured_lit_pass = vkutil::build_shader(device, &textured_lit, builder);
 
-	// transparent
-	//builder.enable_blending_alphablend();
-	//builder.enable_depth(false, VK_COMPARE_OP_GREATER_OR_EQUAL);
-	//textured_lit.build_effect(device, "../../shaders/mesh_pbr.vert.spv", "../../shaders/mesh_pbr.frag.spv"); // rebuild as above destroyed shadermodule
-	//std::unique_ptr<ShaderPass> blend_pass = vkutil::build_shader(device, &textured_lit, builder);
+	//> DOUBLE SIDED TRANSPARENT
+	builder.enable_blending_alphablend();
+	builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
+	builder.enable_depth(false, VK_COMPARE_OP_GREATER_OR_EQUAL);
+	textured_lit.build_effect(device, "../../shaders/mesh_pbr.vert.spv", "../../shaders/mesh_pbr.frag.spv"); // rebuild as above destroyed shadermodule
+	std::unique_ptr<ShaderPass> blend_pass = vkutil::build_shader(device, &textured_lit, builder);
 
 	//>
+	builder.disable_blending();
+	builder.enable_depth(true, VK_COMPARE_OP_GREATER_OR_EQUAL);
 	ShaderEffect skybox{
 		.layouts = { bindless_tex_layout, bindless_sampler_layout },
 		.pc = {
@@ -955,10 +976,12 @@ void VulkanEngine::init_pipelines()
 	shader_passes["prefiltered"] = std::move(prefiltered_pass);
 	shader_passes["brdf"] = std::move(brdf_pass);
 	shader_passes["shadow"] = std::move(shadow_pass);
+	shader_passes["textured_lit_clip"] = std::move(textured_lit_clip_pass);
 	shader_passes["textured_lit"] = std::move(textured_lit_pass);
+	shader_passes["textured_lit2"] = std::move(textured_lit2_pass);
 	shader_passes["skybox"] = std::move(skybox_pass);
 	shader_passes["tonemap"] = std::move(tonemap_pass);
-	//shader_passes["blend"] = std::move(blend_pass);
+	shader_passes["blend"] = std::move(blend_pass);
 }
 
 AllocatedBuffer VulkanEngine::create_buffer(size_t alloc_size, VmaAllocationCreateFlags flags, VkBufferUsageFlags usage)
@@ -1379,11 +1402,14 @@ void VulkanEngine::init_renderables()
 		});
 
 	//std::string asset_path = "../../assets/DamagedHelmet/GLTF-Embedded/DamagedHelmet.gltf";
-	std::string asset_path = "../../assets/ABeautifulGame.glb";
+	//std::string asset_path = "../../assets/ABeautifulGame.glb";
 	//std::string asset_path = "../../assets/terrain_gridlines.gltf";
 	//std::string asset_path = "../../assets/sphere.gltf";
 	//std::string asset_path = "../../assets/oaktree.gltf";
-	//std::string asset_path = "../../assets/khronos_sponza/Sponza.gltf";
+	std::string asset_path = "../../assets/khronos_sponza/Sponza.gltf";
+	//std::string asset_path = "../../assets/AlphaBlendModeTest.glb";
+	//std::string asset_path = "../../assets/GlassVaseFlowers.glb";
+	//std::string asset_path = "../../assets/structure.glb";
 	auto start{ std::chrono::system_clock::now() };
 	auto asset_file = load_gltf(this, asset_path);
 	auto end{ std::chrono::system_clock::now() };
@@ -1459,10 +1485,10 @@ void VulkanEngine::register_object(Node& node, const glm::mat4& top_matrix, Draw
 			obj.bounds = s.bounds;
 			obj.transform = node_matrix;
 
-			if (s.pass == MaterialPass::MainColor)
-				ctx.opaque_objects.push_back(obj);
-			else if (s.pass == MaterialPass::Transparent)
+			if (s.pass == MaterialPass::Blend)
 				ctx.transparent_objects.push_back(obj);
+			else // OPAQUE and MASK
+				ctx.opaque_objects.push_back(obj);
 		}
 	}
 
@@ -1482,8 +1508,8 @@ void VulkanEngine::update_scene()
 	scene_data.view = main_camera.get_view_matrix();
 	scene_data.proj = main_camera.perspective;
 	scene_data.viewproj = scene_data.proj * scene_data.view;
-	//scene_data.sunlight_dir = glm::vec4(7.75, 12.5, 12.5, 1.);
-	scene_data.sunlight_dir = glm::vec4(5.0, 12.0, 0.0, 1.);
+	scene_data.sunlight_dir = glm::vec4(7.75, 12.5, 12.5, 1.);
+	//scene_data.sunlight_dir = glm::vec4(5.0, 12.0, 0.0, 1.);
 	scene_data.sunlight_color = glm::vec4(1);
 
 	update_cascade();
@@ -1496,7 +1522,7 @@ void VulkanEngine::update_scene()
 	main_draw_context.opaque_objects.clear();
 	if (main_draw_context.transparent_objects.size() != 0)
 	{
-		//fmt::println("transparent_objects not empty"); // (!) debug
+		//fmt::println("# of transparent objects: {}", main_draw_context.transparent_objects.size()); // (!) debug
 	}
 	main_draw_context.transparent_objects.clear();
 
@@ -1618,12 +1644,11 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 		pc.material_id = obj.material_id;
 		pc.idx = shader_idx.get();
 
-		vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushConstants), &pc);
+		vkCmdPushConstants(cmd, obj.material->layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushConstants), &pc);
 		vkCmdDrawIndexed(cmd, obj.index_count, 1, obj.first_index, 0, 0);
 		stats.triangle_count += obj.index_count / 3;
 		stats.draw_call_count++;
 	};
-
 
 	//for (auto& obj : main_draw_context.opaque_objects)
 	//{
@@ -1644,10 +1669,6 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 		draw(main_draw_context.opaque_objects[i]);
 	}
 
-	for (auto& obj : main_draw_context.transparent_objects)
-	{
-		//draw(obj);
-	}
 
 	//> skybox
 	current_pass = *shader_passes["skybox"];
@@ -1664,6 +1685,16 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 	vkCmdDraw(cmd, 3, 1, 0, 0);
 	stats.triangle_count++;
 	stats.draw_call_count++;
+
+	//> transparent geometries
+	current_pass = *shader_passes["blend"];
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
+	for (auto& obj : main_draw_context.transparent_objects)
+	{
+		draw(obj);
+	}
 
 	vkCmdEndRendering(cmd);
 

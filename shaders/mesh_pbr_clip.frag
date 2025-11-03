@@ -151,6 +151,10 @@ void main()
 	uint brdf_id = uint(sceneData.textures[2]);
 	
 	vec4 albedo = texture(sampler2D(allTextures[m.diffuseID], samplers[0]), inUV) * m.baseColorFactor;
+	
+	if (albedo.a < 0.5)
+		discard; 
+		
 	vec3 lightColor = vec3(1.0);
 	
 	// normal mapping
@@ -165,7 +169,7 @@ void main()
 	sampleNormal = sampleNormal * 2.0 - 1.0;
 	vec3 N = normalize(sampleNormal.x * vT + sampleNormal.y * vB + sampleNormal.z * vN);
 	
-	N = gl_FrontFacing ? N : -N; 
+	N = gl_FrontFacing ? N : -N;
 	
 	vec3 V = normalize(sceneData.cameraPos.xyz - inWorldPos);
 	
