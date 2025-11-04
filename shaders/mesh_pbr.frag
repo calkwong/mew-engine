@@ -55,7 +55,7 @@ layout( push_constant ) uniform constants
 	VertexBuffer vertexBuffer;
 	MaterialBuffer materialBuffer;
 	uint materialID;
-	uint idx;
+	uint debug_idx;
 } pc;
 
 layout(set = 1, binding = 0) uniform texture2D allTextures[];
@@ -90,7 +90,6 @@ vec3 F_Schlick(float u, vec3 f0)
 }
 
 #define CASCADE_COUNT 4
-uint debug_index = 0;
 
 float calculate_shadow()
 {
@@ -101,7 +100,6 @@ float calculate_shadow()
 		if (d > sceneData.cascadeSplits[i])
 		{	
 			cascade_index = i;
-			debug_index = cascade_index;
 			break;
 		}
 	}
@@ -152,28 +150,38 @@ void main()
 	uint prefiltered_id = uint(sceneData.textures[1]);
 	uint brdf_id = uint(sceneData.textures[2]);
 	
-	vec4 albedo = texture(sampler2D(allTextures[m.diffuseID], samplers[0]), inUV) * m.baseColorFactor;
+	vec4 albedo = m.baseColorFactor;
+	if (m.diffuseID != 0)
+		albedo *= texture(sampler2D(allTextures[m.diffuseID], samplers[0]), inUV);
 	vec3 lightColor = vec3(1.0);
 	
 	// normal mapping
-	vec3 vN = normalize(inNormal); // normalize or not? shouldnt mikktspace leave as is? added for khronos sponza
-	vec3 vT = normalize(inTangent.xyz); // normalize or not? shouldnt mikktspace leave as is? added for khronos sponza
+	vec3 N = normalize(inNormal); // normalize or not? shouldnt mikktspace leave as is? added for khronos sponza
+	vec3 T = normalize(inTangent.xyz); // normalize or not? shouldnt mikktspace leave as is? added for khronos sponza
 	float sign = inTangent.w; // sign is flipped during tangent generation so mikktspace is consistent with glTF handedness
-	vec3 vB = sign * cross(vN, vT);
+	vec3 B = sign * cross(N, T);
 	
-	//vB = sign * cross(inNormal, inTangent.xyz);
-	
-	vec3 sampleNormal = texture(sampler2D(allTextures[m.normalID], samplers[0]), inUV).xyz;
-	sampleNormal = sampleNormal * 2.0 - 1.0;
-	vec3 N = normalize(sampleNormal.x * vT + sampleNormal.y * vB + sampleNormal.z * vN);
+	vec3 sampleNormal = vec3(0.0);
+	if (m.normalID != 0)
+	{
+		sampleNormal = texture(sampler2D(allTextures[m.normalID], samplers[0]), inUV).xyz;
+		sampleNormal = sampleNormal * 2.0 - 1.0;
+		N = normalize(sampleNormal.x * T + sampleNormal.y * B + sampleNormal.z * N);
+	}
 	
 	N = gl_FrontFacing ? N : -N; 
 	
 	vec3 V = normalize(sceneData.cameraPos.xyz - inWorldPos);
 	
-	vec2 metalRoughness = texture(sampler2D(allTextures[m.metalRoughnessID], samplers[0]), inUV).bg;
-	float metallic = metalRoughness.x * m.metallicFactor;
-	float perceptualRoughness = metalRoughness.y * m.roughnessFactor;
+	float metallic = m.metallicFactor;
+	float perceptualRoughness = m.roughnessFactor;
+	vec2 metalRoughness = vec2(0.0);
+	if (m.metalRoughnessID != 0)
+	{
+		metalRoughness = texture(sampler2D(allTextures[m.metalRoughnessID], samplers[0]), inUV).bg;
+		metallic *= metalRoughness.x;
+		perceptualRoughness *= metalRoughness.y;
+	}
 	perceptualRoughness = max(perceptualRoughness, 0.045); // frostbite engine clamp value for analytical lights (fp32)
 	float roughness = perceptualRoughness * perceptualRoughness;
 	
@@ -201,7 +209,12 @@ void main()
 		vec3 specular = prefiltered * (F * brdf.x + brdf.y);
 		
 		ambient.xyz = diffuse + specular;
-		ambient.xyz *= texture(sampler2D(allTextures[m.occlusionID], samplers[0]), inUV).r;
+		float occlusion = 1.0;
+		if (m.occlusionID != 0)
+		{
+			occlusion = texture(sampler2D(allTextures[m.occlusionID], samplers[0]), inUV).r;
+			ambient.xyz *= occlusion;
+		}
 	#endif
 	
 	vec3 Lo = vec3(0.0);
@@ -236,40 +249,38 @@ void main()
 	// Combine with ambient
 	//vec4 color = vec4(vec3(0), 1.0); // no direct lighting, sphere debug?
 	
-	vec4 color = vec4(Lo, albedo.a);
+	vec4 color = vec4(Lo, 1.0);
 	//vec4 color = vec4(Lo, 1.0);
 	//color += vec4(albedo.xyz * 0.1, 1); // 10% albedo as ambient, for debugging without IBL
 	
-	float occluded = calculate_shadow();
-	color.xyz *= occluded;
+	//float occluded = calculate_shadow();
+	//color.xyz *= occluded;
 	
-	color.xyz += texture(sampler2D(allTextures[m.emissiveID], samplers[0]), inUV).xyz;
+	
+	vec3 emission = vec3(0.0);
+	if (m.emissiveID != 0)
+	{
+		emission = texture(sampler2D(allTextures[m.emissiveID], samplers[0]), inUV).xyz;
+		color.xyz += emission;
+	}
 	
 	float ibl_strength = 0.3;
 	
 	color.xyz += ambient * ibl_strength;
-	
-	//switch (debug_index)
-	//{
-	//	case 0: color.xyz *= vec3(1, 0, 0); break;
-	//	case 1: color.xyz *= vec3(0, 1, 0); break;
-	//	case 2: color.xyz *= vec3(1, 0, 1); break;
-	//	case 3: color.xyz *= vec3(0, 0, 1); break;
-	//	default: break;
-	//}
-
+	color.a = 0.0;
 	outFragColor = color;
-	switch (pc.idx)
+
+	switch (pc.debug_idx)
 	{
 		case 0: break;
 		case 1: outFragColor = vec4(albedo.xyz, 1.0); break;
-		case 2: outFragColor = vec4(vN, 1.0); outFragColor.xyz = outFragColor.xyz * 0.5 + 0.5; break; // geometry 
-		case 3: outFragColor = vec4(sampleNormal, 1.0); outFragColor.xyz = outFragColor.xyz * 0.5 + 0.5; break; // texture normal
-		case 4: outFragColor = vec4(N, 1.0); outFragColor.xyz = outFragColor.xyz * 0.5 + 0.5; break; // shading normal
-		case 5: outFragColor = vec4(normalize(inTangent.xyz), 1.0); outFragColor.xyz = outFragColor.xyz * 0.5 + 0.5; break;
-		case 6: outFragColor = vec4(vec3(metalRoughness.x), 1.0); break;
-		case 7: outFragColor = vec4(vec3(metalRoughness.y), 1.0); break;
-		case 8: outFragColor = vec4(vec2(inUV), 0.0, 1.0); break;
+		case 2: outFragColor = vec4(normalize(inNormal), 1.0); outFragColor.xyz = outFragColor.xyz * 0.5 + 0.5; outFragColor.xyz = pow(outFragColor.xyz, vec3(2.2)); break; // geometry 
+		case 3: outFragColor = vec4(sampleNormal, 1.0); outFragColor.xyz = outFragColor.xyz * 0.5 + 0.5; outFragColor.xyz = pow(outFragColor.xyz, vec3(2.2)); break; // texture normal
+		case 4: outFragColor = vec4(N, 1.0); outFragColor.xyz = outFragColor.xyz * 0.5 + 0.5; outFragColor.xyz = pow(outFragColor.xyz, vec3(2.2)); break; // shading normal
+		case 5: outFragColor = vec4(T, 1.0); outFragColor.xyz = outFragColor.xyz * 0.5 + 0.5; outFragColor.xyz = pow(outFragColor.xyz, vec3(2.2)); break;
+		case 6: outFragColor = vec4(vec3(metalRoughness.x), 1.0); outFragColor.xyz = pow(outFragColor.xyz, vec3(2.2)); break;
+		case 7: outFragColor = vec4(vec3(metalRoughness.y), 1.0); outFragColor.xyz = pow(outFragColor.xyz, vec3(2.2)); break;
+		case 8: outFragColor = vec4(vec2(inUV), 0.0, 1.0); outFragColor.xyz = pow(outFragColor.xyz, vec3(2.2)); break;
 		case 9: outFragColor = vec4(vec3(inTangent.w), 1.0); break;
 		default: break;
 	}

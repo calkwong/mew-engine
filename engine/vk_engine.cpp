@@ -34,7 +34,7 @@ VulkanEngine& VulkanEngine::get() { return *loaded_engine; }
 
 constexpr bool USE_VALIDATION_LAYERS = true;
 
-constexpr float LIGHT_FAR_PLANE{ 30.0f };
+constexpr float LIGHT_FAR_PLANE{ 80.0f };
 constexpr uint32_t SHADOW_MAP_SIZE{ 4096 };
 
 AutoCVar_Int CVAR_SHADOW_NEAR{ "shadow.near", "pull back light frustum near plane", 0, 0, CVarFlags::EditSliderInt };
@@ -73,6 +73,37 @@ bool is_visible(const std::array<glm::vec4, 6>& frustum_planes, const RenderObje
 	}
 
 	return visible;
+}
+
+std::vector<uint32_t> sort_transparency(const std::vector<RenderObject>& renderables, const Camera& cam)
+{
+	std::vector<uint32_t> indices{};
+
+	for (size_t i = 0; i < renderables.size(); i++)
+	{
+		indices.push_back(i);
+	}
+
+	std::vector<float> distances{};
+
+	for (const auto& obj : renderables)
+	{
+		auto fwd = glm::vec3((cam.get_view_matrix())[2]);
+		auto origin = glm::vec3(obj.transform * glm::vec4(obj.bounds.origin, 1.0));
+		//origin = origin - fwd * obj.bounds.sphere_radius;
+		auto v = origin - cam.position;
+		auto distance = glm::dot(v, v); // squared distance, no need to normalize
+		distances.push_back(distance);
+	}
+
+	std::sort(indices.begin(), indices.end(), [&](const auto& iA, const auto& iB) {
+		float A = distances[iA];
+		float B = distances[iB];
+
+		return A > B; // render back to front
+		});
+
+	return indices;
 }
 
 std::vector<uint32_t> frustum_culling(const std::vector<RenderObject>& renderables, glm::mat4& viewproj, bool orthographic = false)
@@ -649,6 +680,7 @@ void VulkanEngine::init_swapchain()
 	draw_image2 = create_image(draw_image_extent, VK_FORMAT_R16G16B16A16_SFLOAT, draw_image_flags, VK_IMAGE_ASPECT_COLOR_BIT);
 
 	auto id = texture_cache.add_texture(draw_image.view);
+	assert(id == 0);
 	texture_cache.set_draw_image(id);
 
 	id = texture_cache.add_texture(draw_image2.view);
@@ -960,7 +992,7 @@ void VulkanEngine::init_pipelines()
 	builder.enable_blending_alphablend();
 	builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
 	builder.enable_depth(false, VK_COMPARE_OP_GREATER_OR_EQUAL);
-	textured_lit.build_effect(device, "../../shaders/mesh_pbr.vert.spv", "../../shaders/mesh_pbr.frag.spv"); // rebuild as above destroyed shadermodule
+	textured_lit.build_effect(device, "../../shaders/mesh_pbr.vert.spv", "../../shaders/mesh_pbr_transparent.frag.spv"); // rebuild as above destroyed shadermodule
 	std::unique_ptr<ShaderPass> blend_pass = vkutil::build_shader(device, &textured_lit, builder);
 
 	//>
@@ -1205,25 +1237,6 @@ void VulkanEngine::init_default_data()
 	draw_extent.height = draw_image.extent.height;
 
 	//> default textures
-	uint32_t white_color = glm::packUnorm4x8(glm::vec4(1));
-	white_image = create_image(static_cast<void*>(&white_color), VkExtent3D{ 1, 1, 1 },
-		VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_USAGE_SAMPLED_BIT, 
-		VK_IMAGE_ASPECT_COLOR_BIT);
-
-	uint32_t black_color = glm::packUnorm4x8(glm::vec4(0));
-	black_image = create_image(static_cast<void*>(&black_color), VkExtent3D{ 1, 1, 1 },
-		VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_USAGE_SAMPLED_BIT,
-		VK_IMAGE_ASPECT_COLOR_BIT);
-
-	uint32_t metal_rough_color = glm::packUnorm4x8(glm::vec4(0, 0.5, 0, 0));
-	default_mr_image = create_image(static_cast<void*>(&metal_rough_color), VkExtent3D{ 1, 1, 1 },
-		VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT,
-		VK_IMAGE_ASPECT_COLOR_BIT);
-
-	uint32_t normal_color = glm::packUnorm4x8(glm::vec4(0.5, 0.5, 1, 0));
-	default_normal_image = create_image(static_cast<void*>(&normal_color), VkExtent3D{ 1, 1, 1 },
-		VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT,
-		VK_IMAGE_ASPECT_COLOR_BIT);
 
 	uint32_t magenta_color = glm::packUnorm4x8(glm::vec4(1, 0, 1, 1));
 	std::array<uint32_t, 16 * 16 > pixels{}; //for 16x16 checkerboard texture
@@ -1231,7 +1244,7 @@ void VulkanEngine::init_default_data()
 	{
 		for (int y = 0; y < 16; y++) 
 		{
-			pixels[y * 16 + x] = ((x % 2) ^ (y % 2)) ? magenta_color : black_color;
+			pixels[y * 16 + x] = ((x % 2) ^ (y % 2)) ? magenta_color : 0;
 		}
 	}
 
@@ -1239,10 +1252,6 @@ void VulkanEngine::init_default_data()
 		VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_USAGE_SAMPLED_BIT,
 		VK_IMAGE_ASPECT_COLOR_BIT);
 
-	bindless_texture.white = texture_cache.add_texture(white_image.view); 
-	bindless_texture.black = texture_cache.add_texture(black_image.view);
-	bindless_texture.metal_roughness = texture_cache.add_texture(default_mr_image.view);
-	bindless_texture.normal = texture_cache.add_texture(default_normal_image.view);
 	bindless_texture.checkerboard = texture_cache.add_texture(error_image.view);
 
 	//> default samplers
@@ -1313,10 +1322,6 @@ void VulkanEngine::init_default_data()
 	bindless_texture.shadow -= (static_cast<uint8_t>(cascade_data.size()) - 1); // dirty adj
 
 	main_deletion_queue.push_function([&]() {
-		destroy_image(white_image);
-		destroy_image(black_image);
-		destroy_image(default_mr_image);
-		destroy_image(default_normal_image);
 		destroy_image(error_image);
 
 		for (size_t i = 0; i < cascade_data.size(); i++)
@@ -1422,12 +1427,12 @@ void VulkanEngine::init_renderables()
 	//std::string asset_path = "../../assets/ABeautifulGame.glb";
 	//std::string asset_path = "../../assets/terrain_gridlines.gltf";
 	//std::string asset_path = "../../assets/sphere.gltf";
-	std::string asset_path = "../../assets/oaktree.gltf";
+	//std::string asset_path = "../../assets/oaktree.gltf";
 	//std::string asset_path = "../../assets/khronos_sponza/Sponza.gltf";
-	//std::string asset_path = "../../assets/bevy_bistro/BistroInterior_Wine.gltf";
+	std::string asset_path = "../../assets/bistro_interior/BistroInterior_Wine.gltf";
+	//std::string asset_path = "../../assets/bistro_exterior/BistroExterior.gltf";
 	//std::string asset_path = "../../assets/AlphaBlendModeTest.glb";
 	//std::string asset_path = "../../assets/GlassVaseFlowers.glb";
-	//std::string asset_path = "../../assets/structure.glb";
 	auto start{ std::chrono::system_clock::now() };
 	auto asset_file = load_gltf(this, asset_path);
 	auto end{ std::chrono::system_clock::now() };
@@ -1657,18 +1662,13 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 		pc.vertex_buffer_address = obj.vertex_buffer_address;
 		pc.material_buffer_address = obj.material_buffer_address;
 		pc.material_id = obj.material_id;
-		pc.idx = shader_idx.get();
+		pc.debug_idx = shader_idx.get();
 
 		vkCmdPushConstants(cmd, obj.material->layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushConstants), &pc);
 		vkCmdDrawIndexed(cmd, obj.index_count, 1, obj.first_index, 0, 0);
 		stats.triangle_count += obj.index_count / 3;
 		stats.draw_call_count++;
 	};
-
-	//for (auto& obj : main_draw_context.opaque_objects)
-	//{
-	//	draw(obj);
-	//}
 
 	auto start = std::chrono::system_clock::now();
 
@@ -1683,7 +1683,6 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 	{
 		draw(main_draw_context.opaque_objects[i]);
 	}
-
 
 	//> skybox
 	current_pass = *shader_passes["skybox"];
@@ -1706,10 +1705,18 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
-	for (auto& obj : main_draw_context.transparent_objects)
+
+	std::vector<uint32_t> sorted_indices = sort_transparency(main_draw_context.transparent_objects, main_camera);
+
+	for (auto i : sorted_indices)
 	{
-		draw(obj);
+		draw(main_draw_context.transparent_objects[i]);
 	}
+
+	//for (auto& obj : main_draw_context.transparent_objects) // unsorted
+	//{
+	//	draw(obj);
+	//}
 
 	vkCmdEndRendering(cmd);
 

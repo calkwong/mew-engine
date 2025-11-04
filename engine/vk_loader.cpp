@@ -60,8 +60,9 @@ std::optional<AllocatedImage> load_image(VulkanEngine* engine, fastgltf::Asset& 
 
 					const std::string path(filePath.uri.path().begin(), filePath.uri.path().end());
 
-					std::string current_path = "../../assets/khronos_sponza/" + path; // (!) TODO handle this properly
-					//std::string current_path = "../../assets/bevy_bistro/" + path; // (!) TODO handle this properly
+					//std::string current_path = "../../assets/khronos_sponza/" + path; // (!) TODO handle this properly
+					std::string current_path = "../../assets/bistro_interior/" + path; // (!) TODO handle this properly
+					//std::string current_path = "../../assets/bistro_exterior/" + path; // (!) TODO handle this properly
 					unsigned char* data = stbi_load(current_path.c_str(), &width, &height, &channels, 4);
 					if (data)
 					{
@@ -228,11 +229,6 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 		mat_data.base_color_factor = glm::vec4(1);
 		mat_data.metallic_factor = 1.0;
 		mat_data.roughness_factor = 1.0;
-		mat_data.diffuse_id = engine->bindless_texture.white;
-		mat_data.metal_roughness_id = engine->bindless_texture.metal_roughness;
-		mat_data.normal_id = engine->bindless_texture.normal;
-		mat_data.occlusion_id = engine->bindless_texture.white;
-		mat_data.emissive_id = engine->bindless_texture.black; 
 		scene_material_data[0] = mat_data;
 		materials.emplace_back(MaterialInfo{MaterialPass::Opaque, 0, 0});
 	}
@@ -261,11 +257,6 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 		mat_data.base_color_factor.w = mat.pbrData.baseColorFactor[3];
 		mat_data.metallic_factor = mat.pbrData.metallicFactor;
 		mat_data.roughness_factor = mat.pbrData.roughnessFactor;
-		mat_data.diffuse_id = engine->bindless_texture.white;
-		mat_data.metal_roughness_id = engine->bindless_texture.metal_roughness;
-		mat_data.normal_id = engine->bindless_texture.normal;
-		mat_data.occlusion_id = engine->bindless_texture.white;
-		mat_data.emissive_id = engine->bindless_texture.black;
 		
 		if (mat.pbrData.baseColorTexture.has_value())
 		{
@@ -537,10 +528,11 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 					new_surface.material = engine->shader_passes["textured_lit_clip"].get();
 					break;
 				case MaterialPass::Blend:
-					new_surface.material = engine->shader_passes["blend"].get();
+					new_surface.material = engine->shader_passes["blend"].get(); // testing ice normal
+					//new_surface.material = m.double_sided ? engine->shader_passes["textured_lit2"].get() : engine->shader_passes["textured_lit"].get(); // debug normals
 					break;
 				case MaterialPass::Opaque:
-					new_surface.material = m.double_sided ? engine->shader_passes["textured_lit2"].get() : engine->shader_passes["textured_lit"].get(); // TODO double sided opaque
+					new_surface.material = m.double_sided ? engine->shader_passes["textured_lit2"].get() : engine->shader_passes["textured_lit"].get(); 
 					break;
 				default:
 					break;

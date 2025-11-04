@@ -153,10 +153,6 @@ void main()
 	vec4 albedo = m.baseColorFactor;
 	if (m.diffuseID != 0)
 		albedo *= texture(sampler2D(allTextures[m.diffuseID], samplers[0]), inUV);
-	
-	if (albedo.a < 0.5)
-		discard;
-	
 	vec3 lightColor = vec3(1.0);
 	
 	// normal mapping
@@ -253,7 +249,7 @@ void main()
 	// Combine with ambient
 	//vec4 color = vec4(vec3(0), 1.0); // no direct lighting, sphere debug?
 	
-	vec4 color = vec4(Lo, 1.0);
+	vec4 color = vec4(Lo, albedo.a);
 	//vec4 color = vec4(Lo, 1.0);
 	//color += vec4(albedo.xyz * 0.1, 1); // 10% albedo as ambient, for debugging without IBL
 	
@@ -271,9 +267,12 @@ void main()
 	float ibl_strength = 0.3;
 	
 	color.xyz += ambient * ibl_strength;
-	color.a = 0.0;
-	outFragColor = color;
 
+	// premultiplied alpha
+	color.xyz *= color.a;
+
+	outFragColor = color;
+	
 	switch (pc.debug_idx)
 	{
 		case 0: break;
@@ -288,5 +287,4 @@ void main()
 		case 9: outFragColor = vec4(vec3(inTangent.w), 1.0); break;
 		default: break;
 	}
-
 }

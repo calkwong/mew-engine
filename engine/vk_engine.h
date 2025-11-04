@@ -18,7 +18,7 @@ struct PushConstants
 	VkDeviceAddress vertex_buffer_address{};
 	VkDeviceAddress material_buffer_address{};
 	uint32_t material_id{};
-	uint32_t idx{};
+	uint32_t debug_idx{};
 };
 
 struct IBLPushConstants
@@ -152,10 +152,6 @@ struct RenderObject
 struct BindlessTexture
 {
 	uint8_t checkerboard{};
-	uint8_t white{};
-	uint8_t black{};
-	uint8_t normal{};
-	uint8_t metal_roughness{};
 	uint8_t equi{};
 	uint8_t skybox{};
 	uint8_t irradiance{};

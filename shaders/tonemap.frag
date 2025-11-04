@@ -32,8 +32,8 @@ void main()
 {
 	vec4 color = texture(sampler2D(allTextures[pc.texture_id], samplers[0]), inUV);
 
-	color.xyz = Uncharted2Tonemap(color.xyz * exposure);
-	color.xyz = color.xyz * (1.0 / Uncharted2Tonemap(vec3(11.2)));
+	//color.xyz = Uncharted2Tonemap(color.xyz * exposure);
+	//color.xyz = color.xyz * (1.0 / Uncharted2Tonemap(vec3(11.2)));
 	
 	outFragColor = color;
 }
