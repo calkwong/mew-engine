@@ -245,7 +245,9 @@ void main()
 	
 	color.xyz += texture(sampler2D(allTextures[m.emissiveID], samplers[0]), inUV).xyz;
 	
-	color.xyz += ambient;
+	float ibl_strength = 0.3;
+	
+	color.xyz += ambient * ibl_strength;
 	
 	//switch (debug_index)
 	//{

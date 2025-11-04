@@ -528,7 +528,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 			{
 				auto m = materials[p.materialIndex.value()];
 				new_surface.material_id = m.index;
-
+				new_surface.double_sided = m.double_sided;
 				new_surface.pass = m.pass_type;
 
 				switch (new_surface.pass)

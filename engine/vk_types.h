@@ -85,6 +85,7 @@ struct RenderObject;
 struct DrawContext
 {
     std::vector<RenderObject> opaque_objects{};
+    std::vector<RenderObject> opaque_flat_objects{};
     std::vector<RenderObject> transparent_objects{};
 };
 
