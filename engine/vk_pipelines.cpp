@@ -128,12 +128,18 @@ void PipelineBuilder::set_shaders(VkShaderModule vert_shader, VkShaderModule fra
         vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_VERTEX_BIT, vert_shader)
     );
 
-    if (frag_shader != VK_NULL_HANDLE)
-    {
-        shader_stages.push_back(
-            vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, frag_shader)
-        );
-    }
+    shader_stages.push_back(
+        vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, frag_shader)
+    );
+}
+
+void PipelineBuilder::set_shaders(VkShaderModule vert_shader)
+{
+    shader_stages.clear();
+
+    shader_stages.push_back(
+        vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_VERTEX_BIT, vert_shader)
+    );
 }
 
 void PipelineBuilder::set_input_topology(VkPrimitiveTopology topology)
@@ -237,42 +243,22 @@ void PipelineBuilder::enable_blending_alphablend() // review alpha blend eq
     color_blend_attachment.alphaBlendOp = VK_BLEND_OP_ADD;
 }
 
-void ShaderEffect::build_effect(VkDevice device, const char* vert_path, const char* frag_path)
-{
-    vkutil::load_shader_module(vert_path, device, &modules[0]);
-    vkutil::load_shader_module(frag_path, device, &modules[1]);
-}
-
-void ShaderEffect::build_effect(VkDevice device, const char* comp_path)
-{
-    if (!vkutil::load_shader_module(comp_path, device, &modules[0]))
-    {
-        fmt::println("loading vertex shader failed: {}", comp_path);
-    }
-}
-
-std::unique_ptr<ShaderPass> vkutil::build_shader(VkDevice device, ShaderEffect* effect, PipelineBuilder& builder)
+std::unique_ptr<ShaderPass> vkutil::build_shader(VkDevice device, PipelineBuilder& builder, std::vector<VkDescriptorSetLayout>& layouts, VkPushConstantRange* pc)
 {
     std::unique_ptr<ShaderPass> shader = std::make_unique<ShaderPass>();
 
     VkPipelineLayoutCreateInfo pipeline_layout_info{};
     pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    pipeline_layout_info.setLayoutCount = static_cast<uint32_t>(effect->layouts.size());
-    pipeline_layout_info.pSetLayouts = effect->layouts.data();
-    pipeline_layout_info.pushConstantRangeCount = static_cast<uint32_t>(effect->pc.size());
-    pipeline_layout_info.pPushConstantRanges = effect->pc.data();
+    pipeline_layout_info.setLayoutCount = static_cast<uint32_t>(layouts.size());
+    pipeline_layout_info.pSetLayouts = layouts.data();
+    pipeline_layout_info.pushConstantRangeCount = 1;
+    pipeline_layout_info.pPushConstantRanges = pc;
 
     vkCreatePipelineLayout(device, &pipeline_layout_info, nullptr, &shader->layout);
 
     builder.pipeline_layout = shader->layout;
-    builder.set_shaders(effect->modules[0], effect->modules[1]);
 
     shader->pipeline = builder.build_pipeline(device);
-
-    for (const auto& m : effect->modules)
-    {
-        vkDestroyShaderModule(device, m, nullptr);
-    }
 
     return shader;
 }
@@ -291,25 +277,27 @@ VkPipeline ComputePipelineBuilder::build_pipeline(VkDevice device)
     return pipeline;
 }
 
-std::unique_ptr<ShaderPass> vkutil::build_shader(VkDevice device, ShaderEffect* effect, ComputePipelineBuilder& builder)
+void ComputePipelineBuilder::set_shaders(VkShaderModule comp_shader)
+{
+    shader_stages[0] = vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_COMPUTE_BIT, comp_shader);
+}
+
+std::unique_ptr<ShaderPass> vkutil::build_shader(VkDevice device, ComputePipelineBuilder& builder, std::vector<VkDescriptorSetLayout>& layouts, VkPushConstantRange* pc)
 {
     std::unique_ptr<ShaderPass> shader = std::make_unique<ShaderPass>();
 
     VkPipelineLayoutCreateInfo pipeline_layout_info{};
     pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    pipeline_layout_info.setLayoutCount = static_cast<uint32_t>(effect->layouts.size());
-    pipeline_layout_info.pSetLayouts = effect->layouts.data();
-    pipeline_layout_info.pushConstantRangeCount = static_cast<uint32_t>(effect->pc.size());
-    pipeline_layout_info.pPushConstantRanges = effect->pc.data();
+    pipeline_layout_info.setLayoutCount = static_cast<uint32_t>(layouts.size());
+    pipeline_layout_info.pSetLayouts = layouts.data();
+    pipeline_layout_info.pushConstantRangeCount = 1;
+    pipeline_layout_info.pPushConstantRanges = pc;
 
     vkCreatePipelineLayout(device, &pipeline_layout_info, nullptr, &shader->layout);
 
     builder.pipeline_layout = shader->layout;
-    builder.shader_stages[0] = vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_COMPUTE_BIT, effect->modules[0]);
 
     shader->pipeline = builder.build_pipeline(device);
-
-    vkDestroyShaderModule(device, effect->modules[0], nullptr);
 
     return shader;
 }

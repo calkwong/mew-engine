@@ -131,6 +131,13 @@ struct ImageCache
 	uint32_t add_texture(const VkImageView& view);
 };
 
+struct ShaderCache
+{
+	std::unordered_map<std::string, VkShaderModule> data{};
+
+	VkShaderModule add_shader(VkDevice device, const char* path);
+};
+
 // consider moving to vk_scene
 // should there be material_buffer_address? or is that in pass object? currently handled by push constant
 struct RenderObject
@@ -171,6 +178,8 @@ struct BindlessImage
 	uint8_t prefiltered{};
 	uint8_t brdf{};
 };
+
+
 
 class VulkanEngine
 {
@@ -246,6 +255,7 @@ public:
 	SamplerCache sampler_cache{}; 
 	TextureCache texture_cache{};
 	ImageCache image_cache{};
+	ShaderCache shader_cache{};
 
 	std::unordered_map<std::string, std::shared_ptr<LoadedGLTF>> loaded_scenes{};
 

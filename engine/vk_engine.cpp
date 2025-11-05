@@ -893,134 +893,102 @@ void VulkanEngine::immediate_submit(std::function<void(VkCommandBuffer cmd)>&& f
 
 void VulkanEngine::init_pipelines()
 {
-	ComputePipelineBuilder compute_builder{};
+	std::vector<VkDescriptorSetLayout> descriptor_layouts{ bindless_image_layout, bindless_tex_layout, bindless_sampler_layout };
+	VkPushConstantRange pc = { VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IBLPushConstants) };
 
 	//> IBL
-	ShaderEffect equi_to_cube{
-		.layouts = { bindless_image_layout, bindless_tex_layout, bindless_sampler_layout },
-		.pc = {
-			{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IBLPushConstants) }
-		}
-	};
-	equi_to_cube.build_effect(device, "../../shaders/equi_to_cube.comp.spv");
-	std::unique_ptr<ShaderPass> equi_to_cube_pass = vkutil::build_shader(device, &equi_to_cube, compute_builder);
+	ComputePipelineBuilder compute_builder{};
+	VkShaderModule module = shader_cache.add_shader(device, "equi_to_cube.comp.spv");
+	compute_builder.set_shaders(module);
+	std::unique_ptr<ShaderPass> equi_to_cube_pass = vkutil::build_shader(device, compute_builder, descriptor_layouts, &pc);
 
-	ShaderEffect irradiance = equi_to_cube;
-	irradiance.build_effect(device, "../../shaders/irradiance.comp.spv");
-	std::unique_ptr<ShaderPass> irradiance_pass = vkutil::build_shader(device, &irradiance, compute_builder);
+	module = shader_cache.add_shader(device, "irradiance.comp.spv");
+	compute_builder.set_shaders(module);
+	std::unique_ptr<ShaderPass> irradiance_pass = vkutil::build_shader(device, compute_builder, descriptor_layouts, &pc);
 
-	ShaderEffect prefiltered{
-		.layouts = { bindless_image_layout, bindless_tex_layout, bindless_sampler_layout },
-		.pc = {
-			{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IBLPushConstants) }
-		}
-	};
-	prefiltered.build_effect(device, "../../shaders/prefiltered.comp.spv");
-	std::unique_ptr<ShaderPass> prefiltered_pass = vkutil::build_shader(device, &prefiltered, compute_builder);
+	module = shader_cache.add_shader(device, "prefiltered.comp.spv");
+	compute_builder.set_shaders(module);
+	std::unique_ptr<ShaderPass> prefiltered_pass = vkutil::build_shader(device, compute_builder, descriptor_layouts, &pc);
 
-	ShaderEffect brdflut{
-		.layouts = { bindless_image_layout },
-		.pc = {
-			{ VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IBLPushConstants) }
-		}
-	};
-	brdflut.build_effect(device, "../../shaders/brdf.comp.spv");
-	std::unique_ptr<ShaderPass> brdf_pass = vkutil::build_shader(device, &brdflut, compute_builder);
+	module = shader_cache.add_shader(device, "brdf.comp.spv");
+	compute_builder.set_shaders(module);
+	std::unique_ptr<ShaderPass> brdf_pass = vkutil::build_shader(device, compute_builder, descriptor_layouts, &pc);
+
+	//> GRAPHICS PIPELINE
+	descriptor_layouts[0] = scene_descriptor_layout;
+	VkShaderModule frag_module{};
 
 	//> SHADOW 
 	PipelineBuilder builder{};
 	builder.set_input_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
 	builder.set_polygon_mode(VK_POLYGON_MODE_FILL);
-	builder.set_cull_mode(VK_CULL_MODE_FRONT_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
 	builder.set_multisampling_none();
 	builder.disable_blending();
+
+	module = shader_cache.add_shader(device, "depth.vert.spv");
+	builder.set_shaders(module);
+	builder.set_cull_mode(VK_CULL_MODE_FRONT_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
 	builder.enable_depth(true, VK_COMPARE_OP_GREATER_OR_EQUAL);
 	builder.set_color_attachment_format(VK_FORMAT_UNDEFINED);
 	builder.set_depth_format(depth_image.format);
-
 	builder.dynamic_state.push_back(VK_DYNAMIC_STATE_DEPTH_BIAS);
 	builder.rasterization.depthBiasEnable = VK_TRUE;
+	pc = { VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(ShadowPushConstants) };
+	std::unique_ptr<ShaderPass> shadow_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
 
-	ShaderEffect shadow{
-		.layouts = { scene_descriptor_layout, bindless_tex_layout, bindless_sampler_layout },
-		.pc = {
-			{ VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(ShadowPushConstants) }
-		}
-	};
-	shadow.build_effect(device, "../../shaders/depth.vert.spv"); // (!) this uses compute shader ver, refactor
-	std::unique_ptr<ShaderPass> shadow_pass = vkutil::build_shader(device, &shadow, builder);
-
-	//> DOUBLE SIDED SHADOW, still unused (!)
+	//> DOUBLE SIDED SHADOW
+	frag_module = shader_cache.add_shader(device, "depth.frag.spv");
+	builder.set_shaders(module, frag_module);
 	builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-	shadow.build_effect(device, "../../shaders/depth.vert.spv", "../../shaders/depth.frag.spv"); // (!) this uses compute shader ver, refactor
-	std::unique_ptr<ShaderPass> shadow_flat_pass = vkutil::build_shader(device, &shadow, builder);
+	std::unique_ptr<ShaderPass> shadow_flat_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
 
 	//> DOUBLE SIDED MASK
+	module = shader_cache.add_shader(device, "mesh_pbr.vert.spv");
+	frag_module = shader_cache.add_shader(device, "mesh_pbr_clip.frag.spv");
+	builder.set_shaders(module, frag_module);
 	builder.set_color_attachment_format(draw_image.format); 
 	builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
 	builder.disable_blending();
 	builder.enable_depth(true, VK_COMPARE_OP_GREATER_OR_EQUAL);
 	builder.dynamic_state.pop_back(); // remove depth bias dynamic state
 	builder.rasterization.depthBiasEnable = VK_FALSE;
-
-	ShaderEffect textured_lit_clip{
-		.layouts = { scene_descriptor_layout, bindless_tex_layout, bindless_sampler_layout },
-		.pc = {
-			{ VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushConstants) }
-		}
-	};
-	textured_lit_clip.build_effect(device, "../../shaders/mesh_pbr.vert.spv", "../../shaders/mesh_pbr_clip.frag.spv");
-
-	std::unique_ptr<ShaderPass> textured_lit_clip_pass = vkutil::build_shader(device, &textured_lit_clip, builder);
+	pc = { VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushConstants) };
+	std::unique_ptr<ShaderPass> textured_lit_clip_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
 
 	//> DOUBLE SIDED LIT
-	ShaderEffect textured_lit{
-		.layouts = { scene_descriptor_layout, bindless_tex_layout, bindless_sampler_layout },
-		.pc = { 
-			{ VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushConstants) }
-		}
-	};
-	textured_lit.build_effect(device, "../../shaders/mesh_pbr.vert.spv", "../../shaders/mesh_pbr.frag.spv");
-
-	std::unique_ptr<ShaderPass> textured_lit2_pass = vkutil::build_shader(device, &textured_lit, builder);
+	frag_module = shader_cache.add_shader(device, "mesh_pbr.frag.spv");
+	builder.set_shaders(module, frag_module);
+	std::unique_ptr<ShaderPass> textured_lit2_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
 
 	//> NON-DOUBLE SIDED LIT
 	builder.set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-	textured_lit.build_effect(device, "../../shaders/mesh_pbr.vert.spv", "../../shaders/mesh_pbr.frag.spv"); // rebuild as above destroyed shadermodule
-	std::unique_ptr<ShaderPass> textured_lit_pass = vkutil::build_shader(device, &textured_lit, builder);
+	std::unique_ptr<ShaderPass> textured_lit_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
 
 	//> DOUBLE SIDED TRANSPARENT BACK FIRST
+	frag_module = shader_cache.add_shader(device, "mesh_pbr_transparent.frag.spv");
+	builder.set_shaders(module, frag_module);
 	builder.enable_blending_alphablend();
 	builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
 	builder.enable_depth(false, VK_COMPARE_OP_GREATER_OR_EQUAL);
-	textured_lit.build_effect(device, "../../shaders/mesh_pbr.vert.spv", "../../shaders/mesh_pbr_transparent.frag.spv"); // rebuild as above destroyed shadermodule
-	std::unique_ptr<ShaderPass> blend_pass = vkutil::build_shader(device, &textured_lit, builder);
+	std::unique_ptr<ShaderPass> blend_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
 
 	//> SKYBOX
+	module = shader_cache.add_shader(device, "skybox.vert.spv");
+	frag_module = shader_cache.add_shader(device, "skybox.frag.spv");
+	builder.set_shaders(module, frag_module);
 	builder.disable_blending();
 	builder.enable_depth(true, VK_COMPARE_OP_GREATER_OR_EQUAL);
-	// cull mode dont matter anymore
-	ShaderEffect skybox{
-		.layouts = { scene_descriptor_layout, bindless_tex_layout, bindless_sampler_layout },
-		.pc = {
-			{ VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(SkyboxPushConstants)}
-		}
-	};
-	skybox.build_effect(device, "../../shaders/skybox.vert.spv", "../../shaders/skybox.frag.spv");
-	std::unique_ptr<ShaderPass> skybox_pass = vkutil::build_shader(device, &skybox, builder);
+	pc = { VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(SkyboxPushConstants) };
+	std::unique_ptr<ShaderPass> skybox_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
 
 	//> POST FX
+	module = shader_cache.add_shader(device, "full_screen.vert.spv");
+	frag_module = shader_cache.add_shader(device, "tonemap.frag.spv");
+	builder.set_shaders(module, frag_module);
 	builder.disable_depth();
 	builder.set_depth_format(VK_FORMAT_UNDEFINED);
-
-	ShaderEffect tonemap{
-		.layouts = { scene_descriptor_layout, bindless_tex_layout, bindless_sampler_layout },
-		.pc = {
-			{ VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PostFXPushConstants)}
-		}
-	};
-	tonemap.build_effect(device, "../../shaders/full_screen.vert.spv", "../../shaders/tonemap.frag.spv");
-	std::unique_ptr<ShaderPass> tonemap_pass = vkutil::build_shader(device, &tonemap, builder);
+	pc = { VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PostFXPushConstants) };
+	std::unique_ptr<ShaderPass> tonemap_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
 
 	shader_passes["equi_to_cube"] = std::move(equi_to_cube_pass);
 	shader_passes["irradiance"] = std::move(irradiance_pass);
@@ -1034,6 +1002,11 @@ void VulkanEngine::init_pipelines()
 	shader_passes["skybox"] = std::move(skybox_pass);
 	shader_passes["tonemap"] = std::move(tonemap_pass);
 	shader_passes["blend"] = std::move(blend_pass);
+
+	for (const auto& [k, v] : shader_cache.data)
+	{
+		vkDestroyShaderModule(device, v, nullptr);
+	}
 }
 
 AllocatedBuffer VulkanEngine::create_buffer(size_t alloc_size, VmaAllocationCreateFlags flags, VkBufferUsageFlags usage)
@@ -1597,6 +1570,22 @@ uint32_t ImageCache::add_texture(const VkImageView& view)
 	image_infos.emplace_back(VkDescriptorImageInfo{ 0, view, VK_IMAGE_LAYOUT_GENERAL });
 
 	return id;
+}
+
+VkShaderModule ShaderCache::add_shader(VkDevice device, const char* path)
+{
+	std::string shader_path{ "../../shaders/" };
+	shader_path += path;
+	auto it = data.find(shader_path);
+
+	if (it == data.end())
+	{
+		VkShaderModule module{};
+		vkutil::load_shader_module(shader_path.c_str(), device, &module);
+		data[shader_path] = module;
+	}
+
+	return data[shader_path];
 }
 
 void VulkanEngine::forward_pass(VkCommandBuffer cmd)

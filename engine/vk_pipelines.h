@@ -6,16 +6,6 @@
 
 #include <span>
 
-struct ShaderEffect
-{
-    std::array<VkShaderModule, 2> modules{};
-    std::vector<VkDescriptorSetLayout> layouts{};
-    std::vector<VkPushConstantRange> pc{};
-
-    void build_effect(VkDevice device, const char* vert_path, const char* frag_path);
-    void build_effect(VkDevice device, const char* comp_path);
-};
-
 struct ShaderPass
 {
     VkPipeline pipeline{};
@@ -42,6 +32,7 @@ struct PipelineBuilder
 
     VkPipeline build_pipeline(VkDevice device);
     void set_shaders(VkShaderModule vert_shader, VkShaderModule frag_shader);
+    void set_shaders(VkShaderModule vert_shader);
     void set_input_topology(VkPrimitiveTopology topology);
     void set_polygon_mode(VkPolygonMode mode);
     void set_cull_mode(VkCullModeFlags cull_mode, VkFrontFace front_face);
@@ -61,13 +52,14 @@ struct ComputePipelineBuilder
     VkPipelineLayout pipeline_layout{};
 
     VkPipeline build_pipeline(VkDevice device);
+    void set_shaders(VkShaderModule comp_shader);
 };
 
 namespace vkutil
 {
 	bool load_shader_module(const char* path, VkDevice device, VkShaderModule* out_shader_module);
 
-    std::unique_ptr<ShaderPass> build_shader(VkDevice device, ShaderEffect* effect, PipelineBuilder& builder);
+    std::unique_ptr<ShaderPass> build_shader(VkDevice device, PipelineBuilder& builder, std::vector<VkDescriptorSetLayout>& layouts, VkPushConstantRange* pc);
 
-    std::unique_ptr<ShaderPass> build_shader(VkDevice device, ShaderEffect* effect, ComputePipelineBuilder& builder);
+    std::unique_ptr<ShaderPass> build_shader(VkDevice device, ComputePipelineBuilder& builder, std::vector<VkDescriptorSetLayout>& layouts, VkPushConstantRange* pc);
 }
