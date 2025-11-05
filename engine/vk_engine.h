@@ -33,6 +33,8 @@ struct ShadowPushConstants
 	glm::mat4 model{};
 	glm::mat4 viewproj{};
 	VkDeviceAddress vertex_buffer_address{};
+	VkDeviceAddress material_buffer_address{};
+	uint32_t material_id;
 };
 
 struct SkyboxPushConstants
@@ -146,6 +148,8 @@ struct RenderObject
 	glm::mat4 transform{};
 	VkDeviceAddress vertex_buffer_address{};
 	VkDeviceAddress material_buffer_address{};
+
+	uint32_t double_sided{};
 };
 
 // to refactor
@@ -283,7 +287,6 @@ public:
 	void register_object(Node& node, const glm::mat4& top_matrix, DrawContext& ctx);
 	void forward_pass(VkCommandBuffer cmd);
 	void shadow_pass(VkCommandBuffer cmd, size_t cascade_idx);
-	glm::mat4 single_cascade();
 	void update_cascade();
 	void draw_imgui(VkCommandBuffer cmd, VkImageView swapchain_view);
 

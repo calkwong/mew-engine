@@ -257,8 +257,8 @@ void main()
 	//vec4 color = vec4(Lo, 1.0);
 	//color += vec4(albedo.xyz * 0.1, 1); // 10% albedo as ambient, for debugging without IBL
 	
-	//float occluded = calculate_shadow();
-	//color.xyz *= occluded;
+	float occluded = calculate_shadow();
+	color.xyz *= occluded;
 	
 	
 	vec3 emission = vec3(0.0);

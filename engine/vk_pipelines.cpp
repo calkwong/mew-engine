@@ -45,6 +45,7 @@ bool vkutil::load_shader_module(const char* path, VkDevice device, VkShaderModul
     VkShaderModule shader_module{};
     if (vkCreateShaderModule(device, &create_info, nullptr, &shader_module) != VK_SUCCESS) 
     {
+        fmt::println("loading shader failed: {}", path);
         return false;
     }
     *out_shader_module = shader_module;
@@ -238,15 +239,8 @@ void PipelineBuilder::enable_blending_alphablend() // review alpha blend eq
 
 void ShaderEffect::build_effect(VkDevice device, const char* vert_path, const char* frag_path)
 {
-    if (!vkutil::load_shader_module(vert_path, device, &modules[0]))
-    {
-        fmt::println("loading vertex shader failed: {}", vert_path);
-    }
-
-    if (!vkutil::load_shader_module(frag_path, device, &modules[1]))
-    {
-        fmt::println("loading frag shader failed: {}", frag_path);
-    }
+    vkutil::load_shader_module(vert_path, device, &modules[0]);
+    vkutil::load_shader_module(frag_path, device, &modules[1]);
 }
 
 void ShaderEffect::build_effect(VkDevice device, const char* comp_path)

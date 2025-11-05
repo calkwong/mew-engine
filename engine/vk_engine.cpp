@@ -38,7 +38,7 @@ constexpr float LIGHT_FAR_PLANE{ 80.0f };
 constexpr uint32_t SHADOW_MAP_SIZE{ 4096 };
 
 AutoCVar_Int CVAR_SHADOW_NEAR{ "shadow.near", "pull back light frustum near plane", 0, 0, CVarFlags::EditSliderInt };
-AutoCVar_Int CVAR_SHADOW_CULL{ "shadow.cull", "perform frustum culling for light frustum", 0, 0, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_PROPER_SHADOW{ "shadow.double_sided", "render shadows for double sided geometry", 0, 0, CVarFlags::EditCheckbox };
 AutoCVar_Int shader_idx{ "debug.index", "", 0, 0, CVarFlags::EditSliderInt };
 
 bool is_visible(const std::array<glm::vec4, 6>& frustum_planes, const RenderObject& obj)
@@ -942,8 +942,9 @@ void VulkanEngine::init_pipelines()
 	builder.rasterization.depthBiasEnable = VK_TRUE;
 
 	ShaderEffect shadow{
+		.layouts = { scene_descriptor_layout, bindless_tex_layout, bindless_sampler_layout },
 		.pc = {
-			{ VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ShadowPushConstants) }
+			{ VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(ShadowPushConstants) }
 		}
 	};
 	shadow.build_effect(device, "../../shaders/depth.vert.spv"); // (!) this uses compute shader ver, refactor
@@ -951,7 +952,7 @@ void VulkanEngine::init_pipelines()
 
 	//> DOUBLE SIDED SHADOW, still unused (!)
 	builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-	shadow.build_effect(device, "../../shaders/depth.vert.spv"); // (!) this uses compute shader ver, refactor
+	shadow.build_effect(device, "../../shaders/depth.vert.spv", "../../shaders/depth.frag.spv"); // (!) this uses compute shader ver, refactor
 	std::unique_ptr<ShaderPass> shadow_flat_pass = vkutil::build_shader(device, &shadow, builder);
 
 	//> DOUBLE SIDED MASK
@@ -1000,7 +1001,7 @@ void VulkanEngine::init_pipelines()
 	builder.enable_depth(true, VK_COMPARE_OP_GREATER_OR_EQUAL);
 	// cull mode dont matter anymore
 	ShaderEffect skybox{
-		.layouts = { bindless_tex_layout, bindless_sampler_layout },
+		.layouts = { scene_descriptor_layout, bindless_tex_layout, bindless_sampler_layout },
 		.pc = {
 			{ VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(SkyboxPushConstants)}
 		}
@@ -1013,7 +1014,7 @@ void VulkanEngine::init_pipelines()
 	builder.set_depth_format(VK_FORMAT_UNDEFINED);
 
 	ShaderEffect tonemap{
-		.layouts = { bindless_tex_layout, bindless_sampler_layout },
+		.layouts = { scene_descriptor_layout, bindless_tex_layout, bindless_sampler_layout },
 		.pc = {
 			{ VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PostFXPushConstants)}
 		}
@@ -1426,14 +1427,14 @@ void VulkanEngine::init_renderables()
 
 	//std::string asset_path = "../../assets/DamagedHelmet/GLTF-Embedded/DamagedHelmet.gltf";
 	//std::string asset_path = "../../assets/ABeautifulGame.glb";
-	//std::string asset_path = "../../assets/terrain_gridlines.gltf";
 	//std::string asset_path = "../../assets/sphere.gltf";
 	//std::string asset_path = "../../assets/oaktree.gltf";
-	//std::string asset_path = "../../assets/khronos_sponza/Sponza.gltf";
+	std::string asset_path = "../../assets/khronos_sponza/Sponza.gltf";
 	//std::string asset_path = "../../assets/bistro_interior/BistroInterior_Wine.gltf";
 	//std::string asset_path = "../../assets/bistro_exterior/BistroExterior.gltf";
-	std::string asset_path = "../../assets/AlphaBlendModeTest.glb";
+	//std::string asset_path = "../../assets/AlphaBlendModeTest.glb";
 	//std::string asset_path = "../../assets/GlassVaseFlowers.glb";
+	//std::string asset_path = "../../assets/terrain_gridlines.gltf";
 	auto start{ std::chrono::system_clock::now() };
 	auto asset_file = load_gltf(this, asset_path);
 	auto end{ std::chrono::system_clock::now() };
@@ -1505,6 +1506,7 @@ void VulkanEngine::register_object(Node& node, const glm::mat4& top_matrix, Draw
 			obj.material_id = s.material_id;
 			obj.bounds = s.bounds;
 			obj.transform = node_matrix;
+			obj.double_sided = s.pass == MaterialPass::Mask;
 
 			if (s.pass == MaterialPass::Blend)
 			{
@@ -1533,8 +1535,8 @@ void VulkanEngine::update_scene()
 	scene_data.view = main_camera.get_view_matrix();
 	scene_data.proj = main_camera.perspective;
 	scene_data.viewproj = scene_data.proj * scene_data.view;
-	scene_data.sunlight_dir = glm::vec4(7.75, 12.5, 12.5, 1.);
-	//scene_data.sunlight_dir = glm::vec4(1.0, 12.0, 0.0, 1.);
+	//scene_data.sunlight_dir = glm::vec4(7.75, 12.5, 12.5, 1.);
+	scene_data.sunlight_dir = glm::vec4(1.0, 12.0, 0.0, 1.);
 	//scene_data.sunlight_dir = glm::vec4(0.0, 12.0, 12.0, 1.);
 	scene_data.sunlight_color = glm::vec4(1);
 
@@ -1688,8 +1690,9 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 	//> skybox
 	current_pass = *shader_passes["skybox"];
 	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &bindless_tex_descriptor, 0, nullptr);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_sampler_descriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
 	SkyboxPushConstants pc{};
 	auto proj = main_camera.perspective;
 	auto view_no_translation = glm::mat3(main_camera.get_view_matrix());
@@ -1766,8 +1769,9 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 	current_pass = *shader_passes["tonemap"];
 
 	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &bindless_tex_descriptor, 0, nullptr);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_sampler_descriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
 	PostFXPushConstants fx_pc{};
 	fx_pc.texture_id = texture_cache.get_draw_image();
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PostFXPushConstants), &fx_pc);
@@ -1832,18 +1836,25 @@ void VulkanEngine::shadow_pass(VkCommandBuffer cmd, size_t cascade_idx)
 	vkCmdSetDepthBias(cmd, -depth_bias, 0.0f, -slope_scaled_depth_bias);
 
 	ShaderPass current_pass = *shader_passes["shadow"];
+	ShaderPass flat_pass = *shader_passes["shadow_flat"];
 
-	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
 
 	auto draw = [&](const RenderObject& obj) {
+		auto selected_pipeline = (obj.double_sided && CVAR_PROPER_SHADOW.get()) ? flat_pass : current_pass;
+		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, selected_pipeline.pipeline);
 		vkCmdBindIndexBuffer(cmd, obj.index_buffer, 0, VK_INDEX_TYPE_UINT32);
 
 		ShadowPushConstants pc{};
 		pc.model = obj.transform;
-		pc.viewproj = cascade.viewproj;
+		pc.viewproj = cascade.viewproj; // (!) change to idx and index into scenedata?
 		pc.vertex_buffer_address = obj.vertex_buffer_address;
+		pc.material_buffer_address = obj.material_buffer_address;
+		pc.material_id = obj.material_id;
 
-		vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ShadowPushConstants), &pc);
+		vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(ShadowPushConstants), &pc);
 		vkCmdDrawIndexed(cmd, obj.index_count, 1, obj.first_index, 0, 0);
 		stats.triangle_count += obj.index_count / 3;
 		stats.draw_call_count++;

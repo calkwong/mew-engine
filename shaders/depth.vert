@@ -22,8 +22,11 @@ layout (push_constant) uniform constants
 	VertexBuffer vertexBuffer;
 } pc;
 
+layout (location = 0) out vec2 outUV;
+
 void main()
 {
 	Vertex v = pc.vertexBuffer.vertices[gl_VertexIndex];
+	outUV = vec2(v.uv_x, v.uv_y); // is this wasted?
 	gl_Position = pc.viewproj * pc.world_matrix * vec4(v.position, 1.0);
 }

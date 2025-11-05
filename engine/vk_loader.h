@@ -27,7 +27,7 @@ struct GeoSurface // rename this
 	MaterialPass pass{};
 
 	Bounds bounds{}; // 28 bytes
-	bool double_sided{};
+	bool double_sided{}; // (!) refactor?
 };
 
 struct MaterialInfo
