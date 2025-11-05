@@ -11,8 +11,9 @@
 struct Bounds
 {
 	glm::vec3 origin{};
-	float sphere_radius{};
 	glm::vec3 extents{};
+	//float sphere_radius{};
+	//glm::vec3 centroid{};
 };
 
 struct GeoSurface // rename this

@@ -441,7 +441,6 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 
 			size_t initial_vtx = vertices.size();
 
-
 			// load indexes
 			{
 				fastgltf::Accessor& index_accessor = gltf.accessors[p.indicesAccessor.value()];
@@ -529,7 +528,6 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 					break;
 				case MaterialPass::Blend:
 					new_surface.material = engine->shader_passes["blend"].get(); // testing ice normal
-					//new_surface.material = m.double_sided ? engine->shader_passes["textured_lit2"].get() : engine->shader_passes["textured_lit"].get(); // debug normals
 					break;
 				case MaterialPass::Opaque:
 					new_surface.material = m.double_sided ? engine->shader_passes["textured_lit2"].get() : engine->shader_passes["textured_lit"].get(); 
@@ -562,7 +560,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 
 			new_surface.bounds.origin = (max_pos + min_pos) / 2.0f;
 			new_surface.bounds.extents = (max_pos - min_pos) / 2.0f;
-			new_surface.bounds.sphere_radius = glm::length(new_surface.bounds.extents);
+			//new_surface.bounds.sphere_radius = glm::length(new_surface.bounds.extents);
 
 			new_mesh->surfaces.push_back(new_surface);
 		}

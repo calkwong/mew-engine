@@ -75,38 +75,39 @@ bool is_visible(const std::array<glm::vec4, 6>& frustum_planes, const RenderObje
 	return visible;
 }
 
-std::vector<uint32_t> sort_transparency(const std::vector<RenderObject>& renderables, const Camera& cam)
+void sort_transparency(const std::vector<RenderObject>& renderables, const Camera& cam, std::vector<size_t>& visible_indices)
 {
-	std::vector<uint32_t> indices{};
-
-	for (size_t i = 0; i < renderables.size(); i++)
-	{
-		indices.push_back(i);
-	}
-
 	std::vector<float> distances{};
+	std::vector<size_t> sorted{};
 
-	for (const auto& obj : renderables)
+	for (size_t i = 0; i < visible_indices.size(); i++)
 	{
-		auto fwd = glm::vec3((cam.get_view_matrix())[2]);
-		auto origin = glm::vec3(obj.transform * glm::vec4(obj.bounds.origin, 1.0));
-		//origin = origin - fwd * obj.bounds.sphere_radius;
-		auto v = origin - cam.position;
-		auto distance = glm::dot(v, v); // squared distance, no need to normalize
+		sorted.push_back(i);
+
+		size_t idx = visible_indices[i];
+		const RenderObject& obj = renderables[idx];
+		glm::vec3 origin = glm::vec3(cam.get_view_matrix() * obj.transform * glm::vec4(obj.bounds.origin, 1.0));
+		auto distance = glm::dot(origin, origin); // squared distance
 		distances.push_back(distance);
 	}
 
-	std::sort(indices.begin(), indices.end(), [&](const auto& iA, const auto& iB) {
+	std::sort(sorted.begin(), sorted.end(), [&](const auto& iA, const auto& iB) {
 		float A = distances[iA];
 		float B = distances[iB];
 
 		return A > B; // render back to front
 		});
 
-	return indices;
+	for (size_t i = 0; i < sorted.size(); i++)
+	{
+		auto idx = sorted[i];
+		sorted[i] = visible_indices[idx];
+	}
+
+	visible_indices = std::move(sorted);
 }
 
-std::vector<uint32_t> frustum_culling(const std::vector<RenderObject>& renderables, glm::mat4& viewproj, bool orthographic = false)
+std::vector<size_t> frustum_culling(const std::vector<RenderObject>& renderables, glm::mat4& viewproj, bool orthographic = false)
 {
 	auto m0 = glm::row(viewproj, 0);
 	auto m1 = glm::row(viewproj, 1);
@@ -123,7 +124,6 @@ std::vector<uint32_t> frustum_culling(const std::vector<RenderObject>& renderabl
 		m3 - m0
 	};
 
-	// without reverse depth, near and far swapped
 	if (orthographic)
 	{
 		frustum_planes[0] = m3 - m2; // near
@@ -141,7 +141,7 @@ std::vector<uint32_t> frustum_culling(const std::vector<RenderObject>& renderabl
 	// test
 	//frustum_planes[0] = orthographic ? frustum_planes[1] : frustum_planes[0]; // trick - erase near frustum plane for shadow cull
 
-	std::vector<uint32_t> indices{};
+	std::vector<size_t> indices{};
 
 	for (size_t i = 0; i < renderables.size(); i++)
 	{
@@ -988,16 +988,17 @@ void VulkanEngine::init_pipelines()
 	textured_lit.build_effect(device, "../../shaders/mesh_pbr.vert.spv", "../../shaders/mesh_pbr.frag.spv"); // rebuild as above destroyed shadermodule
 	std::unique_ptr<ShaderPass> textured_lit_pass = vkutil::build_shader(device, &textured_lit, builder);
 
-	//> DOUBLE SIDED TRANSPARENT
+	//> DOUBLE SIDED TRANSPARENT BACK FIRST
 	builder.enable_blending_alphablend();
 	builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
 	builder.enable_depth(false, VK_COMPARE_OP_GREATER_OR_EQUAL);
 	textured_lit.build_effect(device, "../../shaders/mesh_pbr.vert.spv", "../../shaders/mesh_pbr_transparent.frag.spv"); // rebuild as above destroyed shadermodule
 	std::unique_ptr<ShaderPass> blend_pass = vkutil::build_shader(device, &textured_lit, builder);
 
-	//>
+	//> SKYBOX
 	builder.disable_blending();
 	builder.enable_depth(true, VK_COMPARE_OP_GREATER_OR_EQUAL);
+	// cull mode dont matter anymore
 	ShaderEffect skybox{
 		.layouts = { bindless_tex_layout, bindless_sampler_layout },
 		.pc = {
@@ -1007,7 +1008,7 @@ void VulkanEngine::init_pipelines()
 	skybox.build_effect(device, "../../shaders/skybox.vert.spv", "../../shaders/skybox.frag.spv");
 	std::unique_ptr<ShaderPass> skybox_pass = vkutil::build_shader(device, &skybox, builder);
 
-	//>
+	//> POST FX
 	builder.disable_depth();
 	builder.set_depth_format(VK_FORMAT_UNDEFINED);
 
@@ -1429,9 +1430,9 @@ void VulkanEngine::init_renderables()
 	//std::string asset_path = "../../assets/sphere.gltf";
 	//std::string asset_path = "../../assets/oaktree.gltf";
 	//std::string asset_path = "../../assets/khronos_sponza/Sponza.gltf";
-	std::string asset_path = "../../assets/bistro_interior/BistroInterior_Wine.gltf";
+	//std::string asset_path = "../../assets/bistro_interior/BistroInterior_Wine.gltf";
 	//std::string asset_path = "../../assets/bistro_exterior/BistroExterior.gltf";
-	//std::string asset_path = "../../assets/AlphaBlendModeTest.glb";
+	std::string asset_path = "../../assets/AlphaBlendModeTest.glb";
 	//std::string asset_path = "../../assets/GlassVaseFlowers.glb";
 	auto start{ std::chrono::system_clock::now() };
 	auto asset_file = load_gltf(this, asset_path);
@@ -1672,7 +1673,7 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 
 	auto start = std::chrono::system_clock::now();
 
-	std::vector<uint32_t> visible_indices{};
+	std::vector<size_t> visible_indices{};
 	visible_indices = frustum_culling(main_draw_context.opaque_objects, scene_data.viewproj);
 
 	auto end = std::chrono::system_clock::now();
@@ -1702,21 +1703,19 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 
 	//> transparent geometries
 	current_pass = *shader_passes["blend"];
+
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
 
-	std::vector<uint32_t> sorted_indices = sort_transparency(main_draw_context.transparent_objects, main_camera);
+	visible_indices.clear();
+	visible_indices = frustum_culling(main_draw_context.transparent_objects, scene_data.viewproj);
+	sort_transparency(main_draw_context.transparent_objects, main_camera, visible_indices);
 
-	for (auto i : sorted_indices)
+	for (auto i : visible_indices)
 	{
 		draw(main_draw_context.transparent_objects[i]);
 	}
-
-	//for (auto& obj : main_draw_context.transparent_objects) // unsorted
-	//{
-	//	draw(obj);
-	//}
 
 	vkCmdEndRendering(cmd);
 
