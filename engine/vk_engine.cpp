@@ -75,6 +75,36 @@ bool is_visible(const std::array<glm::vec4, 6>& frustum_planes, const RenderObje
 	return visible;
 }
 
+void sort_materials(const std::vector<RenderObject>& renderables, std::vector<size_t>& indices)
+{
+	// (!) currently assumes indices is visible indices - could refactor to sort entire renderables first
+	std::vector<size_t> sorted(indices.size());
+
+	for (size_t i = 0; i < indices.size(); i++)
+	{
+		sorted[i] = i;
+	}
+
+	std::sort(sorted.begin(), sorted.end(), [&](auto iA, auto iB) {
+		const RenderObject& oA = renderables[indices[iA]];
+		const RenderObject& oB = renderables[indices[iB]];
+
+		if (oA.material != oB.material)
+			return oA.material < oB.material;
+		else
+			return oA.index_buffer < oB.index_buffer;
+		});
+
+
+	for (size_t i = 0; i < sorted.size(); i++)
+	{
+		size_t idx = sorted[i];
+		sorted[i] = indices[idx];
+	}
+
+	indices = std::move(sorted);
+}
+
 void sort_transparency(const std::vector<RenderObject>& renderables, const Camera& cam, std::vector<size_t>& visible_indices)
 {
 	std::vector<float> distances{};
@@ -91,7 +121,7 @@ void sort_transparency(const std::vector<RenderObject>& renderables, const Camer
 		distances.push_back(distance);
 	}
 
-	std::sort(sorted.begin(), sorted.end(), [&](const auto& iA, const auto& iB) {
+	std::sort(sorted.begin(), sorted.end(), [&](auto iA, auto iB) {
 		float A = distances[iA];
 		float B = distances[iB];
 
@@ -1398,11 +1428,11 @@ void VulkanEngine::init_renderables()
 		destroy_image(brdflut_image);
 		});
 
-	//std::string asset_path = "../../assets/DamagedHelmet/GLTF-Embedded/DamagedHelmet.gltf";
+	std::string asset_path = "../../assets/DamagedHelmet/GLTF-Embedded/DamagedHelmet.gltf";
 	//std::string asset_path = "../../assets/ABeautifulGame.glb";
 	//std::string asset_path = "../../assets/sphere.gltf";
 	//std::string asset_path = "../../assets/oaktree.gltf";
-	std::string asset_path = "../../assets/khronos_sponza/Sponza.gltf";
+	//std::string asset_path = "../../assets/khronos_sponza/Sponza.gltf";
 	//std::string asset_path = "../../assets/bistro_interior/BistroInterior_Wine.gltf";
 	//std::string asset_path = "../../assets/bistro_exterior/BistroExterior.gltf";
 	//std::string asset_path = "../../assets/AlphaBlendModeTest.glb";
@@ -1475,7 +1505,7 @@ void VulkanEngine::register_object(Node& node, const glm::mat4& top_matrix, Draw
 			obj.index_buffer = node.mesh->mesh_buffer.index_buffer.buffer;
 			obj.vertex_buffer_address = node.mesh->mesh_buffer.vertex_buffer_address;
 			obj.material_buffer_address = node.mesh->material_buffer_address;
-			obj.material = s.material;
+			obj.material = &material_cache.data[s.material]; // refactor into render obj material* into uint32_t handle?
 			obj.material_id = s.material_id;
 			obj.bounds = s.bounds;
 			obj.transform = node_matrix;
@@ -1588,6 +1618,19 @@ VkShaderModule ShaderCache::add_shader(VkDevice device, const char* path)
 	return data[shader_path];
 }
 
+uint32_t MaterialCache::add_material(ShaderPass* forward, ShaderPass* shadow)
+{
+	for (size_t i = 0; i < data.size(); i++)
+	{
+		if (data[i].forward_pass == forward && data[i].shadow_pass == shadow)
+			return i;
+	}
+
+	data.emplace_back(Material{ forward, shadow });
+
+	return data.size() - 1; 
+}
+
 void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 {
 	vkutil::transition_image(
@@ -1644,10 +1687,23 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
 
+	VkPipeline last_pipeline = VK_NULL_HANDLE;
+	VkBuffer last_index_buffer = VK_NULL_HANDLE;
+
 	// (!) capture clause for current_pass?
 	auto draw = [&](const RenderObject& obj) {
-		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, obj.material->pipeline);
-		vkCmdBindIndexBuffer(cmd, obj.index_buffer, 0, VK_INDEX_TYPE_UINT32);
+		VkPipeline current_pipeline = obj.material->forward_pass->pipeline;
+		VkBuffer current_index_buffer = obj.index_buffer;
+		if (current_pipeline != last_pipeline)
+		{
+			last_pipeline = current_pipeline;
+			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pipeline);
+		}
+		if (current_index_buffer != last_index_buffer)
+		{
+			last_index_buffer = current_index_buffer;
+			vkCmdBindIndexBuffer(cmd, current_index_buffer, 0, VK_INDEX_TYPE_UINT32);
+		}
 
 		PushConstants pc{};
 		pc.world_transform = obj.transform;
@@ -1656,7 +1712,7 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 		pc.material_id = obj.material_id;
 		pc.debug_idx = shader_idx.get();
 
-		vkCmdPushConstants(cmd, obj.material->layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushConstants), &pc);
+		vkCmdPushConstants(cmd, obj.material->forward_pass->layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushConstants), &pc);
 		vkCmdDrawIndexed(cmd, obj.index_count, 1, obj.first_index, 0, 0);
 		stats.triangle_count += obj.index_count / 3;
 		stats.draw_call_count++;
@@ -1666,10 +1722,11 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 
 	std::vector<size_t> visible_indices{};
 	visible_indices = frustum_culling(main_draw_context.opaque_objects, scene_data.viewproj);
-
 	auto end = std::chrono::system_clock::now();
 	auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
 	stats.frustum_cull_time = elapsed.count() / 1000.0f; // microseconds to seconds
+
+	sort_materials(main_draw_context.opaque_objects, visible_indices); 
 
 	for (auto i : visible_indices)
 	{
@@ -1825,16 +1882,27 @@ void VulkanEngine::shadow_pass(VkCommandBuffer cmd, size_t cascade_idx)
 	vkCmdSetDepthBias(cmd, -depth_bias, 0.0f, -slope_scaled_depth_bias);
 
 	ShaderPass current_pass = *shader_passes["shadow"];
-	ShaderPass flat_pass = *shader_passes["shadow_flat"];
-
+	// (!) ugly - refactor current_pass.layout and current_pass? 
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
 
+	VkPipeline last_pipeline = VK_NULL_HANDLE;
+	VkBuffer last_index_buffer = VK_NULL_HANDLE;
+
 	auto draw = [&](const RenderObject& obj) {
-		auto selected_pipeline = (obj.double_sided && CVAR_PROPER_SHADOW.get()) ? flat_pass : current_pass;
-		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, selected_pipeline.pipeline);
-		vkCmdBindIndexBuffer(cmd, obj.index_buffer, 0, VK_INDEX_TYPE_UINT32);
+		VkPipeline current_pipeline = obj.material->shadow_pass->pipeline;
+		VkBuffer current_index_buffer = obj.index_buffer;
+		if (current_pipeline != last_pipeline)
+		{
+			last_pipeline = current_pipeline;
+			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pipeline);
+		}
+		if (current_index_buffer != last_index_buffer)
+		{
+			last_index_buffer = current_index_buffer;
+			vkCmdBindIndexBuffer(cmd, current_index_buffer, 0, VK_INDEX_TYPE_UINT32);
+		}
 
 		ShadowPushConstants pc{};
 		pc.model = obj.transform;
@@ -1843,11 +1911,13 @@ void VulkanEngine::shadow_pass(VkCommandBuffer cmd, size_t cascade_idx)
 		pc.material_buffer_address = obj.material_buffer_address;
 		pc.material_id = obj.material_id;
 
-		vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(ShadowPushConstants), &pc);
+		vkCmdPushConstants(cmd, obj.material->shadow_pass->layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(ShadowPushConstants), &pc);
 		vkCmdDrawIndexed(cmd, obj.index_count, 1, obj.first_index, 0, 0);
 		stats.triangle_count += obj.index_count / 3;
 		stats.draw_call_count++;
 	};
+
+	// (!) frustum culling once outside, and sort materials
 
 	for (const auto& obj : main_draw_context.opaque_objects)
 	{

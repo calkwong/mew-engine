@@ -21,20 +21,17 @@ struct GeoSurface // rename this
 	uint32_t start_index{};
 	uint32_t count{};
 
-	ShaderPass* material{};
-
-	uint32_t material_id{};
+	uint32_t material{}; // material handle
+	uint32_t material_id{}; // for bindless material buffer
+	
 	MaterialPass pass{};
-
 	Bounds bounds{}; // 28 bytes
-	bool double_sided{}; // (!) refactor?
 };
 
 struct MaterialInfo
 {
 	MaterialPass pass_type{};
 	uint32_t double_sided{};
-	uint32_t index{};
 };
 
 struct MeshAsset

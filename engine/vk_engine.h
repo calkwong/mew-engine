@@ -138,6 +138,13 @@ struct ShaderCache
 	VkShaderModule add_shader(VkDevice device, const char* path);
 };
 
+struct MaterialCache
+{
+	std::vector<Material> data{};
+
+	uint32_t add_material(ShaderPass* forward, ShaderPass* shadow);
+};
+
 // consider moving to vk_scene
 // should there be material_buffer_address? or is that in pass object? currently handled by push constant
 struct RenderObject
@@ -146,7 +153,7 @@ struct RenderObject
 	uint32_t first_index{};
 	VkBuffer index_buffer{};
 
-	ShaderPass* material{};
+	Material* material{};
 
 	// (!) pad?
 	uint32_t material_id{};
@@ -256,6 +263,7 @@ public:
 	TextureCache texture_cache{};
 	ImageCache image_cache{};
 	ShaderCache shader_cache{};
+	MaterialCache material_cache{};
 
 	std::unordered_map<std::string, std::shared_ptr<LoadedGLTF>> loaded_scenes{};
 

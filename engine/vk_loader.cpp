@@ -60,8 +60,8 @@ std::optional<AllocatedImage> load_image(VulkanEngine* engine, fastgltf::Asset& 
 
 					const std::string path(filePath.uri.path().begin(), filePath.uri.path().end());
 
-					std::string current_path = "../../assets/khronos_sponza/" + path; // (!) TODO handle this properly
-					//std::string current_path = "../../assets/bistro_interior/" + path; // (!) TODO handle this properly
+					//std::string current_path = "../../assets/khronos_sponza/" + path; // (!) TODO handle this properly
+					std::string current_path = "../../assets/bistro_interior/" + path; // (!) TODO handle this properly
 					//std::string current_path = "../../assets/bistro_exterior/" + path; // (!) TODO handle this properly
 					unsigned char* data = stbi_load(current_path.c_str(), &width, &height, &channels, 4);
 					if (data)
@@ -230,7 +230,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 		mat_data.metallic_factor = 1.0;
 		mat_data.roughness_factor = 1.0;
 		scene_material_data[0] = mat_data;
-		materials.emplace_back(MaterialInfo{MaterialPass::Opaque, 0, 0});
+		materials.emplace_back(MaterialInfo{MaterialPass::Opaque, 0});
 	}
 
 	VkBufferDeviceAddressInfo address_info{};
@@ -394,7 +394,6 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 		
 		scene_material_data[material_idx] = mat_data;
 
-		// (!)
 		MaterialPass pass_type = MaterialPass::Opaque;
 		switch (mat.alphaMode)
 		{
@@ -410,7 +409,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 
 		uint32_t double_sided = static_cast<uint32_t>(mat.doubleSided);
 
-		materials.emplace_back(MaterialInfo{ pass_type, double_sided, static_cast<uint8_t>(material_idx) });
+		materials.emplace_back(MaterialInfo{ pass_type, double_sided });
 		material_idx++;
 	}
 
@@ -516,25 +515,33 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 
 			if (p.materialIndex.has_value())
 			{
-				auto m = materials[p.materialIndex.value()];
-				new_surface.material_id = m.index;
-				new_surface.double_sided = m.double_sided;
+				size_t idx = p.materialIndex.value();
+				MaterialInfo m = materials[idx];
+				new_surface.material_id = idx;
 				new_surface.pass = m.pass_type;
 
+
+				ShaderPass* forward{};
+				ShaderPass* shadow{};
 				switch (new_surface.pass)
 				{
 				case MaterialPass::Mask: // assumes double-sided. non-double sided with front/back cutout only doesn't make sense if it can be carved into model itself.
-					new_surface.material = engine->shader_passes["textured_lit_clip"].get();
+					forward = engine->shader_passes["textured_lit_clip"].get();
+					shadow = engine->shader_passes["shadow_flat"].get();
 					break;
 				case MaterialPass::Blend:
-					new_surface.material = engine->shader_passes["blend"].get(); // testing ice normal
+					forward = engine->shader_passes["blend"].get();
+					//shadow = nullptr; // transparent objs don't cast shadows for now
+					shadow = engine->shader_passes["shadow_flat"].get();
 					break;
 				case MaterialPass::Opaque:
-					new_surface.material = m.double_sided ? engine->shader_passes["textured_lit2"].get() : engine->shader_passes["textured_lit"].get(); 
+					forward = m.double_sided ? engine->shader_passes["textured_lit2"].get() : engine->shader_passes["textured_lit"].get();
+					shadow = m.double_sided ? engine->shader_passes["shadow_flat"].get() : engine->shader_passes["shadow"].get();
 					break;
 				default:
 					break;
 				}
+				new_surface.material = engine->material_cache.add_material(forward, shadow);
 			}
 			else
 			{
@@ -542,8 +549,10 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 				// currently assigning first material as default; rare to have no material so we settle this way for now
 				// also handles gltf with no materials
 				auto m = materials[0];
-				new_surface.material_id = m.index;
-				new_surface.material = engine->shader_passes["textured_lit"].get();
+				new_surface.material_id = 0;
+				ShaderPass* forward = engine->shader_passes["textured_lit"].get();
+				ShaderPass* shadow = engine->shader_passes["shadow"].get();
+				new_surface.material = engine->material_cache.add_material(forward, shadow);
 				new_surface.pass = m.pass_type;
 			}
 

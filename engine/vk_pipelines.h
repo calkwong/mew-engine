@@ -12,6 +12,12 @@ struct ShaderPass
     VkPipelineLayout layout{};
 };
 
+struct Material
+{
+    ShaderPass* forward_pass{};
+    ShaderPass* shadow_pass{};
+};
+
 struct PipelineBuilder
 {
     std::vector<VkPipelineShaderStageCreateInfo> shader_stages{};
