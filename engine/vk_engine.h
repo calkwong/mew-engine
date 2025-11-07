@@ -8,6 +8,7 @@
 #include <vk_pipelines.h>
 
 #include "VkBootstrap.h"
+#include "tracy/TracyVulkan.hpp"
 
 constexpr unsigned int FRAME_OVERLAP = 2;
 
@@ -82,7 +83,6 @@ struct FrameData
 	VkDescriptorSet scene_descriptor{};
 
 	DeletionQueue deletion_queue{};
-
 };
 
 struct EngineStats
@@ -283,6 +283,8 @@ public:
 
 	SceneData scene_data{};
 	std::array<CascadeData, 4> cascade_data{};
+
+	tracy::VkCtx* tracy_ctx{};
 
 	static VulkanEngine& get();
 

@@ -11,6 +11,9 @@
 #include <vk_loader.h>
 #include <cvars.h>
 
+#include "tracy/Tracy.hpp"
+#include "tracy/TracyVulkan.hpp"
+
 #define VMA_IMPLEMENTATION
 #include "vk_mem_alloc.h"
 
@@ -20,7 +23,6 @@
 // for glm debug
 #include "glm/ext.hpp"
 #include "glm/gtx/string_cast.hpp"
-
 
 #include "imgui.h"
 #include "imgui_impl_sdl2.h"
@@ -241,6 +243,9 @@ void VulkanEngine::cleanup()
 	if (is_initialized) {
 
 		vkDeviceWaitIdle(device);
+
+		TracyVkDestroy(tracy_ctx);
+
 		loaded_scenes.clear();
 
 		for (const auto& info : sampler_cache.image_infos)
@@ -258,8 +263,7 @@ void VulkanEngine::cleanup()
 
 			destroy_buffer(frames[i].scene_buffer);
 
-			//frames[i].frame_descriptor.destroy_pools(device); // (!) validation layer should report - must be destroyed after pipeline/pipeline layout
-			frames[i].deletion_queue.flush(); // (!) will this clash with final frame still in flight
+			frames[i].deletion_queue.flush();
 		}
 		
 		for (const auto& [k, v] : shader_passes)
@@ -286,6 +290,7 @@ void VulkanEngine::cleanup()
 
 void VulkanEngine::draw()
 {
+	ZoneScoped;
 	VK_CHECK(vkWaitForFences(device, 1, &get_current_frame().render_fence, true, 1000000000));
 	VK_CHECK(vkResetFences(device, 1, &get_current_frame().render_fence));
 
@@ -305,12 +310,15 @@ void VulkanEngine::draw()
 
 	VK_CHECK(vkBeginCommandBuffer(cmd, &cmd_begin_info));
 
-	for (size_t i = 0; i < cascade_data.size(); i++)
-	{
-		shadow_pass(cmd, i);
-	}
+	//for (size_t i = 0; i < cascade_data.size(); i++)
+	//{
+	//	shadow_pass(cmd, i);
+	//}
 
-	forward_pass(cmd);
+	{
+		TracyVkZone(tracy_ctx, get_current_frame().main_command_buffer, "Forward pass");
+		forward_pass(cmd);
+	}
 
 	vkutil::transition_image(
 		cmd,
@@ -336,7 +344,10 @@ void VulkanEngine::draw()
 		VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT
 	);
 	
-	draw_imgui(cmd, swapchain_image_views[swapchain_image_idx]);
+	{
+		TracyVkZone(tracy_ctx, get_current_frame().main_command_buffer, "Imgui pass")
+		draw_imgui(cmd, swapchain_image_views[swapchain_image_idx]);
+	}
 
 	vkutil::transition_image(
 		cmd,
@@ -349,6 +360,7 @@ void VulkanEngine::draw()
 		0
 	);
 
+	TracyVkCollect(tracy_ctx, get_current_frame().main_command_buffer);
 	VK_CHECK(vkEndCommandBuffer(cmd));
 
 	VkCommandBufferSubmitInfo cmd_info = vkinit::command_buffer_submit_info(cmd);
@@ -369,7 +381,7 @@ void VulkanEngine::draw()
 	present_info.pImageIndices = &swapchain_image_idx;
 
 	VK_CHECK(vkQueuePresentKHR(graphics_queue, &present_info));
-
+	FrameMark;
 	frame_number++;
 }
 
@@ -663,10 +675,10 @@ void VulkanEngine::init_vulkan()
 		.set_required_features(features10)
 		.set_required_features_13(features13)
 		.set_required_features_12(features12)
+		.add_required_extension("VK_KHR_calibrated_timestamps")
 		.set_surface(surface)
 		.select()
 		.value();
-
 
 	// create the final vulkan device
 	vkb::DeviceBuilder deviceBuilder{ physicalDevice };
@@ -751,6 +763,10 @@ void VulkanEngine::init_commands()
 		VK_CHECK(vkAllocateCommandBuffers(device, &cmd_alloc_info, &frames[i].main_command_buffer));
 	}
 
+	auto p_timedomain = (PFN_vkGetPhysicalDeviceCalibrateableTimeDomainsEXT)vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceCalibrateableTimeDomainsKHR");
+	auto p_timestamp = (PFN_vkGetCalibratedTimestampsEXT)vkGetInstanceProcAddr(instance, "vkGetCalibratedTimestampsKHR");
+	tracy_ctx = TracyVkContextCalibrated(chosen_gpu, device, graphics_queue, frames[0].main_command_buffer, p_timedomain, p_timestamp);
+
 	VK_CHECK(vkCreateCommandPool(device, &command_pool_info, nullptr, &imm_command_pool));
 	VkCommandBufferAllocateInfo cmd_alloc_info = vkinit::command_buffer_allocate_info(
 		imm_command_pool
@@ -792,7 +808,8 @@ void VulkanEngine::create_swapchain(uint32_t width, uint32_t height)
 	vkb::Swapchain vkbSwapchain = swapchainBuilder
 		//.use_default_format_selection()
 		.set_desired_format(VkSurfaceFormatKHR{ .format = swapchain_image_format, .colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR }) 
-		.set_desired_present_mode(VK_PRESENT_MODE_FIFO_KHR) 
+		//.set_desired_present_mode(VK_PRESENT_MODE_FIFO_KHR) 
+		.set_desired_present_mode(VK_PRESENT_MODE_IMMEDIATE_KHR)
 		.set_desired_extent(width, height)
 		.add_image_usage_flags(VK_IMAGE_USAGE_TRANSFER_DST_BIT)
 		.build()

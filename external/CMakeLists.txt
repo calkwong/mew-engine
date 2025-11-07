@@ -29,3 +29,7 @@ target_sources(mikktspace PRIVATE
 	mikktspace/mikktspace.c
 	mikktspace/mikktspace.h
 	)
+
+option(TRACY_ENABLE "" ON) 
+option(TRACY_ON_DEMAND "" ON)
+add_subdirectory(tracy) # v0.12.2
