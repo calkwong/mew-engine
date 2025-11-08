@@ -162,8 +162,6 @@ struct RenderObject
 	glm::mat4 transform{};
 	VkDeviceAddress vertex_buffer_address{};
 	VkDeviceAddress material_buffer_address{};
-
-	uint32_t double_sided{};
 };
 
 // to refactor

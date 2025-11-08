@@ -89,6 +89,7 @@ vec3 F_Schlick(float u, vec3 f0)
     return f + f0 * (1.0 - f);
 }
 
+uint cascade_idx = 0;
 #define CASCADE_COUNT 4
 
 float calculate_shadow()
@@ -103,7 +104,7 @@ float calculate_shadow()
 			break;
 		}
 	}
-	
+	cascade_idx = cascade_index;
 	vec3 lightFragPos = vec3(sceneData.shadowTransforms[cascade_index] * vec4(inWorldPos, 1.0)); // ortho, no division by w needed
 	
 	float currentDepth = lightFragPos.z;
@@ -287,4 +288,15 @@ void main()
 		case 9: outFragColor = vec4(vec3(inTangent.w), 1.0); break;
 		default: break;
 	}
+	
+	vec3 debug_color;
+	switch (cascade_idx)
+	{
+		case 0: debug_color = vec3(1,0,0) ;break;
+		case 1: debug_color = vec3(0,1,0) ;break;
+		case 2: debug_color = vec3(0,0,1) ;break;
+		case 3: debug_color = vec3(1,1,0) ;break;
+	}
+	color.xyz *= debug_color;
+	//outFragColor.xyz = color.xyz;
 }

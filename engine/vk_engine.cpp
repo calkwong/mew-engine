@@ -36,7 +36,7 @@ VulkanEngine& VulkanEngine::get() { return *loaded_engine; }
 
 constexpr bool USE_VALIDATION_LAYERS = true;
 
-constexpr float LIGHT_FAR_PLANE{ 80.0f };
+constexpr float LIGHT_FAR_PLANE{ 150.0f };
 constexpr uint32_t SHADOW_MAP_SIZE{ 4096 };
 
 AutoCVar_Int CVAR_SHADOW_NEAR{ "shadow.near", "pull back light frustum near plane", -20, -20, CVarFlags::EditSliderInt };
@@ -305,13 +305,19 @@ void VulkanEngine::draw()
 
 	VK_CHECK(vkBeginCommandBuffer(cmd, &cmd_begin_info));
 
+	//std::vector<size_t> visible_indices{}; // debug
+	//for (size_t i = 0; i < main_draw_context.opaque_objects.size(); i++)
+	//{
+	//	visible_indices.push_back(i);
+	//}
+
 	// sort -> cull or cull -> sort?
 	// (!) TODO: cull with AABB? ritter's?
 	{
 		TracyVkZone(tracy_ctx, get_current_frame().main_command_buffer, "CSM pass");
 		for (size_t i = 0; i < cascade_data.size(); i++)
 		{
-			auto cull_matrix = scene_data.shadow_transforms[0];
+			glm::mat4 cull_matrix = scene_data.shadow_transforms[i];
 			std::vector<size_t> visible_indices{};
 			visible_indices = frustum_culling(main_draw_context.opaque_objects, cull_matrix, true);
 			sort_materials(main_draw_context.opaque_objects, visible_indices);
@@ -1453,8 +1459,8 @@ void VulkanEngine::init_renderables()
 	//std::string asset_path = "../../assets/ABeautifulGame.glb";
 	//std::string asset_path = "../../assets/sphere.gltf";
 	//std::string asset_path = "../../assets/oaktree.gltf";
-	//std::string asset_path = "../../assets/khronos_sponza/Sponza.gltf";
-	std::string asset_path = "../../assets/bistro_interior/BistroInterior_Wine.gltf";
+	std::string asset_path = "../../assets/khronos_sponza/Sponza.gltf";
+	//std::string asset_path = "../../assets/bistro_interior/BistroInterior_Wine.gltf";
 	//std::string asset_path = "../../assets/bistro_exterior/BistroExterior.gltf";
 	//std::string asset_path = "../../assets/AlphaBlendModeTest.glb";
 	//std::string asset_path = "../../assets/GlassVaseFlowers.glb";
@@ -1534,7 +1540,6 @@ void VulkanEngine::register_object(Node& node, const glm::mat4& top_matrix, Draw
 			obj.material_id = s.material_id;
 			obj.bounds = s.bounds;
 			obj.transform = node_matrix;
-			obj.double_sided = s.pass == MaterialPass::Mask;
 
 			if (s.pass == MaterialPass::Blend)
 			{

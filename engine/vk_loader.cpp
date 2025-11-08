@@ -60,8 +60,8 @@ std::optional<AllocatedImage> load_image(VulkanEngine* engine, fastgltf::Asset& 
 
 					const std::string path(filePath.uri.path().begin(), filePath.uri.path().end());
 
-					//std::string current_path = "../../assets/khronos_sponza/" + path; // (!) TODO handle this properly
-					std::string current_path = "../../assets/bistro_interior/" + path; // (!) TODO handle this properly
+					std::string current_path = "../../assets/khronos_sponza/" + path; // (!) TODO handle this properly
+					//std::string current_path = "../../assets/bistro_interior/" + path; // (!) TODO handle this properly
 					//std::string current_path = "../../assets/bistro_exterior/" + path; // (!) TODO handle this properly
 					unsigned char* data = stbi_load(current_path.c_str(), &width, &height, &channels, 4);
 					if (data)
