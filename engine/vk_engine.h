@@ -306,9 +306,10 @@ public:
 
 	void register_object(Node& node, const glm::mat4& top_matrix, DrawContext& ctx);
 	void forward_pass(VkCommandBuffer cmd);
-	void shadow_pass(VkCommandBuffer cmd, size_t cascade_idx);
+	void shadow_pass(VkCommandBuffer cmd, std::vector<size_t>& visible_indices, size_t cascade_idx);
 	void update_cascade();
 	void draw_imgui(VkCommandBuffer cmd, VkImageView swapchain_view);
+	glm::mat4 shadow_frustum_culling();
 
 private:
 	void init_vulkan();

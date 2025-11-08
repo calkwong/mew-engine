@@ -39,7 +39,7 @@ constexpr bool USE_VALIDATION_LAYERS = true;
 constexpr float LIGHT_FAR_PLANE{ 80.0f };
 constexpr uint32_t SHADOW_MAP_SIZE{ 4096 };
 
-AutoCVar_Int CVAR_SHADOW_NEAR{ "shadow.near", "pull back light frustum near plane", 0, 0, CVarFlags::EditSliderInt };
+AutoCVar_Int CVAR_SHADOW_NEAR{ "shadow.near", "pull back light frustum near plane", -20, -20, CVarFlags::EditSliderInt };
 AutoCVar_Int CVAR_PROPER_SHADOW{ "shadow.double_sided", "render shadows for double sided geometry", 0, 0, CVarFlags::EditCheckbox };
 AutoCVar_Int shader_idx{ "debug.index", "", 0, 0, CVarFlags::EditSliderInt };
 
@@ -77,19 +77,18 @@ bool is_visible(const std::array<glm::vec4, 6>& frustum_planes, const RenderObje
 	return visible;
 }
 
-void sort_materials(const std::vector<RenderObject>& renderables, std::vector<size_t>& indices)
+void sort_materials(const std::vector<RenderObject>& renderables, std::vector<size_t>& visible_indices)
 {
-	// (!) currently assumes indices is visible indices - could refactor to sort entire renderables first
-	std::vector<size_t> sorted(indices.size());
+	std::vector<size_t> sorted(visible_indices.size());
 
-	for (size_t i = 0; i < indices.size(); i++)
+	for (size_t i = 0; i < visible_indices.size(); i++)
 	{
 		sorted[i] = i;
 	}
 
 	std::sort(sorted.begin(), sorted.end(), [&](auto iA, auto iB) {
-		const RenderObject& oA = renderables[indices[iA]];
-		const RenderObject& oB = renderables[indices[iB]];
+		const RenderObject& oA = renderables[visible_indices[iA]];
+		const RenderObject& oB = renderables[visible_indices[iB]];
 
 		if (oA.material != oB.material)
 			return oA.material < oB.material;
@@ -101,10 +100,10 @@ void sort_materials(const std::vector<RenderObject>& renderables, std::vector<si
 	for (size_t i = 0; i < sorted.size(); i++)
 	{
 		size_t idx = sorted[i];
-		sorted[i] = indices[idx];
+		sorted[i] = visible_indices[idx];
 	}
 
-	indices = std::move(sorted);
+	visible_indices = std::move(sorted);
 }
 
 void sort_transparency(const std::vector<RenderObject>& renderables, const Camera& cam, std::vector<size_t>& visible_indices)
@@ -160,7 +159,6 @@ std::vector<size_t> frustum_culling(const std::vector<RenderObject>& renderables
 	{
 		frustum_planes[0] = m3 - m2; // near
 		frustum_planes[1] = m3 + m2; // far
-		assert(false); // fix trick below
 	}
 
 	for (size_t i = 0; i < frustum_planes.size(); i++)
@@ -169,9 +167,6 @@ std::vector<size_t> frustum_culling(const std::vector<RenderObject>& renderables
 
 		frustum_planes[i] /= length;
 	}
-
-	// test
-	//frustum_planes[0] = orthographic ? frustum_planes[1] : frustum_planes[0]; // trick - erase near frustum plane for shadow cull
 
 	std::vector<size_t> indices{};
 
@@ -310,10 +305,19 @@ void VulkanEngine::draw()
 
 	VK_CHECK(vkBeginCommandBuffer(cmd, &cmd_begin_info));
 
-	//for (size_t i = 0; i < cascade_data.size(); i++)
-	//{
-	//	shadow_pass(cmd, i);
-	//}
+	// sort -> cull or cull -> sort?
+	// (!) TODO: cull with AABB? ritter's?
+	{
+		TracyVkZone(tracy_ctx, get_current_frame().main_command_buffer, "CSM pass");
+		for (size_t i = 0; i < cascade_data.size(); i++)
+		{
+			auto cull_matrix = scene_data.shadow_transforms[0];
+			std::vector<size_t> visible_indices{};
+			visible_indices = frustum_culling(main_draw_context.opaque_objects, cull_matrix, true);
+			sort_materials(main_draw_context.opaque_objects, visible_indices);
+			shadow_pass(cmd, visible_indices, i);
+		}
+	}
 
 	{
 		TracyVkZone(tracy_ctx, get_current_frame().main_command_buffer, "Forward pass");
@@ -1445,12 +1449,12 @@ void VulkanEngine::init_renderables()
 		destroy_image(brdflut_image);
 		});
 
-	std::string asset_path = "../../assets/DamagedHelmet/GLTF-Embedded/DamagedHelmet.gltf";
+	//std::string asset_path = "../../assets/DamagedHelmet/GLTF-Embedded/DamagedHelmet.gltf";
 	//std::string asset_path = "../../assets/ABeautifulGame.glb";
 	//std::string asset_path = "../../assets/sphere.gltf";
 	//std::string asset_path = "../../assets/oaktree.gltf";
 	//std::string asset_path = "../../assets/khronos_sponza/Sponza.gltf";
-	//std::string asset_path = "../../assets/bistro_interior/BistroInterior_Wine.gltf";
+	std::string asset_path = "../../assets/bistro_interior/BistroInterior_Wine.gltf";
 	//std::string asset_path = "../../assets/bistro_exterior/BistroExterior.gltf";
 	//std::string asset_path = "../../assets/AlphaBlendModeTest.glb";
 	//std::string asset_path = "../../assets/GlassVaseFlowers.glb";
@@ -1463,6 +1467,10 @@ void VulkanEngine::init_renderables()
 	fmt::println("load gltf: {}ms", ret);
 	assert(asset_file.has_value());
 	loaded_scenes["DamagedHelmet"] = *asset_file;
+
+	//asset_path = "../../assets/terrain_gridlines.gltf";
+	//asset_file = load_gltf(this, asset_path);
+	//loaded_scenes["terrain"] = *asset_file;
 }
 
 void VulkanEngine::init_bindless()
@@ -1555,8 +1563,8 @@ void VulkanEngine::update_scene()
 	scene_data.view = main_camera.get_view_matrix();
 	scene_data.proj = main_camera.perspective;
 	scene_data.viewproj = scene_data.proj * scene_data.view;
-	//scene_data.sunlight_dir = glm::vec4(7.75, 12.5, 12.5, 1.);
-	scene_data.sunlight_dir = glm::vec4(1.0, 12.0, 0.0, 1.);
+	scene_data.sunlight_dir = glm::vec4(7.75, 12.5, 12.5, 1.);
+	//scene_data.sunlight_dir = glm::vec4(0.001, 12.0, 0.0, 1.);
 	//scene_data.sunlight_dir = glm::vec4(0.0, 12.0, 12.0, 1.);
 	scene_data.sunlight_color = glm::vec4(1);
 
@@ -1856,7 +1864,7 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 	);
 }
 
-void VulkanEngine::shadow_pass(VkCommandBuffer cmd, size_t cascade_idx)
+void VulkanEngine::shadow_pass(VkCommandBuffer cmd, std::vector<size_t>& visible_indices, size_t cascade_idx)
 {
 	auto cascade = cascade_data[cascade_idx];
 
@@ -1934,12 +1942,15 @@ void VulkanEngine::shadow_pass(VkCommandBuffer cmd, size_t cascade_idx)
 		stats.draw_call_count++;
 	};
 
-	// (!) frustum culling once outside, and sort materials
-
-	for (const auto& obj : main_draw_context.opaque_objects)
+	for (auto i : visible_indices)
 	{
-		draw(obj);
+		draw(main_draw_context.opaque_objects[i]);
 	}
+
+	//for (const auto& obj : main_draw_context.opaque_objects)
+	//{
+	//	draw(obj);
+	//}
 
 	vkCmdEndRendering(cmd);
 
@@ -1965,59 +1976,72 @@ void VulkanEngine::update_cascade()
 	// (!) refactor draw_extent?
 	glm::mat4 proj = glm::perspective(glm::radians(main_camera.fov), static_cast<float>(draw_extent.width) / draw_extent.height, LIGHT_FAR_PLANE, main_camera.far);
 	glm::mat4 inv_viewproj = glm::inverse(proj * view);
+	
+	glm::mat4 light_view = glm::lookAt(glm::vec3(0.0), -light_dir, glm::vec3(0.0, 1.0, 0.0));
+
+	std::array<glm::vec3, 8> frustum_corners{
+		glm::vec3(-1,  1,  1),
+		glm::vec3( 1,  1,  1),
+		glm::vec3(-1, -1,  1),
+		glm::vec3( 1, -1,  1),
+		glm::vec3(-1,  1,  0),
+		glm::vec3( 1,  1,  0),
+		glm::vec3(-1, -1,  0),
+		glm::vec3( 1, -1,  0), // reverse depth order, flipping z values will be incorrect
+	};
+
+	for (size_t i = 0; i < frustum_corners.size(); i++)
+	{
+		glm::vec4 corner = inv_viewproj * glm::vec4(frustum_corners[i], 1.0);
+		frustum_corners[i] = glm::vec3(corner / corner.w);
+	}
+	
 	float last_split = 0.0;
 	for (size_t i = 0; i < cascade_data.size(); i++)
 	{
 		float current_split = cascade_data[i].split_ratio;
 
-		std::array<glm::vec3, 8> frustum_corners{
-			glm::vec3(-1,  1,  1),
-			glm::vec3( 1,  1,  1),
-			glm::vec3(-1, -1,  1),
-			glm::vec3( 1, -1,  1),
-			glm::vec3(-1,  1,  0),
-			glm::vec3( 1,  1,  0),
-			glm::vec3(-1, -1,  0),
-			glm::vec3( 1, -1,  0), // reverse depth order, flipping z values will be incorrect
-		};
-
-		for (size_t i = 0; i < frustum_corners.size(); i++)
-		{
-			glm::vec4 corner = inv_viewproj * glm::vec4(frustum_corners[i], 1.0);
-			frustum_corners[i] = glm::vec3(corner / corner.w);
-		}
+		std::array<glm::vec3, 8> transformed_corners = frustum_corners;
 
 		for (size_t i = 0; i < 4; i++)
 		{
-			glm::vec3 distance = frustum_corners[i + 4] - frustum_corners[i];
-			frustum_corners[i] = frustum_corners[i] + distance * last_split;
-			frustum_corners[i + 4] = frustum_corners[i] + distance * current_split;
+			glm::vec3 distance = transformed_corners[i + 4] - transformed_corners[i];
+			transformed_corners[i] = transformed_corners[i] + distance * last_split;
+			transformed_corners[i + 4] = transformed_corners[i] + distance * current_split;
 		}
 		last_split = current_split;
 
+		// (!) TODO: try ritter's
 		glm::vec3 center{};
-		for (size_t i = 0; i < frustum_corners.size(); i++)
+		for (size_t i = 0; i < transformed_corners.size(); i++)
 		{
-			center += frustum_corners[i];
+			center += transformed_corners[i];
 		}
 		center /= 8.0f;
 
 		float radius{};
-		// (!) optimization possible? 2 furthest corners already known?
-		for (size_t i = 0; i < frustum_corners.size(); i++)
+		for (size_t i = 0; i < transformed_corners.size(); i++)
 		{
-			radius = std::max(radius, glm::length(frustum_corners[i] - center));
+			float dist = glm::length(transformed_corners[i] - center);
+			radius = std::max(dist, radius);
 		}
-		// texel snapping - https://alextardif.com/shadowmapping.html
-		float texels_per_unit = SHADOW_MAP_SIZE / (2.0f * radius); 
-		glm::mat4 light_aligned_view = glm::lookAt(glm::vec3(0), -light_dir, glm::vec3(0, 1, 0));
-		glm::vec4 new_center = light_aligned_view * glm::vec4(center, 1.0);
-		new_center.x = std::floor(new_center.x * texels_per_unit) / texels_per_unit;
-		new_center.y = std::floor(new_center.y * texels_per_unit) / texels_per_unit;
-		new_center = glm::inverse(light_aligned_view) * new_center;
-		center = glm::vec3(new_center);
+
+		// stable csm via snapping projection matrix - https://github.com/TheRealMJP/Shadows/blob/master/Shadows/SetupShadows.hlsl
+		// stable csm via snapping frustum center, less robust - https://alextardif.com/shadowmapping.html
 		glm::mat4 shadow_view = glm::lookAt(center + radius * light_dir, center, glm::vec3(0, 1, 0));
 		glm::mat4 shadow_proj = glm::ortho(-radius, radius, -radius, radius, radius * 2.0f, 0.0f + CVAR_SHADOW_NEAR.get());
+		glm::vec2 shadow_origin = glm::vec2(0.0);
+
+		shadow_origin = shadow_proj * shadow_view * glm::vec4(shadow_origin, 0.0, 1.0);
+		shadow_origin *= (SHADOW_MAP_SIZE / 2.0f);
+
+		glm::vec2 rounded_origin = glm::round(shadow_origin);
+		glm::vec2 offset = rounded_origin - shadow_origin;
+		offset *= (2.0f / SHADOW_MAP_SIZE);
+
+		shadow_proj[3][0] += offset.x;
+		shadow_proj[3][1] += offset.y;
+
 		cascade_data[i].viewproj = shadow_proj * shadow_view;
 	}
 }
