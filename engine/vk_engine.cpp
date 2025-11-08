@@ -45,7 +45,7 @@ VulkanEngine& VulkanEngine::get() { return *loaded_engine; }
 constexpr bool USE_VALIDATION_LAYERS = true;
 
 constexpr float LIGHT_FAR_PLANE{ 150.0f };
-constexpr uint32_t SHADOW_MAP_SIZE{ 4096 };
+constexpr uint32_t SHADOW_MAP_SIZE{ 2048 };
 
 AutoCVar_Int CVAR_SHADOW_NEAR{ "shadow.near", "pull back light frustum near plane", -20, -20, CVarFlags::EditSliderInt };
 AutoCVar_Int CVAR_PROPER_SHADOW{ "shadow.double_sided", "render shadows for double sided geometry", 0, 0, CVarFlags::EditCheckbox };
@@ -85,6 +85,7 @@ bool is_visible(const std::array<glm::vec4, 6>& frustum_planes, const RenderObje
 	return visible;
 }
 
+// (!) TODO: implement hash
 void sort_materials(const std::vector<RenderObject>& renderables, std::vector<size_t>& visible_indices)
 {
 	std::vector<size_t> sorted(visible_indices.size());
@@ -229,13 +230,11 @@ void VulkanEngine::init()
 	init_imgui();
 
 	main_camera.position = glm::vec3(0, 0, 5);
-	//main_camera.position = glm::vec3(30.f, -00.f, -085.f);
 	// (!) refactor? draw_extent set in init_default_data
 	main_camera.near = 1000.0f;
 	main_camera.far = 0.01f;
 	main_camera.fov = 70.0f;
 	main_camera.perspective = glm::perspective(glm::radians(main_camera.fov), static_cast<float>(draw_extent.width) / draw_extent.height, main_camera.near, main_camera.far);
-	//main_camera.perspective = glm::ortho(-2.5f, 2.5f, -2.5f, 2.5f, main_camera.near, main_camera.far); // for testing
 	init_precomputations();
 
 	is_initialized = true;
@@ -312,12 +311,6 @@ void VulkanEngine::draw()
 	VkCommandBufferBeginInfo cmd_begin_info = vkinit::command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT); 
 
 	VK_CHECK(vkBeginCommandBuffer(cmd, &cmd_begin_info));
-
-	//std::vector<size_t> visible_indices{}; // debug
-	//for (size_t i = 0; i < main_draw_context.opaque_objects.size(); i++)
-	//{
-	//	visible_indices.push_back(i);
-	//}
 
 	// sort -> cull or cull -> sort?
 	// (!) TODO: cull with AABB? ritter's?
@@ -1588,10 +1581,10 @@ void VulkanEngine::update_scene()
 	scene_data.camera_pos = glm::vec4(main_camera.position, 1.0);
 
 	main_draw_context.opaque_objects.clear();
-	if (main_draw_context.transparent_objects.size() != 0)
-	{
-		//fmt::println("# of transparent objects: {}", main_draw_context.transparent_objects.size()); // (!) debug
-	}
+	//if (main_draw_context.transparent_objects.size() != 0)
+	//{
+	//	fmt::println("# of transparent objects: {}", main_draw_context.transparent_objects.size()); // (!) debug
+	//}
 	main_draw_context.transparent_objects.clear();
 
 	for (auto& n : loaded_scenes["DamagedHelmet"]->top_nodes)
@@ -1719,7 +1712,6 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 
 	ShaderPass current_pass = *shader_passes["textured_lit"];
 
-	//vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
@@ -1727,7 +1719,6 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 	VkPipeline last_pipeline = VK_NULL_HANDLE;
 	VkBuffer last_index_buffer = VK_NULL_HANDLE;
 
-	// (!) capture clause for current_pass?
 	auto draw = [&](const RenderObject& obj) {
 		VkPipeline current_pipeline = obj.material->forward_pass->pipeline;
 		VkBuffer current_index_buffer = obj.index_buffer;
@@ -1958,11 +1949,6 @@ void VulkanEngine::shadow_pass(VkCommandBuffer cmd, std::vector<size_t>& visible
 	{
 		draw(main_draw_context.opaque_objects[i]);
 	}
-
-	//for (const auto& obj : main_draw_context.opaque_objects)
-	//{
-	//	draw(obj);
-	//}
 
 	vkCmdEndRendering(cmd);
 
