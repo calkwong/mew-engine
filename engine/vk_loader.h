@@ -2,11 +2,15 @@
 
 #include <vk_types.h>
 #include <vk_pipelines.h>
-#include <unordered_map>
-#include <filesystem>
-#include <vk_descriptors.h>
 
 #include "mikktspace.h"
+#include <vulkan/vulkan.h>
+
+#include <unordered_map>
+#include <optional>
+#include <vector>
+#include <memory>
+#include <string>
 
 struct Bounds
 {
@@ -61,7 +65,6 @@ struct Node
 	}
 };
 
-class DescriptorAllocatorGrowable;
 class VulkanEngine;
 
 struct LoadedGLTF
@@ -69,15 +72,11 @@ struct LoadedGLTF
 	std::unordered_map<std::string, std::shared_ptr<MeshAsset>> meshes{};
 	std::unordered_map<std::string, std::shared_ptr<Node>> nodes{};
 	std::unordered_map<std::string, AllocatedImage> images{};
-	//std::unordered_map<std::string, std::shared_ptr<GLTFMaterial>> materials{}; // obsolete?
 
 	std::vector<std::shared_ptr<Node>> top_nodes{};
 	std::vector<VkSampler> samplers{};
 
-	// (!) obsolete in refactor? currently unused
-	DescriptorAllocatorGrowable descriptor_pool{};
-
-	AllocatedBuffer material_buffer{}; // refactor in new system?
+	AllocatedBuffer material_buffer{}; // (!) possible refactor
 	VkDeviceAddress material_buffer_address{};
 
 	VulkanEngine* creator{};
@@ -88,8 +87,6 @@ private:
 	void clear();
 };
 
-
-//std::optional<AllocatedImage> load_image(VulkanEngine* engine, fastgltf::Asset& asset, fastgltf::Image& image, bool mipmapped = false);
 std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::string_view file_path);
 
 struct MikkMesh

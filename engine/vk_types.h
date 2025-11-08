@@ -1,14 +1,5 @@
 #pragma once
 
-#include <memory>
-#include <optional>
-#include <string>
-#include <vector>
-#include <span>
-#include <array>
-#include <functional>
-#include <deque>
-
 #include <vulkan/vulkan.h>
 #include <vulkan/vk_enum_string_helper.h>
 #include <vk_mem_alloc.h>
@@ -17,6 +8,9 @@
 
 #include <glm/mat4x4.hpp>
 #include <glm/vec4.hpp>
+
+#include <vector>
+#include <array>
 
 #define VK_CHECK(x)                                                     \
     do {                                                                \
@@ -66,19 +60,6 @@ enum class MaterialPass : uint32_t
     Blend
 };
 
-struct MaterialPipeline
-{
-    VkPipeline pipeline{};
-    VkPipelineLayout pipeline_layout{};
-};
-
-struct MaterialInstance
-{
-    MaterialPipeline* pipeline{};
-    VkDescriptorSet material_set{};
-    MaterialPass pass{};
-};
-
 struct RenderObject;
 
 // consider moving to vk_scene
@@ -88,20 +69,17 @@ struct DrawContext
     std::vector<RenderObject> transparent_objects{};
 };
 
-// emissive factor not implemented yet
-// samplers not accounted for yet
-// REQUIRES PADDING
 struct MaterialData
 {
-    glm::vec4 base_color_factor{};
-    float metallic_factor{};
-    float roughness_factor{};
+    glm::vec4 base_color_factor{ glm::vec4(1.0f) };
+    float metallic_factor{ 1.0f };
+    float roughness_factor{ 1.0f };
     uint32_t diffuse_id{};
     uint32_t metal_roughness_id{};
     uint32_t normal_id{};
     uint32_t occlusion_id{};
     uint32_t emissive_id{};
-    uint32_t padding{};
+    uint32_t padding{}; // (!) test without padding 
 };
 
 struct SceneData

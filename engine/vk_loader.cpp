@@ -1,17 +1,23 @@
-#define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
-#include <iostream>
 #include <vk_loader.h>
 
 #include "vk_engine.h"
-#include "vk_initializers.h"
 #include "vk_types.h"
-#include <glm/gtx/quaternion.hpp>
 
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+#include "mikktspace.h"
+
+#include <vulkan/vulkan.h>
+#include <glm/gtx/quaternion.hpp>
 #include <fastgltf/glm_element_traits.hpp>
 #include <fastgltf/parser.hpp>
 #include <fastgltf/tools.hpp>
 #include <fmt/core.h>
+
+#include <limits>
+#include <optional>
+#include <vector>
+
 VkFilter extract_filter(fastgltf::Filter filter)
 {
 	switch (filter)
@@ -157,7 +163,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 		}
 		else
 		{
-			std::cerr << "Failed to load gltf: " << fastgltf::to_underlying(load.error()) << std::endl;
+			fmt::println("Failed to load gltf: {}", fastgltf::to_underlying(load.error()));
 			return {};
 		}
 	}
@@ -170,13 +176,13 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 		}
 		else
 		{
-			std::cerr << "Failed to load gltf: " << fastgltf::to_underlying(load.error()) << std::endl;
+			fmt::println("Failed to load gltf: {}", fastgltf::to_underlying(load.error()));
 			return {};
 		}
 	}
 	else
 	{
-		std::cerr << "Failed to determine gltf container" << std::endl;
+		fmt::println("Failed to determine gltf container");
 		return {};
 	}
 
@@ -203,8 +209,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 	std::vector<std::shared_ptr<Node>> nodes{};
 	std::vector<MaterialInfo> materials{}; // id
 
-	// image loading deferred to material creation
-	// to prevent performance overhead from image_create_mutable_bit
+	// image loading deferred to material creation to prevent performance overhead from image_create_mutable_bit
 	fmt::println("gltf file has {} images", gltf.images.size());
 	std::vector<AllocatedImage> images(gltf.images.size());
 	std::vector<bool> images_set(gltf.images.size());
@@ -226,9 +231,6 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 	if (gltf.materials.size() == 0)
 	{
 		MaterialData mat_data{};
-		mat_data.base_color_factor = glm::vec4(1);
-		mat_data.metallic_factor = 1.0;
-		mat_data.roughness_factor = 1.0;
 		scene_material_data[0] = mat_data;
 		materials.emplace_back(MaterialInfo{MaterialPass::Opaque, 0});
 	}
@@ -245,10 +247,6 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 	for (fastgltf::Material& mat : gltf.materials)
 	{
 		//fmt::println("material: {}", mat.name.c_str()); // debug
-
-		//std::shared_ptr<GLTFMaterial> new_mat = std::make_shared<GLTFMaterial>();
-		//materials.push_back(new_mat);
-		//file.materials[mat.name.c_str()] = new_mat; // lines obsolete as we only reference material buffer
 
 		MaterialData mat_data{};
 		mat_data.base_color_factor.x = mat.pbrData.baseColorFactor[0];
@@ -267,7 +265,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 			if (!images_set[idx])
 			{
 				images_set[idx] = true;
-				img = load_image(engine, gltf, gltf.images[idx], VK_FORMAT_R8G8B8A8_SRGB, true); // (!) true for mipmap
+				img = load_image(engine, gltf, gltf.images[idx], VK_FORMAT_R8G8B8A8_SRGB, true); 
 				if (img.has_value())
 				{
 					images[idx] = (*img);
@@ -451,19 +449,28 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 					});
 			}
 
+			glm::vec3 min_pos = glm::vec3(std::numeric_limits<float>::max());
+			glm::vec3 max_pos = glm::vec3(std::numeric_limits<float>::lowest());
+
 			// load vertex positions
 			{
-				fastgltf::Accessor& pos_accessor{ gltf.accessors[p.findAttribute("POSITION")->second] };
+				fastgltf::Accessor& pos_accessor = gltf.accessors[p.findAttribute("POSITION")->second];
 				vertices.resize(vertices.size() + pos_accessor.count);
 
 				fastgltf::iterateAccessorWithIndex<glm::vec3>(gltf, pos_accessor,
 					[&](glm::vec3 v, size_t index) {
 						Vertex new_vtx{};
 						new_vtx.position = v;
+						min_pos = glm::min(min_pos, v);
+						max_pos = glm::max(max_pos, v);
 						vertices[initial_vtx + index] = new_vtx;
 					});
 			}
 
+			new_surface.bounds.origin = (max_pos + min_pos) / 2.0f;
+			new_surface.bounds.extents = (max_pos - min_pos) / 2.0f;
+			//new_surface.bounds.sphere_radius = glm::length(new_surface.bounds.extents);
+			
 			// load vertex normals
 			{
 				auto normals = p.findAttribute("NORMAL");
@@ -517,22 +524,21 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 			{
 				size_t idx = p.materialIndex.value();
 				MaterialInfo m = materials[idx];
-				new_surface.material_id = idx;
+				new_surface.material_id = static_cast<uint32_t>(idx);
 				new_surface.pass = m.pass_type;
-
 
 				ShaderPass* forward{};
 				ShaderPass* shadow{};
 				switch (new_surface.pass)
 				{
-				case MaterialPass::Mask: // assumes double-sided. non-double sided with front/back cutout only doesn't make sense if it can be carved into model itself.
+				case MaterialPass::Mask: // assumes double-sided 
 					forward = engine->shader_passes["textured_lit_clip"].get();
 					shadow = engine->shader_passes["shadow_flat"].get();
 					break;
 				case MaterialPass::Blend:
 					forward = engine->shader_passes["blend"].get();
-					//shadow = nullptr; // transparent objs don't cast shadows for now
-					shadow = engine->shader_passes["shadow_flat"].get();
+					shadow = nullptr; // transparent objs don't cast shadows for now
+					//shadow = engine->shader_passes["shadow_flat"].get();
 					break;
 				case MaterialPass::Opaque:
 					forward = m.double_sided ? engine->shader_passes["textured_lit2"].get() : engine->shader_passes["textured_lit"].get();
@@ -545,9 +551,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 			}
 			else
 			{
-				// TODO: HANDLE PRIMITIVE WITH NO MATERIAL
-				// currently assigning first material as default; rare to have no material so we settle this way for now
-				// also handles gltf with no materials
+				// (!) mesh has no material, assign first material
 				auto m = materials[0];
 				new_surface.material_id = 0;
 				ShaderPass* forward = engine->shader_passes["textured_lit"].get();
@@ -555,21 +559,6 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 				new_surface.material = engine->material_cache.add_material(forward, shadow);
 				new_surface.pass = m.pass_type;
 			}
-
-			// loop vertices to find min/max bounds
-			glm::vec3 min_pos = vertices[initial_vtx].position;
-			glm::vec3 max_pos = vertices[initial_vtx].position;
-
-			// TODO: could be refactored into loading vertex positions block?
-			for (size_t i = initial_vtx; i < vertices.size(); i++)
-			{
-				min_pos = glm::min(min_pos, vertices[i].position);
-				max_pos = glm::max(max_pos, vertices[i].position);
-			}
-
-			new_surface.bounds.origin = (max_pos + min_pos) / 2.0f;
-			new_surface.bounds.extents = (max_pos - min_pos) / 2.0f;
-			//new_surface.bounds.sphere_radius = glm::length(new_surface.bounds.extents);
 
 			new_mesh->surfaces.push_back(new_surface);
 		}
@@ -590,16 +579,13 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 		}
 		else
 		{
-			// TODO, how to handle?
 			fmt::println("node has no mesh: ", node.name.c_str());
-			new_node = std::make_shared<Node>();
+			new_node = std::make_shared<Node>(); // (!) absorbing allocation cost for dummy node
 		}
 
 		nodes.push_back(new_node);
-		//file.nodes[node.name.c_str()] = new_node;
 		file.nodes[std::to_string(node_idx).c_str()] = new_node;
 		node_idx++;
-		//fmt::println("node: {}", node.name.c_str());
 
 		std::visit(fastgltf::visitor{
 				[&](fastgltf::Node::TransformMatrix matrix) {
@@ -652,10 +638,8 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 
 void LoadedGLTF::clear()
 {
-	fmt::println("clearing loadedGLTF");
 	VkDevice device = creator->device;
 
-	descriptor_pool.destroy_pools(device);
 	creator->destroy_buffer(material_buffer);
 
 	for (auto& [k, v] : meshes)
@@ -666,7 +650,7 @@ void LoadedGLTF::clear()
 
 	for (auto& [k, v] : images)
 	{
-		creator->destroy_image(v); // not performing placeholder image check here
+		creator->destroy_image(v); 
 	}
 
 	for (auto& s : samplers)

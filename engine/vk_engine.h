@@ -1,14 +1,20 @@
 #pragma once
 
 #include <vk_types.h>
-#include <vk_initializers.h>
 #include <vk_descriptors.h>
 #include <camera.h>
 #include <vk_loader.h>
-#include <vk_pipelines.h>
 
 #include "VkBootstrap.h"
 #include "tracy/TracyVulkan.hpp"
+#include <vulkan/vulkan.h>
+
+#include <span>
+#include <functional>
+#include <vector>
+#include <array>
+#include <deque>
+#include <string>
 
 constexpr unsigned int FRAME_OVERLAP = 2;
 
@@ -137,6 +143,8 @@ struct ShaderCache
 
 	VkShaderModule add_shader(VkDevice device, const char* path);
 };
+
+struct ShaderPass;
 
 struct MaterialCache
 {
@@ -307,7 +315,6 @@ public:
 	void shadow_pass(VkCommandBuffer cmd, std::vector<size_t>& visible_indices, size_t cascade_idx);
 	void update_cascade();
 	void draw_imgui(VkCommandBuffer cmd, VkImageView swapchain_view);
-	glm::mat4 shadow_frustum_culling();
 
 private:
 	void init_vulkan();

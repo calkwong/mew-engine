@@ -4,8 +4,6 @@
 
 #include <vulkan/vulkan.h>
 
-#include <span>
-
 struct ShaderPass
 {
     VkPipeline pipeline{};

@@ -1,6 +1,11 @@
 #include <vk_descriptors.h>
 #include <vk_types.h>
 
+#include <vulkan/vulkan.h>
+
+#include <span>
+#include <vector>
+
 void DescriptorLayoutBuilder::add_binding(uint32_t binding, VkDescriptorType type, VkShaderStageFlags shader_stage)
 {
 	VkDescriptorSetLayoutBinding newbind{};

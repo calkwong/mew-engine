@@ -1,4 +1,5 @@
-#include <vk_types.h>
+#pragma once
+
 #include <SDL_events.h>
 
 class Camera

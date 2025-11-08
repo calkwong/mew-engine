@@ -1,8 +1,4 @@
 #include "vk_engine.h"
-
-#include <SDL.h>
-#include <SDL_vulkan.h>
-
 #include <vk_initializers.h>
 #include <vk_types.h>
 #include <vk_images.h>
@@ -20,15 +16,27 @@
 #include <glm/gtx/transform.hpp>
 #include "stb_image.h"
 
-// for glm debug
 #include "glm/ext.hpp"
+// for glm debug
 #include "glm/gtx/string_cast.hpp"
 
 #include "imgui.h"
 #include "imgui_impl_sdl2.h"
 #include "imgui_impl_vulkan.h"
 
+#include <SDL.h>
+#include <SDL_vulkan.h>
+#include <vulkan/vulkan.h>
+
 #include <thread>
+#include <chrono>
+#include <deque>
+#include <memory>
+#include <span>
+#include <functional>
+#include <cmath>
+#include <utility>
+#include <algorithm>
 
 VulkanEngine* loaded_engine{};
 
@@ -1463,7 +1471,6 @@ void VulkanEngine::init_renderables()
 	//std::string asset_path = "../../assets/bistro_interior/BistroInterior_Wine.gltf";
 	//std::string asset_path = "../../assets/bistro_exterior/BistroExterior.gltf";
 	//std::string asset_path = "../../assets/AlphaBlendModeTest.glb";
-	//std::string asset_path = "../../assets/GlassVaseFlowers.glb";
 	//std::string asset_path = "../../assets/terrain_gridlines.gltf";
 	auto start{ std::chrono::system_clock::now() };
 	auto asset_file = load_gltf(this, asset_path);
@@ -1653,12 +1660,12 @@ uint32_t MaterialCache::add_material(ShaderPass* forward, ShaderPass* shadow)
 	for (size_t i = 0; i < data.size(); i++)
 	{
 		if (data[i].forward_pass == forward && data[i].shadow_pass == shadow)
-			return i;
+			return static_cast<uint32_t>(i);
 	}
 
 	data.emplace_back(Material{ forward, shadow });
 
-	return data.size() - 1; 
+	return static_cast<uint32_t>(data.size()) - 1;
 }
 
 void VulkanEngine::forward_pass(VkCommandBuffer cmd)

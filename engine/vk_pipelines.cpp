@@ -3,8 +3,10 @@
 #include <vk_types.h>
 
 #include <fmt/core.h>
+#include <vulkan/vulkan.h>
 
 #include <fstream>
+#include <vector>
 
 bool vkutil::load_shader_module(const char* path, VkDevice device, VkShaderModule* out_shader_module)
 {
