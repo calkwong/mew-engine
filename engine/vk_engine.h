@@ -28,6 +28,12 @@ struct PushConstants
 	uint32_t debug_idx{};
 };
 
+struct GPUPushConstants
+{
+	VkDeviceAddress material_buffer_address{};
+	VkDeviceAddress object_buffer_address{};
+};
+
 struct IBLPushConstants
 {
 	uint32_t texture_id{};
@@ -87,6 +93,7 @@ struct FrameData
 	DescriptorAllocatorGrowable frame_descriptor_allocator{};
 	AllocatedBuffer scene_buffer{};
 	VkDescriptorSet scene_descriptor{};
+	AllocatedBuffer indirect_buffer{};
 
 	DeletionQueue deletion_queue{};
 };
@@ -162,6 +169,7 @@ struct RenderObject
 	VkBuffer index_buffer{};
 
 	Material* material{};
+	std::shared_ptr<MeshAsset> mesh{};
 
 	// (!) pad?
 	uint32_t material_id{};
@@ -291,6 +299,7 @@ public:
 	std::array<CascadeData, 4> cascade_data{};
 
 	tracy::VkCtx* tracy_ctx{};
+	AllocatedBuffer object_buffer{};
 
 	static VulkanEngine& get();
 
@@ -300,6 +309,7 @@ public:
 	void run();
 	void immediate_submit(std::function<void(VkCommandBuffer cmd)>&& func);
 	AllocatedBuffer create_buffer(size_t alloc_size, VmaAllocationCreateFlags flags, VkBufferUsageFlags usage);
+	AllocatedBuffer reallocate_buffer(size_t alloc_size, AllocatedBuffer old_buffer, VmaAllocationCreateFlags flags, VkBufferUsageFlags usage);
 	void destroy_buffer(const AllocatedBuffer& buffer);
 	GPUMeshBuffers upload_mesh(std::span<uint32_t> indices, std::span<Vertex> vertices);
 	// view has access to all mip and layers

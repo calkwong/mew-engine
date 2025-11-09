@@ -11,7 +11,7 @@ layout (location = 1) in vec3 inWorldPos;
 layout (location = 2) in vec3 inViewPos;
 layout (location = 3) in vec2 inUV;
 layout (location = 4) in vec4 inTangent;
-
+layout (location = 5) in flat uint inMaterialID;
 layout (location = 0) out vec4 outFragColor;
 
 const float exposure = 4.0;
@@ -49,14 +49,33 @@ layout(buffer_reference, std430) readonly buffer MaterialBuffer
 	MaterialData materials[];
 };
 
-layout( push_constant ) uniform constants
+struct ObjectData
 {
 	mat4 worldMatrix;
 	VertexBuffer vertexBuffer;
-	MaterialBuffer materialBuffer;
 	uint materialID;
-	uint debug_idx;
+	uint padding;
+};
+
+layout(buffer_reference, std430) readonly buffer ObjectBuffer
+{ 
+	ObjectData objects[];
+};
+
+layout( push_constant ) uniform constants
+{
+	MaterialBuffer materialBuffer;
+	ObjectBuffer objectBuffer;
 } pc;
+
+//layout( push_constant ) uniform constants
+//{
+//	mat4 worldMatrix;
+//	VertexBuffer vertexBuffer;
+//	MaterialBuffer materialBuffer;
+//	uint materialID;
+//	uint debug_idx;
+//} pc;
 
 layout(set = 1, binding = 0) uniform texture2D allTextures[];
 layout(set = 1, binding = 0) uniform textureCube allCubemaps[];
@@ -89,7 +108,6 @@ vec3 F_Schlick(float u, vec3 f0)
     return f + f0 * (1.0 - f);
 }
 
-uint cascade_idx = 0;
 #define CASCADE_COUNT 4
 
 float calculate_shadow()
@@ -104,7 +122,6 @@ float calculate_shadow()
 			break;
 		}
 	}
-	cascade_idx = cascade_index;
 	vec3 lightFragPos = vec3(sceneData.shadowTransforms[cascade_index] * vec4(inWorldPos, 1.0)); // ortho, no division by w needed
 	
 	float currentDepth = lightFragPos.z;
@@ -145,7 +162,7 @@ float calculate_shadow()
 
 void main() 
 {	
-	MaterialData m = pc.materialBuffer.materials[pc.materialID];
+	MaterialData m = pc.materialBuffer.materials[inMaterialID];
 	
 	uint irradiance_id = uint(sceneData.textures[0]);
 	uint prefiltered_id = uint(sceneData.textures[1]);
@@ -154,10 +171,8 @@ void main()
 	vec4 albedo = m.baseColorFactor;
 	if (m.diffuseID != 0)
 		albedo *= texture(sampler2D(allTextures[m.diffuseID], samplers[0]), inUV);
-	
 	if (albedo.a < 0.5)
 		discard;
-	
 	vec3 lightColor = vec3(1.0);
 	
 	// normal mapping
@@ -275,30 +290,5 @@ void main()
 	color.a = 0.0;
 	outFragColor = color;
 
-	switch (pc.debug_idx)
-	{
-		case 0: break;
-		case 1: outFragColor = vec4(albedo.xyz, 1.0); break;
-		case 2: outFragColor = vec4(normalize(inNormal), 1.0); outFragColor.xyz = outFragColor.xyz * 0.5 + 0.5; outFragColor.xyz = pow(outFragColor.xyz, vec3(2.2)); break; // geometry 
-		case 3: outFragColor = vec4(sampleNormal, 1.0); outFragColor.xyz = outFragColor.xyz * 0.5 + 0.5; outFragColor.xyz = pow(outFragColor.xyz, vec3(2.2)); break; // texture normal
-		case 4: outFragColor = vec4(N, 1.0); outFragColor.xyz = outFragColor.xyz * 0.5 + 0.5; outFragColor.xyz = pow(outFragColor.xyz, vec3(2.2)); break; // shading normal
-		case 5: outFragColor = vec4(T, 1.0); outFragColor.xyz = outFragColor.xyz * 0.5 + 0.5; outFragColor.xyz = pow(outFragColor.xyz, vec3(2.2)); break;
-		case 6: outFragColor = vec4(vec3(metalRoughness.x), 1.0); outFragColor.xyz = pow(outFragColor.xyz, vec3(2.2)); break;
-		case 7: outFragColor = vec4(vec3(metalRoughness.y), 1.0); outFragColor.xyz = pow(outFragColor.xyz, vec3(2.2)); break;
-		case 8: outFragColor = vec4(vec2(inUV), 0.0, 1.0); outFragColor.xyz = pow(outFragColor.xyz, vec3(2.2)); break;
-		case 9: outFragColor = vec4(vec3(inTangent.w), 1.0); break;
-		default: break;
-	}
-
-	vec3 debug_color;
-	switch (cascade_idx)
-	{
-		case 0: debug_color = vec3(1,0,0) ;break;
-		case 1: debug_color = vec3(0,1,0) ;break;
-		case 2: debug_color = vec3(0,0,1) ;break;
-		case 3: debug_color = vec3(1,1,0) ;break;
-	}
-	color.xyz *= debug_color;
-	//outFragColor.xyz = color.xyz;
 
 }

@@ -10,6 +10,7 @@ layout (location = 1) out vec3 outWorldPos;
 layout (location = 2) out vec3 outViewPos;
 layout (location = 3) out vec2 outUV;
 layout (location = 4) out vec4 outTangent;
+layout (location = 5) flat out uint outMaterialID;
 
 struct Vertex {
 	vec3 position;
@@ -41,25 +42,46 @@ layout(buffer_reference, std430) readonly buffer MaterialBuffer
 	MaterialData materials[];
 };
 
-layout(push_constant) uniform constants
+struct ObjectData
 {
 	mat4 worldMatrix;
 	VertexBuffer vertexBuffer;
-	MaterialBuffer materialBuffer;
 	uint materialID;
+	uint padding;
+};
+
+layout(buffer_reference, std430) readonly buffer ObjectBuffer
+{ 
+	ObjectData objects[];
+};
+
+layout( push_constant ) uniform constants
+{
+	MaterialBuffer materialBuffer;
+	ObjectBuffer objectBuffer;
 } pc;
+
+//layout(push_constant) uniform constants
+//{
+//	mat4 worldMatrix;
+//	VertexBuffer vertexBuffer;
+//	MaterialBuffer materialBuffer;
+//	uint materialID;
+//} pc;
 
 void main() 
 {
-	Vertex v = pc.vertexBuffer.vertices[gl_VertexIndex];
+	ObjectData o = pc.objectBuffer.objects[gl_InstanceIndex];
+	Vertex v = o.vertexBuffer.vertices[gl_VertexIndex];
 	
-	vec4 position = pc.worldMatrix * vec4(v.position, 1.0);
+	vec4 position = o.worldMatrix * vec4(v.position, 1.0);
 	outViewPos = vec3(sceneData.view * position);
 	gl_Position =  sceneData.viewproj * position;
 
-	outNormal = mat3(transpose(inverse(pc.worldMatrix))) * v.normal;
-	outTangent = vec4(mat3(transpose(inverse(pc.worldMatrix))) * v.tangent.xyz, v.tangent.w);
+	outNormal = mat3(transpose(inverse(o.worldMatrix))) * v.normal;
+	outTangent = vec4(mat3(transpose(inverse(o.worldMatrix))) * v.tangent.xyz, v.tangent.w);
 	outWorldPos = position.xyz;
 	
 	outUV = vec2(v.uv_x, v.uv_y);
+	outMaterialID = o.materialID;
 }

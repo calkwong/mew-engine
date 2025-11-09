@@ -5,6 +5,7 @@
 #include <vk_descriptors.h>
 #include <vk_pipelines.h>
 #include <vk_loader.h>
+#include <vk_scene.h>
 #include <cvars.h>
 
 #include "tracy/Tracy.hpp"
@@ -113,6 +114,17 @@ void sort_materials(const std::vector<RenderObject>& renderables, std::vector<si
 	}
 
 	visible_indices = std::move(sorted);
+}
+
+// (!) sort gpu driven
+void sort_materials(std::vector<RenderObject>& renderables)
+{
+	std::sort(renderables.begin(), renderables.end(), [&](const RenderObject& oA, const RenderObject& oB) {
+		if (oA.material != oB.material)
+			return oA.material < oB.material;
+		else
+			return oA.index_buffer < oB.index_buffer;
+		});
 }
 
 void sort_transparency(const std::vector<RenderObject>& renderables, const Camera& cam, std::vector<size_t>& visible_indices)
@@ -263,11 +275,14 @@ void VulkanEngine::cleanup()
 			vkDestroySemaphore(device, frames[i].swapchain_semaphore, nullptr);
 			vkDestroySemaphore(device, frames[i].render_semaphore, nullptr);
 
+			destroy_buffer(frames[i].indirect_buffer);
 			destroy_buffer(frames[i].scene_buffer);
 
 			frames[i].deletion_queue.flush();
 		}
 		
+		destroy_buffer(object_buffer);
+
 		for (const auto& [k, v] : shader_passes)
 		{
 			vkDestroyPipeline(device, v->pipeline, nullptr);
@@ -292,7 +307,7 @@ void VulkanEngine::cleanup()
 
 void VulkanEngine::draw()
 {
-	ZoneScoped;
+	ZoneScopedN("Draw");
 	VK_CHECK(vkWaitForFences(device, 1, &get_current_frame().render_fence, true, 1000000000));
 	VK_CHECK(vkResetFences(device, 1, &get_current_frame().render_fence));
 
@@ -322,7 +337,58 @@ void VulkanEngine::draw()
 			std::vector<size_t> visible_indices{};
 			visible_indices = frustum_culling(main_draw_context.opaque_objects, cull_matrix, true);
 			sort_materials(main_draw_context.opaque_objects, visible_indices);
-			shadow_pass(cmd, visible_indices, i);
+			//shadow_pass(cmd, visible_indices, i);
+		}
+	}
+
+	if (1)
+	{
+		sort_materials(main_draw_context.opaque_objects);
+		if (object_buffer.info.size < main_draw_context.opaque_objects.size() * sizeof(ObjectData))
+		{
+			fmt::println("run once");
+
+			object_buffer = reallocate_buffer(
+				main_draw_context.opaque_objects.size() * sizeof(ObjectData),
+				object_buffer,
+				VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
+				VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
+			);
+
+			ObjectData* object_data = static_cast<ObjectData*>(object_buffer.info.pMappedData);
+
+			for (size_t i = 0; i < main_draw_context.opaque_objects.size(); i++)
+			{
+				const auto& obj = main_draw_context.opaque_objects[i];
+				
+				object_data[i].transform = obj.transform;
+				object_data[i].vertex_buffer_address = obj.vertex_buffer_address;
+				object_data[i].material_id = obj.material_id;
+			}
+		}
+
+		if (get_current_frame().indirect_buffer.info.size < main_draw_context.opaque_objects.size() * sizeof(VkDrawIndexedIndirectCommand))
+		{
+			fmt::println("run once");
+			get_current_frame().indirect_buffer = reallocate_buffer(
+				main_draw_context.opaque_objects.size() * sizeof(VkDrawIndexedIndirectCommand),
+				get_current_frame().indirect_buffer,
+				VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
+				VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT
+			);
+
+			VkDrawIndexedIndirectCommand* draw_commands = static_cast<VkDrawIndexedIndirectCommand*>(get_current_frame().indirect_buffer.info.pMappedData);
+
+			for (size_t i = 0; i < main_draw_context.opaque_objects.size(); i++)
+			{
+				const RenderObject& obj = main_draw_context.opaque_objects[i];
+				// (!) is it safe to index this way?
+				draw_commands[i].indexCount = obj.index_count;
+				draw_commands[i].instanceCount = 1;
+				draw_commands[i].firstIndex = obj.first_index;
+				draw_commands[i].vertexOffset = 0;
+				draw_commands[i].firstInstance = i;
+			}
 		}
 	}
 
@@ -381,7 +447,10 @@ void VulkanEngine::draw()
 	
 	VkSubmitInfo2 submit = vkinit::submit_info(&cmd_info, &submit_info, &wait_info);
 
-	VK_CHECK(vkQueueSubmit2(graphics_queue, 1, &submit, get_current_frame().render_fence));
+	{
+		ZoneScopedN("Queue submission");
+		VK_CHECK(vkQueueSubmit2(graphics_queue, 1, &submit, get_current_frame().render_fence));
+	}
 
 	VkPresentInfoKHR present_info{};
 	present_info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
@@ -675,7 +744,8 @@ void VulkanEngine::init_vulkan()
 
 	// vulkan 1.0 features
 	VkPhysicalDeviceFeatures features10{};
-	features10.samplerAnisotropy = true;
+	features10.multiDrawIndirect = true;
+	//features10.samplerAnisotropy = true;
 	//features10.depthClamp = true;
 
 	// use vkbootstrap to select a gpu. 
@@ -1010,7 +1080,8 @@ void VulkanEngine::init_pipelines()
 	builder.enable_depth(true, VK_COMPARE_OP_GREATER_OR_EQUAL);
 	builder.dynamic_state.pop_back(); // remove depth bias dynamic state
 	builder.rasterization.depthBiasEnable = VK_FALSE;
-	pc = { VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushConstants) };
+	//pc = { VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushConstants) };
+	pc = { VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GPUPushConstants) }; // (!) gpu driven
 	std::unique_ptr<ShaderPass> textured_lit_clip_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
 
 	//> DOUBLE SIDED LIT
@@ -1028,6 +1099,7 @@ void VulkanEngine::init_pipelines()
 	builder.enable_blending_alphablend();
 	builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
 	builder.enable_depth(false, VK_COMPARE_OP_GREATER_OR_EQUAL);
+	//pc = { VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushConstants) }; // (!) uncomment if not gpu driven
 	std::unique_ptr<ShaderPass> blend_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
 
 	//> SKYBOX
@@ -1081,6 +1153,18 @@ AllocatedBuffer VulkanEngine::create_buffer(size_t alloc_size, VmaAllocationCrea
 	AllocatedBuffer new_buffer{};
 
 	VK_CHECK(vmaCreateBuffer(allocator, &buffer_info, &alloc_info, &new_buffer.buffer, &new_buffer.allocation, &new_buffer.info));
+
+	return new_buffer;
+}
+
+AllocatedBuffer VulkanEngine::reallocate_buffer(size_t alloc_size, AllocatedBuffer old_buffer, VmaAllocationCreateFlags flags, VkBufferUsageFlags usage)
+{
+	AllocatedBuffer new_buffer{};
+	new_buffer = create_buffer(alloc_size, flags, usage);
+
+	get_current_frame().deletion_queue.push_function([=]() {
+		destroy_buffer(old_buffer);
+		});
 
 	return new_buffer;
 }
@@ -1362,6 +1446,21 @@ void VulkanEngine::init_default_data()
 			destroy_image(cascade_data[i].shadow_map);
 		}
 	});
+
+	//> create indirect buffers
+	for (size_t i = 0; i < FRAME_OVERLAP; i++)
+	{
+		frames[i].indirect_buffer = create_buffer(1 * sizeof(VkDrawIndexedIndirectCommand),
+			VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
+			VK_BUFFER_USAGE_2_INDIRECT_BUFFER_BIT
+		);
+	}
+
+	//> create object buffers
+	object_buffer = create_buffer(1 * sizeof(ObjectData),
+		VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
+		VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
+	);
 }
 
 void VulkanEngine::init_renderables()
@@ -1460,8 +1559,8 @@ void VulkanEngine::init_renderables()
 	//std::string asset_path = "../../assets/ABeautifulGame.glb";
 	//std::string asset_path = "../../assets/sphere.gltf";
 	//std::string asset_path = "../../assets/oaktree.gltf";
-	std::string asset_path = "../../assets/khronos_sponza/Sponza.gltf";
-	//std::string asset_path = "../../assets/bistro_interior/BistroInterior_Wine.gltf";
+	//std::string asset_path = "../../assets/khronos_sponza/Sponza.gltf";
+	std::string asset_path = "../../assets/bistro_interior/BistroInterior_Wine.gltf";
 	//std::string asset_path = "../../assets/bistro_exterior/BistroExterior.gltf";
 	//std::string asset_path = "../../assets/AlphaBlendModeTest.glb";
 	//std::string asset_path = "../../assets/terrain_gridlines.gltf";
@@ -1473,10 +1572,6 @@ void VulkanEngine::init_renderables()
 	fmt::println("load gltf: {}ms", ret);
 	assert(asset_file.has_value());
 	loaded_scenes["DamagedHelmet"] = *asset_file;
-
-	//asset_path = "../../assets/terrain_gridlines.gltf";
-	//asset_file = load_gltf(this, asset_path);
-	//loaded_scenes["terrain"] = *asset_file;
 }
 
 void VulkanEngine::init_bindless()
@@ -1540,10 +1635,11 @@ void VulkanEngine::register_object(Node& node, const glm::mat4& top_matrix, Draw
 			obj.material_id = s.material_id;
 			obj.bounds = s.bounds;
 			obj.transform = node_matrix;
+			obj.mesh = node.mesh;
 
 			if (s.pass == MaterialPass::Blend)
 			{
-				ctx.transparent_objects.push_back(obj);
+				//ctx.transparent_objects.push_back(obj);
 			}
 			else // OPAQUE and MASK
 			{
@@ -1581,10 +1677,6 @@ void VulkanEngine::update_scene()
 	scene_data.camera_pos = glm::vec4(main_camera.position, 1.0);
 
 	main_draw_context.opaque_objects.clear();
-	//if (main_draw_context.transparent_objects.size() != 0)
-	//{
-	//	fmt::println("# of transparent objects: {}", main_draw_context.transparent_objects.size()); // (!) debug
-	//}
 	main_draw_context.transparent_objects.clear();
 
 	for (auto& n : loaded_scenes["DamagedHelmet"]->top_nodes)
@@ -1719,6 +1811,9 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 	VkPipeline last_pipeline = VK_NULL_HANDLE;
 	VkBuffer last_index_buffer = VK_NULL_HANDLE;
 
+#define GPU_DRIVEN
+	std::vector<size_t> visible_indices{};
+
 	auto draw = [&](const RenderObject& obj) {
 		VkPipeline current_pipeline = obj.material->forward_pass->pipeline;
 		VkBuffer current_index_buffer = obj.index_buffer;
@@ -1744,11 +1839,32 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 		vkCmdDrawIndexed(cmd, obj.index_count, 1, obj.first_index, 0, 0);
 		stats.triangle_count += obj.index_count / 3;
 		stats.draw_call_count++;
-	};
+		};
 
+#ifdef GPU_DRIVEN
+	//> gpu driven
+	std::vector<IndirectBatch> batches = build_indirect_array(main_draw_context.opaque_objects);
+	//std::vector<MultiBatch> multibatches = build_multibatch_array(batches);
+
+	GPUPushConstants gpc{}; // (!) clean up
+	gpc.material_buffer_address = main_draw_context.opaque_objects[0].material_buffer_address;
+	VkBufferDeviceAddressInfo address_info{};
+	address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
+	address_info.buffer = object_buffer.buffer;
+	gpc.object_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+
+	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GPUPushConstants), &gpc);
+	for (const auto& batch : batches)
+	{
+		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, batch.forward_pass->pipeline);
+		vkCmdBindIndexBuffer(cmd, batch.mesh->mesh_buffer.index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+		vkCmdDrawIndexedIndirect(cmd, get_current_frame().indirect_buffer.buffer, batch.first * sizeof(VkDrawIndexedIndirectCommand), batch.count, sizeof(VkDrawIndexedIndirectCommand));
+	}
+#else
+	//> cpu driven
 	auto start = std::chrono::system_clock::now();
 
-	std::vector<size_t> visible_indices{};
+	//std::vector<size_t> visible_indices{};
 	visible_indices = frustum_culling(main_draw_context.opaque_objects, scene_data.viewproj);
 	auto end = std::chrono::system_clock::now();
 	auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
@@ -1760,6 +1876,7 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 	{
 		draw(main_draw_context.opaque_objects[i]);
 	}
+#endif // DEBUG
 
 	//> skybox
 	current_pass = *shader_passes["skybox"];
