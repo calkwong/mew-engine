@@ -112,7 +112,7 @@ void sort_materials(const std::vector<RenderObject>& renderables, std::vector<si
 		size_t idx = sorted[i];
 		sorted[i] = visible_indices[idx];
 	}
-
+	
 	visible_indices = std::move(sorted);
 }
 
@@ -275,13 +275,15 @@ void VulkanEngine::cleanup()
 			vkDestroySemaphore(device, frames[i].swapchain_semaphore, nullptr);
 			vkDestroySemaphore(device, frames[i].render_semaphore, nullptr);
 
-			destroy_buffer(frames[i].indirect_buffer);
+			destroy_buffer(frames[i].draw_indirect_buffer);
 			destroy_buffer(frames[i].scene_buffer);
 
 			frames[i].deletion_queue.flush();
 		}
 		
-		destroy_buffer(object_buffer);
+		destroy_buffer(render_scene.object_buffer);
+		destroy_buffer(render_scene.instance_buffer);
+		destroy_buffer(render_scene.ginstance_buffer);
 
 		for (const auto& [k, v] : shader_passes)
 		{
@@ -330,66 +332,78 @@ void VulkanEngine::draw()
 	// sort -> cull or cull -> sort?
 	// (!) TODO: cull with AABB? ritter's?
 	{
-		TracyVkZone(tracy_ctx, get_current_frame().main_command_buffer, "CSM pass");
-		for (size_t i = 0; i < cascade_data.size(); i++)
-		{
-			glm::mat4 cull_matrix = scene_data.shadow_transforms[i];
-			std::vector<size_t> visible_indices{};
-			visible_indices = frustum_culling(main_draw_context.opaque_objects, cull_matrix, true);
-			sort_materials(main_draw_context.opaque_objects, visible_indices);
-			//shadow_pass(cmd, visible_indices, i);
-		}
+		//TracyVkZone(tracy_ctx, get_current_frame().main_command_buffer, "CSM pass");
+		//for (size_t i = 0; i < cascade_data.size(); i++)
+		//{
+		//	glm::mat4 cull_matrix = scene_data.shadow_transforms[i];
+		//	std::vector<size_t> visible_indices{};
+		//	visible_indices = frustum_culling(main_draw_context.opaque_objects, cull_matrix, true);
+		//	sort_materials(main_draw_context.opaque_objects, visible_indices);
+		//	shadow_pass(cmd, visible_indices, i);
+		//}
 	}
 
 	if (1)
 	{
-		sort_materials(main_draw_context.opaque_objects);
-		if (object_buffer.info.size < main_draw_context.opaque_objects.size() * sizeof(ObjectData))
+		// build pass objects -> sort -> build indirect batch
+		if (render_scene.pass_objects.size() != render_scene.unbatched_objects.size())
 		{
-			fmt::println("run once");
+			fmt::println("build_pass_objects should run only once");
+			render_scene.build_pass_objects();
+			render_scene.sort_objects();
+			render_scene.build_indirect_batch();
+		}
 
-			object_buffer = reallocate_buffer(
-				main_draw_context.opaque_objects.size() * sizeof(ObjectData),
-				object_buffer,
+		// build object buffer
+		if (render_scene.object_buffer.info.size < render_scene.renderables.size() * sizeof(ObjectData))
+		{
+			fmt::println("build_object_buffer should run only once");
+			render_scene.object_buffer = reallocate_buffer(
+				render_scene.renderables.size() * sizeof(ObjectData),
+				render_scene.object_buffer,
 				VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
 				VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
 			);
 
-			ObjectData* object_data = static_cast<ObjectData*>(object_buffer.info.pMappedData);
-
-			for (size_t i = 0; i < main_draw_context.opaque_objects.size(); i++)
-			{
-				const auto& obj = main_draw_context.opaque_objects[i];
-				
-				object_data[i].transform = obj.transform;
-				object_data[i].vertex_buffer_address = obj.vertex_buffer_address;
-				object_data[i].material_id = obj.material_id;
-			}
+			// (!) move this out?
+			render_scene.build_object_buffer(); 
 		}
 
-		if (get_current_frame().indirect_buffer.info.size < main_draw_context.opaque_objects.size() * sizeof(VkDrawIndexedIndirectCommand))
+		// build instance buffer
+		if (render_scene.instance_buffer.info.size < render_scene.pass_objects.size() * sizeof(size_t))
 		{
-			fmt::println("run once");
-			get_current_frame().indirect_buffer = reallocate_buffer(
-				main_draw_context.opaque_objects.size() * sizeof(VkDrawIndexedIndirectCommand),
-				get_current_frame().indirect_buffer,
+			fmt::println("build_instance_buffer should run only once");
+
+			render_scene.instance_buffer = reallocate_buffer(
+				render_scene.pass_objects.size() * sizeof(size_t),
+				render_scene.instance_buffer,
+				VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
+				VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
+			);
+
+			// (!) move this out?
+			render_scene.build_instance_buffer(); 
+		}
+
+		// build indirect buffer for culling
+		//if (get_current_frame().indirect_buffer.info.size < render_scene.renderables.size() * sizeof(VkDrawIndexedIndirectCommand))
+		if (get_current_frame().draw_indirect_buffer.info.size < render_scene.pass_objects.size() * sizeof(VkDrawIndexedIndirectCommand))
+		{
+			fmt::println("build_indirect_buffer should run only once");
+			get_current_frame().draw_indirect_buffer = reallocate_buffer(
+				render_scene.pass_objects.size() * sizeof(VkDrawIndexedIndirectCommand),
+				get_current_frame().draw_indirect_buffer,
 				VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
 				VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT
 			);
 
-			VkDrawIndexedIndirectCommand* draw_commands = static_cast<VkDrawIndexedIndirectCommand*>(get_current_frame().indirect_buffer.info.pMappedData);
-
-			for (size_t i = 0; i < main_draw_context.opaque_objects.size(); i++)
-			{
-				const RenderObject& obj = main_draw_context.opaque_objects[i];
-				// (!) is it safe to index this way?
-				draw_commands[i].indexCount = obj.index_count;
-				draw_commands[i].instanceCount = 1;
-				draw_commands[i].firstIndex = obj.first_index;
-				draw_commands[i].vertexOffset = 0;
-				draw_commands[i].firstInstance = i;
-			}
+			// (!) move this out
+			render_scene.build_indirect_buffer();
 		}
+		
+		// always reset
+		VkDrawIndexedIndirectCommand* draw_commands = static_cast<VkDrawIndexedIndirectCommand*>(get_current_frame().draw_indirect_buffer.info.pMappedData);
+		render_scene.reset_indirect_buffer(draw_commands);
 	}
 
 	{
@@ -1163,7 +1177,7 @@ AllocatedBuffer VulkanEngine::reallocate_buffer(size_t alloc_size, AllocatedBuff
 	new_buffer = create_buffer(alloc_size, flags, usage);
 
 	get_current_frame().deletion_queue.push_function([=]() {
-		destroy_buffer(old_buffer);
+		destroy_buffer(old_buffer); // (!) or destroy directly?
 		});
 
 	return new_buffer;
@@ -1450,14 +1464,24 @@ void VulkanEngine::init_default_data()
 	//> create indirect buffers
 	for (size_t i = 0; i < FRAME_OVERLAP; i++)
 	{
-		frames[i].indirect_buffer = create_buffer(1 * sizeof(VkDrawIndexedIndirectCommand),
+		frames[i].draw_indirect_buffer = create_buffer(1 * sizeof(VkDrawIndexedIndirectCommand),
 			VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
 			VK_BUFFER_USAGE_2_INDIRECT_BUFFER_BIT
 		);
 	}
 
 	//> create object buffers
-	object_buffer = create_buffer(1 * sizeof(ObjectData),
+	render_scene.object_buffer = create_buffer(1 * sizeof(ObjectData),
+		VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
+		VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
+	);
+
+	render_scene.instance_buffer = create_buffer(1 * sizeof(size_t),
+		VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
+		VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
+	);
+
+	render_scene.ginstance_buffer = create_buffer(1 * sizeof(GPUInstance),
 		VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
 		VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
 	);
@@ -1637,13 +1661,17 @@ void VulkanEngine::register_object(Node& node, const glm::mat4& top_matrix, Draw
 			obj.transform = node_matrix;
 			obj.mesh = node.mesh;
 
+			size_t handle = render_scene.renderables.size();
+			render_scene.renderables.push_back(obj);
+
 			if (s.pass == MaterialPass::Blend)
 			{
 				//ctx.transparent_objects.push_back(obj);
 			}
 			else // OPAQUE and MASK
 			{
-				ctx.opaque_objects.push_back(obj);
+				//ctx.opaque_objects.push_back(obj);
+				render_scene.unbatched_objects.push_back(handle);
 			}
 		}
 	}
@@ -1676,8 +1704,10 @@ void VulkanEngine::update_scene()
 	}
 	scene_data.camera_pos = glm::vec4(main_camera.position, 1.0);
 
-	main_draw_context.opaque_objects.clear();
-	main_draw_context.transparent_objects.clear();
+	//main_draw_context.opaque_objects.clear();
+	//main_draw_context.transparent_objects.clear();
+	render_scene.renderables.clear();
+	render_scene.unbatched_objects.clear();
 
 	for (auto& n : loaded_scenes["DamagedHelmet"]->top_nodes)
 	{
@@ -1808,75 +1838,26 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
 
-	VkPipeline last_pipeline = VK_NULL_HANDLE;
-	VkBuffer last_index_buffer = VK_NULL_HANDLE;
-
-#define GPU_DRIVEN
-	std::vector<size_t> visible_indices{};
-
-	auto draw = [&](const RenderObject& obj) {
-		VkPipeline current_pipeline = obj.material->forward_pass->pipeline;
-		VkBuffer current_index_buffer = obj.index_buffer;
-		if (current_pipeline != last_pipeline)
-		{
-			last_pipeline = current_pipeline;
-			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pipeline);
-		}
-		if (current_index_buffer != last_index_buffer)
-		{
-			last_index_buffer = current_index_buffer;
-			vkCmdBindIndexBuffer(cmd, current_index_buffer, 0, VK_INDEX_TYPE_UINT32);
-		}
-
-		PushConstants pc{};
-		pc.world_transform = obj.transform;
-		pc.vertex_buffer_address = obj.vertex_buffer_address;
-		pc.material_buffer_address = obj.material_buffer_address;
-		pc.material_id = obj.material_id;
-		pc.debug_idx = shader_idx.get();
-
-		vkCmdPushConstants(cmd, obj.material->forward_pass->layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushConstants), &pc);
-		vkCmdDrawIndexed(cmd, obj.index_count, 1, obj.first_index, 0, 0);
-		stats.triangle_count += obj.index_count / 3;
-		stats.draw_call_count++;
-		};
-
-#ifdef GPU_DRIVEN
 	//> gpu driven
-	std::vector<IndirectBatch> batches = build_indirect_array(main_draw_context.opaque_objects);
-	//std::vector<MultiBatch> multibatches = build_multibatch_array(batches);
-
 	GPUPushConstants gpc{}; // (!) clean up
-	gpc.material_buffer_address = main_draw_context.opaque_objects[0].material_buffer_address;
+	gpc.material_buffer_address = render_scene.renderables[0].material_buffer_address;
+
 	VkBufferDeviceAddressInfo address_info{};
 	address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
-	address_info.buffer = object_buffer.buffer;
+	address_info.buffer = render_scene.object_buffer.buffer;
 	gpc.object_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
 
+	address_info.buffer = render_scene.instance_buffer.buffer;
+	gpc.instance_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GPUPushConstants), &gpc);
-	for (const auto& batch : batches)
+	for (const auto& batch : render_scene.batches)
 	{
 		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, batch.forward_pass->pipeline);
 		vkCmdBindIndexBuffer(cmd, batch.mesh->mesh_buffer.index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
-		vkCmdDrawIndexedIndirect(cmd, get_current_frame().indirect_buffer.buffer, batch.first * sizeof(VkDrawIndexedIndirectCommand), batch.count, sizeof(VkDrawIndexedIndirectCommand));
+		vkCmdDrawIndexedIndirect(cmd, get_current_frame().draw_indirect_buffer.buffer, batch.first * sizeof(VkDrawIndexedIndirectCommand), batch.count, sizeof(VkDrawIndexedIndirectCommand));
+		stats.draw_call_count += batch.count;
 	}
-#else
-	//> cpu driven
-	auto start = std::chrono::system_clock::now();
-
-	//std::vector<size_t> visible_indices{};
-	visible_indices = frustum_culling(main_draw_context.opaque_objects, scene_data.viewproj);
-	auto end = std::chrono::system_clock::now();
-	auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-	stats.frustum_cull_time = elapsed.count() / 1000.0f; // microseconds to seconds
-
-	sort_materials(main_draw_context.opaque_objects, visible_indices); 
-
-	for (auto i : visible_indices)
-	{
-		draw(main_draw_context.opaque_objects[i]);
-	}
-#endif // DEBUG
 
 	//> skybox
 	current_pass = *shader_passes["skybox"];
@@ -1896,20 +1877,52 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 	stats.draw_call_count++;
 
 	//> transparent geometries
-	current_pass = *shader_passes["blend"];
+	//current_pass = *shader_passes["blend"];
 
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
+	// may be buggy 
+	// 
+	// 	VkPipeline last_pipeline = VK_NULL_HANDLE;
+	//  VkBuffer last_index_buffer = VK_NULL_HANDLE;
+	// 
+	//auto draw = [&](const RenderObject& obj) {
+	//	VkPipeline current_pipeline = obj.material->forward_pass->pipeline;
+	//	VkBuffer current_index_buffer = obj.index_buffer;
+	//	if (current_pipeline != last_pipeline)
+	//	{
+	//		last_pipeline = current_pipeline;
+	//		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pipeline);
+	//	}
+	//	if (current_index_buffer != last_index_buffer)
+	//	{
+	//		last_index_buffer = current_index_buffer;
+	//		vkCmdBindIndexBuffer(cmd, current_index_buffer, 0, VK_INDEX_TYPE_UINT32);
+	//	}
 
-	visible_indices.clear();
-	visible_indices = frustum_culling(main_draw_context.transparent_objects, scene_data.viewproj);
-	sort_transparency(main_draw_context.transparent_objects, main_camera, visible_indices);
+	//	PushConstants pc{};
+	//	pc.world_transform = obj.transform;
+	//	pc.vertex_buffer_address = obj.vertex_buffer_address;
+	//	pc.material_buffer_address = obj.material_buffer_address;
+	//	pc.material_id = obj.material_id;
+	//	pc.debug_idx = shader_idx.get();
 
-	for (auto i : visible_indices)
-	{
-		draw(main_draw_context.transparent_objects[i]);
-	}
+	//	vkCmdPushConstants(cmd, obj.material->forward_pass->layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushConstants), &pc);
+	//	vkCmdDrawIndexed(cmd, obj.index_count, 1, obj.first_index, 0, 0);
+	//	stats.triangle_count += obj.index_count / 3;
+	//	stats.draw_call_count++;
+	//	};
+
+	//vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
+	//vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
+	//vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
+
+	//std::vector<size_t> visible_indices{};
+	//visible_indices = frustum_culling(main_draw_context.transparent_objects, scene_data.viewproj);
+	//sort_transparency(main_draw_context.transparent_objects, main_camera, visible_indices);
+
+	//for (auto i : visible_indices)
+	//{
+	//	draw(main_draw_context.transparent_objects[i]);
+	//}
 
 	vkCmdEndRendering(cmd);
 

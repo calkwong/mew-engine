@@ -537,6 +537,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 					break;
 				case MaterialPass::Blend:
 					forward = engine->shader_passes["blend"].get();
+					//forward = m.double_sided ? engine->shader_passes["textured_lit2"].get() : engine->shader_passes["textured_lit"].get();
 					shadow = nullptr; // transparent objs don't cast shadows for now
 					//shadow = engine->shader_passes["shadow_flat"].get();
 					break;

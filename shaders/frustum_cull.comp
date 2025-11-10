@@ -1,0 +1,40 @@
+#version 450
+
+#extension GL_EXT_nonuniform_qualifier : require
+
+layout (local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0) uniform image2D allImages[]; // buffer to write out to
+
+struct ObjectData
+{
+	mat4 worldMatrix;
+	vec3 origin;
+	uint materialID;
+	vec3 extent;
+	uint padding;
+	VertexBuffer vertexBuffer;
+	uint padding2[2];
+};
+
+layout(buffer_reference, std430) readonly buffer ObjectBuffer
+{ 
+	ObjectData objects[];
+};
+
+layout( push_constant ) uniform constants
+{
+	//float padding[2]; // this is MaterialBuffer, or use explicit offset
+	layout(offset = 8) ObjectBuffer objectBuffer;
+} pc;
+
+void main()
+{
+	ivec2 texelCoord = ivec2(gl_GlobalInvocationID.xy);
+	ivec2 size = imageSize(allImages[pc.image_id]).xy;
+	vec2 uv = vec2(texelCoord + 0.5) / vec2(size);
+	
+	vec2 color = IntegratedBRDF(uv.x, uv.y);
+	
+	imageStore(allImages[pc.image_id], texelCoord, vec4(color, 0.0, 1.0));
+}

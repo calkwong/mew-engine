@@ -50,23 +50,10 @@ layout(buffer_reference, std430) readonly buffer MaterialBuffer
 	MaterialData materials[];
 };
 
-struct ObjectData
-{
-	mat4 worldMatrix;
-	VertexBuffer vertexBuffer;
-	uint materialID;
-	uint padding;
-};
-
-layout(buffer_reference, std430) readonly buffer ObjectBuffer
-{ 
-	ObjectData objects[];
-};
-
 layout( push_constant ) uniform constants
 {
 	MaterialBuffer materialBuffer;
-	ObjectBuffer objectBuffer;
+	//ObjectBuffer objectBuffer;
 } pc;
 
 //layout( push_constant ) uniform constants

@@ -2,8 +2,9 @@
 
 #include <vk_types.h>
 #include <vk_descriptors.h>
-#include <camera.h>
 #include <vk_loader.h>
+#include <vk_scene.h>
+#include <camera.h>
 
 #include "VkBootstrap.h"
 #include "tracy/TracyVulkan.hpp"
@@ -32,6 +33,7 @@ struct GPUPushConstants
 {
 	VkDeviceAddress material_buffer_address{};
 	VkDeviceAddress object_buffer_address{};
+	VkDeviceAddress instance_buffer_address{};
 };
 
 struct IBLPushConstants
@@ -93,7 +95,7 @@ struct FrameData
 	DescriptorAllocatorGrowable frame_descriptor_allocator{};
 	AllocatedBuffer scene_buffer{};
 	VkDescriptorSet scene_descriptor{};
-	AllocatedBuffer indirect_buffer{};
+	AllocatedBuffer draw_indirect_buffer{};
 
 	DeletionQueue deletion_queue{};
 };
@@ -200,7 +202,7 @@ struct BindlessImage
 	uint8_t brdf{};
 };
 
-
+struct RenderScene;
 
 class VulkanEngine
 {
@@ -299,7 +301,7 @@ public:
 	std::array<CascadeData, 4> cascade_data{};
 
 	tracy::VkCtx* tracy_ctx{};
-	AllocatedBuffer object_buffer{};
+	RenderScene render_scene{};
 
 	static VulkanEngine& get();
 

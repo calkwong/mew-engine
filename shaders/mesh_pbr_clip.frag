@@ -12,6 +12,7 @@ layout (location = 2) in vec3 inViewPos;
 layout (location = 3) in vec2 inUV;
 layout (location = 4) in vec4 inTangent;
 layout (location = 5) in flat uint inMaterialID;
+
 layout (location = 0) out vec4 outFragColor;
 
 const float exposure = 4.0;
@@ -49,23 +50,10 @@ layout(buffer_reference, std430) readonly buffer MaterialBuffer
 	MaterialData materials[];
 };
 
-struct ObjectData
-{
-	mat4 worldMatrix;
-	VertexBuffer vertexBuffer;
-	uint materialID;
-	uint padding;
-};
-
-layout(buffer_reference, std430) readonly buffer ObjectBuffer
-{ 
-	ObjectData objects[];
-};
-
 layout( push_constant ) uniform constants
 {
 	MaterialBuffer materialBuffer;
-	ObjectBuffer objectBuffer;
+	//ObjectBuffer objectBuffer;
 } pc;
 
 //layout( push_constant ) uniform constants
@@ -288,7 +276,7 @@ void main()
 	
 	color.xyz += ambient * ibl_strength;
 	color.a = 0.0;
+	
 	outFragColor = color;
-
 
 }

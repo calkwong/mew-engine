@@ -1,10 +1,12 @@
 #pragma once
 
-#include <memory>
-#include <vector>
+#include <vk_types.h>
 
 #include <vulkan/vulkan.h>
 #include "glm/ext.hpp"
+
+#include <memory>
+#include <vector>
 
 struct MeshAsset;
 struct ShaderPass;
@@ -18,20 +20,62 @@ struct IndirectBatch
 	uint32_t count{};
 };
 
-struct MultiBatch
+struct GPUInstance
 {
-	uint32_t first{};
-	uint32_t count{};
+	uint32_t object_id{};
+	uint32_t batch_id{};
 };
+
+struct CompactInstance
+{
+	uint32_t object_id{};
+};
+
+//struct ObjectData
+//{
+//	glm::mat4 transform{};
+//	glm::vec3 origin{};
+//	uint32_t material_id{};
+//	glm::vec3 extent{};
+//	uint32_t padding{}; 
+//	VkDeviceAddress vertex_buffer_address{};
+//	uint32_t padding2[2]{};
+//};
 
 struct ObjectData
 {
 	glm::mat4 transform{};
 	VkDeviceAddress vertex_buffer_address{};
 	uint32_t material_id{};
-	uint32_t padding{}; // (!)
+	uint32_t padding{};
 };
 
-std::vector<IndirectBatch> build_indirect_array(const std::vector<RenderObject>& renderables);
+struct PassObject
+{
+	ShaderPass* material{};
+	uint32_t handle{}; // handle into renderables
+	// (!) to do hash
+};
 
-std::vector<MultiBatch> build_multibatch_array(std::vector<IndirectBatch>& batches);
+struct RenderScene // (!) forward only for now
+{
+	std::vector<RenderObject> renderables{};
+	std::vector<IndirectBatch> batches{};
+	std::vector<size_t> unbatched_objects{}; // handles for renderables
+	std::vector<PassObject> pass_objects{};
+
+	AllocatedBuffer object_buffer{}; 
+	AllocatedBuffer instance_buffer{};
+	AllocatedBuffer ginstance_buffer{};
+	std::vector<VkDrawIndexedIndirectCommand> clear_indirect_buffer{};
+
+	void build_pass_objects();
+	void sort_objects(); // sorts pass objects
+	void build_object_buffer();
+	void build_indirect_batch();
+	void build_indirect_buffer();
+	void build_ginstance_buffer(GPUInstance* data);
+	void build_instance_buffer();
+	void reset_indirect_buffer(VkDrawIndexedIndirectCommand* draw_indirect_buffer);
+};
+
