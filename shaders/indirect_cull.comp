@@ -3,7 +3,7 @@
 #extension GL_EXT_nonuniform_qualifier : require
 #extension GL_EXT_buffer_reference : require
 
-layout (local_size_x = 64) in;
+layout (local_size_x = 256) in;
 
 struct ObjectData
 {
@@ -12,7 +12,7 @@ struct ObjectData
 	uint materialID;
 	vec3 extent;
 	uint padding;
-	//VertexBuffer vertexBuffer; //
+	//VertexBuffer vertexBuffer; // ignore
 	uint padding2[4];
 };
 
@@ -46,6 +46,12 @@ layout(set = 0, binding = 0) buffer DrawCommandsBuffer
 	DrawCommand commands[];
 } drawCommandsBuffer;
 
+layout(set = 0, binding = 1) buffer InstanceBuffer
+{
+	uint instances[];
+} instanceBuffer;
+	
+
 layout(push_constant) uniform constants
 {
 	vec4 frustum_planes[6];
@@ -54,9 +60,9 @@ layout(push_constant) uniform constants
 	uint count;
 } pc;
 
-bool is_visible(GPUInstance instance)
+bool is_visible(uint object_id)
 {
-	ObjectData obj = pc.objectBuffer.objects[instance.object_id];
+	ObjectData obj = pc.objectBuffer.objects[object_id];
 	vec3 center = vec3(obj.worldMatrix * vec4(obj.origin, 1.0));
 	
 	vec3 right = vec3(obj.worldMatrix[0] * obj.extent.x);
@@ -75,7 +81,7 @@ bool is_visible(GPUInstance instance)
 	{
 		vec3 normal = pc.frustum_planes[i].xyz;
 		float distance = pc.frustum_planes[i].w;
-		
+			
 		// project radius (extent) of box onto line
 		float r = dot(extent, abs(normal));
 		
@@ -95,11 +101,15 @@ void main()
 	if (g_id < pc.count)
 	{
 		GPUInstance instance = pc.ginstanceBuffer.instances[g_id];
-		if (is_visible(instance))
+		uint object = instance.object_id;
+		uint batch = instance.batch_id;
+		
+		if (is_visible(object))
 		{
-			//DrawCommand command = drawCommandsBuffer.commands[instance.batch_id].instance_count;
-			//command.instance_count = atomicAdd(drawCommandsBuffer.commands[instance.batch_id].instance_count, 1);
-			atomicAdd(drawCommandsBuffer.commands[instance.batch_id].instance_count, 1);
+			atomicAdd(drawCommandsBuffer.commands[g_id].instance_count, 1);
+			//uint instance_index = drawCommandsBuffer.commands[batch].first_instance + count;
+			
+			//instanceBuffer.instances[instance_index] = object;
 		}
 	}
 }

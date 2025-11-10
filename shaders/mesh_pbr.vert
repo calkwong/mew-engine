@@ -42,11 +42,6 @@ layout(buffer_reference, std430) readonly buffer MaterialBuffer
 	MaterialData materials[];
 };
 
-layout(buffer_reference, std430) readonly buffer InstanceBuffer
-{ 
-	uint ids[];
-};
-
 struct ObjectData
 {
 	mat4 worldMatrix;
@@ -71,6 +66,11 @@ layout(buffer_reference, std430) readonly buffer ObjectBuffer
 	ObjectData objects[];
 };
 
+layout(buffer_reference, std430) readonly buffer InstanceBuffer
+{ 
+	uint instances[];
+};
+
 layout( push_constant ) uniform constants
 {
 	MaterialBuffer materialBuffer;
@@ -88,7 +88,7 @@ layout( push_constant ) uniform constants
 
 void main() 
 {
-	uint id = pc.instanceBuffer.ids[gl_InstanceIndex];
+	uint id = pc.instanceBuffer.instances[gl_InstanceIndex];
 	ObjectData o = pc.objectBuffer.objects[id];
 	Vertex v = o.vertexBuffer.vertices[gl_VertexIndex];
 	

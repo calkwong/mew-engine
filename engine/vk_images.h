@@ -21,4 +21,13 @@ namespace vkutil
 
 	// assumes entire image begins in transfer_dst format, and returns in transfer_src format
 	void generate_mipmaps(VkCommandBuffer cmd, VkImage image, VkExtent2D extent, uint32_t layers = 1);
+
+	// (!) move out of images?
+	void transition_buffer(
+		VkCommandBuffer cmd,
+		VkPipelineStageFlags2 src_stage_mask,
+		VkPipelineStageFlags2 dst_stage_mask,
+		VkAccessFlags2 src_access_mask,
+		VkAccessFlags2 dst_access_mask
+	);
 }

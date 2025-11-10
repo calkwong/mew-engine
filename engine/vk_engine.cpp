@@ -352,9 +352,10 @@ void VulkanEngine::draw()
 		render_scene.reset_indirect_buffer(draw_commands);
 
 		// ready cull data
-
+		CullData cull_data = ready_cull_data(scene_data.viewproj);
 
 		// execute compute cull
+		execute_compute_cull(cmd, cull_data);
 	}
 
 	{
@@ -888,8 +889,18 @@ void VulkanEngine::init_descriptors()
 		scene_descriptor_layout = builder.build(device);
 	}
 
+	//> building ssbo for compute shader
+	{
+		DescriptorLayoutBuilder builder{};
+		builder.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT);
+		builder.add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT);
+
+		indirect_buffer_layout = builder.build(device);
+	}
+
 	std::vector<DescriptorAllocatorGrowable::PoolSizeRatio> uniform_sizes = {
-		{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1} 
+		{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 5},
+		{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 5},
 	};
 
 	DescriptorWriter writer{};
@@ -910,6 +921,9 @@ void VulkanEngine::init_descriptors()
 		writer.clear();
 		writer.write_buffer(0, frames[i].scene_buffer.buffer, sizeof(SceneData), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
 		writer.update_set(device, frames[i].scene_descriptor);
+
+		// (!) added for indirect
+		frames[i].draw_indirect_descriptor = frames[i].frame_descriptor_allocator.allocate(device, indirect_buffer_layout);
 	}
 
 	std::vector<DescriptorAllocatorGrowable::PoolSizeRatio> sizes = {
@@ -957,6 +971,7 @@ void VulkanEngine::init_descriptors()
 		vkDestroyDescriptorSetLayout(device, bindless_tex_layout, nullptr);
 		vkDestroyDescriptorSetLayout(device, bindless_sampler_layout, nullptr);
 		vkDestroyDescriptorSetLayout(device, bindless_image_layout, nullptr);
+		vkDestroyDescriptorSetLayout(device, indirect_buffer_layout, nullptr);
 	});
 }
 
@@ -1007,8 +1022,19 @@ void VulkanEngine::init_pipelines()
 	compute_builder.set_shaders(module);
 	std::unique_ptr<ShaderPass> brdf_pass = vkutil::build_shader(device, compute_builder, descriptor_layouts, &pc);
 
+	//> INDIRECT CULL
+	descriptor_layouts.clear();
+	descriptor_layouts = { indirect_buffer_layout };
+
+	module = shader_cache.add_shader(device, "indirect_cull.comp.spv");
+	compute_builder.set_shaders(module);
+	pc = { VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CullData) };
+	std::unique_ptr<ShaderPass> cull_pass = vkutil::build_shader(device, compute_builder, descriptor_layouts, &pc);
+
 	//> GRAPHICS PIPELINE
-	descriptor_layouts[0] = scene_descriptor_layout;
+	descriptor_layouts.clear();
+	descriptor_layouts = { scene_descriptor_layout, bindless_tex_layout, bindless_sampler_layout };
+	//descriptor_layouts[0] = scene_descriptor_layout;
 	VkShaderModule frag_module{};
 
 	//> SHADOW 
@@ -1097,6 +1123,7 @@ void VulkanEngine::init_pipelines()
 	shader_passes["skybox"] = std::move(skybox_pass);
 	shader_passes["tonemap"] = std::move(tonemap_pass);
 	shader_passes["blend"] = std::move(blend_pass);
+	shader_passes["cull"] = std::move(cull_pass);
 
 	for (const auto& [k, v] : shader_cache.data)
 	{
@@ -2162,7 +2189,7 @@ void VulkanEngine::draw_imgui(VkCommandBuffer cmd, VkImageView swapchain_view)
 	vkCmdEndRendering(cmd);
 }
 
-// Object Buffer -> Pass Object -> Indirect Batch -> sort -> Indirect Buffer -> Instance Buffer
+// Object Buffer -> Pass Object -> sort -> Indirect Batch -> Instance Buffer -> gInstance Buffer -> Indirect Buffer
 // (!) will break with streaming/dynamic scene, need to implement some flags
 void VulkanEngine::ready_mesh_draw()
 {
@@ -2187,17 +2214,30 @@ void VulkanEngine::ready_mesh_draw()
 		render_scene.build_indirect_batch();
 	}
 
-	if (render_scene.instance_buffer.info.size < render_scene.pass_objects.size() * sizeof(size_t))
+	if (render_scene.instance_buffer.info.size < render_scene.pass_objects.size() * sizeof(uint32_t))
 	{
 		fmt::println("instance_buffer");
 		render_scene.instance_buffer = reallocate_buffer(
-			render_scene.pass_objects.size() * sizeof(size_t),
+			render_scene.pass_objects.size() * sizeof(uint32_t),
 			render_scene.instance_buffer,
+			VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
+			VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
+		);
+
+		render_scene.build_instance_buffer();
+	}
+
+	if (render_scene.ginstance_buffer.info.size < render_scene.pass_objects.size() * sizeof(GPUInstance))
+	{
+		fmt::println("ginstance_buffer");
+		render_scene.ginstance_buffer = reallocate_buffer(
+			render_scene.pass_objects.size() * sizeof(GPUInstance),
+			render_scene.ginstance_buffer,
 			VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
 			VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
 		);
 
-		render_scene.build_instance_buffer();
+		render_scene.build_ginstance_buffer();
 	}
 
 	if (get_current_frame().draw_indirect_buffer.info.size < render_scene.pass_objects.size() * sizeof(VkDrawIndexedIndirectCommand))
@@ -2207,9 +2247,88 @@ void VulkanEngine::ready_mesh_draw()
 			render_scene.pass_objects.size() * sizeof(VkDrawIndexedIndirectCommand),
 			get_current_frame().draw_indirect_buffer,
 			VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-			VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT
+			VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT // (!) try without storage buffer bit, should have validation error
 		);
-
 		render_scene.build_indirect_buffer();
 	}
+}
+
+CullData VulkanEngine::ready_cull_data(glm::mat4& viewproj, bool orthographic /*= false*/)
+{
+	CullData cull_data{};
+
+	auto m0 = glm::row(viewproj, 0);
+	auto m1 = glm::row(viewproj, 1);
+	auto m2 = glm::row(viewproj, 2);
+	auto m3 = glm::row(viewproj, 3);
+
+	cull_data.frustum_planes = {
+		m3, // near
+		m2, // far
+		m3 + m1,
+		m3 - m1,
+		m3 + m0,
+		m3 - m0
+	};
+
+	if (orthographic)
+	{
+		cull_data.frustum_planes[0] = m3 - m2; // near
+		cull_data.frustum_planes[1] = m3 + m2; // far
+	}
+
+	for (size_t i = 0; i < cull_data.frustum_planes.size(); i++)
+	{
+		glm::vec4& plane = cull_data.frustum_planes[i];
+		float length = glm::length(glm::vec3(plane));
+
+		plane /= length;
+	}
+
+	VkBufferDeviceAddressInfo address_info{};
+	address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
+	address_info.buffer = render_scene.object_buffer.buffer;
+	cull_data.object_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+
+	address_info.buffer = render_scene.ginstance_buffer.buffer;
+	cull_data.ginstance_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+
+	cull_data.count = static_cast<uint32_t>(render_scene.pass_objects.size());
+
+	return cull_data;
+}
+
+void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, CullData& cull_data)
+{
+	// prepare barrier from indirect -> general?
+	vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+		VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT
+	);
+
+	//vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+	//	VK_ACCESS_2_SHADER_READ_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT
+	//);
+
+	{
+		// (!) move this out, this should be set after reallocation of draw indirect buffers
+		DescriptorWriter writer{};
+		writer.write_buffer(0, get_current_frame().draw_indirect_buffer.buffer, VK_WHOLE_SIZE, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+		writer.write_buffer(1, render_scene.instance_buffer.buffer, VK_WHOLE_SIZE, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+		writer.update_set(device, get_current_frame().draw_indirect_descriptor);
+	}
+
+	ShaderPass current_pass = *shader_passes["cull"];
+	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().draw_indirect_descriptor, 0, nullptr);
+
+	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CullData), &cull_data);
+	vkCmdDispatch(cmd, static_cast<uint32_t>(std::ceil(render_scene.pass_objects.size() / 256.0)), 1, 1);
+	
+	vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
+		VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT
+	);
+
+	//vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+	//	VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_SHADER_READ_BIT
+	//);
 }

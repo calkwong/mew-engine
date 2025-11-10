@@ -52,7 +52,7 @@ struct ObjectData
 
 struct CullData
 {
-	glm::vec4 frustum_planes[6]{};
+	std::array<glm::vec4, 6> frustum_planes{};
 	VkDeviceAddress object_buffer_address{};
 	VkDeviceAddress ginstance_buffer_address{};
 	uint32_t count{};
@@ -82,7 +82,7 @@ struct RenderScene // (!) forward only for now
 	void build_object_buffer();
 	void build_indirect_batch();
 	void build_indirect_buffer();
-	void build_ginstance_buffer(GPUInstance* data);
+	void build_ginstance_buffer();
 	void build_instance_buffer();
 	void reset_indirect_buffer(VkDrawIndexedIndirectCommand* draw_indirect_buffer);
 };

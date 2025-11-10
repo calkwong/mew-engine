@@ -96,6 +96,7 @@ struct FrameData
 	AllocatedBuffer scene_buffer{};
 	VkDescriptorSet scene_descriptor{};
 	AllocatedBuffer draw_indirect_buffer{};
+	VkDescriptorSet draw_indirect_descriptor{};
 
 	DeletionQueue deletion_queue{};
 };
@@ -287,6 +288,7 @@ public:
 	VkDescriptorSetLayout bindless_tex_layout{};
 	VkDescriptorSetLayout bindless_sampler_layout{};
 	VkDescriptorSetLayout bindless_image_layout{};
+	VkDescriptorSetLayout indirect_buffer_layout{};
 
 	VkDescriptorSet bindless_tex_descriptor{};
 	VkDescriptorSet bindless_sampler_descriptor{};
@@ -328,6 +330,8 @@ public:
 	void update_cascade();
 	void draw_imgui(VkCommandBuffer cmd, VkImageView swapchain_view);
 	void ready_mesh_draw();
+	CullData ready_cull_data(glm::mat4& viewproj, bool orthographic = false);
+	void execute_compute_cull(VkCommandBuffer cmd, CullData& cull_data);
 
 private:
 	void init_vulkan();

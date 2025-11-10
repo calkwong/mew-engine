@@ -25,7 +25,7 @@ void RenderScene::build_indirect_batch()
 			batches.back().count++;
 		else
 		{
-			last_mesh = renderables[po.handle].mesh; // (!) not great for cache
+			last_mesh = renderables[po.handle].mesh; // (!) not great for cache?
 			last_material = po.material;
 
 			IndirectBatch new_batch{};
@@ -42,7 +42,6 @@ void RenderScene::build_indirect_batch()
 void RenderScene::build_indirect_buffer()
 {
 	clear_indirect_buffer.clear();
-	clear_indirect_buffer.reserve(pass_objects.size());
 
 	for (size_t i = 0; i < pass_objects.size(); i++)
 	{
@@ -50,7 +49,7 @@ void RenderScene::build_indirect_buffer()
 
 		const auto& obj = renderables[pass_objects[i].handle];
 		draw_command.indexCount = obj.index_count;
-		draw_command.instanceCount = 1;
+		draw_command.instanceCount = 0;
 		draw_command.firstIndex = obj.first_index;
 		draw_command.vertexOffset = 0;
 		draw_command.firstInstance = i;
@@ -76,9 +75,10 @@ void RenderScene::build_object_buffer()
 		const auto& obj = renderables[i];
 
 		object_data[i].transform = obj.transform;
-		object_data[i].vertex_buffer_address = obj.vertex_buffer_address;
+		object_data[i].origin = obj.bounds.origin;
 		object_data[i].material_id = obj.material_id;
-		object_data[i].padding = 0;
+		object_data[i].extent = obj.bounds.extents;
+		object_data[i].vertex_buffer_address = obj.vertex_buffer_address;
 	}
 }
 
@@ -108,7 +108,7 @@ void RenderScene::sort_objects()
 }
 
 // PREREQ: object buffer, indirect batch & pass objects
-void RenderScene::build_ginstance_buffer(GPUInstance* data)
+void RenderScene::build_ginstance_buffer()
 {
 	GPUInstance* ginstance_data = static_cast<GPUInstance*>(ginstance_buffer.info.pMappedData);
 

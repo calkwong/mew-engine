@@ -150,3 +150,25 @@ void vkutil::generate_mipmaps(VkCommandBuffer cmd, VkImage image, VkExtent2D ima
 		image_size_copy = image_size;
 	}
 }
+
+void vkutil::transition_buffer(
+	VkCommandBuffer cmd,
+	VkPipelineStageFlags2 src_stage_mask,
+	VkPipelineStageFlags2 dst_stage_mask,
+	VkAccessFlags2 src_access_mask,
+	VkAccessFlags2 dst_access_mask
+)
+{
+	VkMemoryBarrier2 barrier{};
+	barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+	barrier.srcStageMask = src_stage_mask;
+	barrier.dstStageMask = dst_stage_mask;
+	barrier.srcAccessMask = src_access_mask;
+	barrier.dstAccessMask = dst_access_mask;
+
+	VkDependencyInfo info{};
+	info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+	info.memoryBarrierCount = 1;
+	info.pMemoryBarriers = &barrier;
+	vkCmdPipelineBarrier2(cmd, &info);
+}
