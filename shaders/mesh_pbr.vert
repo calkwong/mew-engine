@@ -47,24 +47,24 @@ layout(buffer_reference, std430) readonly buffer InstanceBuffer
 	uint ids[];
 };
 
-//struct ObjectData
-//{
-//	mat4 worldMatrix;
-//	vec3 origin;
-//	uint materialID;
-//	vec3 extent;
-//	uint padding;
-//	VertexBuffer vertexBuffer;
-//	uint padding2[2];
-//};
-
 struct ObjectData
 {
 	mat4 worldMatrix;
-	VertexBuffer vertexBuffer;
+	vec3 origin;
 	uint materialID;
+	vec3 extent;
 	uint padding;
+	VertexBuffer vertexBuffer;
+	uint padding2[2];
 };
+
+//struct ObjectData
+//{
+//	mat4 worldMatrix;
+//	VertexBuffer vertexBuffer;
+//	uint materialID;
+//	uint padding;
+//};
 
 layout(buffer_reference, std430) readonly buffer ObjectBuffer
 { 

@@ -345,65 +345,16 @@ void VulkanEngine::draw()
 
 	if (1)
 	{
-		// build pass objects -> sort -> build indirect batch
-		if (render_scene.pass_objects.size() != render_scene.unbatched_objects.size())
-		{
-			fmt::println("build_pass_objects should run only once");
-			render_scene.build_pass_objects();
-			render_scene.sort_objects();
-			render_scene.build_indirect_batch();
-		}
+		ready_mesh_draw();
 
-		// build object buffer
-		if (render_scene.object_buffer.info.size < render_scene.renderables.size() * sizeof(ObjectData))
-		{
-			fmt::println("build_object_buffer should run only once");
-			render_scene.object_buffer = reallocate_buffer(
-				render_scene.renderables.size() * sizeof(ObjectData),
-				render_scene.object_buffer,
-				VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-				VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
-			);
-
-			// (!) move this out?
-			render_scene.build_object_buffer(); 
-		}
-
-		// build instance buffer
-		if (render_scene.instance_buffer.info.size < render_scene.pass_objects.size() * sizeof(size_t))
-		{
-			fmt::println("build_instance_buffer should run only once");
-
-			render_scene.instance_buffer = reallocate_buffer(
-				render_scene.pass_objects.size() * sizeof(size_t),
-				render_scene.instance_buffer,
-				VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-				VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
-			);
-
-			// (!) move this out?
-			render_scene.build_instance_buffer(); 
-		}
-
-		// build indirect buffer for culling
-		//if (get_current_frame().indirect_buffer.info.size < render_scene.renderables.size() * sizeof(VkDrawIndexedIndirectCommand))
-		if (get_current_frame().draw_indirect_buffer.info.size < render_scene.pass_objects.size() * sizeof(VkDrawIndexedIndirectCommand))
-		{
-			fmt::println("build_indirect_buffer should run only once");
-			get_current_frame().draw_indirect_buffer = reallocate_buffer(
-				render_scene.pass_objects.size() * sizeof(VkDrawIndexedIndirectCommand),
-				get_current_frame().draw_indirect_buffer,
-				VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-				VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT
-			);
-
-			// (!) move this out
-			render_scene.build_indirect_buffer();
-		}
-		
 		// always reset
 		VkDrawIndexedIndirectCommand* draw_commands = static_cast<VkDrawIndexedIndirectCommand*>(get_current_frame().draw_indirect_buffer.info.pMappedData);
 		render_scene.reset_indirect_buffer(draw_commands);
+
+		// ready cull data
+
+
+		// execute compute cull
 	}
 
 	{
@@ -1460,37 +1411,11 @@ void VulkanEngine::init_default_data()
 			destroy_image(cascade_data[i].shadow_map);
 		}
 	});
-
-	//> create indirect buffers
-	for (size_t i = 0; i < FRAME_OVERLAP; i++)
-	{
-		frames[i].draw_indirect_buffer = create_buffer(1 * sizeof(VkDrawIndexedIndirectCommand),
-			VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-			VK_BUFFER_USAGE_2_INDIRECT_BUFFER_BIT
-		);
-	}
-
-	//> create object buffers
-	render_scene.object_buffer = create_buffer(1 * sizeof(ObjectData),
-		VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-		VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
-	);
-
-	render_scene.instance_buffer = create_buffer(1 * sizeof(size_t),
-		VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-		VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
-	);
-
-	render_scene.ginstance_buffer = create_buffer(1 * sizeof(GPUInstance),
-		VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-		VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
-	);
 }
 
 void VulkanEngine::init_renderables()
 {
 	const char* hdr_path{ "../../assets/pisa.hdr" };
-	//const char* hdr_path{ "../../assets/pisa.hdr" };
 	float* hdr_data{};
 
 	int width{};
@@ -2237,3 +2162,54 @@ void VulkanEngine::draw_imgui(VkCommandBuffer cmd, VkImageView swapchain_view)
 	vkCmdEndRendering(cmd);
 }
 
+// Object Buffer -> Pass Object -> Indirect Batch -> sort -> Indirect Buffer -> Instance Buffer
+// (!) will break with streaming/dynamic scene, need to implement some flags
+void VulkanEngine::ready_mesh_draw()
+{
+	if (render_scene.object_buffer.info.size < render_scene.renderables.size() * sizeof(ObjectData))
+	{
+		fmt::println("object_buffer");
+		render_scene.object_buffer = reallocate_buffer(
+			render_scene.renderables.size() * sizeof(ObjectData),
+			render_scene.object_buffer,
+			VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
+			VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
+		);
+
+		render_scene.build_object_buffer();
+	}
+
+	if (render_scene.pass_objects.size() != render_scene.unbatched_objects.size())
+	{
+		fmt::println("pass_object, indirect_batch");
+		render_scene.build_pass_objects();
+		render_scene.sort_objects();
+		render_scene.build_indirect_batch();
+	}
+
+	if (render_scene.instance_buffer.info.size < render_scene.pass_objects.size() * sizeof(size_t))
+	{
+		fmt::println("instance_buffer");
+		render_scene.instance_buffer = reallocate_buffer(
+			render_scene.pass_objects.size() * sizeof(size_t),
+			render_scene.instance_buffer,
+			VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
+			VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
+		);
+
+		render_scene.build_instance_buffer();
+	}
+
+	if (get_current_frame().draw_indirect_buffer.info.size < render_scene.pass_objects.size() * sizeof(VkDrawIndexedIndirectCommand))
+	{
+		fmt::println("clear_indirect_buffer");
+		get_current_frame().draw_indirect_buffer = reallocate_buffer(
+			render_scene.pass_objects.size() * sizeof(VkDrawIndexedIndirectCommand),
+			get_current_frame().draw_indirect_buffer,
+			VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
+			VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT
+		);
+
+		render_scene.build_indirect_buffer();
+	}
+}

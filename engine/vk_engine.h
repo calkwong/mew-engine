@@ -327,6 +327,7 @@ public:
 	void shadow_pass(VkCommandBuffer cmd, std::vector<size_t>& visible_indices, size_t cascade_idx);
 	void update_cascade();
 	void draw_imgui(VkCommandBuffer cmd, VkImageView swapchain_view);
+	void ready_mesh_draw();
 
 private:
 	void init_vulkan();

@@ -31,23 +31,31 @@ struct CompactInstance
 	uint32_t object_id{};
 };
 
-//struct ObjectData
-//{
-//	glm::mat4 transform{};
-//	glm::vec3 origin{};
-//	uint32_t material_id{};
-//	glm::vec3 extent{};
-//	uint32_t padding{}; 
-//	VkDeviceAddress vertex_buffer_address{};
-//	uint32_t padding2[2]{};
-//};
-
 struct ObjectData
 {
 	glm::mat4 transform{};
-	VkDeviceAddress vertex_buffer_address{};
+	glm::vec3 origin{};
 	uint32_t material_id{};
-	uint32_t padding{};
+	glm::vec3 extent{};
+	uint32_t padding{}; 
+	VkDeviceAddress vertex_buffer_address{};
+	uint32_t padding2[2]{};
+};
+
+//struct ObjectData
+//{
+//	glm::mat4 transform{};
+//	VkDeviceAddress vertex_buffer_address{};
+//	uint32_t material_id{};
+//	uint32_t padding{};
+//};
+
+struct CullData
+{
+	glm::vec4 frustum_planes[6]{};
+	VkDeviceAddress object_buffer_address{};
+	VkDeviceAddress ginstance_buffer_address{};
+	uint32_t count{};
 };
 
 struct PassObject
