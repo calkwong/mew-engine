@@ -343,18 +343,18 @@ void VulkanEngine::draw()
 		//}
 	}
 
-	if (1)
+	ready_mesh_draw();
+
+	// always reset
+	VkDrawIndexedIndirectCommand* draw_commands = static_cast<VkDrawIndexedIndirectCommand*>(get_current_frame().draw_indirect_buffer.info.pMappedData);
+	render_scene.reset_indirect_buffer(draw_commands);
+
+	// ready cull data
+	CullData cull_data = ready_cull_data(scene_data.viewproj);
+
 	{
-		ready_mesh_draw();
-
-		// always reset
-		VkDrawIndexedIndirectCommand* draw_commands = static_cast<VkDrawIndexedIndirectCommand*>(get_current_frame().draw_indirect_buffer.info.pMappedData);
-		render_scene.reset_indirect_buffer(draw_commands);
-
-		// ready cull data
-		CullData cull_data = ready_cull_data(scene_data.viewproj);
-
 		// execute compute cull
+		TracyVkZone(tracy_ctx, get_current_frame().main_command_buffer, "Compute cull");
 		execute_compute_cull(cmd, cull_data);
 	}
 
@@ -658,7 +658,8 @@ void VulkanEngine::run()
 			ImGui::Begin("Stats");
 			ImGui::Text("frametime %f ms", stats.deltatime * 1000.0f);
 			ImGui::Text("triangles %i", stats.triangle_count);
-			ImGui::Text("draws %i", stats.draw_call_count);
+			ImGui::Text("draws %i", stats.draw_count);
+			ImGui::Text("draw calls %i", stats.draw_calls_count);
 			ImGui::Text("scene update time %f ms", stats.scene_update_time);
 			ImGui::Text("frustum cull time %f ms", stats.frustum_cull_time);
 
@@ -1535,8 +1536,8 @@ void VulkanEngine::init_renderables()
 	//std::string asset_path = "../../assets/ABeautifulGame.glb";
 	//std::string asset_path = "../../assets/sphere.gltf";
 	//std::string asset_path = "../../assets/oaktree.gltf";
-	//std::string asset_path = "../../assets/khronos_sponza/Sponza.gltf";
-	std::string asset_path = "../../assets/bistro_interior/BistroInterior_Wine.gltf";
+	std::string asset_path = "../../assets/khronos_sponza/Sponza.gltf";
+	//std::string asset_path = "../../assets/bistro_interior/BistroInterior_Wine.gltf";
 	//std::string asset_path = "../../assets/bistro_exterior/BistroExterior.gltf";
 	//std::string asset_path = "../../assets/AlphaBlendModeTest.glb";
 	//std::string asset_path = "../../assets/terrain_gridlines.gltf";
@@ -1634,7 +1635,8 @@ void VulkanEngine::register_object(Node& node, const glm::mat4& top_matrix, Draw
 
 void VulkanEngine::update_scene()
 {
-	stats.draw_call_count = 0;
+	stats.draw_count = 0;
+	stats.draw_calls_count = 0;
 	stats.triangle_count = 0;
 
 	auto start = std::chrono::system_clock::now();
@@ -1803,12 +1805,30 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 	gpc.instance_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
 
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GPUPushConstants), &gpc);
+
+	VkPipeline last_pipeline = VK_NULL_HANDLE;
+	VkBuffer last_mesh = VK_NULL_HANDLE;
+
 	for (const auto& batch : render_scene.batches)
 	{
-		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, batch.forward_pass->pipeline);
-		vkCmdBindIndexBuffer(cmd, batch.mesh->mesh_buffer.index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+		VkPipeline new_pipeline = batch.forward_pass->pipeline;
+		VkBuffer new_mesh = batch.mesh->mesh_buffer.index_buffer.buffer;
+
+		if (new_pipeline != last_pipeline)
+		{
+			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, batch.forward_pass->pipeline);
+			last_pipeline = new_pipeline;
+		}
+
+		if (new_mesh != last_mesh)
+		{
+			vkCmdBindIndexBuffer(cmd, batch.mesh->mesh_buffer.index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+			last_mesh = new_mesh;
+		}
+
 		vkCmdDrawIndexedIndirect(cmd, get_current_frame().draw_indirect_buffer.buffer, batch.first * sizeof(VkDrawIndexedIndirectCommand), batch.count, sizeof(VkDrawIndexedIndirectCommand));
-		stats.draw_call_count += batch.count;
+		stats.draw_calls_count += batch.count;
+		stats.draw_count++;
 	}
 
 	//> skybox
@@ -1826,7 +1846,8 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(SkyboxPushConstants), &pc);
 	vkCmdDraw(cmd, 3, 1, 0, 0);
 	stats.triangle_count++;
-	stats.draw_call_count++;
+	stats.draw_count;
+	stats.draw_calls_count++;
 
 	//> transparent geometries
 	//current_pass = *shader_passes["blend"];
@@ -1933,7 +1954,8 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PostFXPushConstants), &fx_pc);
 	vkCmdDraw(cmd, 3, 1, 0, 0);
 	stats.triangle_count++;
-	stats.draw_call_count++;
+	stats.draw_count++;
+	stats.draw_calls_count++;
 
 	vkCmdEndRendering(cmd);
 
@@ -2024,7 +2046,8 @@ void VulkanEngine::shadow_pass(VkCommandBuffer cmd, std::vector<size_t>& visible
 		vkCmdPushConstants(cmd, obj.material->shadow_pass->layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(ShadowPushConstants), &pc);
 		vkCmdDrawIndexed(cmd, obj.index_count, 1, obj.first_index, 0, 0);
 		stats.triangle_count += obj.index_count / 3;
-		stats.draw_call_count++;
+		stats.draw_count++;
+		stats.draw_calls_count++;
 	};
 
 	for (auto i : visible_indices)
@@ -2301,13 +2324,9 @@ CullData VulkanEngine::ready_cull_data(glm::mat4& viewproj, bool orthographic /*
 void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, CullData& cull_data)
 {
 	// prepare barrier from indirect -> general?
-	vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-		VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT
+	vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+		VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT
 	);
-
-	//vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-	//	VK_ACCESS_2_SHADER_READ_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT
-	//);
 
 	{
 		// (!) move this out, this should be set after reallocation of draw indirect buffers
@@ -2324,11 +2343,7 @@ void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, CullData& cull_data
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CullData), &cull_data);
 	vkCmdDispatch(cmd, static_cast<uint32_t>(std::ceil(render_scene.pass_objects.size() / 256.0)), 1, 1);
 	
-	vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
-		VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT
+	vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+		VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT
 	);
-
-	//vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-	//	VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_SHADER_READ_BIT
-	//);
 }

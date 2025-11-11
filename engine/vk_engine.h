@@ -105,7 +105,8 @@ struct EngineStats
 {
 	//float frameTime{};
 	int triangle_count{};
-	int draw_call_count{};
+	int draw_count{};
+	int draw_calls_count{};
 	float frustum_cull_time{};
 	float scene_update_time{};
 	//float sceneUpdateTime{};
