@@ -1536,9 +1536,9 @@ void VulkanEngine::init_renderables()
 	//std::string asset_path = "../../assets/ABeautifulGame.glb";
 	//std::string asset_path = "../../assets/sphere.gltf";
 	//std::string asset_path = "../../assets/oaktree.gltf";
-	std::string asset_path = "../../assets/khronos_sponza/Sponza.gltf";
+	//std::string asset_path = "../../assets/khronos_sponza/Sponza.gltf";
 	//std::string asset_path = "../../assets/bistro_interior/BistroInterior_Wine.gltf";
-	//std::string asset_path = "../../assets/bistro_exterior/BistroExterior.gltf";
+	std::string asset_path = "../../assets/bistro_exterior/BistroExterior.gltf";
 	//std::string asset_path = "../../assets/AlphaBlendModeTest.glb";
 	//std::string asset_path = "../../assets/terrain_gridlines.gltf";
 	auto start{ std::chrono::system_clock::now() };
@@ -1605,8 +1605,8 @@ void VulkanEngine::register_object(Node& node, const glm::mat4& top_matrix, Draw
 			RenderObject obj{};
 			obj.index_count = s.count;
 			obj.first_index = s.start_index;
-			obj.index_buffer = node.mesh->mesh_buffer.index_buffer.buffer;
-			obj.vertex_buffer_address = node.mesh->mesh_buffer.vertex_buffer_address;
+			obj.index_buffer = node.mesh->index_buffer;
+			obj.vertex_buffer_address = node.mesh->vertex_buffer_address;
 			obj.material_buffer_address = node.mesh->material_buffer_address;
 			obj.material = &material_cache.data[s.material]; // refactor into render obj material* into uint32_t handle?
 			obj.material_id = s.material_id;
@@ -1812,7 +1812,7 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 	for (const auto& batch : render_scene.batches)
 	{
 		VkPipeline new_pipeline = batch.forward_pass->pipeline;
-		VkBuffer new_mesh = batch.mesh->mesh_buffer.index_buffer.buffer;
+		VkBuffer new_mesh = batch.mesh;
 
 		if (new_pipeline != last_pipeline)
 		{
@@ -1822,7 +1822,7 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 
 		if (new_mesh != last_mesh)
 		{
-			vkCmdBindIndexBuffer(cmd, batch.mesh->mesh_buffer.index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+			vkCmdBindIndexBuffer(cmd, batch.mesh, 0, VK_INDEX_TYPE_UINT32);
 			last_mesh = new_mesh;
 		}
 
@@ -2270,7 +2270,7 @@ void VulkanEngine::ready_mesh_draw()
 			render_scene.pass_objects.size() * sizeof(VkDrawIndexedIndirectCommand),
 			get_current_frame().draw_indirect_buffer,
 			VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-			VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT // (!) try without storage buffer bit, should have validation error
+			VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT 
 		);
 		render_scene.build_indirect_buffer();
 	}

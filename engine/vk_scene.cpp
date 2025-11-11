@@ -11,21 +11,21 @@ void RenderScene::build_indirect_batch()
 {
 	batches.clear();
 
-	std::shared_ptr<MeshAsset> last_mesh{};
+	VkBuffer last_mesh{};
 	ShaderPass* last_material{};
 
 	for (size_t i = 0; i < pass_objects.size(); i++)
 	{
 		auto po = pass_objects[i];
 
-		bool same_mesh = renderables[po.handle].mesh == last_mesh;
+		bool same_mesh = renderables[po.handle].mesh->index_buffer == last_mesh;
 		bool same_material = po.material == last_material;
 
 		if (same_mesh && same_material)
 			batches.back().count++;
 		else
 		{
-			last_mesh = renderables[po.handle].mesh; // (!) not great for cache?
+			last_mesh = renderables[po.handle].mesh->index_buffer; // (!) not great for cache?
 			last_material = po.material;
 
 			IndirectBatch new_batch{};

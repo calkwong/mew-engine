@@ -14,7 +14,8 @@ struct RenderObject;
 
 struct IndirectBatch
 {
-	std::shared_ptr<MeshAsset> mesh{};
+	//std::shared_ptr<MeshAsset> mesh{};
+	VkBuffer mesh{};
 	ShaderPass* forward_pass{};
 	uint32_t first{};
 	uint32_t count{};

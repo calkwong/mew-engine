@@ -42,7 +42,8 @@ struct MeshAsset
 {
 	std::string name{};
 	std::vector<GeoSurface> surfaces{};
-	GPUMeshBuffers mesh_buffer{};
+	VkBuffer index_buffer{};
+	VkDeviceAddress vertex_buffer_address{};
 
 	// (!) refactor in the future? added for multiple scenes compatibility
 	VkDeviceAddress material_buffer_address{};
@@ -76,6 +77,7 @@ struct LoadedGLTF
 	std::vector<std::shared_ptr<Node>> top_nodes{};
 	std::vector<VkSampler> samplers{};
 
+	GPUMeshBuffers combined_mesh_buffer{};
 	AllocatedBuffer material_buffer{}; // (!) possible refactor
 	VkDeviceAddress material_buffer_address{};
 

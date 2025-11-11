@@ -66,9 +66,9 @@ std::optional<AllocatedImage> load_image(VulkanEngine* engine, fastgltf::Asset& 
 
 					const std::string path(filePath.uri.path().begin(), filePath.uri.path().end());
 
-					std::string current_path = "../../assets/khronos_sponza/" + path; // (!) TODO handle this properly
+					//std::string current_path = "../../assets/khronos_sponza/" + path; // (!) TODO handle this properly
 					//std::string current_path = "../../assets/bistro_interior/" + path; // (!) TODO handle this properly
-					//std::string current_path = "../../assets/bistro_exterior/" + path; // (!) TODO handle this properly
+					std::string current_path = "../../assets/bistro_exterior/" + path; // (!) TODO handle this properly
 					unsigned char* data = stbi_load(current_path.c_str(), &width, &height, &channels, 4);
 					if (data)
 					{
@@ -427,8 +427,8 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 		new_mesh->name = mesh.name;
 		new_mesh->material_buffer_address = file.material_buffer_address;
 
-		indices.clear();
-		vertices.clear();
+		//indices.clear();
+		//vertices.clear();
 
 		for (auto&& p : mesh.primitives)
 		{
@@ -564,7 +564,14 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 			new_mesh->surfaces.push_back(new_surface);
 		}
 
-		new_mesh->mesh_buffer = engine->upload_mesh(indices, vertices);
+		//new_mesh->mesh_buffer = engine->upload_mesh(indices, vertices);
+	}
+	file.combined_mesh_buffer = engine->upload_mesh(indices, vertices);
+
+	for (size_t i = 0; i < meshes.size(); i++)
+	{
+		meshes[i]->index_buffer = file.combined_mesh_buffer.index_buffer.buffer;
+		meshes[i]->vertex_buffer_address = file.combined_mesh_buffer.vertex_buffer_address;
 	}
 
 	// load all nodes and their meshes
@@ -643,11 +650,14 @@ void LoadedGLTF::clear()
 
 	creator->destroy_buffer(material_buffer);
 
-	for (auto& [k, v] : meshes)
-	{
-		creator->destroy_buffer(v->mesh_buffer.vertex_buffer);
-		creator->destroy_buffer(v->mesh_buffer.index_buffer);
-	}
+	//for (auto& [k, v] : meshes)
+	//{
+	//	creator->destroy_buffer(v->mesh_buffer.vertex_buffer);
+	//	creator->destroy_buffer(v->mesh_buffer.index_buffer);
+	//}
+
+	creator->destroy_buffer(combined_mesh_buffer.vertex_buffer);
+	creator->destroy_buffer(combined_mesh_buffer.index_buffer);
 
 	for (auto& [k, v] : images)
 	{
