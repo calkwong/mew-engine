@@ -347,7 +347,7 @@ void VulkanEngine::draw()
 
 	// always reset
 	VkDrawIndexedIndirectCommand* draw_commands = static_cast<VkDrawIndexedIndirectCommand*>(get_current_frame().draw_indirect_buffer.info.pMappedData);
-	render_scene.reset_indirect_buffer(draw_commands);
+	render_scene.reset_indirect_buffer(draw_commands); 
 
 	// ready cull data
 	CullData cull_data = ready_cull_data(scene_data.viewproj);
@@ -2323,9 +2323,8 @@ CullData VulkanEngine::ready_cull_data(glm::mat4& viewproj, bool orthographic /*
 
 void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, CullData& cull_data)
 {
-	// prepare barrier from indirect -> general?
-	vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-		VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT
+	vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+		VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT
 	);
 
 	{
@@ -2343,7 +2342,7 @@ void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, CullData& cull_data
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CullData), &cull_data);
 	vkCmdDispatch(cmd, static_cast<uint32_t>(std::ceil(render_scene.pass_objects.size() / 256.0)), 1, 1);
 	
-	vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-		VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT
+	vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
+		VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT
 	);
 }

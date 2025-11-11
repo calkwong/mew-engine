@@ -18,7 +18,7 @@ void RenderScene::build_indirect_batch()
 	{
 		auto po = pass_objects[i];
 
-		bool same_mesh = renderables[po.handle].mesh->index_buffer == last_mesh;
+		bool same_mesh = renderables[po.handle].mesh->index_buffer == last_mesh; // (!) should be mesh to fix actual instancing
 		bool same_material = po.material == last_material;
 
 		if (same_mesh && same_material)
