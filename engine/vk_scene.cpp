@@ -68,13 +68,12 @@ void RenderScene::build_multi_batch()
 // PREREQ: pass objects
 void RenderScene::build_indirect_buffer()
 {
-	clear_indirect_buffer.clear();
+	VkDrawIndexedIndirectCommand* draw_commands = static_cast<VkDrawIndexedIndirectCommand*>(clear_indirect_buffer.info.pMappedData);
 
 	for (size_t i = 0; i < batches.size(); i++)
 	{
 		VkDrawIndexedIndirectCommand draw_command{};
 
-		//const auto& obj = renderables[pass_objects[i].handle];
 		auto pass_object_id = batches[i].first;
 
 		const auto& primitive = primitives[pass_objects[pass_object_id].primitive_id];
@@ -84,16 +83,18 @@ void RenderScene::build_indirect_buffer()
 		draw_command.vertexOffset = 0;
 		draw_command.firstInstance = pass_object_id; // (!!) double check 
 
-		clear_indirect_buffer.push_back(draw_command);
+		draw_commands[i] = draw_command;
 	}
 }
 
-void RenderScene::reset_indirect_buffer(VkDrawIndexedIndirectCommand* draw_indirect_buffer)
+void RenderScene::reset_indirect_buffer(VkCommandBuffer cmd)
 {
-	for (size_t i = 0; i < clear_indirect_buffer.size(); i++)
-	{
-		*(draw_indirect_buffer + i) = clear_indirect_buffer[i];
-	}
+	VkBufferCopy copy{};
+	copy.dstOffset = 0;
+	copy.srcOffset = 0;
+	copy.size = clear_indirect_buffer.info.size;
+
+	vkCmdCopyBuffer(cmd, clear_indirect_buffer.buffer, draw_indirect_buffer.buffer, 1, &copy);
 }
 
 void RenderScene::build_object_buffer()
@@ -108,7 +109,6 @@ void RenderScene::build_object_buffer()
 		object_data[i].origin = obj.bounds.origin;
 		object_data[i].material_id = obj.material_id;
 		object_data[i].extent = obj.bounds.extents;
-		//object_data[i].vertex_buffer_address = obj.vertex_buffer_address;
 	}
 }
 
@@ -167,7 +167,7 @@ void RenderScene::build_instance_buffer()
 	// pass objects must be sorted here
 	for (size_t i = 0; i < pass_objects.size(); i++)
 	{
-		 instance_data[i]  = pass_objects[i].renderables_id; // for indexing into ObjectBuffer
+		 instance_data[i]  = pass_objects[i].renderables_id; 
 	}
 }
 
@@ -175,6 +175,7 @@ uint32_t RenderScene::add_primitive(uint32_t start_index, uint32_t count)
 {
 	uint32_t size = static_cast<uint32_t>(primitives.size());
 
+	// (!) this needs to be changed
 	for (size_t i = 0; i < size; i++)
 	{
 		if (primitives[i].start_index == start_index && primitives[i].count == count)

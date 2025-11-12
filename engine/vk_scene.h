@@ -92,7 +92,8 @@ struct RenderScene // (!) forward only for now
 	AllocatedBuffer object_buffer{}; 
 	AllocatedBuffer instance_buffer{};
 	AllocatedBuffer ginstance_buffer{};
-	std::vector<VkDrawIndexedIndirectCommand> clear_indirect_buffer{};
+	AllocatedBuffer draw_indirect_buffer{};
+	AllocatedBuffer clear_indirect_buffer{};
 
 	void build_pass_objects();
 	void sort_objects(); // sorts pass objects
@@ -102,7 +103,7 @@ struct RenderScene // (!) forward only for now
 	void build_indirect_buffer();
 	void build_ginstance_buffer();
 	void build_instance_buffer();
-	void reset_indirect_buffer(VkDrawIndexedIndirectCommand* draw_indirect_buffer);
+	void reset_indirect_buffer(VkCommandBuffer cmd);
 	uint32_t add_primitive(uint32_t start_index, uint32_t count);
 };
 

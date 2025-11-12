@@ -96,8 +96,6 @@ struct FrameData
 	DescriptorAllocatorGrowable frame_descriptor_allocator{};
 	AllocatedBuffer scene_buffer{};
 	VkDescriptorSet scene_descriptor{};
-	AllocatedBuffer draw_indirect_buffer{};
-	//AllocatedBuffer instance_buffer{};
 
 	DeletionQueue deletion_queue{};
 };

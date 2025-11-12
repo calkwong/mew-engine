@@ -427,9 +427,6 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 		new_mesh->name = mesh.name;
 		new_mesh->material_buffer_address = file.material_buffer_address;
 
-		//indices.clear();
-		//vertices.clear();
-
 		for (auto&& p : mesh.primitives)
 		{
 			GeoSurface new_surface{};
@@ -563,9 +560,8 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 
 			new_mesh->surfaces.push_back(new_surface);
 		}
-
-		//new_mesh->mesh_buffer = engine->upload_mesh(indices, vertices);
 	}
+
 	file.combined_mesh_buffer = engine->upload_mesh(indices, vertices);
 
 	for (size_t i = 0; i < meshes.size(); i++)
