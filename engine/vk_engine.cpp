@@ -890,18 +890,8 @@ void VulkanEngine::init_descriptors()
 		scene_descriptor_layout = builder.build(device);
 	}
 
-	//> building ssbo for compute shader
-	{
-		DescriptorLayoutBuilder builder{};
-		builder.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT);
-		builder.add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT);
-
-		indirect_buffer_layout = builder.build(device);
-	}
-
 	std::vector<DescriptorAllocatorGrowable::PoolSizeRatio> uniform_sizes = {
 		{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 5},
-		{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 5},
 	};
 
 	DescriptorWriter writer{};
@@ -922,9 +912,6 @@ void VulkanEngine::init_descriptors()
 		writer.clear();
 		writer.write_buffer(0, frames[i].scene_buffer.buffer, sizeof(SceneData), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
 		writer.update_set(device, frames[i].scene_descriptor);
-
-		// (!) added for indirect
-		frames[i].draw_indirect_descriptor = frames[i].frame_descriptor_allocator.allocate(device, indirect_buffer_layout);
 	}
 
 	std::vector<DescriptorAllocatorGrowable::PoolSizeRatio> sizes = {
@@ -972,7 +959,6 @@ void VulkanEngine::init_descriptors()
 		vkDestroyDescriptorSetLayout(device, bindless_tex_layout, nullptr);
 		vkDestroyDescriptorSetLayout(device, bindless_sampler_layout, nullptr);
 		vkDestroyDescriptorSetLayout(device, bindless_image_layout, nullptr);
-		vkDestroyDescriptorSetLayout(device, indirect_buffer_layout, nullptr);
 	});
 }
 
@@ -1025,7 +1011,6 @@ void VulkanEngine::init_pipelines()
 
 	//> INDIRECT CULL
 	descriptor_layouts.clear();
-	descriptor_layouts = { indirect_buffer_layout };
 
 	module = shader_cache.add_shader(device, "indirect_cull.comp.spv");
 	compute_builder.set_shaders(module);
@@ -2236,11 +2221,11 @@ void VulkanEngine::ready_mesh_draw()
 		render_scene.instance_buffer = reallocate_buffer(
 			render_scene.pass_objects.size() * sizeof(uint32_t),
 			render_scene.instance_buffer,
-			VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
+			0,
 			VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
 		);
 
-		render_scene.build_instance_buffer();
+		//render_scene.build_instance_buffer();
 	}
 
 	if (render_scene.ginstance_buffer.info.size < render_scene.pass_objects.size() * sizeof(GPUInstance))
@@ -2263,7 +2248,7 @@ void VulkanEngine::ready_mesh_draw()
 			render_scene.batches.size() * sizeof(VkDrawIndexedIndirectCommand),
 			get_current_frame().draw_indirect_buffer,
 			VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-			VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT 
+			VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT
 		);
 		render_scene.build_indirect_buffer();
 	}
@@ -2309,6 +2294,12 @@ CullData VulkanEngine::ready_cull_data(glm::mat4& viewproj, bool orthographic /*
 	address_info.buffer = render_scene.ginstance_buffer.buffer;
 	cull_data.ginstance_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
 
+	address_info.buffer = get_current_frame().draw_indirect_buffer.buffer;
+	cull_data.indirect_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+
+	address_info.buffer = render_scene.instance_buffer.buffer;
+	cull_data.instance_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+
 	cull_data.count = static_cast<uint32_t>(render_scene.pass_objects.size());
 
 	return cull_data;
@@ -2320,17 +2311,8 @@ void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, CullData& cull_data
 		VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT
 	);
 
-	{
-		// (!) move this out, this should be set after reallocation of draw indirect buffers
-		DescriptorWriter writer{};
-		writer.write_buffer(0, get_current_frame().draw_indirect_buffer.buffer, VK_WHOLE_SIZE, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-		writer.write_buffer(1, render_scene.instance_buffer.buffer, VK_WHOLE_SIZE, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // (!) this should be frame in flight too
-		writer.update_set(device, get_current_frame().draw_indirect_descriptor);
-	}
-
 	ShaderPass current_pass = *shader_passes["cull"];
 	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().draw_indirect_descriptor, 0, nullptr);
 
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CullData), &cull_data);
 	vkCmdDispatch(cmd, static_cast<uint32_t>(std::ceil(render_scene.pass_objects.size() / 256.0)), 1, 1);

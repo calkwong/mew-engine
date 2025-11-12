@@ -97,7 +97,7 @@ struct FrameData
 	AllocatedBuffer scene_buffer{};
 	VkDescriptorSet scene_descriptor{};
 	AllocatedBuffer draw_indirect_buffer{};
-	VkDescriptorSet draw_indirect_descriptor{};
+	//AllocatedBuffer instance_buffer{};
 
 	DeletionQueue deletion_queue{};
 };
@@ -289,7 +289,6 @@ public:
 	VkDescriptorSetLayout bindless_tex_layout{};
 	VkDescriptorSetLayout bindless_sampler_layout{};
 	VkDescriptorSetLayout bindless_image_layout{};
-	VkDescriptorSetLayout indirect_buffer_layout{};
 
 	VkDescriptorSet bindless_tex_descriptor{};
 	VkDescriptorSet bindless_sampler_descriptor{};

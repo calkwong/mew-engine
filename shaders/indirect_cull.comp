@@ -39,15 +39,15 @@ struct DrawCommand
 	uint first_instance;
 };
 
-layout(set = 0, binding = 0) buffer DrawCommandsBuffer
+layout(buffer_reference, std430) buffer DrawCommandsBuffer
 { 
 	DrawCommand commands[];
-} drawCommandsBuffer;
+};
 
-layout(set = 0, binding = 1) buffer InstanceBuffer
+layout(buffer_reference, std430) buffer InstanceBuffer
 {
 	uint instances[];
-} instanceBuffer;
+};
 	
 
 layout(push_constant) uniform constants
@@ -55,6 +55,8 @@ layout(push_constant) uniform constants
 	vec4 frustum_planes[6];
 	ObjectBuffer objectBuffer;
 	gInstanceBuffer ginstanceBuffer;
+	DrawCommandsBuffer drawCommandsBuffer;
+	InstanceBuffer instanceBuffer;
 	uint count;
 } pc;
 
@@ -104,11 +106,11 @@ void main()
 		
 		if (is_visible(object))
 		{
-			uint count = atomicAdd(drawCommandsBuffer.commands[batch].instance_count, 1);
+			uint count = atomicAdd(pc.drawCommandsBuffer.commands[batch].instance_count, 1);
 			
-			uint instance_index = drawCommandsBuffer.commands[batch].first_instance + count;
+			uint instance_index = pc.drawCommandsBuffer.commands[batch].first_instance + count;
 			
-			instanceBuffer.instances[instance_index] = object;
+			pc.instanceBuffer.instances[instance_index] = object;
 		}
 	}
 }

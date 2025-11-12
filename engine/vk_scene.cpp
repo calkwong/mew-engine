@@ -159,6 +159,7 @@ void RenderScene::build_ginstance_buffer()
 }
 
 // PREREQ: object buffer & pass objects
+// (!) REMOVE - ONLY WRITE IN COMPUTE?
 void RenderScene::build_instance_buffer()
 {
 	uint32_t* instance_data = static_cast<uint32_t*>(instance_buffer.info.pMappedData);

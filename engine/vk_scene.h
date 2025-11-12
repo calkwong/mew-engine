@@ -66,6 +66,8 @@ struct CullData
 	std::array<glm::vec4, 6> frustum_planes{};
 	VkDeviceAddress object_buffer_address{};
 	VkDeviceAddress ginstance_buffer_address{};
+	VkDeviceAddress indirect_buffer_address{};
+	VkDeviceAddress instance_buffer_address{};
 	uint32_t count{};
 };
 
