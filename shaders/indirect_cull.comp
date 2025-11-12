@@ -12,8 +12,6 @@ struct ObjectData
 	uint materialID;
 	vec3 extent;
 	uint padding;
-	//VertexBuffer vertexBuffer; // ignore
-	uint padding2[4];
 };
 
 layout(buffer_reference, std430) readonly buffer ObjectBuffer
@@ -106,10 +104,11 @@ void main()
 		
 		if (is_visible(object))
 		{
-			atomicAdd(drawCommandsBuffer.commands[g_id].instance_count, 1);
-			//uint instance_index = drawCommandsBuffer.commands[batch].first_instance + count;
+			uint count = atomicAdd(drawCommandsBuffer.commands[batch].instance_count, 1);
 			
-			//instanceBuffer.instances[instance_index] = object;
+			uint instance_index = drawCommandsBuffer.commands[batch].first_instance + count;
+			
+			instanceBuffer.instances[instance_index] = object;
 		}
 	}
 }

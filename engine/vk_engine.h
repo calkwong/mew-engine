@@ -34,6 +34,7 @@ struct GPUPushConstants
 	VkDeviceAddress material_buffer_address{};
 	VkDeviceAddress object_buffer_address{};
 	VkDeviceAddress instance_buffer_address{};
+	VkDeviceAddress vertex_buffer_address{};
 };
 
 struct IBLPushConstants
@@ -168,19 +169,18 @@ struct MaterialCache
 // should there be material_buffer_address? or is that in pass object? currently handled by push constant
 struct RenderObject
 {
-	uint32_t index_count{};
-	uint32_t first_index{};
-	VkBuffer index_buffer{};
+	uint32_t primitive_id{};
+	//VkBuffer index_buffer{};
 
 	Material* material{};
-	std::shared_ptr<MeshAsset> mesh{};
+	//std::shared_ptr<MeshAsset> mesh{}; // (!) needs to be removed after instancing fix
 
 	// (!) pad?
 	uint32_t material_id{};
 	Bounds bounds{};
 
 	glm::mat4 transform{};
-	VkDeviceAddress vertex_buffer_address{};
+	//VkDeviceAddress vertex_buffer_address{};
 	VkDeviceAddress material_buffer_address{};
 };
 

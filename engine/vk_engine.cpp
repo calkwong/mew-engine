@@ -87,45 +87,45 @@ bool is_visible(const std::array<glm::vec4, 6>& frustum_planes, const RenderObje
 }
 
 // (!) TODO: implement hash
-void sort_materials(const std::vector<RenderObject>& renderables, std::vector<size_t>& visible_indices)
-{
-	std::vector<size_t> sorted(visible_indices.size());
-
-	for (size_t i = 0; i < visible_indices.size(); i++)
-	{
-		sorted[i] = i;
-	}
-
-	std::sort(sorted.begin(), sorted.end(), [&](auto iA, auto iB) {
-		const RenderObject& oA = renderables[visible_indices[iA]];
-		const RenderObject& oB = renderables[visible_indices[iB]];
-
-		if (oA.material != oB.material)
-			return oA.material < oB.material;
-		else
-			return oA.index_buffer < oB.index_buffer;
-		});
-
-
-	for (size_t i = 0; i < sorted.size(); i++)
-	{
-		size_t idx = sorted[i];
-		sorted[i] = visible_indices[idx];
-	}
-	
-	visible_indices = std::move(sorted);
-}
+//void sort_materials(const std::vector<RenderObject>& renderables, std::vector<size_t>& visible_indices)
+//{
+//	std::vector<size_t> sorted(visible_indices.size());
+//
+//	for (size_t i = 0; i < visible_indices.size(); i++)
+//	{
+//		sorted[i] = i;
+//	}
+//
+//	std::sort(sorted.begin(), sorted.end(), [&](auto iA, auto iB) {
+//		const RenderObject& oA = renderables[visible_indices[iA]];
+//		const RenderObject& oB = renderables[visible_indices[iB]];
+//
+//		if (oA.material != oB.material)
+//			return oA.material < oB.material;
+//		else
+//			return oA.index_buffer < oB.index_buffer;
+//		});
+//
+//
+//	for (size_t i = 0; i < sorted.size(); i++)
+//	{
+//		size_t idx = sorted[i];
+//		sorted[i] = visible_indices[idx];
+//	}
+//	
+//	visible_indices = std::move(sorted);
+//}
 
 // (!) sort gpu driven
-void sort_materials(std::vector<RenderObject>& renderables)
-{
-	std::sort(renderables.begin(), renderables.end(), [&](const RenderObject& oA, const RenderObject& oB) {
-		if (oA.material != oB.material)
-			return oA.material < oB.material;
-		else
-			return oA.index_buffer < oB.index_buffer;
-		});
-}
+//void sort_materials(std::vector<RenderObject>& renderables)
+//{
+//	std::sort(renderables.begin(), renderables.end(), [&](const RenderObject& oA, const RenderObject& oB) {
+//		if (oA.material != oB.material)
+//			return oA.material < oB.material;
+//		else
+//			return oA.index_buffer < oB.index_buffer;
+//		});
+//}
 
 void sort_transparency(const std::vector<RenderObject>& renderables, const Camera& cam, std::vector<size_t>& visible_indices)
 {
@@ -1603,16 +1603,15 @@ void VulkanEngine::register_object(Node& node, const glm::mat4& top_matrix, Draw
 		for (auto& s : node.mesh->surfaces)
 		{
 			RenderObject obj{};
-			obj.index_count = s.count;
-			obj.first_index = s.start_index;
-			obj.index_buffer = node.mesh->index_buffer;
-			obj.vertex_buffer_address = node.mesh->vertex_buffer_address;
+			obj.primitive_id = render_scene.add_primitive(s.start_index, s.count);
+			//obj.index_buffer = node.mesh->index_buffer;
+			//obj.vertex_buffer_address = node.mesh->vertex_buffer_address;
 			obj.material_buffer_address = node.mesh->material_buffer_address;
 			obj.material = &material_cache.data[s.material]; // refactor into render obj material* into uint32_t handle?
 			obj.material_id = s.material_id;
 			obj.bounds = s.bounds;
 			obj.transform = node_matrix;
-			obj.mesh = node.mesh;
+			//obj.mesh = node.mesh;
 
 			size_t handle = render_scene.renderables.size();
 			render_scene.renderables.push_back(obj);
@@ -1662,6 +1661,10 @@ void VulkanEngine::update_scene()
 	//main_draw_context.transparent_objects.clear();
 	render_scene.renderables.clear();
 	render_scene.unbatched_objects.clear();
+
+
+	// (!) refactor
+	render_scene.combined_mesh_buffer = loaded_scenes["DamagedHelmet"]->combined_mesh_buffer;
 
 	for (auto& n : loaded_scenes["DamagedHelmet"]->top_nodes)
 	{
@@ -1803,30 +1806,19 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 
 	address_info.buffer = render_scene.instance_buffer.buffer;
 	gpc.instance_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+	gpc.vertex_buffer_address = render_scene.combined_mesh_buffer.vertex_buffer_address;
 
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GPUPushConstants), &gpc);
 
 	VkPipeline last_pipeline = VK_NULL_HANDLE;
-	VkBuffer last_mesh = VK_NULL_HANDLE;
-
-	for (const auto& batch : render_scene.batches)
+	vkCmdBindIndexBuffer(cmd, render_scene.combined_mesh_buffer.index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+	for (size_t i = 0; i < render_scene.multibatches.size(); i++)
 	{
-		VkPipeline new_pipeline = batch.forward_pass->pipeline;
-		VkBuffer new_mesh = batch.mesh;
+		const auto& multibatch = render_scene.multibatches[i];
+		const auto& batch = render_scene.batches[multibatch.first];
 
-		if (new_pipeline != last_pipeline)
-		{
-			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, batch.forward_pass->pipeline);
-			last_pipeline = new_pipeline;
-		}
-
-		if (new_mesh != last_mesh)
-		{
-			vkCmdBindIndexBuffer(cmd, batch.mesh, 0, VK_INDEX_TYPE_UINT32);
-			last_mesh = new_mesh;
-		}
-
-		vkCmdDrawIndexedIndirect(cmd, get_current_frame().draw_indirect_buffer.buffer, batch.first * sizeof(VkDrawIndexedIndirectCommand), batch.count, sizeof(VkDrawIndexedIndirectCommand));
+		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, batch.forward_pass->pipeline);
+		vkCmdDrawIndexedIndirect(cmd, get_current_frame().draw_indirect_buffer.buffer, multibatch.first * sizeof(VkDrawIndexedIndirectCommand), multibatch.count, sizeof(VkDrawIndexedIndirectCommand));
 		stats.draw_calls_count += batch.count;
 		stats.draw_count++;
 	}
@@ -1971,105 +1963,105 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 	);
 }
 
-void VulkanEngine::shadow_pass(VkCommandBuffer cmd, std::vector<size_t>& visible_indices, size_t cascade_idx)
-{
-	auto cascade = cascade_data[cascade_idx];
-
-	vkutil::transition_image(
-		cmd,
-		cascade.shadow_map.image,
-		VK_IMAGE_LAYOUT_UNDEFINED,
-		VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
-		VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-		VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
-		VK_ACCESS_2_SHADER_READ_BIT,
-		VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
-		VK_IMAGE_ASPECT_DEPTH_BIT
-	);
-
-	VkRenderingAttachmentInfo depth_attachment = vkinit::depth_attachment_info(cascade.shadow_map.view);
-	VkExtent2D shadow_extent = VkExtent2D{ cascade.shadow_map.extent.width, cascade.shadow_map.extent.height };
-	VkRenderingInfo render_info = vkinit::rendering_info(shadow_extent, nullptr, &depth_attachment);
-
-	vkCmdBeginRendering(cmd, &render_info);
-
-	VkViewport viewport{};
-	viewport.x = 0;
-	viewport.y = static_cast<float>(shadow_extent.height);
-	viewport.width = static_cast<float>(shadow_extent.width);
-	viewport.height = -static_cast<float>(shadow_extent.height);
-	viewport.minDepth = 0.0f;
-	viewport.maxDepth = 1.0f;
-	vkCmdSetViewport(cmd, 0, 1, &viewport);
-
-	VkRect2D scissor{};
-	scissor.offset.x = 0;
-	scissor.offset.y = 0;
-	scissor.extent.width = shadow_extent.width;
-	scissor.extent.height = shadow_extent.height;
-	vkCmdSetScissor(cmd, 0, 1, &scissor);
-
-	auto depth_bias = 0.f;
-	auto slope_scaled_depth_bias = 0.f;
-	vkCmdSetDepthBias(cmd, -depth_bias, 0.0f, -slope_scaled_depth_bias);
-
-	ShaderPass current_pass = *shader_passes["shadow"];
-	// (!) ugly - refactor current_pass.layout and current_pass? 
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
-
-	VkPipeline last_pipeline = VK_NULL_HANDLE;
-	VkBuffer last_index_buffer = VK_NULL_HANDLE;
-
-	auto draw = [&](const RenderObject& obj) {
-		VkPipeline current_pipeline = obj.material->shadow_pass->pipeline;
-		VkBuffer current_index_buffer = obj.index_buffer;
-		if (current_pipeline != last_pipeline)
-		{
-			last_pipeline = current_pipeline;
-			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pipeline);
-		}
-		if (current_index_buffer != last_index_buffer)
-		{
-			last_index_buffer = current_index_buffer;
-			vkCmdBindIndexBuffer(cmd, current_index_buffer, 0, VK_INDEX_TYPE_UINT32);
-		}
-
-		ShadowPushConstants pc{};
-		pc.model = obj.transform;
-		pc.viewproj = cascade.viewproj; // (!) change to idx and index into scenedata?
-		pc.vertex_buffer_address = obj.vertex_buffer_address;
-		pc.material_buffer_address = obj.material_buffer_address;
-		pc.material_id = obj.material_id;
-
-		vkCmdPushConstants(cmd, obj.material->shadow_pass->layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(ShadowPushConstants), &pc);
-		vkCmdDrawIndexed(cmd, obj.index_count, 1, obj.first_index, 0, 0);
-		stats.triangle_count += obj.index_count / 3;
-		stats.draw_count++;
-		stats.draw_calls_count++;
-	};
-
-	for (auto i : visible_indices)
-	{
-		draw(main_draw_context.opaque_objects[i]);
-	}
-
-	vkCmdEndRendering(cmd);
-
-	vkutil::transition_image(
-		cmd,
-		cascade.shadow_map.image,
-		VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
-		VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-		VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
-		VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-		VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-		VK_ACCESS_2_SHADER_READ_BIT,
-		VK_IMAGE_ASPECT_DEPTH_BIT
-	);
-
-};
+//void VulkanEngine::shadow_pass(VkCommandBuffer cmd, std::vector<size_t>& visible_indices, size_t cascade_idx)
+//{
+//	auto cascade = cascade_data[cascade_idx];
+//
+//	vkutil::transition_image(
+//		cmd,
+//		cascade.shadow_map.image,
+//		VK_IMAGE_LAYOUT_UNDEFINED,
+//		VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+//		VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+//		VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
+//		VK_ACCESS_2_SHADER_READ_BIT,
+//		VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
+//		VK_IMAGE_ASPECT_DEPTH_BIT
+//	);
+//
+//	VkRenderingAttachmentInfo depth_attachment = vkinit::depth_attachment_info(cascade.shadow_map.view);
+//	VkExtent2D shadow_extent = VkExtent2D{ cascade.shadow_map.extent.width, cascade.shadow_map.extent.height };
+//	VkRenderingInfo render_info = vkinit::rendering_info(shadow_extent, nullptr, &depth_attachment);
+//
+//	vkCmdBeginRendering(cmd, &render_info);
+//
+//	VkViewport viewport{};
+//	viewport.x = 0;
+//	viewport.y = static_cast<float>(shadow_extent.height);
+//	viewport.width = static_cast<float>(shadow_extent.width);
+//	viewport.height = -static_cast<float>(shadow_extent.height);
+//	viewport.minDepth = 0.0f;
+//	viewport.maxDepth = 1.0f;
+//	vkCmdSetViewport(cmd, 0, 1, &viewport);
+//
+//	VkRect2D scissor{};
+//	scissor.offset.x = 0;
+//	scissor.offset.y = 0;
+//	scissor.extent.width = shadow_extent.width;
+//	scissor.extent.height = shadow_extent.height;
+//	vkCmdSetScissor(cmd, 0, 1, &scissor);
+//
+//	auto depth_bias = 0.f;
+//	auto slope_scaled_depth_bias = 0.f;
+//	vkCmdSetDepthBias(cmd, -depth_bias, 0.0f, -slope_scaled_depth_bias);
+//
+//	ShaderPass current_pass = *shader_passes["shadow"];
+//	// (!) ugly - refactor current_pass.layout and current_pass? 
+//	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
+//	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
+//	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
+//
+//	VkPipeline last_pipeline = VK_NULL_HANDLE;
+//	VkBuffer last_index_buffer = VK_NULL_HANDLE;
+//
+//	auto draw = [&](const RenderObject& obj) {
+//		VkPipeline current_pipeline = obj.material->shadow_pass->pipeline;
+//		VkBuffer current_index_buffer = obj.index_buffer;
+//		if (current_pipeline != last_pipeline)
+//		{
+//			last_pipeline = current_pipeline;
+//			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pipeline);
+//		}
+//		if (current_index_buffer != last_index_buffer)
+//		{
+//			last_index_buffer = current_index_buffer;
+//			vkCmdBindIndexBuffer(cmd, current_index_buffer, 0, VK_INDEX_TYPE_UINT32);
+//		}
+//
+//		ShadowPushConstants pc{};
+//		pc.model = obj.transform;
+//		pc.viewproj = cascade.viewproj; // (!) change to idx and index into scenedata?
+//		pc.vertex_buffer_address = obj.vertex_buffer_address;
+//		pc.material_buffer_address = obj.material_buffer_address;
+//		pc.material_id = obj.material_id;
+//
+//		vkCmdPushConstants(cmd, obj.material->shadow_pass->layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(ShadowPushConstants), &pc);
+//		vkCmdDrawIndexed(cmd, obj.index_count, 1, obj.first_index, 0, 0);
+//		stats.triangle_count += obj.index_count / 3;
+//		stats.draw_count++;
+//		stats.draw_calls_count++;
+//	};
+//
+//	for (auto i : visible_indices)
+//	{
+//		draw(main_draw_context.opaque_objects[i]);
+//	}
+//
+//	vkCmdEndRendering(cmd);
+//
+//	vkutil::transition_image(
+//		cmd,
+//		cascade.shadow_map.image,
+//		VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+//		VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+//		VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
+//		VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+//		VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+//		VK_ACCESS_2_SHADER_READ_BIT,
+//		VK_IMAGE_ASPECT_DEPTH_BIT
+//	);
+//
+//};
 
 void VulkanEngine::update_cascade()
 {
@@ -2212,7 +2204,7 @@ void VulkanEngine::draw_imgui(VkCommandBuffer cmd, VkImageView swapchain_view)
 	vkCmdEndRendering(cmd);
 }
 
-// Object Buffer -> Pass Object -> sort -> Indirect Batch -> Instance Buffer -> gInstance Buffer -> Indirect Buffer
+// Object Buffer -> Pass Object -> sort -> Indirect Batch -> Multi Batch -> Instance Buffer -> gInstance Buffer -> Indirect Buffer
 // (!) will break with streaming/dynamic scene, need to implement some flags
 void VulkanEngine::ready_mesh_draw()
 {
@@ -2235,6 +2227,7 @@ void VulkanEngine::ready_mesh_draw()
 		render_scene.build_pass_objects();
 		render_scene.sort_objects();
 		render_scene.build_indirect_batch();
+		render_scene.build_multi_batch();
 	}
 
 	if (render_scene.instance_buffer.info.size < render_scene.pass_objects.size() * sizeof(uint32_t))
@@ -2263,11 +2256,11 @@ void VulkanEngine::ready_mesh_draw()
 		render_scene.build_ginstance_buffer();
 	}
 
-	if (get_current_frame().draw_indirect_buffer.info.size < render_scene.pass_objects.size() * sizeof(VkDrawIndexedIndirectCommand))
+	if (get_current_frame().draw_indirect_buffer.info.size < render_scene.batches.size() * sizeof(VkDrawIndexedIndirectCommand))
 	{
 		fmt::println("clear_indirect_buffer");
 		get_current_frame().draw_indirect_buffer = reallocate_buffer(
-			render_scene.pass_objects.size() * sizeof(VkDrawIndexedIndirectCommand),
+			render_scene.batches.size() * sizeof(VkDrawIndexedIndirectCommand),
 			get_current_frame().draw_indirect_buffer,
 			VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
 			VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT 
@@ -2323,15 +2316,15 @@ CullData VulkanEngine::ready_cull_data(glm::mat4& viewproj, bool orthographic /*
 
 void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, CullData& cull_data)
 {
-	vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-		VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT
+	vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+		VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT
 	);
 
 	{
 		// (!) move this out, this should be set after reallocation of draw indirect buffers
 		DescriptorWriter writer{};
 		writer.write_buffer(0, get_current_frame().draw_indirect_buffer.buffer, VK_WHOLE_SIZE, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-		writer.write_buffer(1, render_scene.instance_buffer.buffer, VK_WHOLE_SIZE, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+		writer.write_buffer(1, render_scene.instance_buffer.buffer, VK_WHOLE_SIZE, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // (!) this should be frame in flight too
 		writer.update_set(device, get_current_frame().draw_indirect_descriptor);
 	}
 
@@ -2342,7 +2335,7 @@ void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, CullData& cull_data
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CullData), &cull_data);
 	vkCmdDispatch(cmd, static_cast<uint32_t>(std::ceil(render_scene.pass_objects.size() / 256.0)), 1, 1);
 	
-	vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
-		VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT
+	vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+		VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT
 	);
 }

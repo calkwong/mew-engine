@@ -49,17 +49,8 @@ struct ObjectData
 	uint materialID;
 	vec3 extent;
 	uint padding;
-	VertexBuffer vertexBuffer;
-	uint padding2[2];
 };
 
-//struct ObjectData
-//{
-//	mat4 worldMatrix;
-//	VertexBuffer vertexBuffer;
-//	uint materialID;
-//	uint padding;
-//};
 
 layout(buffer_reference, std430) readonly buffer ObjectBuffer
 { 
@@ -76,6 +67,7 @@ layout( push_constant ) uniform constants
 	MaterialBuffer materialBuffer;
 	ObjectBuffer objectBuffer;
 	InstanceBuffer instanceBuffer;
+	VertexBuffer vertexBuffer;
 } pc;
 
 //layout(push_constant) uniform constants
@@ -90,7 +82,7 @@ void main()
 {
 	uint id = pc.instanceBuffer.instances[gl_InstanceIndex];
 	ObjectData o = pc.objectBuffer.objects[id];
-	Vertex v = o.vertexBuffer.vertices[gl_VertexIndex];
+	Vertex v = pc.vertexBuffer.vertices[gl_VertexIndex];
 	
 	vec4 position = o.worldMatrix * vec4(v.position, 1.0);
 	outViewPos = vec3(sceneData.view * position);

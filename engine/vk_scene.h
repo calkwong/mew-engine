@@ -12,11 +12,23 @@ struct MeshAsset;
 struct ShaderPass;
 struct RenderObject;
 
+struct DrawPrimitive
+{
+	uint32_t start_index{};
+	uint32_t count{};
+};
+
 struct IndirectBatch
 {
 	//std::shared_ptr<MeshAsset> mesh{};
-	VkBuffer mesh{};
+	uint32_t primitive{}; // handle
 	ShaderPass* forward_pass{};
+	uint32_t first{}; // refers to pass object array
+	uint32_t count{}; // refers to pass object array
+};
+
+struct MultiBatch
+{
 	uint32_t first{};
 	uint32_t count{};
 };
@@ -39,8 +51,6 @@ struct ObjectData
 	uint32_t material_id{};
 	glm::vec3 extent{};
 	uint32_t padding{}; 
-	VkDeviceAddress vertex_buffer_address{};
-	uint32_t padding2[2]{};
 };
 
 //struct ObjectData
@@ -62,17 +72,21 @@ struct CullData
 struct PassObject
 {
 	ShaderPass* material{};
-	uint32_t handle{}; // handle into renderables
+	uint32_t primitive_id{};
+	uint32_t renderables_id{}; // handle into renderables
 	// (!) to do hash
 };
 
 struct RenderScene // (!) forward only for now
 {
 	std::vector<RenderObject> renderables{};
+	std::vector<MultiBatch> multibatches{};
 	std::vector<IndirectBatch> batches{};
 	std::vector<size_t> unbatched_objects{}; // handles for renderables
 	std::vector<PassObject> pass_objects{};
+	std::vector<DrawPrimitive> primitives = { DrawPrimitive{0,0} };
 
+	GPUMeshBuffers combined_mesh_buffer{};
 	AllocatedBuffer object_buffer{}; 
 	AllocatedBuffer instance_buffer{};
 	AllocatedBuffer ginstance_buffer{};
@@ -82,9 +96,11 @@ struct RenderScene // (!) forward only for now
 	void sort_objects(); // sorts pass objects
 	void build_object_buffer();
 	void build_indirect_batch();
+	void build_multi_batch();
 	void build_indirect_buffer();
 	void build_ginstance_buffer();
 	void build_instance_buffer();
 	void reset_indirect_buffer(VkDrawIndexedIndirectCommand* draw_indirect_buffer);
+	uint32_t add_primitive(uint32_t start_index, uint32_t count);
 };
 
