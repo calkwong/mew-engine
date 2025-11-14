@@ -53,14 +53,6 @@ struct ObjectData
 	uint32_t padding{}; 
 };
 
-//struct ObjectData
-//{
-//	glm::mat4 transform{};
-//	VkDeviceAddress vertex_buffer_address{};
-//	uint32_t material_id{};
-//	uint32_t padding{};
-//};
-
 struct CullData
 {
 	std::array<glm::vec4, 6> frustum_planes{};
@@ -102,7 +94,6 @@ struct RenderScene // (!) forward only for now
 	void build_multi_batch();
 	void build_indirect_buffer();
 	void build_ginstance_buffer();
-	void build_instance_buffer();
 	void reset_indirect_buffer(VkCommandBuffer cmd);
 	uint32_t add_primitive(uint32_t start_index, uint32_t count);
 };

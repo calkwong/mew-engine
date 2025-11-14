@@ -62,13 +62,6 @@ enum class MaterialPass : uint32_t
 
 struct RenderObject;
 
-// consider moving to vk_scene
-struct DrawContext
-{
-    std::vector<RenderObject> opaque_objects{};
-    std::vector<RenderObject> transparent_objects{};
-};
-
 struct MaterialData
 {
     glm::vec4 base_color_factor{ glm::vec4(1.0f) };

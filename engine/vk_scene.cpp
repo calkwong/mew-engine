@@ -16,17 +16,17 @@ void RenderScene::build_indirect_batch()
 
 	for (size_t i = 0; i < pass_objects.size(); i++)
 	{
-		auto po = pass_objects[i];
+		PassObject& obj = pass_objects[i];
 
-		bool same_primitive = po.primitive_id == last_primitive; // (!) should be mesh to fix actual instancing
-		bool same_material = po.material == last_material;
+		bool same_primitive = obj.primitive_id == last_primitive; // (!) should be mesh to fix actual instancing
+		bool same_material = obj.material == last_material;
 
 		if (same_primitive && same_material)
 			batches.back().count++;
 		else
 		{
-			last_primitive = po.primitive_id; // (!) not great for cache?
-			last_material = po.material;
+			last_primitive = obj.primitive_id; // (!) not great for cache?
+			last_material = obj.material;
 
 			IndirectBatch new_batch{};
 			new_batch.primitive = last_primitive;
@@ -74,14 +74,14 @@ void RenderScene::build_indirect_buffer()
 	{
 		VkDrawIndexedIndirectCommand draw_command{};
 
-		auto pass_object_id = batches[i].first;
+		uint32_t pass_object_id = batches[i].first;
 
-		const auto& primitive = primitives[pass_objects[pass_object_id].primitive_id];
+		const DrawPrimitive& primitive = primitives[pass_objects[pass_object_id].primitive_id];
 		draw_command.indexCount = primitive.count;
 		draw_command.instanceCount = 0;
 		draw_command.firstIndex = primitive.start_index;
 		draw_command.vertexOffset = 0;
-		draw_command.firstInstance = pass_object_id; // (!!) double check 
+		draw_command.firstInstance = pass_object_id;
 
 		draw_commands[i] = draw_command;
 	}
@@ -103,7 +103,7 @@ void RenderScene::build_object_buffer()
 
 	for (size_t i = 0; i < renderables.size(); i++)
 	{
-		const auto& obj = renderables[i];
+		const RenderObject& obj = renderables[i];
 
 		object_data[i].transform = obj.transform;
 		object_data[i].origin = obj.bounds.origin;
@@ -115,16 +115,16 @@ void RenderScene::build_object_buffer()
 // PREREQ: unbatched objects
 void RenderScene::build_pass_objects()
 {
-	for (auto o : unbatched_objects)
+	for (size_t o : unbatched_objects)
 	{
-		const auto& obj = renderables[o];
+		const RenderObject& obj = renderables[o];
 
-		PassObject po{};
-		po.primitive_id = obj.primitive_id;
-		po.renderables_id = o;
-		po.material = obj.material->forward_pass; // (!) hardcoded
+		PassObject pass_obj{};
+		pass_obj.primitive_id = obj.primitive_id;
+		pass_obj.renderables_id = o;
+		pass_obj.material = obj.material->forward_pass; // (!) hardcoded
 
-		pass_objects.push_back(po);
+		pass_objects.push_back(pass_obj);
 	}
 }
 
@@ -155,19 +155,6 @@ void RenderScene::build_ginstance_buffer()
 			ginstance_data[index].batch_id = static_cast<uint32_t>(i);
 			index++;
 		}
-	}
-}
-
-// PREREQ: object buffer & pass objects
-// (!) REMOVE - ONLY WRITE IN COMPUTE?
-void RenderScene::build_instance_buffer()
-{
-	uint32_t* instance_data = static_cast<uint32_t*>(instance_buffer.info.pMappedData);
-
-	// pass objects must be sorted here
-	for (size_t i = 0; i < pass_objects.size(); i++)
-	{
-		 instance_data[i]  = pass_objects[i].renderables_id; 
 	}
 }
 

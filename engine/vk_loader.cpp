@@ -646,12 +646,6 @@ void LoadedGLTF::clear()
 
 	creator->destroy_buffer(material_buffer);
 
-	//for (auto& [k, v] : meshes)
-	//{
-	//	creator->destroy_buffer(v->mesh_buffer.vertex_buffer);
-	//	creator->destroy_buffer(v->mesh_buffer.index_buffer);
-	//}
-
 	creator->destroy_buffer(combined_mesh_buffer.vertex_buffer);
 	creator->destroy_buffer(combined_mesh_buffer.index_buffer);
 

@@ -319,17 +319,22 @@ void VulkanEngine::draw()
 
 	get_current_frame().deletion_queue.flush();
 
-
 	SceneData* scene_uniform_data = static_cast<SceneData*>(get_current_frame().scene_buffer.info.pMappedData);
 	*scene_uniform_data = scene_data;
 
 	ready_mesh_draw();
 
-	// ready cull data
-	CullData cull_data = ready_cull_data(scene_data.viewproj);
+	CullData cull_data{};
+	{
+		ZoneScopedN("Ready cull data");
+		cull_data = ready_cull_data(scene_data.viewproj);
+	}
 
 	uint32_t swapchain_image_idx{};
-	VK_CHECK(vkAcquireNextImageKHR(device, swapchain, 1000000000, get_current_frame().swapchain_semaphore, nullptr, &swapchain_image_idx));
+	{
+		ZoneScopedN("Acquire swapchain image");
+		VK_CHECK(vkAcquireNextImageKHR(device, swapchain, 1000000000, get_current_frame().swapchain_semaphore, nullptr, &swapchain_image_idx));
+	}
 
 	VkCommandBuffer cmd = get_current_frame().main_command_buffer;
 
@@ -354,7 +359,6 @@ void VulkanEngine::draw()
 	}
 
 	{
-		// execute compute cull
 		TracyVkZone(tracy_ctx, get_current_frame().main_command_buffer, "Compute cull");
 		execute_compute_cull(cmd, cull_data);
 	}
@@ -658,11 +662,8 @@ void VulkanEngine::run()
 		{
 			ImGui::Begin("Stats");
 			ImGui::Text("frametime %f ms", stats.deltatime * 1000.0f);
-			ImGui::Text("triangles %i", stats.triangle_count);
 			ImGui::Text("draws %i", stats.draw_count);
-			ImGui::Text("draw calls %i", stats.draw_calls_count);
 			ImGui::Text("scene update time %f ms", stats.scene_update_time);
-			ImGui::Text("frustum cull time %f ms", stats.frustum_cull_time);
 
 			ImGui::End();
 		}
@@ -1551,7 +1552,7 @@ void VulkanEngine::init_renderables()
 		for (auto& n : loaded_scenes["DamagedHelmet"]->top_nodes)
 		{
 			//register_object(*n, offset, main_draw_context);
-			register_object(*n, glm::mat4(1.0f), main_draw_context);
+			register_object(*n, glm::mat4(1.0f));
 		}
 		//}
 	}
@@ -1601,7 +1602,7 @@ void VulkanEngine::init_bindless()
 	vkUpdateDescriptorSets(device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
 }
 
-void VulkanEngine::register_object(Node& node, const glm::mat4& top_matrix, DrawContext& ctx)
+void VulkanEngine::register_object(Node& node, const glm::mat4& top_matrix)
 {
 	glm::mat4 node_matrix = top_matrix * node.world_transform;
 	if (node.mesh != nullptr)
@@ -1633,14 +1634,12 @@ void VulkanEngine::register_object(Node& node, const glm::mat4& top_matrix, Draw
 	}
 
 	for (auto& c : node.children)
-		register_object(*c, top_matrix, ctx);
+		register_object(*c, top_matrix);
 }
 
 void VulkanEngine::update_scene()
 {
 	stats.draw_count = 0;
-	stats.draw_calls_count = 0;
-	stats.triangle_count = 0;
 
 	auto start = std::chrono::system_clock::now();
 
@@ -1813,7 +1812,6 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 
 		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, batch.forward_pass->pipeline);
 		vkCmdDrawIndexedIndirect(cmd, render_scene.draw_indirect_buffer.buffer, multibatch.first * sizeof(VkDrawIndexedIndirectCommand), multibatch.count, sizeof(VkDrawIndexedIndirectCommand));
-		stats.draw_calls_count += batch.count;
 		stats.draw_count++;
 	}
 
@@ -1831,9 +1829,7 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 	pc.texture_id = bindless_texture.skybox;
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(SkyboxPushConstants), &pc);
 	vkCmdDraw(cmd, 3, 1, 0, 0);
-	stats.triangle_count++;
 	stats.draw_count;
-	stats.draw_calls_count++;
 
 	//> transparent geometries
 	//current_pass = *shader_passes["blend"];
@@ -1939,9 +1935,7 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 	fx_pc.texture_id = texture_cache.get_draw_image();
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PostFXPushConstants), &fx_pc);
 	vkCmdDraw(cmd, 3, 1, 0, 0);
-	stats.triangle_count++;
 	stats.draw_count++;
-	stats.draw_calls_count++;
 
 	vkCmdEndRendering(cmd);
 
@@ -2271,14 +2265,19 @@ void VulkanEngine::ready_mesh_draw()
 	}
 
 	// always reset
+	{
+		// (!) use frame in flight copy, this is waiting for frame n-1 for frame n
+		ZoneScopedN("Reset indirect buffer"); 
+		immediate_submit([&](VkCommandBuffer cmd) {
+			{
+				vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+					VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT
+				);
 
-	immediate_submit([&](VkCommandBuffer cmd) {
-		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-			VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT
-		);
-
-		render_scene.reset_indirect_buffer(cmd);
-	});
+				render_scene.reset_indirect_buffer(cmd);
+			}
+			});
+	}
 }
 
 CullData VulkanEngine::ready_cull_data(glm::mat4& viewproj, bool orthographic /*= false*/)

@@ -102,15 +102,8 @@ struct FrameData
 
 struct EngineStats
 {
-	//float frameTime{};
-	int triangle_count{};
 	int draw_count{};
-	int draw_calls_count{};
-	float frustum_cull_time{};
 	float scene_update_time{};
-	//float sceneUpdateTime{};
-	//float meshDrawTime{};
-
 	float deltatime{};
 };
 
@@ -271,7 +264,6 @@ public:
 	VkQueue graphics_queue{};
 	uint32_t graphics_queue_family{};
 
-	DrawContext main_draw_context{};
 	Camera main_camera{};
 	EngineStats stats{};
 
@@ -322,7 +314,7 @@ public:
 
 	void update_scene();
 
-	void register_object(Node& node, const glm::mat4& top_matrix, DrawContext& ctx);
+	void register_object(Node& node, const glm::mat4& top_matrix);
 	void forward_pass(VkCommandBuffer cmd);
 	void shadow_pass(VkCommandBuffer cmd, std::vector<size_t>& visible_indices, size_t cascade_idx);
 	void update_cascade();
