@@ -14,7 +14,8 @@
 
 struct GeoSurface // rename this
 {
-	uint32_t primitive_id{};
+	uint32_t first_index{};
+	uint32_t count{};
 
 	uint32_t material{}; // master material handle
 	uint32_t material_id{}; // for bindless material buffer
@@ -66,7 +67,6 @@ struct LoadedGLTF
 	std::unordered_map<std::string, AllocatedImage> images{};
 
 	std::vector<std::shared_ptr<Node>> top_nodes{};
-	std::vector<DrawPrimitive> primitives{};
 	std::vector<VkSampler> samplers{};
 
 	GPUMeshBuffers combined_mesh_buffer{};

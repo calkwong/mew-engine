@@ -1537,7 +1537,6 @@ void VulkanEngine::init_renderables()
 	assert(asset_file.has_value());
 	loaded_scenes["DamagedHelmet"] = *asset_file;
 	render_scene.combined_mesh_buffer = loaded_scenes["DamagedHelmet"]->combined_mesh_buffer;
-	render_scene.primitives = std::move(loaded_scenes["DamagedHelmet"]->primitives);
 
 	{
 		ZoneScopedN("Register objects");
@@ -1552,10 +1551,9 @@ void VulkanEngine::init_renderables()
 		//	auto offset = glm::translate(glm::mat4(1.0f), glm::vec3(x, y, z) / (float)max);
 		for (const auto& n : loaded_scenes["DamagedHelmet"]->top_nodes)
 		{
-			//register_object(*n, offset, main_draw_context);
+			//register_object(n.get(), offset);
 			register_object(n.get(), glm::mat4(1.0f));
 		}
-		//}
 	}
 }
 
@@ -1608,13 +1606,33 @@ void VulkanEngine::register_object(Node* node, const glm::mat4& top_matrix)
 	glm::mat4 node_matrix = top_matrix * node->world_transform;
 	if (node->mesh != nullptr)
 	{
-		for (auto& s : node->mesh->surfaces)
+
+		auto it = render_scene.mesh_cache.find(node->mesh.get());
+		uint32_t handle = -1;
+		bool found = it != render_scene.mesh_cache.end();
+		if (found)
+			handle = it->second.handle;
+		else
+			render_scene.mesh_cache[node->mesh.get()] = Handle<DrawPrimitive>{ static_cast<uint32_t>(render_scene.primitives.size()) };
+
+		for (size_t i = 0; i < node->mesh->surfaces.size(); i++)
 		{
+			const GeoSurface& s = node->mesh->surfaces[i];
+
 			RenderObject obj{};
-			obj.primitive_id.handle = s.primitive_id;
+
+			if (found)
+			{
+				obj.primitive_id.handle = handle + i;
+			}
+			else
+			{
+				obj.primitive_id.handle = render_scene.primitives.size();
+				render_scene.primitives.emplace_back(DrawPrimitive{ s.first_index, s.count });
+			}
 
 			obj.material_buffer_address = node->mesh->material_buffer_address;
-			obj.material = &material_cache.data[s.material]; // refactor into render obj material* into uint32_t handle?
+			obj.material = &material_cache.data[s.material];
 			obj.material_id = s.material_id;
 			obj.bounds = s.bounds;
 			obj.transform = node_matrix;

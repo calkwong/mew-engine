@@ -100,18 +100,8 @@ struct CascadeData
     float split_ratio{};
 };
 
-struct DrawPrimitive {
-    uint32_t start_index{};
-    uint32_t count{};
-};
-
 template <typename T>
 struct Handle
 {
-    uint32_t handle{};
-};
-
-template<>
-struct Handle<DrawPrimitive> {
     uint32_t handle{};
 };

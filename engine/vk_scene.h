@@ -11,6 +11,16 @@
 struct Material;
 struct ShaderPass;
 
+struct DrawPrimitive {
+	uint32_t start_index{};
+	uint32_t count{};
+};
+
+template<>
+struct Handle<DrawPrimitive> {
+	uint32_t handle{};
+};
+
 // (!) reorder
 struct RenderObject
 {
@@ -82,6 +92,8 @@ struct PassObject
 	// (!) to do hash
 };
 
+struct MeshAsset;
+
 struct RenderScene // (!) forward only for now
 {
 	std::vector<RenderObject> renderables{};
@@ -90,6 +102,7 @@ struct RenderScene // (!) forward only for now
 	std::vector<uint32_t> unbatched_objects{}; // handles for renderables
 	std::vector<PassObject> pass_objects{};
 	std::vector<DrawPrimitive> primitives{};
+	std::unordered_map<MeshAsset*, Handle<DrawPrimitive>> mesh_cache{};
 
 	GPUMeshBuffers combined_mesh_buffer{};
 	AllocatedBuffer object_buffer{}; 
