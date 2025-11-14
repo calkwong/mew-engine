@@ -11,27 +11,27 @@ void RenderScene::build_indirect_batch()
 {
 	batches.clear();
 
-	uint32_t last_primitive{};
+	Handle<DrawPrimitive> last_primitive{};
 	ShaderPass* last_material{};
 
 	for (size_t i = 0; i < pass_objects.size(); i++)
 	{
 		PassObject& obj = pass_objects[i];
 
-		bool same_primitive = obj.primitive_id == last_primitive; // (!) should be mesh to fix actual instancing
+		bool same_primitive = obj.primitive_id.handle == last_primitive.handle; 
 		bool same_material = obj.material == last_material;
 
 		if (same_primitive && same_material)
 			batches.back().count++;
 		else
 		{
-			last_primitive = obj.primitive_id; // (!) not great for cache?
+			last_primitive = obj.primitive_id; 
 			last_material = obj.material;
 
 			IndirectBatch new_batch{};
-			new_batch.primitive = last_primitive;
+			new_batch.primitive_id = last_primitive;
 			new_batch.forward_pass = last_material;
-			new_batch.first = i;
+			new_batch.first = static_cast<uint32_t>(i);
 			new_batch.count = 1;
 			batches.push_back(new_batch);
 		}
@@ -76,7 +76,7 @@ void RenderScene::build_indirect_buffer()
 
 		uint32_t pass_object_id = batches[i].first;
 
-		const DrawPrimitive& primitive = primitives[pass_objects[pass_object_id].primitive_id];
+		const DrawPrimitive& primitive = primitives[pass_objects[pass_object_id].primitive_id.handle];
 		draw_command.indexCount = primitive.count;
 		draw_command.instanceCount = 0;
 		draw_command.firstIndex = primitive.start_index;
@@ -115,13 +115,13 @@ void RenderScene::build_object_buffer()
 // PREREQ: unbatched objects
 void RenderScene::build_pass_objects()
 {
-	for (size_t o : unbatched_objects)
+	for (uint32_t o : unbatched_objects)
 	{
 		const RenderObject& obj = renderables[o];
 
 		PassObject pass_obj{};
 		pass_obj.primitive_id = obj.primitive_id;
-		pass_obj.renderables_id = o;
+		pass_obj.renderable_id.handle = o;
 		pass_obj.material = obj.material->forward_pass; // (!) hardcoded
 
 		pass_objects.push_back(pass_obj);
@@ -135,7 +135,7 @@ void RenderScene::sort_objects()
 			return a.material < b.material;
 		else
 			//return renderables[a.handle].index_buffer < renderables[b.handle].index_buffer;
-			return a.primitive_id < b.primitive_id;
+			return a.primitive_id.handle < b.primitive_id.handle;
 		});
 }
 
@@ -151,24 +151,9 @@ void RenderScene::build_ginstance_buffer()
 		
 		for (uint32_t b = 0; b < batch.count; b++)
 		{
-			ginstance_data[index].object_id = pass_objects[index].renderables_id;
+			ginstance_data[index].object_id = pass_objects[index].renderable_id.handle;
 			ginstance_data[index].batch_id = static_cast<uint32_t>(i);
 			index++;
 		}
 	}
-}
-
-uint32_t RenderScene::add_primitive(uint32_t start_index, uint32_t count)
-{
-	uint32_t size = static_cast<uint32_t>(primitives.size());
-
-	// (!) this needs to be changed
-	for (size_t i = 0; i < size; i++)
-	{
-		if (primitives[i].start_index == start_index && primitives[i].count == count)
-			return static_cast<uint32_t>(i);
-	}
-
-	primitives.push_back(DrawPrimitive{ start_index, count });
-	return size;
 }

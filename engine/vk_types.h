@@ -60,7 +60,12 @@ enum class MaterialPass : uint32_t
     Blend
 };
 
-struct RenderObject;
+struct Bounds
+{
+    glm::vec3 origin{};
+    glm::vec3 extents{};
+    //float sphere_radius{};
+};
 
 struct MaterialData
 {
@@ -93,4 +98,20 @@ struct CascadeData
     AllocatedImage shadow_map{};
     glm::mat4 viewproj{};
     float split_ratio{};
+};
+
+struct DrawPrimitive {
+    uint32_t start_index{};
+    uint32_t count{};
+};
+
+template <typename T>
+struct Handle
+{
+    uint32_t handle{};
+};
+
+template<>
+struct Handle<DrawPrimitive> {
+    uint32_t handle{};
 };

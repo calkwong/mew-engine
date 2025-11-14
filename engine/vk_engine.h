@@ -156,25 +156,6 @@ struct MaterialCache
 	uint32_t add_material(ShaderPass* forward, ShaderPass* shadow);
 };
 
-// consider moving to vk_scene
-// should there be material_buffer_address? or is that in pass object? currently handled by push constant
-struct RenderObject
-{
-	uint32_t primitive_id{};
-	//VkBuffer index_buffer{};
-
-	Material* material{};
-	//std::shared_ptr<MeshAsset> mesh{}; // (!) needs to be removed after instancing fix
-
-	// (!) pad?
-	uint32_t material_id{};
-	Bounds bounds{};
-
-	glm::mat4 transform{};
-	//VkDeviceAddress vertex_buffer_address{};
-	VkDeviceAddress material_buffer_address{};
-};
-
 // to refactor
 struct BindlessTexture
 {
@@ -194,8 +175,6 @@ struct BindlessImage
 	uint8_t prefiltered{};
 	uint8_t brdf{};
 };
-
-struct RenderScene;
 
 class VulkanEngine
 {
@@ -314,7 +293,7 @@ public:
 
 	void update_scene();
 
-	void register_object(Node& node, const glm::mat4& top_matrix);
+	void register_object(Node* node, const glm::mat4& top_matrix);
 	void forward_pass(VkCommandBuffer cmd);
 	void shadow_pass(VkCommandBuffer cmd, std::vector<size_t>& visible_indices, size_t cascade_idx);
 	void update_cascade();

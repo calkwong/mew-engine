@@ -8,20 +8,31 @@
 #include <memory>
 #include <vector>
 
-struct MeshAsset;
+struct Material;
 struct ShaderPass;
-struct RenderObject;
 
-struct DrawPrimitive
+// (!) reorder
+struct RenderObject
 {
-	uint32_t start_index{};
-	uint32_t count{};
+	Handle<DrawPrimitive> primitive_id{};
+	uint32_t material_id{};
+
+	Material* material{};
+	glm::mat4 transform{};
+
+	Bounds bounds{};
+
+	VkDeviceAddress material_buffer_address{};
+};
+
+template<>
+struct Handle<RenderObject> {
+	uint32_t handle{};
 };
 
 struct IndirectBatch
 {
-	//std::shared_ptr<MeshAsset> mesh{};
-	uint32_t primitive{}; // handle
+	Handle<DrawPrimitive> primitive_id{}; 
 	ShaderPass* forward_pass{};
 	uint32_t first{}; // refers to pass object array
 	uint32_t count{}; // refers to pass object array
@@ -66,8 +77,8 @@ struct CullData
 struct PassObject
 {
 	ShaderPass* material{};
-	uint32_t primitive_id{};
-	uint32_t renderables_id{}; // handle into renderables
+	Handle<DrawPrimitive> primitive_id{};
+	Handle<RenderObject> renderable_id{}; // handle into renderables
 	// (!) to do hash
 };
 
@@ -76,9 +87,9 @@ struct RenderScene // (!) forward only for now
 	std::vector<RenderObject> renderables{};
 	std::vector<MultiBatch> multibatches{};
 	std::vector<IndirectBatch> batches{};
-	std::vector<size_t> unbatched_objects{}; // handles for renderables
+	std::vector<uint32_t> unbatched_objects{}; // handles for renderables
 	std::vector<PassObject> pass_objects{};
-	std::vector<DrawPrimitive> primitives = { DrawPrimitive{0,0} };
+	std::vector<DrawPrimitive> primitives{};
 
 	GPUMeshBuffers combined_mesh_buffer{};
 	AllocatedBuffer object_buffer{}; 
@@ -95,6 +106,5 @@ struct RenderScene // (!) forward only for now
 	void build_indirect_buffer();
 	void build_ginstance_buffer();
 	void reset_indirect_buffer(VkCommandBuffer cmd);
-	uint32_t add_primitive(uint32_t start_index, uint32_t count);
 };
 

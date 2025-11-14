@@ -430,8 +430,13 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 		for (auto&& p : mesh.primitives)
 		{
 			GeoSurface new_surface{};
-			new_surface.start_index = static_cast<uint32_t>(indices.size());
-			new_surface.count = static_cast<uint32_t>(gltf.accessors[p.indicesAccessor.value()].count);
+
+			new_surface.primitive_id = static_cast<uint32_t>(file.primitives.size());
+
+			DrawPrimitive new_primitive{};
+			new_primitive.start_index = static_cast<uint32_t>(indices.size());
+			new_primitive.count = static_cast<uint32_t>(gltf.accessors[p.indicesAccessor.value()].count);
+			file.primitives.push_back(new_primitive);
 
 			size_t initial_vtx = vertices.size();
 

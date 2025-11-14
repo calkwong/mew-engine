@@ -1537,6 +1537,7 @@ void VulkanEngine::init_renderables()
 	assert(asset_file.has_value());
 	loaded_scenes["DamagedHelmet"] = *asset_file;
 	render_scene.combined_mesh_buffer = loaded_scenes["DamagedHelmet"]->combined_mesh_buffer;
+	render_scene.primitives = std::move(loaded_scenes["DamagedHelmet"]->primitives);
 
 	{
 		ZoneScopedN("Register objects");
@@ -1549,10 +1550,10 @@ void VulkanEngine::init_renderables()
 		//	const int y = std::rand() % (max - min + 1) + min;
 		//	const int z = std::rand() % (max - min + 1) + min;
 		//	auto offset = glm::translate(glm::mat4(1.0f), glm::vec3(x, y, z) / (float)max);
-		for (auto& n : loaded_scenes["DamagedHelmet"]->top_nodes)
+		for (const auto& n : loaded_scenes["DamagedHelmet"]->top_nodes)
 		{
 			//register_object(*n, offset, main_draw_context);
-			register_object(*n, glm::mat4(1.0f));
+			register_object(n.get(), glm::mat4(1.0f));
 		}
 		//}
 	}
@@ -1602,23 +1603,23 @@ void VulkanEngine::init_bindless()
 	vkUpdateDescriptorSets(device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
 }
 
-void VulkanEngine::register_object(Node& node, const glm::mat4& top_matrix)
+void VulkanEngine::register_object(Node* node, const glm::mat4& top_matrix)
 {
-	glm::mat4 node_matrix = top_matrix * node.world_transform;
-	if (node.mesh != nullptr)
+	glm::mat4 node_matrix = top_matrix * node->world_transform;
+	if (node->mesh != nullptr)
 	{
-		for (auto& s : node.mesh->surfaces)
+		for (auto& s : node->mesh->surfaces)
 		{
 			RenderObject obj{};
-			obj.primitive_id = render_scene.add_primitive(s.start_index, s.count);
+			obj.primitive_id.handle = s.primitive_id;
 
-			obj.material_buffer_address = node.mesh->material_buffer_address;
+			obj.material_buffer_address = node->mesh->material_buffer_address;
 			obj.material = &material_cache.data[s.material]; // refactor into render obj material* into uint32_t handle?
 			obj.material_id = s.material_id;
 			obj.bounds = s.bounds;
 			obj.transform = node_matrix;
 
-			size_t handle = render_scene.renderables.size();
+			uint32_t handle = static_cast<uint32_t>(render_scene.renderables.size());
 			render_scene.renderables.push_back(obj);
 
 			if (s.pass == MaterialPass::Blend)
@@ -1627,20 +1628,18 @@ void VulkanEngine::register_object(Node& node, const glm::mat4& top_matrix)
 			}
 			else // OPAQUE and MASK
 			{
-				//ctx.opaque_objects.push_back(obj);
 				render_scene.unbatched_objects.push_back(handle);
 			}
 		}
 	}
 
-	for (auto& c : node.children)
-		register_object(*c, top_matrix);
+	for (const auto& c : node->children)
+		register_object(c.get(), top_matrix);
 }
 
 void VulkanEngine::update_scene()
 {
 	stats.draw_count = 0;
-
 	auto start = std::chrono::system_clock::now();
 
 	main_camera.update(stats.deltatime);
@@ -1660,7 +1659,7 @@ void VulkanEngine::update_scene()
 	}
 	scene_data.camera_pos = glm::vec4(main_camera.position, 1.0);
 
-	// uncomment if registering objects here
+	// (!) uncomment if registering objects here
 	//render_scene.renderables.clear();
 	//render_scene.unbatched_objects.clear();
 
@@ -1722,6 +1721,7 @@ VkShaderModule ShaderCache::add_shader(VkDevice device, const char* path)
 
 uint32_t MaterialCache::add_material(ShaderPass* forward, ShaderPass* shadow)
 {
+	// (!) highly inefficient due to linear search, refactor
 	for (size_t i = 0; i < data.size(); i++)
 	{
 		if (data[i].forward_pass == forward && data[i].shadow_pass == shadow)
