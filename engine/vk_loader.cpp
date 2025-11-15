@@ -2,10 +2,12 @@
 
 #include "vk_engine.h"
 #include "vk_types.h"
+#include "vk_images.h"
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 #include "mikktspace.h"
+#include "basisu_transcoder.h"
 
 #include <vulkan/vulkan.h>
 #include <glm/gtx/quaternion.hpp>
@@ -17,6 +19,213 @@
 #include <limits>
 #include <optional>
 #include <vector>
+#include <fstream>
+#include <filesystem>
+#include <variant>
+
+bool read_ktx2_file(const char* filename, std::vector<uint8_t>& ktx_data)
+{
+	// cursor at the end
+	std::ifstream file(filename, std::ios::ate | std::ios::binary);
+
+	if (!file.is_open()) {
+		return false;
+	}
+
+	// find what the size of the file is by looking up the location of the cursor
+	// because the cursor is at the end, it gives the size directly in bytes
+	size_t file_size = static_cast<size_t>(file.tellg());
+
+	// spirv expects the buffer to be on uint32, so make sure to reserve a int
+	// vector big enough for the entire file
+	std::vector<uint8_t> buffer(file_size);
+
+	// put file cursor at beginning
+	file.seekg(0);
+
+	// load the entire file into the buffer
+	file.read((char*)buffer.data(), file_size);
+
+	// now that the file is loaded into the buffer, we can close it
+	file.close();
+
+	ktx_data = std::move(buffer);
+
+	return true;
+}
+
+AllocatedImage basisu_load(VulkanEngine* engine, const char* filepath)
+{
+	AllocatedImage new_image{};
+
+	unsigned char* data{};
+
+	std::vector<uint8_t> buffer{};
+
+	if (!read_ktx2_file(filepath, buffer))
+	{
+		assert(0);
+	}
+
+	// create the KTX2 transcoder object
+	basist::ktx2_transcoder transcoder{};
+
+	// initialize the transcoder
+	if (!transcoder.init(buffer.data(), buffer.size()))
+	{
+		assert(0);
+	}
+
+	auto target_format = basist::transcoder_texture_format::cTFBC7_RGBA;
+
+	VkFormat vk_format{};
+	auto transfer_func = transcoder.get_dfd_transfer_func();
+	switch (transfer_func)
+	{
+	case basist::KTX2_KHR_DF_TRANSFER_SRGB:
+		vk_format = VK_FORMAT_BC7_SRGB_BLOCK;
+		break;
+	case basist::KTX2_KHR_DF_TRANSFER_LINEAR:
+		vk_format = VK_FORMAT_BC7_UNORM_BLOCK;
+		break;
+	}
+
+	std::vector<basist::ktx2_image_level_info> level_infos(transcoder.get_levels());
+	const uint32_t mip_level = transcoder.get_levels();
+
+	for (uint32_t i = 0; i < mip_level; i++)
+	{
+		transcoder.get_image_level_info(level_infos[i], i, 0, 0);
+	}
+
+	const uint32_t width = level_infos[0].m_orig_width;
+	const uint32_t height = level_infos[0].m_orig_height;
+
+	const uint32_t bytes_per_block_or_pixel = basist::basis_get_bytes_per_block_or_pixel(target_format);
+	uint32_t num_blocks_or_pixels = 0;
+	VkDeviceSize buffer_size = 0;
+
+	for (uint32_t i = 0; i < mip_level; i++)
+	{
+		num_blocks_or_pixels = level_infos[i].m_total_blocks;
+		buffer_size += bytes_per_block_or_pixel * num_blocks_or_pixels;
+	}
+
+	auto header = transcoder.get_header();
+	auto ss = header.m_supercompression_scheme;
+	if (ss == basist::KTX2_SS_NONE)
+	{
+		assert(0); // (!) transcoding not req, verify in GPU ready format
+	}
+
+	transcoder.start_transcoding();
+
+	std::vector<char> ktx_data(buffer_size);
+	char* ktx_data_ptr = ktx_data.data();
+
+	for (uint32_t i = 0; i < mip_level; i++)
+	{
+		num_blocks_or_pixels = level_infos[i].m_total_blocks;
+		uint32_t output_size = bytes_per_block_or_pixel * num_blocks_or_pixels;
+		if (!transcoder.transcode_image_level(i, 0, 0, ktx_data_ptr, output_size, target_format))
+			assert(0);
+		ktx_data_ptr += output_size;
+	}
+
+	AllocatedBuffer upload_buffer = engine->create_buffer(buffer_size, VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT, VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
+
+	memcpy(upload_buffer.info.pMappedData, ktx_data.data(), buffer_size);
+
+	std::vector<VkBufferImageCopy> copy_regions{};
+
+	auto buffer_offset = 0;
+	for (uint32_t i = 0; i < mip_level; i++)
+	{
+		num_blocks_or_pixels = level_infos[i].m_total_blocks;
+		auto offset = bytes_per_block_or_pixel * num_blocks_or_pixels;
+
+		VkBufferImageCopy copy_region{};
+		copy_region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		copy_region.imageSubresource.mipLevel = i;
+		copy_region.imageSubresource.baseArrayLayer = 0;
+		copy_region.imageSubresource.layerCount = 1;
+		copy_region.imageExtent = VkExtent3D{ level_infos[i].m_orig_width, level_infos[i].m_orig_height, 1 };
+		copy_region.bufferOffset = buffer_offset;
+		copy_regions.push_back(copy_region);
+
+		buffer_offset += offset;
+	}
+
+	VkExtent3D vk_extent = VkExtent3D{ level_infos[0].m_orig_width, level_infos[0].m_orig_height, 1};
+	new_image = engine->create_image(vk_extent, vk_format, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT, 0, true);
+
+	// image creation
+	//{
+	//	new_image.format = vk_format;
+
+	//	VkImageCreateInfo img_info{};
+	//	img_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+	//	img_info.imageType = VK_IMAGE_TYPE_2D;
+	//	img_info.format = vk_format;
+	//	img_info.extent = new_image.extent;
+	//	img_info.mipLevels = mip_level;
+	//	img_info.arrayLayers = 1;
+	//	img_info.samples = VK_SAMPLE_COUNT_1_BIT;
+	//	img_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+	//	img_info.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+
+	//	VmaAllocationCreateInfo alloc_info{};
+	//	alloc_info.flags = 0;
+	//	alloc_info.usage = VMA_MEMORY_USAGE_AUTO;
+	//	alloc_info.requiredFlags = VkMemoryPropertyFlagBits(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+	//	VK_CHECK(vmaCreateImage(engine->allocator, &img_info, &alloc_info, &new_image.image, &new_image.allocation, nullptr));
+
+	//	VkImageViewCreateInfo info{};
+
+	//	info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+	//	info.image = new_image.image;
+	//	info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+	//	info.format = vk_format;
+
+	//	VkImageSubresourceRange sub_image{};
+
+	//	sub_image.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	//	sub_image.baseMipLevel = 0;
+	//	sub_image.levelCount = VK_REMAINING_MIP_LEVELS;
+	//	sub_image.baseArrayLayer = 0;
+	//	sub_image.layerCount = VK_REMAINING_ARRAY_LAYERS;
+	//	info.subresourceRange = sub_image; // (!) layer and level count with remaining
+
+	//	VK_CHECK(vkCreateImageView(engine->device, &info, nullptr, &new_image.view));
+	//}
+
+	engine->immediate_submit([&](VkCommandBuffer cmd) {
+		vkutil::transition_image(
+			cmd, new_image.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+			0,
+			VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+			0,
+			VK_ACCESS_2_TRANSFER_WRITE_BIT
+		);
+
+		vkCmdCopyBufferToImage(cmd, upload_buffer.buffer, new_image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, copy_regions.size(), copy_regions.data());
+
+		vkutil::transition_image(
+			cmd, new_image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+			VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+			VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+			VK_ACCESS_2_TRANSFER_WRITE_BIT,
+			VK_ACCESS_2_SHADER_READ_BIT
+		);
+
+
+	});
+
+	engine->destroy_buffer(upload_buffer);
+
+	return new_image;
+}
 
 VkFilter extract_filter(fastgltf::Filter filter)
 {
@@ -68,15 +277,25 @@ std::optional<AllocatedImage> load_image(VulkanEngine* engine, fastgltf::Asset& 
 
 					//std::string current_path = "../../assets/khronos_sponza/" + path; // (!) TODO handle this properly
 					//std::string current_path = "../../assets/bistro_interior/" + path; // (!) TODO handle this properly
-					std::string current_path = "../../assets/bistro_exterior/" + path; // (!) TODO handle this properly
-					unsigned char* data = stbi_load(current_path.c_str(), &width, &height, &channels, 4);
-					if (data)
-					{
-						VkExtent3D image_size{ static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1 };
-						new_image = engine->create_image(data, image_size, format, VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT, 0, mipmapped);
+					//std::string current_path = "../../assets/bistro_exterior/" + path; // (!) TODO handle this properly
+					std::string current_path = "../../assets/glTF-KTX-BasisU/" + path; // (!) TODO handle this properly
 
-						stbi_image_free(data);
+					std::filesystem::path p = path;
+					if (p.extension() == ".ktx2")
+					{
+						new_image = basisu_load(engine, current_path.c_str());
 					}
+					else
+					{
+						unsigned char* data = stbi_load(current_path.c_str(), &width, &height, &channels, 4);
+						if (data)
+						{
+							VkExtent3D image_size{ static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1 };
+							new_image = engine->create_image(data, image_size, format, VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT, 0, mipmapped);
+							stbi_image_free(data);
+						}
+					}
+
 				},
 			[&](fastgltf::sources::Vector& vector) {
 					unsigned char* data = stbi_load_from_memory(vector.bytes.data(), static_cast<int>(vector.bytes.size()), &width, &height, &channels, 4);
@@ -134,7 +353,10 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 	LoadedGLTF& file = *scene;
 
 	// testing extensions
-	constexpr auto enabled_extensions = fastgltf::Extensions::KHR_lights_punctual;
+	constexpr auto enabled_extensions =
+		fastgltf::Extensions::KHR_lights_punctual |
+		fastgltf::Extensions::KHR_texture_basisu;
+	//fastgltf::Extensions::KHR_materials_transmission;
 
 	fastgltf::Parser parser(enabled_extensions);
 	//fastgltf::Parser parser{};
@@ -209,13 +431,41 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 	std::vector<std::shared_ptr<Node>> nodes{};
 	std::vector<MaterialInfo> materials{}; // id
 
-	// image loading deferred to material creation to prevent performance overhead from image_create_mutable_bit
 	fmt::println("gltf file has {} images", gltf.images.size());
 	std::vector<AllocatedImage> images(gltf.images.size());
-	std::vector<bool> images_set(gltf.images.size());
 
-	//for (fastgltf::Image& image : gltf.images)
-	//	fmt::println("image: {}", image.name.c_str()); // debug
+	// (!) currently supports ktx2 in URI only
+	bool is_ktx2{};
+	std::visit(
+		fastgltf::visitor{
+			[](auto& arg) {},
+			[&](fastgltf::sources::URI& filePath) {
+				assert(filePath.uri.isLocalPath()); // only capable of loading local files
+				const std::string filename(filePath.uri.path().begin(), filePath.uri.path().end());
+				std::filesystem::path path = filename;
+				if (path.extension() == ".ktx2")
+					is_ktx2 = true;
+				}
+		},
+		gltf.images[0].data
+	);
+
+	if (is_ktx2)
+	{
+		basist::basisu_transcoder_init();
+
+		for (size_t idx = 0; idx < gltf.images.size(); idx++)
+		{
+			fastgltf::Image& image = gltf.images[idx];
+			//fmt::println("image: {}", image.name.c_str()); // debug
+			std::optional<AllocatedImage> img = load_image(engine, gltf, image, VK_FORMAT_R8G8B8A8_SRGB, true);
+			if (img.has_value())
+			{
+				images[idx] = (*img);
+				file.images[std::to_string(idx).c_str()] = images[idx];
+			}
+		}
+	}
 
 	fmt::println("gltf file has {} materials", gltf.materials.size());
 	const size_t materials_size = (gltf.materials.size() > 0) ? gltf.materials.size() : 1; // default material fallback
@@ -232,7 +482,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 	{
 		MaterialData mat_data{};
 		scene_material_data[0] = mat_data;
-		materials.emplace_back(MaterialInfo{MaterialPass::Opaque, 0});
+		materials.emplace_back(MaterialInfo{ MaterialPass::Opaque, 0 });
 	}
 
 	VkBufferDeviceAddressInfo address_info{};
@@ -240,6 +490,28 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 	address_info.buffer = file.material_buffer.buffer;
 
 	file.material_buffer_address = vkGetBufferDeviceAddress(engine->device, &address_info);
+
+	// if !is_ktx2, image loading deferred to material creation to prevent performance overhead from image_create_mutable_bit
+	std::vector<bool> images_set(gltf.images.size());
+
+	auto deferred_load = [&](size_t idx, VkFormat format) {
+		std::optional<AllocatedImage> img{};
+		if (!images_set[idx])
+		{
+			images_set[idx] = true;
+			img = load_image(engine, gltf, gltf.images[idx], format, true);
+			if (img.has_value())
+			{
+				images[idx] = (*img);
+				file.images[std::to_string(idx).c_str()] = images[idx];
+			}
+			else
+			{
+				images[idx] = engine->error_image;
+				img = engine->error_image;
+			}
+		}
+	};
 
 	// need to implement MaterialCache as its common for gltf to have same material under different name
 	// current implementation simply duplicates this in the material buffer
@@ -258,136 +530,69 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 		
 		if (mat.pbrData.baseColorTexture.has_value())
 		{
-			size_t idx = gltf.textures[mat.pbrData.baseColorTexture.value().textureIndex].imageIndex.value();
+			size_t idx = is_ktx2 
+				? gltf.textures[mat.pbrData.baseColorTexture.value().textureIndex].basisuImageIndex.value() 
+				: gltf.textures[mat.pbrData.baseColorTexture.value().textureIndex].imageIndex.value();
 			//size_t sampler = gltf.textures[mat.pbrData.baseColorTexture.value().textureIndex].samplerIndex.value();
 			
-			std::optional<AllocatedImage> img{};
-			if (!images_set[idx])
-			{
-				images_set[idx] = true;
-				img = load_image(engine, gltf, gltf.images[idx], VK_FORMAT_R8G8B8A8_SRGB, true); 
-				if (img.has_value())
-				{
-					images[idx] = (*img);
-					file.images[std::to_string(idx).c_str()] = images[idx];
-				}
-				else
-				{
-					images.push_back(engine->error_image); 
-					img = engine->error_image;
-				}
-			}
-			else
-			{
-				img = images[idx];
-			}
-			mat_data.diffuse_id = engine->texture_cache.add_texture(img.value().view); // img guaranteed to have value
+			if (!is_ktx2)
+				deferred_load(idx, VK_FORMAT_R8G8B8A8_SRGB);
+			AllocatedImage img = images[idx];
+
+			mat_data.diffuse_id = engine->texture_cache.add_texture(img.view); // img guaranteed to have value
 		}
 
 		if (mat.pbrData.metallicRoughnessTexture.has_value())
 		{
-			size_t idx = gltf.textures[mat.pbrData.metallicRoughnessTexture.value().textureIndex].imageIndex.value();
+			size_t idx = is_ktx2
+				? gltf.textures[mat.pbrData.metallicRoughnessTexture.value().textureIndex].basisuImageIndex.value()
+				: gltf.textures[mat.pbrData.metallicRoughnessTexture.value().textureIndex].imageIndex.value();
 			//size_t sampler{ gltf.textures[mat.pbrData.metallicRoughnessTexture.value().textureIndex].samplerIndex.value() };
 			
-			std::optional<AllocatedImage> img{};
-			if (!images_set[idx])
-			{
-				images_set[idx] = true;
-				img = load_image(engine, gltf, gltf.images[idx], VK_FORMAT_R8G8B8A8_UNORM, true);
-				if (img.has_value())
-				{
-					images[idx] = (*img);
-					file.images[std::to_string(idx).c_str()] = images[idx];
-				}
-				else
-				{
-					images.push_back(engine->error_image);
-					img = engine->error_image;
-				}
-			}
-			else
-			{
-				img = images[idx];
-			}
-			mat_data.metal_roughness_id = engine->texture_cache.add_texture(img.value().view);
+			if (!is_ktx2)
+				deferred_load(idx, VK_FORMAT_R8G8B8A8_UNORM);
+			AllocatedImage img = images[idx];
+
+			mat_data.metal_roughness_id = engine->texture_cache.add_texture(img.view);
 		}
 
 		if (mat.normalTexture.has_value())
 		{
-			size_t idx = gltf.textures[mat.normalTexture.value().textureIndex].imageIndex.value();
-			std::optional<AllocatedImage> img{};
-			if (!images_set[idx])
-			{
-				images_set[idx] = true;
-				img = load_image(engine, gltf, gltf.images[idx], VK_FORMAT_R8G8B8A8_UNORM, true);
-				if (img.has_value())
-				{
-					images[idx] = (*img);
-					file.images[std::to_string(idx).c_str()] = images[idx];
-				}
-				else
-				{
-					images.push_back(engine->error_image);
-					img = engine->error_image;
-				}
-			}
-			else
-			{
-				img = images[idx];
-			}
-			mat_data.normal_id = engine->texture_cache.add_texture(img.value().view);
+			size_t idx = is_ktx2
+				? gltf.textures[mat.normalTexture.value().textureIndex].basisuImageIndex.value()
+				: gltf.textures[mat.normalTexture.value().textureIndex].imageIndex.value();
+			
+			if (!is_ktx2)
+				deferred_load(idx, VK_FORMAT_R8G8B8A8_UNORM);
+			AllocatedImage img = images[idx];
+
+			mat_data.normal_id = engine->texture_cache.add_texture(img.view);
 		}
 
 		if (mat.occlusionTexture.has_value())
 		{
-			size_t idx = gltf.textures[mat.occlusionTexture.value().textureIndex].imageIndex.value();
-			std::optional<AllocatedImage> img{};
-			if (!images_set[idx])
-			{
-				images_set[idx] = true;
-				img = load_image(engine, gltf, gltf.images[idx], VK_FORMAT_R8G8B8A8_UNORM, true);
-				if (img.has_value())
-				{
-					images[idx] = (*img);
-					file.images[std::to_string(idx).c_str()] = images[idx];
-				}
-				else
-				{
-					images.push_back(engine->error_image);
-					img = engine->error_image;
-				}
-			}
-			else
-			{
-				img = images[idx];
-			}
-			mat_data.occlusion_id = engine->texture_cache.add_texture(img.value().view);
+			size_t idx = is_ktx2
+				? gltf.textures[mat.occlusionTexture.value().textureIndex].basisuImageIndex.value()
+				: gltf.textures[mat.occlusionTexture.value().textureIndex].imageIndex.value();
+			
+			if (!is_ktx2)
+				deferred_load(idx, VK_FORMAT_R8G8B8A8_UNORM);
+			AllocatedImage img = images[idx];
+
+			mat_data.occlusion_id = engine->texture_cache.add_texture(img.view);
 		}
 
 		if (mat.emissiveTexture.has_value())
 		{
-			size_t idx = gltf.textures[mat.emissiveTexture.value().textureIndex].imageIndex.value();
-			std::optional<AllocatedImage> img{};
-			if (!images_set[idx])
-			{
-				images_set[idx] = true;
-				img = load_image(engine, gltf, gltf.images[idx], VK_FORMAT_R8G8B8A8_SRGB, true);
-				if (img.has_value())
-				{
-					images[idx] = (*img);
-					file.images[std::to_string(idx).c_str()] = images[idx];
-				}
-				else
-				{
-					images.push_back(engine->error_image);
-					img = engine->error_image;
-				}
-			}
-			else
-			{
-				img = images[idx];
-			}
-			mat_data.emissive_id = engine->texture_cache.add_texture(img.value().view);
+			size_t idx = is_ktx2
+				? gltf.textures[mat.emissiveTexture.value().textureIndex].basisuImageIndex.value()
+				: gltf.textures[mat.emissiveTexture.value().textureIndex].imageIndex.value();
+			
+			if (!is_ktx2)
+				deferred_load(idx, VK_FORMAT_R8G8B8A8_SRGB);
+			AllocatedImage img = images[idx];
+
+			mat_data.emissive_id = engine->texture_cache.add_texture(img.view);
 		}
 		
 		scene_material_data[material_idx] = mat_data;

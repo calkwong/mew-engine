@@ -1235,7 +1235,7 @@ AllocatedImage VulkanEngine::create_image(VkExtent3D extent, VkFormat format, Vk
 AllocatedImage VulkanEngine::create_image(void* data, VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspect, VmaAllocationCreateFlags flags /*= 0*/, bool mipmapped /*= false*/)
 {
 	size_t data_size = extent.depth * extent.width * extent.height * 4; // 4 is # of channels
-	if (format == VK_FORMAT_R32G32B32A32_SFLOAT)
+	if (format == VK_FORMAT_R32G32B32A32_SFLOAT) // (!) review - hdr?
 		data_size *= sizeof(float);
 	AllocatedBuffer upload_buffer = create_buffer(data_size, VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT, VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
 	
@@ -1525,7 +1525,8 @@ void VulkanEngine::init_renderables()
 	//std::string asset_path = "../../assets/plants.gltf";
 	//std::string asset_path = "../../assets/khronos_sponza/Sponza.gltf";
 	//std::string asset_path = "../../assets/bistro_interior/BistroInterior_Wine.gltf";
-	std::string asset_path = "../../assets/bistro_exterior/BistroExterior.gltf";
+	//std::string asset_path = "../../assets/bistro_exterior/BistroExterior.gltf";
+	std::string asset_path = "../../assets/glTF-KTX-BasisU/StainedGlassLamp.gltf";
 	//std::string asset_path = "../../assets/AlphaBlendModeTest.glb";
 	//std::string asset_path = "../../assets/terrain_gridlines.gltf";
 	auto start{ std::chrono::system_clock::now() };

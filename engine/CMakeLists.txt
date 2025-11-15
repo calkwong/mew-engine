@@ -62,6 +62,7 @@ target_link_libraries(engine PUBLIC
 	fastgltf::fastgltf
 	mikktspace
 	Tracy::TracyClient
+	basisu
 )
 
 target_precompile_headers(engine PUBLIC <optional> <vector> <memory> <string> <vector> <unordered_map> <glm/mat4x4.hpp>  <glm/vec4.hpp> <vulkan/vulkan.h>)

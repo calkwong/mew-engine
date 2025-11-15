@@ -5,6 +5,7 @@ add_library(glm INTERFACE)
 add_library(vma INTERFACE)
 add_library(stb_image INTERFACE)
 add_library(mikktspace STATIC)
+add_library(basisu STATIC)
 
 add_subdirectory(fastgltf)
 add_subdirectory(fmt EXCLUDE_FROM_ALL)
@@ -33,3 +34,20 @@ target_sources(mikktspace PRIVATE
 option(TRACY_ENABLE "" ON) 
 option(TRACY_ON_DEMAND "" ON)
 add_subdirectory(tracy) # v0.12.2
+
+target_include_directories(basisu PUBLIC basisu/transcoder basisu/zstd)
+target_sources(basisu PRIVATE
+	basisu/transcoder/basisu.h
+	basisu/transcoder/basisu_astc_hdr_core.h
+	basisu/transcoder/basisu_astc_helpers.h
+	basisu/transcoder/basisu_containers.h
+	basisu/transcoder/basisu_containers_impl.h
+	basisu/transcoder/basisu_file_headers.h
+	basisu/transcoder/basisu_transcoder.cpp
+	basisu/transcoder/basisu_transcoder.h
+	basisu/transcoder/basisu_transcoder_internal.h
+	basisu/transcoder/basisu_transcoder_uastc.h
+	basisu/zstd/zstddeclib.c
+	basisu/zstd/zstd.c
+	basisu/zstd/zstd.h
+	)
