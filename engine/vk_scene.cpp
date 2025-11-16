@@ -7,22 +7,22 @@
 #include <algorithm>
 
 // PREREQ: pass objects
-void RenderScene::build_indirect_batch()
+void RenderScene::build_indirect_batch(MeshPass& pass)
 {
-	batches.clear();
+	pass.batches.clear();
 
 	Handle<DrawPrimitive> last_primitive{};
 	ShaderPass* last_material{};
 
-	for (size_t i = 0; i < pass_objects.size(); i++)
+	for (size_t i = 0; i < pass.pass_objects.size(); i++)
 	{
-		PassObject& obj = pass_objects[i];
+		PassObject& obj = pass.pass_objects[i];
 
 		bool same_primitive = obj.primitive_id.handle == last_primitive.handle; 
 		bool same_material = obj.material == last_material;
 
 		if (same_primitive && same_material)
-			batches.back().count++;
+			pass.batches.back().count++;
 		else
 		{
 			last_primitive = obj.primitive_id; 
@@ -33,24 +33,24 @@ void RenderScene::build_indirect_batch()
 			new_batch.forward_pass = last_material;
 			new_batch.first = static_cast<uint32_t>(i);
 			new_batch.count = 1;
-			batches.push_back(new_batch);
+			pass.batches.push_back(new_batch);
 		}
 	}
 }
 
 // PREREQ: indirect batch
-void RenderScene::build_multi_batch()
+void RenderScene::build_multi_batch(MeshPass& pass)
 {
-	multibatches.clear();
+	pass.multibatches.clear();
 
 	ShaderPass* last_material{};
-	for (size_t i = 0; i < batches.size(); i++)
+	for (size_t i = 0; i < pass.batches.size(); i++)
 	{
-		ShaderPass* new_material = batches[i].forward_pass;
+		ShaderPass* new_material = pass.batches[i].forward_pass;
 
 		if (last_material == new_material)
 		{
-			multibatches.back().count++;
+			pass.multibatches.back().count++;
 		}
 		else
 		{
@@ -59,24 +59,24 @@ void RenderScene::build_multi_batch()
 			MultiBatch multibatch{};
 			multibatch.first = static_cast<uint32_t>(i);
 			multibatch.count = 1;
-			multibatches.push_back(multibatch);
+			pass.multibatches.push_back(multibatch);
 		}
 
 	}
 }
 
 // PREREQ: pass objects
-void RenderScene::build_indirect_buffer()
+void RenderScene::build_indirect_buffer(MeshPass& pass)
 {
-	VkDrawIndexedIndirectCommand* draw_commands = static_cast<VkDrawIndexedIndirectCommand*>(clear_indirect_buffer.info.pMappedData);
+	VkDrawIndexedIndirectCommand* draw_commands = static_cast<VkDrawIndexedIndirectCommand*>(pass.clear_indirect_buffer.info.pMappedData);
 
-	for (size_t i = 0; i < batches.size(); i++)
+	for (size_t i = 0; i < pass.batches.size(); i++)
 	{
 		VkDrawIndexedIndirectCommand draw_command{};
 
-		uint32_t pass_object_id = batches[i].first;
+		uint32_t pass_object_id = pass.batches[i].first;
 
-		const DrawPrimitive& primitive = primitives[pass_objects[pass_object_id].primitive_id.handle];
+		const DrawPrimitive& primitive = primitives[pass.pass_objects[pass_object_id].primitive_id.handle];
 		draw_command.indexCount = primitive.count;
 		draw_command.instanceCount = 0;
 		draw_command.firstIndex = primitive.start_index;
@@ -87,14 +87,14 @@ void RenderScene::build_indirect_buffer()
 	}
 }
 
-void RenderScene::reset_indirect_buffer(VkCommandBuffer cmd)
+void RenderScene::reset_indirect_buffer(MeshPass& pass, VkCommandBuffer cmd)
 {
 	VkBufferCopy copy{};
 	copy.dstOffset = 0;
 	copy.srcOffset = 0;
-	copy.size = clear_indirect_buffer.info.size;
+	copy.size = pass.clear_indirect_buffer.info.size;
 
-	vkCmdCopyBuffer(cmd, clear_indirect_buffer.buffer, draw_indirect_buffer.buffer, 1, &copy);
+	vkCmdCopyBuffer(cmd, pass.clear_indirect_buffer.buffer, pass.draw_indirect_buffer.buffer, 1, &copy);
 }
 
 void RenderScene::build_object_buffer()
@@ -113,9 +113,9 @@ void RenderScene::build_object_buffer()
 }
 
 // PREREQ: unbatched objects
-void RenderScene::build_pass_objects()
+void RenderScene::build_pass_objects(MeshPass& pass)
 {
-	for (uint32_t o : unbatched_objects)
+	for (uint32_t o : pass.unbatched_objects)
 	{
 		const RenderObject& obj = renderables[o];
 
@@ -124,34 +124,33 @@ void RenderScene::build_pass_objects()
 		pass_obj.renderable_id.handle = o;
 		pass_obj.material = obj.material->forward_pass; // (!) hardcoded
 
-		pass_objects.push_back(pass_obj);
+		pass.pass_objects.push_back(pass_obj);
 	}
 }
 
-void RenderScene::sort_objects()
+void RenderScene::sort_objects(MeshPass& pass)
 {
-	std::sort(pass_objects.begin(), pass_objects.end(), [&](const PassObject& a, const PassObject& b) {
+	std::sort(pass.pass_objects.begin(), pass.pass_objects.end(), [&](const PassObject& a, const PassObject& b) {
 		if (a.material != b.material)
 			return a.material < b.material;
 		else
-			//return renderables[a.handle].index_buffer < renderables[b.handle].index_buffer;
 			return a.primitive_id.handle < b.primitive_id.handle;
 		});
 }
 
 // PREREQ: object buffer, indirect batch & pass objects
-void RenderScene::build_ginstance_buffer()
+void RenderScene::build_ginstance_buffer(MeshPass& pass)
 {
-	GPUInstance* ginstance_data = static_cast<GPUInstance*>(ginstance_buffer.info.pMappedData);
+	GPUInstance* ginstance_data = static_cast<GPUInstance*>(pass.ginstance_buffer.info.pMappedData);
 
 	size_t index{};
-	for (size_t i = 0; i < batches.size(); i++)
+	for (size_t i = 0; i < pass.batches.size(); i++)
 	{
-		const auto& batch = batches[i];
+		const auto& batch = pass.batches[i];
 		
 		for (uint32_t b = 0; b < batch.count; b++)
 		{
-			ginstance_data[index].object_id = pass_objects[index].renderable_id.handle;
+			ginstance_data[index].object_id = pass.pass_objects[index].renderable_id.handle;
 			ginstance_data[index].batch_id = static_cast<uint32_t>(i);
 			index++;
 		}

@@ -96,28 +96,37 @@ struct MeshAsset;
 
 struct RenderScene // (!) forward only for now
 {
+	struct MeshPass
+	{
+		std::vector<MultiBatch> multibatches{};
+		std::vector<IndirectBatch> batches{};
+		std::vector<uint32_t> unbatched_objects{}; // handles for renderables
+		std::vector<PassObject> pass_objects{};
+
+		AllocatedBuffer instance_buffer{};
+		AllocatedBuffer ginstance_buffer{};
+		AllocatedBuffer draw_indirect_buffer{};
+		AllocatedBuffer clear_indirect_buffer{};
+	};
+
 	std::vector<RenderObject> renderables{};
-	std::vector<MultiBatch> multibatches{};
-	std::vector<IndirectBatch> batches{};
-	std::vector<uint32_t> unbatched_objects{}; // handles for renderables
-	std::vector<PassObject> pass_objects{};
 	std::vector<DrawPrimitive> primitives{};
 	std::unordered_map<MeshAsset*, Handle<DrawPrimitive>> mesh_cache{};
 
 	GPUMeshBuffers combined_mesh_buffer{};
 	AllocatedBuffer object_buffer{}; 
-	AllocatedBuffer instance_buffer{};
-	AllocatedBuffer ginstance_buffer{};
-	AllocatedBuffer draw_indirect_buffer{};
-	AllocatedBuffer clear_indirect_buffer{};
 
-	void build_pass_objects();
-	void sort_objects(); // sorts pass objects
+	MeshPass shadow_pass{};
+	MeshPass forward_pass{};
+	MeshPass transparent_pass{};
+
+	void build_pass_objects(MeshPass& pass);
+	void sort_objects(MeshPass& pass); // sorts pass objects
 	void build_object_buffer();
-	void build_indirect_batch();
-	void build_multi_batch();
-	void build_indirect_buffer();
-	void build_ginstance_buffer();
-	void reset_indirect_buffer(VkCommandBuffer cmd);
+	void build_indirect_batch(MeshPass& pass);
+	void build_multi_batch(MeshPass& pass);
+	void build_indirect_buffer(MeshPass& pass);
+	void build_ginstance_buffer(MeshPass& pass);
+	void reset_indirect_buffer(MeshPass& pass, VkCommandBuffer cmd);
 };
 

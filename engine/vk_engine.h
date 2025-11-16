@@ -299,8 +299,8 @@ public:
 	void update_cascade();
 	void draw_imgui(VkCommandBuffer cmd, VkImageView swapchain_view);
 	void ready_mesh_draw();
-	CullData ready_cull_data(glm::mat4& viewproj, bool orthographic = false);
-	void execute_compute_cull(VkCommandBuffer cmd, CullData& cull_data);
+	CullData ready_cull_data(RenderScene::MeshPass& pass, glm::mat4& viewproj, bool orthographic = false);
+	void execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPass& pass, CullData& cull_data);
 
 private:
 	void init_vulkan();

@@ -47,6 +47,7 @@ constexpr bool USE_VALIDATION_LAYERS = true;
 
 constexpr float LIGHT_FAR_PLANE{ 150.0f };
 constexpr uint32_t SHADOW_MAP_SIZE{ 2048 };
+constexpr int NUMBER_OF_CASCADES{ 4 };
 
 AutoCVar_Int CVAR_SHADOW_NEAR{ "shadow.near", "pull back light frustum near plane", -20, -20, CVarFlags::EditSliderInt };
 AutoCVar_Int CVAR_PROPER_SHADOW{ "shadow.double_sided", "render shadows for double sided geometry", 0, 0, CVarFlags::EditCheckbox };
@@ -85,47 +86,6 @@ bool is_visible(const std::array<glm::vec4, 6>& frustum_planes, const RenderObje
 
 	return visible;
 }
-
-// (!) TODO: implement hash
-//void sort_materials(const std::vector<RenderObject>& renderables, std::vector<size_t>& visible_indices)
-//{
-//	std::vector<size_t> sorted(visible_indices.size());
-//
-//	for (size_t i = 0; i < visible_indices.size(); i++)
-//	{
-//		sorted[i] = i;
-//	}
-//
-//	std::sort(sorted.begin(), sorted.end(), [&](auto iA, auto iB) {
-//		const RenderObject& oA = renderables[visible_indices[iA]];
-//		const RenderObject& oB = renderables[visible_indices[iB]];
-//
-//		if (oA.material != oB.material)
-//			return oA.material < oB.material;
-//		else
-//			return oA.index_buffer < oB.index_buffer;
-//		});
-//
-//
-//	for (size_t i = 0; i < sorted.size(); i++)
-//	{
-//		size_t idx = sorted[i];
-//		sorted[i] = visible_indices[idx];
-//	}
-//	
-//	visible_indices = std::move(sorted);
-//}
-
-// (!) sort gpu driven
-//void sort_materials(std::vector<RenderObject>& renderables)
-//{
-//	std::sort(renderables.begin(), renderables.end(), [&](const RenderObject& oA, const RenderObject& oB) {
-//		if (oA.material != oB.material)
-//			return oA.material < oB.material;
-//		else
-//			return oA.index_buffer < oB.index_buffer;
-//		});
-//}
 
 void sort_transparency(const std::vector<RenderObject>& renderables, const Camera& cam, std::vector<size_t>& visible_indices)
 {
@@ -281,10 +241,10 @@ void VulkanEngine::cleanup()
 		}
 		
 		destroy_buffer(render_scene.object_buffer);
-		destroy_buffer(render_scene.instance_buffer);
-		destroy_buffer(render_scene.ginstance_buffer);
-		destroy_buffer(render_scene.draw_indirect_buffer);
-		destroy_buffer(render_scene.clear_indirect_buffer);
+		destroy_buffer(render_scene.forward_pass.instance_buffer);
+		destroy_buffer(render_scene.forward_pass.ginstance_buffer);
+		destroy_buffer(render_scene.forward_pass.draw_indirect_buffer);
+		destroy_buffer(render_scene.forward_pass.clear_indirect_buffer);
 
 		for (const auto& [k, v] : shader_passes)
 		{
@@ -324,10 +284,13 @@ void VulkanEngine::draw()
 
 	ready_mesh_draw();
 
-	CullData cull_data{};
+
+	std::array<CullData, NUMBER_OF_CASCADES> shadow_cull_data{};
+	CullData forward_cull_data{};
+	CullData transparent_cull_data{};
 	{
 		ZoneScopedN("Ready cull data");
-		cull_data = ready_cull_data(scene_data.viewproj);
+		forward_cull_data = ready_cull_data(render_scene.forward_pass, scene_data.viewproj);
 	}
 
 	uint32_t swapchain_image_idx{};
@@ -359,8 +322,8 @@ void VulkanEngine::draw()
 	}
 
 	{
-		TracyVkZone(tracy_ctx, get_current_frame().main_command_buffer, "Compute cull");
-		execute_compute_cull(cmd, cull_data);
+		TracyVkZone(tracy_ctx, get_current_frame().main_command_buffer, "Forward compute cull");
+		execute_compute_cull(cmd, render_scene.forward_pass, forward_cull_data);
 	}
 
 	{
@@ -1523,9 +1486,9 @@ void VulkanEngine::init_renderables()
 	//std::string asset_path = "../../assets/ABeautifulGame.glb";
 	//std::string asset_path = "../../assets/sphere.gltf";
 	//std::string asset_path = "../../assets/plants.gltf";
-	//std::string asset_path = "../../assets/khronos_sponza/Sponza.gltf";
+	std::string asset_path = "../../assets/khronos_sponza/Sponza.gltf";
 	//std::string asset_path = "../../assets/bistro_interior_wine_ktx2/BistroInterior_Wine.gltf";
-	std::string asset_path = "../../assets/bistro_exterior_ktx2/BistroExterior.gltf";
+	//std::string asset_path = "../../assets/bistro_exterior_ktx2/BistroExterior.gltf";
 	//std::string asset_path = "../../assets/DamagedHelmet/glTF/DamagedHelmet.gltf";
 	//std::string asset_path = "../../assets/AlphaBlendModeTest.glb";
 	auto start{ std::chrono::system_clock::now() };
@@ -1646,7 +1609,7 @@ void VulkanEngine::register_object(Node* node, const glm::mat4& top_matrix)
 			}
 			else // OPAQUE and MASK
 			{
-				render_scene.unbatched_objects.push_back(handle);
+				render_scene.forward_pass.unbatched_objects.push_back(handle);
 			}
 		}
 	}
@@ -1815,7 +1778,7 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 	address_info.buffer = render_scene.object_buffer.buffer;
 	gpc.object_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
 
-	address_info.buffer = render_scene.instance_buffer.buffer;
+	address_info.buffer = render_scene.forward_pass.instance_buffer.buffer;
 	gpc.instance_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
 	gpc.vertex_buffer_address = render_scene.combined_mesh_buffer.vertex_buffer_address;
 
@@ -1823,13 +1786,13 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 
 	VkPipeline last_pipeline = VK_NULL_HANDLE;
 	vkCmdBindIndexBuffer(cmd, render_scene.combined_mesh_buffer.index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
-	for (size_t i = 0; i < render_scene.multibatches.size(); i++)
+	for (size_t i = 0; i < render_scene.forward_pass.multibatches.size(); i++)
 	{
-		const auto& multibatch = render_scene.multibatches[i];
-		const auto& batch = render_scene.batches[multibatch.first];
+		const auto& multibatch = render_scene.forward_pass.multibatches[i];
+		const auto& batch = render_scene.forward_pass.batches[multibatch.first];
 
 		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, batch.forward_pass->pipeline);
-		vkCmdDrawIndexedIndirect(cmd, render_scene.draw_indirect_buffer.buffer, multibatch.first * sizeof(VkDrawIndexedIndirectCommand), multibatch.count, sizeof(VkDrawIndexedIndirectCommand));
+		vkCmdDrawIndexedIndirect(cmd, render_scene.forward_pass.draw_indirect_buffer.buffer, multibatch.first * sizeof(VkDrawIndexedIndirectCommand), multibatch.count, sizeof(VkDrawIndexedIndirectCommand));
 		stats.draw_count++;
 	}
 
@@ -2210,7 +2173,8 @@ void VulkanEngine::draw_imgui(VkCommandBuffer cmd, VkImageView swapchain_view)
 	vkCmdEndRendering(cmd);
 }
 
-// Object Buffer -> Pass Object -> sort -> Indirect Batch -> Multi Batch -> Instance Buffer -> gInstance Buffer -> Indirect Buffer/Reset
+// Update Object Buffer
+// ForEach RenderPass: Pass Object -> sort -> Indirect Batch -> Multi Batch -> Instance Buffer -> gInstance Buffer -> Indirect Buffer/Reset
 // (!) will break with streaming/dynamic scene, need to implement some flags
 void VulkanEngine::ready_mesh_draw()
 {
@@ -2227,78 +2191,84 @@ void VulkanEngine::ready_mesh_draw()
 		render_scene.build_object_buffer();
 	}
 
-	if (render_scene.pass_objects.size() != render_scene.unbatched_objects.size())
+	std::vector<RenderScene::MeshPass*> passes = { &render_scene.shadow_pass, &render_scene.forward_pass, &render_scene.transparent_pass };
+
+	for (size_t i = 0; i < passes.size(); i++)
 	{
-		fmt::println("pass_object, indirect_batch");
-		render_scene.build_pass_objects();
-		render_scene.sort_objects();
-		render_scene.build_indirect_batch();
-		render_scene.build_multi_batch();
-	}
+		auto& pass = *passes[i];
 
-	if (render_scene.instance_buffer.info.size < render_scene.pass_objects.size() * sizeof(uint32_t))
-	{
-		fmt::println("instance_buffer");
-		render_scene.instance_buffer = reallocate_buffer(
-			render_scene.pass_objects.size() * sizeof(uint32_t),
-			render_scene.instance_buffer,
-			0,
-			VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
-		);
+		if (pass.pass_objects.size() != pass.unbatched_objects.size())
+		{
+			fmt::println("pass_object, indirect_batch");
+			render_scene.build_pass_objects(pass);
+			render_scene.sort_objects(pass);
+			render_scene.build_indirect_batch(pass);
+			render_scene.build_multi_batch(pass);
+		}
 
-		//render_scene.build_instance_buffer();
-	}
+		if (pass.instance_buffer.info.size < pass.pass_objects.size() * sizeof(uint32_t))
+		{
+			fmt::println("instance_buffer");
+			pass.instance_buffer = reallocate_buffer(
+				pass.pass_objects.size() * sizeof(uint32_t),
+				pass.instance_buffer,
+				0,
+				VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
+			);
+		}
 
-	if (render_scene.ginstance_buffer.info.size < render_scene.pass_objects.size() * sizeof(GPUInstance))
-	{
-		fmt::println("ginstance_buffer");
-		render_scene.ginstance_buffer = reallocate_buffer(
-			render_scene.pass_objects.size() * sizeof(GPUInstance),
-			render_scene.ginstance_buffer,
-			VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-			VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
-		);
+		if (pass.ginstance_buffer.info.size < pass.pass_objects.size() * sizeof(GPUInstance))
+		{
+			fmt::println("ginstance_buffer");
+			pass.ginstance_buffer = reallocate_buffer(
+				pass.pass_objects.size() * sizeof(GPUInstance),
+				pass.ginstance_buffer,
+				VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
+				VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
+			);
 
-		render_scene.build_ginstance_buffer();
-	}
+			render_scene.build_ginstance_buffer(pass);
+		}
 
-	if (render_scene.draw_indirect_buffer.info.size < render_scene.batches.size() * sizeof(VkDrawIndexedIndirectCommand))
-	{
-		fmt::println("clear indirect_buffers");
+		if (pass.draw_indirect_buffer.info.size < pass.batches.size() * sizeof(VkDrawIndexedIndirectCommand))
+		{
+			fmt::println("clear indirect_buffers");
 
-		render_scene.draw_indirect_buffer = reallocate_buffer(
-			render_scene.batches.size() * sizeof(VkDrawIndexedIndirectCommand),
-			render_scene.draw_indirect_buffer,
-			0,
-			VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT
-		);
+			pass.draw_indirect_buffer = reallocate_buffer(
+				pass.batches.size() * sizeof(VkDrawIndexedIndirectCommand),
+				pass.draw_indirect_buffer,
+				0,
+				VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT
+			);
 
-		render_scene.clear_indirect_buffer = reallocate_buffer(
-			render_scene.batches.size() * sizeof(VkDrawIndexedIndirectCommand),
-			render_scene.clear_indirect_buffer,
-			VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-			VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT
-		);
-		render_scene.build_indirect_buffer();
-	}
+			pass.clear_indirect_buffer = reallocate_buffer(
+				pass.batches.size() * sizeof(VkDrawIndexedIndirectCommand),
+				pass.clear_indirect_buffer,
+				VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
+				VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT
+			);
+			render_scene.build_indirect_buffer(pass);
+		}
 
-	// always reset
-	{
-		// (!) use frame in flight copy, this is waiting for frame n-1 for frame n
-		ZoneScopedN("Reset indirect buffer"); 
-		immediate_submit([&](VkCommandBuffer cmd) {
-			{
-				vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-					VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT
-				);
+		// always reset
+		if (pass.draw_indirect_buffer.info.size > 0)
+		{
+			// (!) use frame in flight copy, this is waiting for frame n-1 for frame n
+			ZoneScopedN("Reset indirect buffer");
+			immediate_submit([&](VkCommandBuffer cmd) {
+				{
+					vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+						VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT
+					);
 
-				render_scene.reset_indirect_buffer(cmd);
-			}
-			});
+					render_scene.reset_indirect_buffer(pass, cmd);
+				}
+				});
+		}
 	}
 }
 
-CullData VulkanEngine::ready_cull_data(glm::mat4& viewproj, bool orthographic /*= false*/)
+CullData VulkanEngine::ready_cull_data(RenderScene::MeshPass& pass, glm::mat4& viewproj, bool orthographic /*= false*/)
 {
 	CullData cull_data{};
 
@@ -2335,21 +2305,21 @@ CullData VulkanEngine::ready_cull_data(glm::mat4& viewproj, bool orthographic /*
 	address_info.buffer = render_scene.object_buffer.buffer;
 	cull_data.object_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
 
-	address_info.buffer = render_scene.ginstance_buffer.buffer;
+	address_info.buffer = pass.ginstance_buffer.buffer;
 	cull_data.ginstance_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
 
-	address_info.buffer = render_scene.draw_indirect_buffer.buffer;
+	address_info.buffer = pass.draw_indirect_buffer.buffer;
 	cull_data.indirect_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
 
-	address_info.buffer = render_scene.instance_buffer.buffer;
+	address_info.buffer = pass.instance_buffer.buffer;
 	cull_data.instance_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
 
-	cull_data.count = static_cast<uint32_t>(render_scene.pass_objects.size());
+	cull_data.count = static_cast<uint32_t>(pass.pass_objects.size());
 
 	return cull_data;
 }
 
-void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, CullData& cull_data)
+void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPass& pass, CullData& cull_data)
 {
 	vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_TRANSFER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
 		VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT
@@ -2359,7 +2329,7 @@ void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, CullData& cull_data
 	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
 
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CullData), &cull_data);
-	vkCmdDispatch(cmd, static_cast<uint32_t>(std::ceil(render_scene.pass_objects.size() / 256.0)), 1, 1);
+	vkCmdDispatch(cmd, static_cast<uint32_t>(std::ceil(pass.pass_objects.size() / 256.0)), 1, 1);
 	
 	vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
 		VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT
