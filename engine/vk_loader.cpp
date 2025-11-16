@@ -115,7 +115,7 @@ AllocatedImage basisu_load(VulkanEngine* engine, const char* filepath)
 	auto ss = header.m_supercompression_scheme;
 	if (ss == basist::KTX2_SS_NONE)
 	{
-		assert(0); // (!) transcoding not req, verify in GPU ready format
+		assert(0); // (!) transcoding not req, verify ktx2 in GPU ready format - not currently handled
 	}
 
 	transcoder.start_transcoding();
@@ -159,47 +159,6 @@ AllocatedImage basisu_load(VulkanEngine* engine, const char* filepath)
 	VkExtent3D vk_extent = VkExtent3D{ level_infos[0].m_orig_width, level_infos[0].m_orig_height, 1};
 	new_image = engine->create_image(vk_extent, vk_format, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT, 0, true);
 
-	// image creation
-	//{
-	//	new_image.format = vk_format;
-
-	//	VkImageCreateInfo img_info{};
-	//	img_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-	//	img_info.imageType = VK_IMAGE_TYPE_2D;
-	//	img_info.format = vk_format;
-	//	img_info.extent = new_image.extent;
-	//	img_info.mipLevels = mip_level;
-	//	img_info.arrayLayers = 1;
-	//	img_info.samples = VK_SAMPLE_COUNT_1_BIT;
-	//	img_info.tiling = VK_IMAGE_TILING_OPTIMAL;
-	//	img_info.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-
-	//	VmaAllocationCreateInfo alloc_info{};
-	//	alloc_info.flags = 0;
-	//	alloc_info.usage = VMA_MEMORY_USAGE_AUTO;
-	//	alloc_info.requiredFlags = VkMemoryPropertyFlagBits(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-
-	//	VK_CHECK(vmaCreateImage(engine->allocator, &img_info, &alloc_info, &new_image.image, &new_image.allocation, nullptr));
-
-	//	VkImageViewCreateInfo info{};
-
-	//	info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-	//	info.image = new_image.image;
-	//	info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-	//	info.format = vk_format;
-
-	//	VkImageSubresourceRange sub_image{};
-
-	//	sub_image.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-	//	sub_image.baseMipLevel = 0;
-	//	sub_image.levelCount = VK_REMAINING_MIP_LEVELS;
-	//	sub_image.baseArrayLayer = 0;
-	//	sub_image.layerCount = VK_REMAINING_ARRAY_LAYERS;
-	//	info.subresourceRange = sub_image; // (!) layer and level count with remaining
-
-	//	VK_CHECK(vkCreateImageView(engine->device, &info, nullptr, &new_image.view));
-	//}
-
 	engine->immediate_submit([&](VkCommandBuffer cmd) {
 		vkutil::transition_image(
 			cmd, new_image.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
@@ -218,8 +177,6 @@ AllocatedImage basisu_load(VulkanEngine* engine, const char* filepath)
 			VK_ACCESS_2_TRANSFER_WRITE_BIT,
 			VK_ACCESS_2_SHADER_READ_BIT
 		);
-
-
 	});
 
 	engine->destroy_buffer(upload_buffer);
@@ -276,9 +233,8 @@ std::optional<AllocatedImage> load_image(VulkanEngine* engine, fastgltf::Asset& 
 					const std::string path(filePath.uri.path().begin(), filePath.uri.path().end());
 
 					//std::string current_path = "../../assets/khronos_sponza/" + path; // (!) TODO handle this properly
-					//std::string current_path = "../../assets/bistro_interior/" + path; // (!) TODO handle this properly
-					//std::string current_path = "../../assets/bistro_exterior/" + path; // (!) TODO handle this properly
-					std::string current_path = "../../assets/glTF-KTX-BasisU/" + path; // (!) TODO handle this properly
+					std::string current_path = "../../assets/bistro_exterior_ktx2/" + path; // (!) TODO handle this properly
+					//std::string current_path = "../../assets/bistro_interior_wine_ktx2/" + path; // (!) TODO handle this properly
 
 					std::filesystem::path p = path;
 					if (p.extension() == ".ktx2")
@@ -297,6 +253,7 @@ std::optional<AllocatedImage> load_image(VulkanEngine* engine, fastgltf::Asset& 
 					}
 
 				},
+		// (!) handle KTX2
 			[&](fastgltf::sources::Vector& vector) {
 					unsigned char* data = stbi_load_from_memory(vector.bytes.data(), static_cast<int>(vector.bytes.size()), &width, &height, &channels, 4);
 					if (data)
@@ -307,6 +264,7 @@ std::optional<AllocatedImage> load_image(VulkanEngine* engine, fastgltf::Asset& 
 						stbi_image_free(data);
 					}
 				},
+		// (!) handle KTX2
 			[&](fastgltf::sources::BufferView& view) {
 					auto& bufferView = asset.bufferViews[view.bufferViewIndex];
 					auto& buffer = asset.buffers[bufferView.bufferIndex];
@@ -513,6 +471,13 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 		}
 	};
 
+	bool using_basisu = false;
+	for (auto& e : gltf.extensionsRequired)
+	{
+		if (e == "KHR_texture_basisu")
+			using_basisu = true;
+	}
+	
 	// need to implement MaterialCache as its common for gltf to have same material under different name
 	// current implementation simply duplicates this in the material buffer
 	int material_idx{ 0 };
@@ -530,7 +495,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 		
 		if (mat.pbrData.baseColorTexture.has_value())
 		{
-			size_t idx = is_ktx2 
+			size_t idx = is_ktx2 && using_basisu
 				? gltf.textures[mat.pbrData.baseColorTexture.value().textureIndex].basisuImageIndex.value() 
 				: gltf.textures[mat.pbrData.baseColorTexture.value().textureIndex].imageIndex.value();
 			//size_t sampler = gltf.textures[mat.pbrData.baseColorTexture.value().textureIndex].samplerIndex.value();
@@ -544,7 +509,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 
 		if (mat.pbrData.metallicRoughnessTexture.has_value())
 		{
-			size_t idx = is_ktx2
+			size_t idx = is_ktx2 && using_basisu
 				? gltf.textures[mat.pbrData.metallicRoughnessTexture.value().textureIndex].basisuImageIndex.value()
 				: gltf.textures[mat.pbrData.metallicRoughnessTexture.value().textureIndex].imageIndex.value();
 			//size_t sampler{ gltf.textures[mat.pbrData.metallicRoughnessTexture.value().textureIndex].samplerIndex.value() };
@@ -558,7 +523,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 
 		if (mat.normalTexture.has_value())
 		{
-			size_t idx = is_ktx2
+			size_t idx = is_ktx2 && using_basisu
 				? gltf.textures[mat.normalTexture.value().textureIndex].basisuImageIndex.value()
 				: gltf.textures[mat.normalTexture.value().textureIndex].imageIndex.value();
 			
@@ -571,7 +536,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 
 		if (mat.occlusionTexture.has_value())
 		{
-			size_t idx = is_ktx2
+			size_t idx = is_ktx2 && using_basisu
 				? gltf.textures[mat.occlusionTexture.value().textureIndex].basisuImageIndex.value()
 				: gltf.textures[mat.occlusionTexture.value().textureIndex].imageIndex.value();
 			
@@ -584,7 +549,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 
 		if (mat.emissiveTexture.has_value())
 		{
-			size_t idx = is_ktx2
+			size_t idx = is_ktx2 && using_basisu
 				? gltf.textures[mat.emissiveTexture.value().textureIndex].basisuImageIndex.value()
 				: gltf.textures[mat.emissiveTexture.value().textureIndex].imageIndex.value();
 			

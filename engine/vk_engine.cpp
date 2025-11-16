@@ -1232,6 +1232,7 @@ AllocatedImage VulkanEngine::create_image(VkExtent3D extent, VkFormat format, Vk
 	return new_image;
 }
 
+// currently used for HDR, png and jpg, NOT ktx2
 AllocatedImage VulkanEngine::create_image(void* data, VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspect, VmaAllocationCreateFlags flags /*= 0*/, bool mipmapped /*= false*/)
 {
 	size_t data_size = extent.depth * extent.width * extent.height * 4; // 4 is # of channels
@@ -1519,16 +1520,14 @@ void VulkanEngine::init_renderables()
 		destroy_image(brdflut_image);
 		});
 
-	//std::string asset_path = "../../assets/DamagedHelmet/GLTF-Embedded/DamagedHelmet.gltf";
 	//std::string asset_path = "../../assets/ABeautifulGame.glb";
 	//std::string asset_path = "../../assets/sphere.gltf";
 	//std::string asset_path = "../../assets/plants.gltf";
 	//std::string asset_path = "../../assets/khronos_sponza/Sponza.gltf";
-	//std::string asset_path = "../../assets/bistro_interior/BistroInterior_Wine.gltf";
-	//std::string asset_path = "../../assets/bistro_exterior/BistroExterior.gltf";
-	std::string asset_path = "../../assets/glTF-KTX-BasisU/StainedGlassLamp.gltf";
+	//std::string asset_path = "../../assets/bistro_interior_wine_ktx2/BistroInterior_Wine.gltf";
+	std::string asset_path = "../../assets/bistro_exterior_ktx2/BistroExterior.gltf";
+	//std::string asset_path = "../../assets/DamagedHelmet/glTF/DamagedHelmet.gltf";
 	//std::string asset_path = "../../assets/AlphaBlendModeTest.glb";
-	//std::string asset_path = "../../assets/terrain_gridlines.gltf";
 	auto start{ std::chrono::system_clock::now() };
 	auto asset_file = load_gltf(this, asset_path);
 	auto end{ std::chrono::system_clock::now() };
