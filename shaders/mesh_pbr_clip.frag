@@ -272,7 +272,7 @@ void main()
 		color.xyz += emission;
 	}
 	
-	float ibl_strength = 0.3;
+	float ibl_strength = 0.2;
 	
 	color.xyz += ambient * ibl_strength;
 	color.a = 0.0;

@@ -6,6 +6,16 @@
 #include <vector>
 #include <algorithm>
 
+void RenderScene::init()
+{
+	for (size_t i = 0; i < shadow_pass.size(); i++)
+	{
+		shadow_pass[i].type = MeshPassType::Shadow;
+	}
+	forward_pass.type = MeshPassType::Forward;
+	transparent_pass.type = MeshPassType::Transparent;
+}
+
 // PREREQ: pass objects
 void RenderScene::build_indirect_batch(MeshPass& pass)
 {
@@ -30,7 +40,7 @@ void RenderScene::build_indirect_batch(MeshPass& pass)
 
 			IndirectBatch new_batch{};
 			new_batch.primitive_id = last_primitive;
-			new_batch.forward_pass = last_material;
+			new_batch.material = last_material;
 			new_batch.first = static_cast<uint32_t>(i);
 			new_batch.count = 1;
 			pass.batches.push_back(new_batch);
@@ -46,7 +56,7 @@ void RenderScene::build_multi_batch(MeshPass& pass)
 	ShaderPass* last_material{};
 	for (size_t i = 0; i < pass.batches.size(); i++)
 	{
-		ShaderPass* new_material = pass.batches[i].forward_pass;
+		ShaderPass* new_material = pass.batches[i].material;
 
 		if (last_material == new_material)
 		{
@@ -122,7 +132,19 @@ void RenderScene::build_pass_objects(MeshPass& pass)
 		PassObject pass_obj{};
 		pass_obj.primitive_id = obj.primitive_id;
 		pass_obj.renderable_id.handle = o;
-		pass_obj.material = obj.material->forward_pass; // (!) hardcoded
+
+		switch (pass.type)
+		{
+		case MeshPassType::Shadow:
+			pass_obj.material = obj.material->shadow_pass;
+			break;
+		case MeshPassType::Forward:
+		case MeshPassType::Transparent:
+			pass_obj.material = obj.material->forward_pass;
+			break;
+		default: 
+			break;
+		}
 
 		pass.pass_objects.push_back(pass_obj);
 	}

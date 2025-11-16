@@ -5,19 +5,6 @@
 
 #include "scene.glsl"
 
-struct Vertex
-{
-	vec3 position;
-	float uv_x;
-	vec3 normal;
-	float uv_y;
-	vec4 tangent;
-};
-
-layout (buffer_reference, std430) readonly buffer VertexBuffer {
-	Vertex vertices[];
-};
-
 struct MaterialData
 {
 	vec4 baseColorFactor;
@@ -38,21 +25,22 @@ layout(buffer_reference, std430) readonly buffer MaterialBuffer
 // push constant block
 layout (push_constant) uniform constants
 {
-	mat4 world_matrix;
 	mat4 viewproj;
-	VertexBuffer vertexBuffer;
-	MaterialBuffer materialData;
-	uint materialID;
+	MaterialBuffer materialBuffer;
+//	ObjectBuffer objectBuffer;
+//	InstanceBuffer instanceBuffer;
+//	VertexBuffer vertexBuffer;
 } pc;
 
 layout (location = 0) in vec2 inUV;
+layout (location = 1) flat in uint inMaterialID;
 
 layout(set = 1, binding = 0) uniform texture2D allTextures[];
 layout(set = 2, binding = 0) uniform sampler samplers[];
 
 void main()
 {
-	MaterialData m = pc.materialData.materials[pc.materialID];
+	MaterialData m = pc.materialBuffer.materials[inMaterialID];
 		
 	vec4 albedo = m.baseColorFactor;
 	if (m.diffuseID != 0)

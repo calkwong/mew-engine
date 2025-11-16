@@ -241,10 +241,23 @@ void VulkanEngine::cleanup()
 		}
 		
 		destroy_buffer(render_scene.object_buffer);
-		destroy_buffer(render_scene.forward_pass.instance_buffer);
-		destroy_buffer(render_scene.forward_pass.ginstance_buffer);
-		destroy_buffer(render_scene.forward_pass.draw_indirect_buffer);
-		destroy_buffer(render_scene.forward_pass.clear_indirect_buffer);
+
+		std::vector<RenderScene::MeshPass*> passes = { &render_scene.forward_pass, &render_scene.transparent_pass };
+		for (size_t i = 0; i < NUMBER_OF_CASCADES; i++)
+		{
+			passes.push_back(&render_scene.shadow_pass[i]);
+		}
+
+		for (auto* pass : passes)
+		{
+			auto p = *pass;
+			destroy_buffer(p.instance_buffer);
+			destroy_buffer(p.ginstance_buffer);
+			destroy_buffer(p.draw_indirect_buffer);
+			destroy_buffer(p.clear_indirect_buffer);
+		}
+
+		// (!) move destruction of combined vertex/idnex buffer here, away from loaded gltf
 
 		for (const auto& [k, v] : shader_passes)
 		{
@@ -290,6 +303,12 @@ void VulkanEngine::draw()
 	CullData transparent_cull_data{};
 	{
 		ZoneScopedN("Ready cull data");
+
+		for (size_t i = 0; i < NUMBER_OF_CASCADES; i++)
+		{
+			shadow_cull_data[i] = ready_cull_data(render_scene.shadow_pass[i], scene_data.shadow_transforms[i], true);
+		}
+
 		forward_cull_data = ready_cull_data(render_scene.forward_pass, scene_data.viewproj);
 	}
 
@@ -307,23 +326,31 @@ void VulkanEngine::draw()
 
 	VK_CHECK(vkBeginCommandBuffer(cmd, &cmd_begin_info));
 
-	// sort -> cull or cull -> sort?
-	// (!) TODO: cull with AABB? ritter's?
-	{
-		//TracyVkZone(tracy_ctx, get_current_frame().main_command_buffer, "CSM pass");
-		//for (size_t i = 0; i < cascade_data.size(); i++)
-		//{
-		//	glm::mat4 cull_matrix = scene_data.shadow_transforms[i];
-		//	std::vector<size_t> visible_indices{};
-		//	visible_indices = frustum_culling(main_draw_context.opaque_objects, cull_matrix, true);
-		//	sort_materials(main_draw_context.opaque_objects, visible_indices);
-		//	shadow_pass(cmd, visible_indices, i);
-		//}
-	}
-
 	{
 		TracyVkZone(tracy_ctx, get_current_frame().main_command_buffer, "Forward compute cull");
+
+		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_TRANSFER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+			VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT
+		);
+
+		for (size_t i = 0; i < NUMBER_OF_CASCADES; i++)
+		{
+			execute_compute_cull(cmd, render_scene.shadow_pass[i], shadow_cull_data[i]);
+		}
 		execute_compute_cull(cmd, render_scene.forward_pass, forward_cull_data);
+
+		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+			VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT
+		);
+	}
+
+	// (!) TODO: cull with AABB? ritter's?
+	{
+		TracyVkZone(tracy_ctx, get_current_frame().main_command_buffer, "CSM pass");
+		for (size_t i = 0; i < NUMBER_OF_CASCADES; i++)
+		{
+			shadow_pass(cmd, render_scene.shadow_pass[i], i);
+		}
 	}
 
 	{
@@ -985,7 +1012,6 @@ void VulkanEngine::init_pipelines()
 	//> GRAPHICS PIPELINE
 	descriptor_layouts.clear();
 	descriptor_layouts = { scene_descriptor_layout, bindless_tex_layout, bindless_sampler_layout };
-	//descriptor_layouts[0] = scene_descriptor_layout;
 	VkShaderModule frag_module{};
 
 	//> SHADOW 
@@ -1012,6 +1038,7 @@ void VulkanEngine::init_pipelines()
 	builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
 	std::unique_ptr<ShaderPass> shadow_flat_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
 
+	//> GEOMETRY + LIGHTING
 	//> DOUBLE SIDED MASK
 	module = shader_cache.add_shader(device, "mesh_pbr.vert.spv");
 	frag_module = shader_cache.add_shader(device, "mesh_pbr_clip.frag.spv");
@@ -1390,6 +1417,9 @@ void VulkanEngine::init_default_data()
 			destroy_image(cascade_data[i].shadow_map);
 		}
 	});
+
+	//> init scene
+	render_scene.init();
 }
 
 void VulkanEngine::init_renderables()
@@ -1486,9 +1516,9 @@ void VulkanEngine::init_renderables()
 	//std::string asset_path = "../../assets/ABeautifulGame.glb";
 	//std::string asset_path = "../../assets/sphere.gltf";
 	//std::string asset_path = "../../assets/plants.gltf";
-	std::string asset_path = "../../assets/khronos_sponza/Sponza.gltf";
+	//std::string asset_path = "../../assets/khronos_sponza/Sponza.gltf";
 	//std::string asset_path = "../../assets/bistro_interior_wine_ktx2/BistroInterior_Wine.gltf";
-	//std::string asset_path = "../../assets/bistro_exterior_ktx2/BistroExterior.gltf";
+	std::string asset_path = "../../assets/bistro_exterior_ktx2/BistroExterior.gltf";
 	//std::string asset_path = "../../assets/DamagedHelmet/glTF/DamagedHelmet.gltf";
 	//std::string asset_path = "../../assets/AlphaBlendModeTest.glb";
 	auto start{ std::chrono::system_clock::now() };
@@ -1610,6 +1640,10 @@ void VulkanEngine::register_object(Node* node, const glm::mat4& top_matrix)
 			else // OPAQUE and MASK
 			{
 				render_scene.forward_pass.unbatched_objects.push_back(handle);
+				for (size_t i = 0; i < NUMBER_OF_CASCADES; i++)
+				{
+					render_scene.shadow_pass[i].unbatched_objects.push_back(handle);
+				}
 			}
 		}
 	}
@@ -1771,7 +1805,7 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 
 	//> gpu driven
 	GPUPushConstants gpc{}; // (!) clean up
-	gpc.material_buffer_address = render_scene.renderables[0].material_buffer_address;
+	gpc.material_buffer_address = render_scene.renderables[0].material_buffer_address; // (!) refactor this
 
 	VkBufferDeviceAddressInfo address_info{};
 	address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
@@ -1784,14 +1818,14 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GPUPushConstants), &gpc);
 
-	VkPipeline last_pipeline = VK_NULL_HANDLE;
 	vkCmdBindIndexBuffer(cmd, render_scene.combined_mesh_buffer.index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+
 	for (size_t i = 0; i < render_scene.forward_pass.multibatches.size(); i++)
 	{
 		const auto& multibatch = render_scene.forward_pass.multibatches[i];
 		const auto& batch = render_scene.forward_pass.batches[multibatch.first];
 
-		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, batch.forward_pass->pipeline);
+		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, batch.material->pipeline);
 		vkCmdDrawIndexedIndirect(cmd, render_scene.forward_pass.draw_indirect_buffer.buffer, multibatch.first * sizeof(VkDrawIndexedIndirectCommand), multibatch.count, sizeof(VkDrawIndexedIndirectCommand));
 		stats.draw_count++;
 	}
@@ -1932,105 +1966,99 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 	);
 }
 
-//void VulkanEngine::shadow_pass(VkCommandBuffer cmd, std::vector<size_t>& visible_indices, size_t cascade_idx)
-//{
-//	auto cascade = cascade_data[cascade_idx];
-//
-//	vkutil::transition_image(
-//		cmd,
-//		cascade.shadow_map.image,
-//		VK_IMAGE_LAYOUT_UNDEFINED,
-//		VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
-//		VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-//		VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
-//		VK_ACCESS_2_SHADER_READ_BIT,
-//		VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
-//		VK_IMAGE_ASPECT_DEPTH_BIT
-//	);
-//
-//	VkRenderingAttachmentInfo depth_attachment = vkinit::depth_attachment_info(cascade.shadow_map.view);
-//	VkExtent2D shadow_extent = VkExtent2D{ cascade.shadow_map.extent.width, cascade.shadow_map.extent.height };
-//	VkRenderingInfo render_info = vkinit::rendering_info(shadow_extent, nullptr, &depth_attachment);
-//
-//	vkCmdBeginRendering(cmd, &render_info);
-//
-//	VkViewport viewport{};
-//	viewport.x = 0;
-//	viewport.y = static_cast<float>(shadow_extent.height);
-//	viewport.width = static_cast<float>(shadow_extent.width);
-//	viewport.height = -static_cast<float>(shadow_extent.height);
-//	viewport.minDepth = 0.0f;
-//	viewport.maxDepth = 1.0f;
-//	vkCmdSetViewport(cmd, 0, 1, &viewport);
-//
-//	VkRect2D scissor{};
-//	scissor.offset.x = 0;
-//	scissor.offset.y = 0;
-//	scissor.extent.width = shadow_extent.width;
-//	scissor.extent.height = shadow_extent.height;
-//	vkCmdSetScissor(cmd, 0, 1, &scissor);
-//
-//	auto depth_bias = 0.f;
-//	auto slope_scaled_depth_bias = 0.f;
-//	vkCmdSetDepthBias(cmd, -depth_bias, 0.0f, -slope_scaled_depth_bias);
-//
-//	ShaderPass current_pass = *shader_passes["shadow"];
-//	// (!) ugly - refactor current_pass.layout and current_pass? 
-//	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-//	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
-//	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
-//
-//	VkPipeline last_pipeline = VK_NULL_HANDLE;
-//	VkBuffer last_index_buffer = VK_NULL_HANDLE;
-//
-//	auto draw = [&](const RenderObject& obj) {
-//		VkPipeline current_pipeline = obj.material->shadow_pass->pipeline;
-//		VkBuffer current_index_buffer = obj.index_buffer;
-//		if (current_pipeline != last_pipeline)
-//		{
-//			last_pipeline = current_pipeline;
-//			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pipeline);
-//		}
-//		if (current_index_buffer != last_index_buffer)
-//		{
-//			last_index_buffer = current_index_buffer;
-//			vkCmdBindIndexBuffer(cmd, current_index_buffer, 0, VK_INDEX_TYPE_UINT32);
-//		}
-//
-//		ShadowPushConstants pc{};
-//		pc.model = obj.transform;
-//		pc.viewproj = cascade.viewproj; // (!) change to idx and index into scenedata?
-//		pc.vertex_buffer_address = obj.vertex_buffer_address;
-//		pc.material_buffer_address = obj.material_buffer_address;
-//		pc.material_id = obj.material_id;
-//
-//		vkCmdPushConstants(cmd, obj.material->shadow_pass->layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(ShadowPushConstants), &pc);
-//		vkCmdDrawIndexed(cmd, obj.index_count, 1, obj.first_index, 0, 0);
-//		stats.triangle_count += obj.index_count / 3;
-//		stats.draw_count++;
-//		stats.draw_calls_count++;
-//	};
-//
-//	for (auto i : visible_indices)
-//	{
-//		draw(main_draw_context.opaque_objects[i]);
-//	}
-//
-//	vkCmdEndRendering(cmd);
-//
-//	vkutil::transition_image(
-//		cmd,
-//		cascade.shadow_map.image,
-//		VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
-//		VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-//		VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
-//		VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-//		VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-//		VK_ACCESS_2_SHADER_READ_BIT,
-//		VK_IMAGE_ASPECT_DEPTH_BIT
-//	);
-//
-//};
+void VulkanEngine::shadow_pass(VkCommandBuffer cmd, RenderScene::MeshPass& pass, size_t cascade_idx)
+{
+	CascadeData& cascade = cascade_data[cascade_idx];
+
+	vkutil::transition_image(
+		cmd,
+		cascade.shadow_map.image,
+		VK_IMAGE_LAYOUT_UNDEFINED,
+		VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+		VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+		VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
+		VK_ACCESS_2_SHADER_READ_BIT,
+		VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
+		VK_IMAGE_ASPECT_DEPTH_BIT
+	);
+
+	VkRenderingAttachmentInfo depth_attachment = vkinit::depth_attachment_info(cascade.shadow_map.view);
+	VkExtent2D shadow_extent = VkExtent2D{ cascade.shadow_map.extent.width, cascade.shadow_map.extent.height };
+	VkRenderingInfo render_info = vkinit::rendering_info(shadow_extent, nullptr, &depth_attachment);
+
+	vkCmdBeginRendering(cmd, &render_info);
+
+	VkViewport viewport{};
+	viewport.x = 0;
+	viewport.y = static_cast<float>(shadow_extent.height);
+	viewport.width = static_cast<float>(shadow_extent.width);
+	viewport.height = -static_cast<float>(shadow_extent.height);
+	viewport.minDepth = 0.0f;
+	viewport.maxDepth = 1.0f;
+	vkCmdSetViewport(cmd, 0, 1, &viewport);
+
+	VkRect2D scissor{};
+	scissor.offset.x = 0;
+	scissor.offset.y = 0;
+	scissor.extent.width = shadow_extent.width;
+	scissor.extent.height = shadow_extent.height;
+	vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+	auto depth_bias = 0.f;
+	auto slope_scaled_depth_bias = 0.f;
+	vkCmdSetDepthBias(cmd, -depth_bias, 0.0f, -slope_scaled_depth_bias); // (!) modify for double sided geometry? no back face culling to assist with artifacts
+
+	ShaderPass current_pass = *shader_passes["shadow"];
+	// (!) ugly - refactor current_pass.layout and current_pass? 
+	// (!) these are not reset between dynamic rendering instances - verify
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
+
+	//> gpu driven
+	ShadowPushConstants pc{}; // (!) clean up
+	pc.viewproj = cascade.viewproj;
+
+	VkBufferDeviceAddressInfo address_info{};
+	address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
+	pc.material_buffer_address = render_scene.renderables[0].material_buffer_address; // (!) refactor this
+
+	address_info.buffer = pass.instance_buffer.buffer;
+	pc.instance_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+
+	address_info.buffer = render_scene.object_buffer.buffer;
+	pc.object_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+
+	pc.vertex_buffer_address = render_scene.combined_mesh_buffer.vertex_buffer_address;
+	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(ShadowPushConstants), &pc);
+
+	vkCmdBindIndexBuffer(cmd, render_scene.combined_mesh_buffer.index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+	for (size_t i = 0; i < pass.multibatches.size(); i++)
+	{
+		const auto& multibatch = pass.multibatches[i];
+		const auto& batch = pass.batches[multibatch.first];
+
+		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, batch.material->pipeline);
+
+		vkCmdDrawIndexedIndirect(cmd, pass.draw_indirect_buffer.buffer, multibatch.first * sizeof(VkDrawIndexedIndirectCommand), multibatch.count, sizeof(VkDrawIndexedIndirectCommand));
+		stats.draw_count++;
+	}
+
+	vkCmdEndRendering(cmd);
+
+	vkutil::transition_image(
+		cmd,
+		cascade.shadow_map.image,
+		VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+		VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
+		VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+		VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+		VK_ACCESS_2_SHADER_READ_BIT,
+		VK_IMAGE_ASPECT_DEPTH_BIT
+	);
+
+};
 
 void VulkanEngine::update_cascade()
 {
@@ -2191,7 +2219,11 @@ void VulkanEngine::ready_mesh_draw()
 		render_scene.build_object_buffer();
 	}
 
-	std::vector<RenderScene::MeshPass*> passes = { &render_scene.shadow_pass, &render_scene.forward_pass, &render_scene.transparent_pass };
+	std::vector<RenderScene::MeshPass*> passes = { &render_scene.forward_pass, &render_scene.transparent_pass };
+	for (size_t i = 0; i < NUMBER_OF_CASCADES; i++)
+	{
+		passes.push_back(&render_scene.shadow_pass[i]);
+	}
 
 	for (size_t i = 0; i < passes.size(); i++)
 	{
@@ -2321,17 +2353,9 @@ CullData VulkanEngine::ready_cull_data(RenderScene::MeshPass& pass, glm::mat4& v
 
 void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPass& pass, CullData& cull_data)
 {
-	vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_TRANSFER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-		VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT
-	);
-
 	ShaderPass current_pass = *shader_passes["cull"];
 	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
 
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CullData), &cull_data);
 	vkCmdDispatch(cmd, static_cast<uint32_t>(std::ceil(pass.pass_objects.size() / 256.0)), 1, 1);
-	
-	vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-		VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT
-	);
 }

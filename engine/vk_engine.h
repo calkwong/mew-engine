@@ -44,13 +44,22 @@ struct IBLPushConstants
 	float roughness{};
 };
 
+//struct ShadowPushConstants
+//{
+//	glm::mat4 model{};
+//	glm::mat4 viewproj{};
+//	VkDeviceAddress vertex_buffer_address{};
+//	VkDeviceAddress material_buffer_address{};
+//	uint32_t material_id;
+//};
+
 struct ShadowPushConstants
 {
-	glm::mat4 model{};
 	glm::mat4 viewproj{};
-	VkDeviceAddress vertex_buffer_address{};
 	VkDeviceAddress material_buffer_address{};
-	uint32_t material_id;
+	VkDeviceAddress object_buffer_address{};
+	VkDeviceAddress instance_buffer_address{};
+	VkDeviceAddress vertex_buffer_address{};
 };
 
 struct SkyboxPushConstants
@@ -295,7 +304,7 @@ public:
 
 	void register_object(Node* node, const glm::mat4& top_matrix);
 	void forward_pass(VkCommandBuffer cmd);
-	void shadow_pass(VkCommandBuffer cmd, std::vector<size_t>& visible_indices, size_t cascade_idx);
+	void shadow_pass(VkCommandBuffer cmd, RenderScene::MeshPass& pass, size_t cascade_idx);
 	void update_cascade();
 	void draw_imgui(VkCommandBuffer cmd, VkImageView swapchain_view);
 	void ready_mesh_draw();

@@ -7,6 +7,7 @@
 
 #include <memory>
 #include <vector>
+#include <array>
 
 struct Material;
 struct ShaderPass;
@@ -43,7 +44,7 @@ struct Handle<RenderObject> {
 struct IndirectBatch
 {
 	Handle<DrawPrimitive> primitive_id{}; 
-	ShaderPass* forward_pass{};
+	ShaderPass* material{};
 	uint32_t first{}; // refers to pass object array
 	uint32_t count{}; // refers to pass object array
 };
@@ -96,6 +97,13 @@ struct MeshAsset;
 
 struct RenderScene // (!) forward only for now
 {
+	enum class MeshPassType
+	{
+		Shadow,
+		Forward,
+		Transparent
+	};
+
 	struct MeshPass
 	{
 		std::vector<MultiBatch> multibatches{};
@@ -107,6 +115,8 @@ struct RenderScene // (!) forward only for now
 		AllocatedBuffer ginstance_buffer{};
 		AllocatedBuffer draw_indirect_buffer{};
 		AllocatedBuffer clear_indirect_buffer{};
+
+		MeshPassType type{};
 	};
 
 	std::vector<RenderObject> renderables{};
@@ -116,10 +126,11 @@ struct RenderScene // (!) forward only for now
 	GPUMeshBuffers combined_mesh_buffer{};
 	AllocatedBuffer object_buffer{}; 
 
-	MeshPass shadow_pass{};
+	std::array<MeshPass, 4> shadow_pass{};
 	MeshPass forward_pass{};
 	MeshPass transparent_pass{};
 
+	void init();
 	void build_pass_objects(MeshPass& pass);
 	void sort_objects(MeshPass& pass); // sorts pass objects
 	void build_object_buffer();
