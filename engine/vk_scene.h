@@ -111,9 +111,9 @@ struct RenderScene // (!) forward only for now
 		std::vector<uint32_t> unbatched_objects{}; // handles for renderables
 		std::vector<PassObject> pass_objects{};
 
-		AllocatedBuffer instance_buffer{};
+		std::array<AllocatedBuffer, 2> instance_buffer{};
 		AllocatedBuffer ginstance_buffer{};
-		AllocatedBuffer draw_indirect_buffer{};
+		std::array<AllocatedBuffer, 2> draw_indirect_buffer{};
 		AllocatedBuffer clear_indirect_buffer{};
 
 		MeshPassType type{};

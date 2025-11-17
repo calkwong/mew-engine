@@ -104,7 +104,7 @@ void RenderScene::reset_indirect_buffer(MeshPass& pass, VkCommandBuffer cmd)
 	copy.srcOffset = 0;
 	copy.size = pass.clear_indirect_buffer.info.size;
 
-	vkCmdCopyBuffer(cmd, pass.clear_indirect_buffer.buffer, pass.draw_indirect_buffer.buffer, 1, &copy);
+	//vkCmdCopyBuffer(cmd, pass.clear_indirect_buffer.buffer, pass.draw_indirect_buffer[frame_number % FRAME_OVERLAP].buffer, 1, &copy);
 }
 
 void RenderScene::build_object_buffer()
