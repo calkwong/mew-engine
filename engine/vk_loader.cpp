@@ -232,8 +232,8 @@ std::optional<AllocatedImage> load_image(VulkanEngine* engine, fastgltf::Asset& 
 
 					const std::string path(filePath.uri.path().begin(), filePath.uri.path().end());
 
-					//std::string current_path = "../../assets/khronos_sponza/" + path; // (!) TODO handle this properly
-					std::string current_path = "../../assets/bistro_exterior_ktx2/" + path; // (!) TODO handle this properly
+					std::string current_path = "../../assets/khronos_sponza/" + path; // (!) TODO handle this properly
+					//std::string current_path = "../../assets/bistro_exterior_ktx2/" + path; // (!) TODO handle this properly
 					//std::string current_path = "../../assets/bistro_interior_wine_ktx2/" + path; // (!) TODO handle this properly
 
 					std::filesystem::path p = path;

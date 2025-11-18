@@ -251,11 +251,9 @@ void VulkanEngine::cleanup()
 		for (auto* pass : passes)
 		{
 			auto p = *pass;
-			destroy_buffer(p.instance_buffer[0]);
-			destroy_buffer(p.instance_buffer[1]);
+			destroy_buffer(p.instance_buffer);
 			destroy_buffer(p.ginstance_buffer);
-			destroy_buffer(p.draw_indirect_buffer[0]);
-			destroy_buffer(p.draw_indirect_buffer[1]);
+			destroy_buffer(p.draw_indirect_buffer);
 			destroy_buffer(p.clear_indirect_buffer);
 		}
 
@@ -305,10 +303,12 @@ void VulkanEngine::draw()
 	{
 		ZoneScopedN("Ready cull data");
 
+#ifdef SHADOW
 		for (size_t i = 0; i < NUMBER_OF_CASCADES; i++)
 		{
 			shadow_cull_data[i] = ready_cull_data(render_scene.shadow_pass[i], scene_data.shadow_transforms[i], true);
 		}
+#endif
 
 		forward_cull_data = ready_cull_data(render_scene.forward_pass, scene_data.viewproj);
 	}
@@ -347,7 +347,7 @@ void VulkanEngine::draw()
 
 			if (copy.size == 0)
 				continue;
-			vkCmdCopyBuffer(cmd, pass->clear_indirect_buffer.buffer, pass->draw_indirect_buffer[frame_number % FRAME_OVERLAP].buffer, 1, &copy);
+			vkCmdCopyBuffer(cmd, pass->clear_indirect_buffer.buffer, pass->draw_indirect_buffer.buffer, 1, &copy);
 		}
 	}
 
@@ -1580,9 +1580,9 @@ void VulkanEngine::init_renderables()
 	//std::string asset_path = "../../assets/ABeautifulGame.glb";
 	//std::string asset_path = "../../assets/sphere.gltf";
 	//std::string asset_path = "../../assets/plants.gltf";
-	//std::string asset_path = "../../assets/khronos_sponza/Sponza.gltf";
+	std::string asset_path = "../../assets/khronos_sponza/Sponza.gltf";
 	//std::string asset_path = "../../assets/bistro_interior_wine_ktx2/BistroInterior_WineFixed.gltf";
-	std::string asset_path = "../../assets/bistro_exterior_ktx2/BistroExteriorFixed.gltf";
+	//std::string asset_path = "../../assets/bistro_exterior_ktx2/BistroExteriorFixed.gltf";
 	//std::string asset_path = "../../assets/DamagedHelmet/glTF/DamagedHelmet.gltf";
 	//std::string asset_path = "../../assets/AlphaBlendModeTest.glb";
 	auto start{ std::chrono::system_clock::now() };
@@ -1691,10 +1691,12 @@ void VulkanEngine::register_object(Node* node, const glm::mat4& top_matrix)
 			else // OPAQUE and MASK
 			{
 				render_scene.forward_pass.unbatched_objects.push_back(handle);
+#ifdef SHADOW
 				for (size_t i = 0; i < NUMBER_OF_CASCADES; i++)
 				{
 					render_scene.shadow_pass[i].unbatched_objects.push_back(handle);
 				}
+#endif
 			}
 		}
 	}
@@ -1863,7 +1865,7 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 	address_info.buffer = render_scene.object_buffer.buffer;
 	gpc.object_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
 
-	address_info.buffer = render_scene.forward_pass.instance_buffer[frame_number % FRAME_OVERLAP].buffer;
+	address_info.buffer = render_scene.forward_pass.instance_buffer.buffer;
 	gpc.instance_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
 	gpc.vertex_buffer_address = render_scene.combined_mesh_buffer.vertex_buffer_address;
 
@@ -1877,7 +1879,7 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 		const auto& batch = render_scene.forward_pass.batches[multibatch.first];
 
 		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, batch.material->pipeline);
-		vkCmdDrawIndexedIndirect(cmd, render_scene.forward_pass.draw_indirect_buffer[frame_number % FRAME_OVERLAP].buffer, multibatch.first * sizeof(VkDrawIndexedIndirectCommand), multibatch.count, sizeof(VkDrawIndexedIndirectCommand));
+		vkCmdDrawIndexedIndirect(cmd, render_scene.forward_pass.draw_indirect_buffer.buffer, multibatch.first * sizeof(VkDrawIndexedIndirectCommand), multibatch.count, sizeof(VkDrawIndexedIndirectCommand));
 		stats.draw_count++;
 	}
 
@@ -2062,7 +2064,7 @@ void VulkanEngine::shadow_pass(VkCommandBuffer cmd, RenderScene::MeshPass& pass,
 	address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
 	pc.material_buffer_address = render_scene.renderables[0].material_buffer_address; // (!) refactor this
 
-	address_info.buffer = pass.instance_buffer[frame_number % FRAME_OVERLAP].buffer;
+	address_info.buffer = pass.instance_buffer.buffer;
 	pc.instance_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
 
 	address_info.buffer = render_scene.object_buffer.buffer;
@@ -2079,7 +2081,7 @@ void VulkanEngine::shadow_pass(VkCommandBuffer cmd, RenderScene::MeshPass& pass,
 
 		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, batch.material->pipeline);
 
-		vkCmdDrawIndexedIndirect(cmd, pass.draw_indirect_buffer[frame_number % FRAME_OVERLAP].buffer, multibatch.first * sizeof(VkDrawIndexedIndirectCommand), multibatch.count, sizeof(VkDrawIndexedIndirectCommand));
+		vkCmdDrawIndexedIndirect(cmd, pass.draw_indirect_buffer.buffer, multibatch.first * sizeof(VkDrawIndexedIndirectCommand), multibatch.count, sizeof(VkDrawIndexedIndirectCommand));
 		stats.draw_count++;
 	}
 
@@ -2268,12 +2270,12 @@ void VulkanEngine::ready_mesh_draw()
 			render_scene.build_multi_batch(pass);
 		}
 
-		if (pass.instance_buffer[frame_number % FRAME_OVERLAP].info.size < pass.pass_objects.size() * sizeof(uint32_t))
+		if (pass.instance_buffer.info.size < pass.pass_objects.size() * sizeof(uint32_t))
 		{
 			fmt::println("instance_buffer");
-			pass.instance_buffer[frame_number % FRAME_OVERLAP] = reallocate_buffer(
+			pass.instance_buffer = reallocate_buffer(
 				pass.pass_objects.size() * sizeof(uint32_t),
-				pass.instance_buffer[frame_number % FRAME_OVERLAP],
+				pass.instance_buffer,
 				0,
 				VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
 			);
@@ -2304,12 +2306,12 @@ void VulkanEngine::ready_mesh_draw()
 			render_scene.build_indirect_buffer(pass);
 		}
 
-		if (pass.draw_indirect_buffer[frame_number % FRAME_OVERLAP].info.size < pass.batches.size() * sizeof(VkDrawIndexedIndirectCommand))
+		if (pass.draw_indirect_buffer.info.size < pass.batches.size() * sizeof(VkDrawIndexedIndirectCommand))
 		{
 			fmt::println("draw_indirect_buffer");
-			pass.draw_indirect_buffer[frame_number % FRAME_OVERLAP] = reallocate_buffer(
+			pass.draw_indirect_buffer = reallocate_buffer(
 				pass.batches.size() * sizeof(VkDrawIndexedIndirectCommand),
-				pass.draw_indirect_buffer[frame_number % FRAME_OVERLAP],
+				pass.draw_indirect_buffer,
 				0,
 				VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT
 			);
@@ -2357,10 +2359,10 @@ CullData VulkanEngine::ready_cull_data(RenderScene::MeshPass& pass, glm::mat4& v
 	address_info.buffer = pass.ginstance_buffer.buffer;
 	cull_data.ginstance_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
 
-	address_info.buffer = pass.draw_indirect_buffer[frame_number % FRAME_OVERLAP].buffer;
+	address_info.buffer = pass.draw_indirect_buffer.buffer;
 	cull_data.indirect_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
 
-	address_info.buffer = pass.instance_buffer[frame_number % FRAME_OVERLAP].buffer;
+	address_info.buffer = pass.instance_buffer.buffer;
 	cull_data.instance_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
 
 	cull_data.count = static_cast<uint32_t>(pass.pass_objects.size());

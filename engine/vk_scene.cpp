@@ -97,12 +97,13 @@ void RenderScene::build_indirect_buffer(MeshPass& pass)
 	}
 }
 
+// (!) refactor, not used, performed manually in draw()
 void RenderScene::reset_indirect_buffer(MeshPass& pass, VkCommandBuffer cmd)
 {
-	VkBufferCopy copy{};
-	copy.dstOffset = 0;
-	copy.srcOffset = 0;
-	copy.size = pass.clear_indirect_buffer.info.size;
+	//VkBufferCopy copy{};
+	//copy.dstOffset = 0;
+	//copy.srcOffset = 0;
+	//copy.size = pass.clear_indirect_buffer.info.size;
 
 	//vkCmdCopyBuffer(cmd, pass.clear_indirect_buffer.buffer, pass.draw_indirect_buffer[frame_number % FRAME_OVERLAP].buffer, 1, &copy);
 }
