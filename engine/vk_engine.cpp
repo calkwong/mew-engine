@@ -203,7 +203,7 @@ void VulkanEngine::init()
 
 	main_camera.position = glm::vec3(0, 0, 5);
 	// (!) refactor? draw_extent set in init_default_data
-	main_camera.near = 1000.0f;
+	main_camera.near = 100.0f;
 	main_camera.far = 0.01f;
 	main_camera.fov = 70.0f;
 	main_camera.perspective = glm::perspective(glm::radians(main_camera.fov), static_cast<float>(draw_extent.width) / draw_extent.height, main_camera.near, main_camera.far);
@@ -358,10 +358,12 @@ void VulkanEngine::draw()
 			VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT
 		);
 
+#ifdef SHADOW
 		for (size_t i = 0; i < NUMBER_OF_CASCADES; i++)
 		{
 			execute_compute_cull(cmd, render_scene.shadow_pass[i], shadow_cull_data[i]);
 		}
+#endif
 		execute_compute_cull(cmd, render_scene.forward_pass, forward_cull_data);
 
 		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
@@ -1580,10 +1582,10 @@ void VulkanEngine::init_renderables()
 	//std::string asset_path = "../../assets/ABeautifulGame.glb";
 	//std::string asset_path = "../../assets/sphere.gltf";
 	//std::string asset_path = "../../assets/plants.gltf";
-	std::string asset_path = "../../assets/khronos_sponza/Sponza.gltf";
+	//std::string asset_path = "../../assets/khronos_sponza/Sponza.gltf";
 	//std::string asset_path = "../../assets/bistro_interior_wine_ktx2/BistroInterior_WineFixed.gltf";
 	//std::string asset_path = "../../assets/bistro_exterior_ktx2/BistroExteriorFixed.gltf";
-	//std::string asset_path = "../../assets/DamagedHelmet/glTF/DamagedHelmet.gltf";
+	std::string asset_path = "../../assets/DamagedHelmet/DamagedHelmet.gltf";
 	//std::string asset_path = "../../assets/AlphaBlendModeTest.glb";
 	auto start{ std::chrono::system_clock::now() };
 	auto asset_file = load_gltf(this, asset_path);
@@ -1595,10 +1597,35 @@ void VulkanEngine::init_renderables()
 	loaded_scenes["DamagedHelmet"] = *asset_file;
 	render_scene.combined_mesh_buffer = loaded_scenes["DamagedHelmet"]->combined_mesh_buffer;
 
+	const uint32_t draw_count = 10000;
+
+	std::srand(42);
+
+	std::vector<glm::mat4> offsets(draw_count);
+	for (size_t i = 0; i < offsets.size(); i++)
+	{
+		float x = ((float)std::rand() / RAND_MAX) * 40.0f - 20.0f;
+		float y = ((float)std::rand() / RAND_MAX) * 40.0f - 20.0f;
+		float z = ((float)std::rand() / RAND_MAX) * -30.0f - 5.0f ;
+
+		float angle = (float)std::rand() / RAND_MAX * 360.0f;
+
+		glm::vec3 axis = glm::vec3((float)std::rand() / RAND_MAX, (float)std::rand() / RAND_MAX, (float)std::rand() / RAND_MAX);
+		glm::vec3 scale = glm::vec3((float)std::rand() / RAND_MAX * 2.0f);
+
+		offsets[i] = glm::translate(glm::mat4(1.0f), glm::vec3(x, y, z));
+		offsets[i] = glm::rotate(offsets[i], glm::radians(angle), axis);
+		offsets[i] = glm::scale(offsets[i], scale);
+	}
+
 	for (const auto& n : loaded_scenes["DamagedHelmet"]->top_nodes)
 	{
-		register_object(n.get(), glm::mat4(1.0f));
+		for (size_t i = 0; i < offsets.size(); i++)
+		{
+			register_object(n.get(), offsets[i]);
+		}
 	}
+
 }
 
 void VulkanEngine::init_bindless()
@@ -1733,7 +1760,7 @@ void VulkanEngine::update_scene()
 
 	auto end = std::chrono::system_clock::now();
 	auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-	stats.scene_update_time = elapsed.count() / 1000.0f; // microseconds to seconds
+	stats.scene_update_time = elapsed.count() / 1000.0f; // milliseconds
 }
 
 uint32_t TextureCache::add_texture(const VkImageView& view)
