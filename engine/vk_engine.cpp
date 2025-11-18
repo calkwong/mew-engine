@@ -331,10 +331,6 @@ void VulkanEngine::draw()
 		// always reset
 		TracyVkZone(tracy_ctx, cmd, "Reset indirect buffers");
 
-		vkutil::transition_buffer(cmd, 0, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-			0, VK_ACCESS_2_TRANSFER_WRITE_BIT
-		);
-
 		VkBufferCopy copy{};
 		copy.dstOffset = 0;
 		copy.srcOffset = 0;
@@ -348,7 +344,6 @@ void VulkanEngine::draw()
 		for (auto* pass : passes)
 		{
 			copy.size = pass->clear_indirect_buffer.info.size;
-			//copy.size = pass->clear_indirect_vector.size();
 
 			if (copy.size == 0)
 				continue;
@@ -359,7 +354,7 @@ void VulkanEngine::draw()
 	{
 		TracyVkZone(tracy_ctx, get_current_frame().main_command_buffer, "Forward compute cull");
 
-		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COPY_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
 			VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT
 		);
 
@@ -369,20 +364,59 @@ void VulkanEngine::draw()
 		}
 		execute_compute_cull(cmd, render_scene.forward_pass, forward_cull_data);
 
-		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
 			VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT
 		);
 	}
 
 	// (!) TODO: cull with AABB? ritter's?
+#ifdef SHADOW
 	{
-		TracyVkZone(tracy_ctx, get_current_frame().main_command_buffer, "CSM pass");
+		VkDependencyInfo info{};
+		info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+		info.imageMemoryBarrierCount = NUMBER_OF_CASCADES;
+
+		std::vector<VkImageMemoryBarrier2> barriers{};
+
 		for (size_t i = 0; i < NUMBER_OF_CASCADES; i++)
 		{
+			VkImageMemoryBarrier2 barrier{};
+			barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+			barrier.srcStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+			barrier.dstStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+			barrier.srcAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+			barrier.dstAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+			barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+			barrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+			barrier.subresourceRange = vkinit::image_subresource_range(VK_IMAGE_ASPECT_DEPTH_BIT);
+			barrier.image = cascade_data[i].shadow_map.image;
+
+			barriers.push_back(barrier);
+		}
+
+		info.pImageMemoryBarriers = barriers.data();
+		vkCmdPipelineBarrier2(cmd, &info);
+
+		for (size_t i = 0; i < NUMBER_OF_CASCADES; i++)
+		{
+			TracyVkZone(tracy_ctx, cmd, "CSM pass");
 			shadow_pass(cmd, render_scene.shadow_pass[i], i);
 		}
-	}
 
+		for (size_t i = 0; i < NUMBER_OF_CASCADES; i++)
+		{
+			barriers[i].srcStageMask = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+			barriers[i].dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+			barriers[i].srcAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+			barriers[i].dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+			barriers[i].oldLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+			barriers[i].newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		}
+
+		vkCmdPipelineBarrier2(cmd, &info);
+	}
+#endif
+	
 	{
 		TracyVkZone(tracy_ctx, get_current_frame().main_command_buffer, "Forward pass");
 		forward_pass(cmd);
@@ -394,7 +428,7 @@ void VulkanEngine::draw()
 		VK_IMAGE_LAYOUT_UNDEFINED,
 		VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 		0,
-		VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+		VK_PIPELINE_STAGE_2_BLIT_BIT,
 		0,
 		VK_ACCESS_2_TRANSFER_WRITE_BIT
 	);
@@ -406,7 +440,7 @@ void VulkanEngine::draw()
 		swapchain_images[swapchain_image_idx],
 		VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 		VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-		VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+		VK_PIPELINE_STAGE_2_BLIT_BIT,
 		VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
 		VK_ACCESS_2_TRANSFER_WRITE_BIT,
 		VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT
@@ -1561,22 +1595,9 @@ void VulkanEngine::init_renderables()
 	loaded_scenes["DamagedHelmet"] = *asset_file;
 	render_scene.combined_mesh_buffer = loaded_scenes["DamagedHelmet"]->combined_mesh_buffer;
 
+	for (const auto& n : loaded_scenes["DamagedHelmet"]->top_nodes)
 	{
-		ZoneScopedN("Register objects");
-
-		//int min = 1;
-		//int max = 50;
-		//for (int i = 0; i < max; i++)
-		//{
-		//	const int x = std::rand() % (max - min + 1) + min;
-		//	const int y = std::rand() % (max - min + 1) + min;
-		//	const int z = std::rand() % (max - min + 1) + min;
-		//	auto offset = glm::translate(glm::mat4(1.0f), glm::vec3(x, y, z) / (float)max);
-		for (const auto& n : loaded_scenes["DamagedHelmet"]->top_nodes)
-		{
-			//register_object(n.get(), offset);
-			register_object(n.get(), glm::mat4(1.0f));
-		}
+		register_object(n.get(), glm::mat4(1.0f));
 	}
 }
 
@@ -1785,7 +1806,7 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 		draw_image.image,
 		VK_IMAGE_LAYOUT_UNDEFINED,
 		VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-		VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+		VK_PIPELINE_STAGE_2_BLIT_BIT,
 		VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
 		VK_ACCESS_2_TRANSFER_READ_BIT,
 		VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT
@@ -1796,7 +1817,7 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 		depth_image.image,
 		VK_IMAGE_LAYOUT_UNDEFINED,
 		VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
-		VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+		VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
 		VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
 		VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
 		VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
@@ -1947,7 +1968,7 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 		draw_image2.image,
 		VK_IMAGE_LAYOUT_UNDEFINED,
 		VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-		VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+		VK_PIPELINE_STAGE_2_BLIT_BIT,
 		VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
 		VK_ACCESS_2_TRANSFER_READ_BIT,
 		VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT
@@ -1990,27 +2011,15 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 		VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 		VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 		VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-		VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+		VK_PIPELINE_STAGE_2_BLIT_BIT,
 		VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-		VK_ACCESS_2_TRANSFER_WRITE_BIT
+		VK_ACCESS_2_TRANSFER_READ_BIT
 	);
 }
 
 void VulkanEngine::shadow_pass(VkCommandBuffer cmd, RenderScene::MeshPass& pass, size_t cascade_idx)
 {
 	CascadeData& cascade = cascade_data[cascade_idx];
-
-	vkutil::transition_image(
-		cmd,
-		cascade.shadow_map.image,
-		VK_IMAGE_LAYOUT_UNDEFINED,
-		VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
-		VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-		VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
-		VK_ACCESS_2_SHADER_READ_BIT,
-		VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
-		VK_IMAGE_ASPECT_DEPTH_BIT
-	);
 
 	VkRenderingAttachmentInfo depth_attachment = vkinit::depth_attachment_info(cascade.shadow_map.view);
 	VkExtent2D shadow_extent = VkExtent2D{ cascade.shadow_map.extent.width, cascade.shadow_map.extent.height };
@@ -2075,18 +2084,6 @@ void VulkanEngine::shadow_pass(VkCommandBuffer cmd, RenderScene::MeshPass& pass,
 	}
 
 	vkCmdEndRendering(cmd);
-
-	vkutil::transition_image(
-		cmd,
-		cascade.shadow_map.image,
-		VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
-		VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-		VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
-		VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-		VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-		VK_ACCESS_2_SHADER_READ_BIT,
-		VK_IMAGE_ASPECT_DEPTH_BIT
-	);
 };
 
 void VulkanEngine::update_cascade()
