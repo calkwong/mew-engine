@@ -1,0 +1,73 @@
+#version 450
+
+#extension GL_EXT_nonuniform_qualifier : require
+#extension GL_EXT_buffer_reference : require
+
+layout (local_size_x = 256) in;
+
+struct DrawCommand
+{
+	uint index_count;
+	uint instance_count;
+	uint first_index;
+	int vertex_offset;
+	uint first_instance;
+	uint pipeline_id;
+};
+
+struct CompactDraw
+{
+	uint index_count;
+	uint instance_count;
+	uint first_index;
+	int vertex_offset;
+	uint first_instance;
+};
+
+layout(buffer_reference, std430) readonly buffer DrawCommandsBuffer
+{ 
+	DrawCommand commands[];
+};
+
+layout(buffer_reference, std430) buffer CompactBuffer
+{ 
+	CompactDraw commands[];
+};
+
+layout(buffer_reference, std430) buffer CountBuffer
+{ 
+	uint count[];
+};
+
+layout(push_constant) uniform constants
+{
+	DrawCommandsBuffer drawCommandsBuffer;
+	CompactBuffer compactBuffer;
+	CountBuffer countBuffer;
+	uint offsets[8];
+	uint count;
+} pc;
+
+void main()
+{
+	uint g_id = gl_GlobalInvocationID.x;
+	
+	if (g_id < pc.count)
+	{
+		DrawCommand command = pc.drawCommandsBuffer.commands[g_id];
+		
+		if (command.instance_count > 0)
+		{
+			uint index = command.pipeline_id;
+			uint count = atomicAdd(pc.countBuffer.count[index], 1);
+		
+			uint offset = pc.offsets[index];
+			
+			pc.compactBuffer.commands[count + offset].index_count = command.index_count;
+			pc.compactBuffer.commands[count + offset].instance_count = command.instance_count;
+			pc.compactBuffer.commands[count + offset].first_index = command.first_index;
+			pc.compactBuffer.commands[count + offset].vertex_offset = command.vertex_offset;
+			pc.compactBuffer.commands[count + offset].first_instance = command.first_instance;
+		}
+	}
+}

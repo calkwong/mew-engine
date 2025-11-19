@@ -51,8 +51,9 @@ struct IndirectBatch
 
 struct MultiBatch
 {
-	uint32_t first{};
-	uint32_t count{};
+	ShaderPass* pipeline{};
+	uint32_t offset{}; // buffer offset for compact indirect buffer
+	uint32_t max_draw_count{};
 };
 
 struct GPUInstance
@@ -85,12 +86,27 @@ struct CullData
 	uint32_t count{};
 };
 
+struct CompactIndirectData
+{
+	VkDeviceAddress indirect_buffer_address{};
+	VkDeviceAddress compact_buffer_address{};
+	VkDeviceAddress count_buffer_address{};
+	uint32_t offsets[8]{}; // (!) TODO: refactor
+	uint32_t count{};
+};
+
 struct PassObject
 {
 	ShaderPass* material{};
 	Handle<DrawPrimitive> primitive_id{};
 	Handle<RenderObject> renderable_id{}; // handle into renderables
 	// (!) to do hash
+};
+
+struct GPUIndirect
+{
+	VkDrawIndexedIndirectCommand command{};
+	uint32_t pipeline_id{};
 };
 
 struct MeshAsset;
@@ -115,6 +131,8 @@ struct RenderScene // (!) forward only for now
 		AllocatedBuffer ginstance_buffer{};
 		AllocatedBuffer draw_indirect_buffer{};
 		AllocatedBuffer clear_indirect_buffer{};
+		AllocatedBuffer compact_indirect_buffer{};
+		AllocatedBuffer count_buffer{};
 
 		MeshPassType type{};
 	};

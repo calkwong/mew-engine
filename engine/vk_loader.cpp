@@ -71,7 +71,7 @@ AllocatedImage basisu_load(VulkanEngine* engine, const char* filepath)
 	basist::ktx2_transcoder transcoder{};
 
 	// initialize the transcoder
-	if (!transcoder.init(buffer.data(), buffer.size()))
+	if (!transcoder.init(buffer.data(), static_cast<uint32_t>(buffer.size())))
 	{
 		assert(0);
 	}
@@ -168,7 +168,7 @@ AllocatedImage basisu_load(VulkanEngine* engine, const char* filepath)
 			VK_ACCESS_2_TRANSFER_WRITE_BIT
 		);
 
-		vkCmdCopyBufferToImage(cmd, upload_buffer.buffer, new_image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, copy_regions.size(), copy_regions.data());
+		vkCmdCopyBufferToImage(cmd, upload_buffer.buffer, new_image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, static_cast<uint32_t>(copy_regions.size()), copy_regions.data());
 
 		vkutil::transition_image(
 			cmd, new_image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
@@ -233,8 +233,8 @@ std::optional<AllocatedImage> load_image(VulkanEngine* engine, fastgltf::Asset& 
 					const std::string path(filePath.uri.path().begin(), filePath.uri.path().end());
 
 					//std::string current_path = "../../assets/khronos_sponza/" + path; // (!) TODO handle this properly
-					std::string current_path = "../../assets/DamagedHelmet/" + path; // (!) TODO handle this properly
-					//std::string current_path = "../../assets/bistro_exterior_ktx2/" + path; // (!) TODO handle this properly
+					//std::string current_path = "../../assets/DamagedHelmet/" + path; // (!) TODO handle this properly
+					std::string current_path = "../../assets/bistro_exterior_ktx2/" + path; // (!) TODO handle this properly
 					//std::string current_path = "../../assets/bistro_interior_wine_ktx2/" + path; // (!) TODO handle this properly
 
 					std::filesystem::path p = path;

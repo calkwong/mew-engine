@@ -310,6 +310,7 @@ public:
 	void ready_mesh_draw();
 	CullData ready_cull_data(RenderScene::MeshPass& pass, glm::mat4& viewproj, bool orthographic = false);
 	void execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPass& pass, CullData& cull_data);
+	void execute_compact_indirect(VkCommandBuffer cmd, RenderScene::MeshPass& pass);
 
 private:
 	void init_vulkan();

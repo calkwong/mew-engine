@@ -37,6 +37,7 @@ struct DrawCommand
 	uint first_index;
 	int vertex_offset;
 	uint first_instance;
+	uint pipeline_id;
 };
 
 layout(buffer_reference, std430) buffer DrawCommandsBuffer
@@ -49,7 +50,6 @@ layout(buffer_reference, std430) buffer InstanceBuffer
 	uint instances[];
 };
 	
-
 layout(push_constant) uniform constants
 {
 	vec4 frustum_planes[6];
@@ -108,7 +108,7 @@ void main()
 		{
 			uint count = atomicAdd(pc.drawCommandsBuffer.commands[batch].instance_count, 1);
 			
-			uint instance_index = pc.drawCommandsBuffer.commands[batch].first_instance + count;
+			uint instance_index = pc.drawCommandsBuffer.commands[batch].first_instance + count; // req for instancing support
 			
 			pc.instanceBuffer.instances[instance_index] = object;
 		}

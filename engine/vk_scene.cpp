@@ -59,41 +59,49 @@ void RenderScene::build_multi_batch(MeshPass& pass)
 		ShaderPass* new_material = pass.batches[i].material;
 
 		if (last_material == new_material)
-		{
-			pass.multibatches.back().count++;
-		}
+			pass.multibatches.back().max_draw_count++;
 		else
 		{
-			last_material = new_material;
-
 			MultiBatch multibatch{};
-			multibatch.first = static_cast<uint32_t>(i);
-			multibatch.count = 1;
+			multibatch.pipeline = new_material;
+			multibatch.offset = static_cast<uint32_t>(i);
+			multibatch.max_draw_count = 1;
 			pass.multibatches.push_back(multibatch);
+			last_material = new_material;
 		}
-
 	}
 }
 
 // PREREQ: pass objects
 void RenderScene::build_indirect_buffer(MeshPass& pass)
 {
-	VkDrawIndexedIndirectCommand* draw_commands = static_cast<VkDrawIndexedIndirectCommand*>(pass.clear_indirect_buffer.info.pMappedData);
+	GPUIndirect* indirect_objects = static_cast<GPUIndirect*>(pass.clear_indirect_buffer.info.pMappedData);
 
+	VkPipeline last_pipeline = VK_NULL_HANDLE;
+	uint32_t pipeline_count = -1;
 	for (size_t i = 0; i < pass.batches.size(); i++)
 	{
-		VkDrawIndexedIndirectCommand draw_command{};
+		GPUIndirect indirect_data{};
 
 		uint32_t pass_object_id = pass.batches[i].first;
-
 		const DrawPrimitive& primitive = primitives[pass.pass_objects[pass_object_id].primitive_id.handle];
-		draw_command.indexCount = primitive.count;
-		draw_command.instanceCount = 0;
-		draw_command.firstIndex = primitive.start_index;
-		draw_command.vertexOffset = 0;
-		draw_command.firstInstance = pass_object_id;
+		indirect_data.command.indexCount = primitive.count;
+		indirect_data.command.instanceCount = 0;
+		indirect_data.command.firstIndex = primitive.start_index;
+		indirect_data.command.vertexOffset = 0;
+		indirect_data.command.firstInstance = pass_object_id; // (!) not associated with pass object, just for indexing - verify
 
-		draw_commands[i] = draw_command;
+		VkPipeline current_pipeline = pass.pass_objects[pass_object_id].material->pipeline;
+
+		if (current_pipeline != last_pipeline)
+		{
+			last_pipeline = current_pipeline;
+			pipeline_count++;
+		}
+		
+		indirect_data.pipeline_id = pipeline_count; 
+
+		indirect_objects[i] = indirect_data;
 	}
 }
 
@@ -126,6 +134,8 @@ void RenderScene::build_object_buffer()
 // PREREQ: unbatched objects
 void RenderScene::build_pass_objects(MeshPass& pass)
 {
+	pass.pass_objects.clear();
+
 	for (uint32_t o : pass.unbatched_objects)
 	{
 		const RenderObject& obj = renderables[o];

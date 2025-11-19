@@ -45,6 +45,8 @@ VulkanEngine& VulkanEngine::get() { return *loaded_engine; }
 
 constexpr bool USE_VALIDATION_LAYERS = true;
 
+#define SHADOW
+
 constexpr float LIGHT_FAR_PLANE{ 150.0f };
 constexpr uint32_t SHADOW_MAP_SIZE{ 2048 };
 constexpr int NUMBER_OF_CASCADES{ 4 };
@@ -203,7 +205,7 @@ void VulkanEngine::init()
 
 	main_camera.position = glm::vec3(0, 0, 5);
 	// (!) refactor? draw_extent set in init_default_data
-	main_camera.near = 100.0f;
+	main_camera.near = 1000.0f;
 	main_camera.far = 0.01f;
 	main_camera.fov = 70.0f;
 	main_camera.perspective = glm::perspective(glm::radians(main_camera.fov), static_cast<float>(draw_extent.width) / draw_extent.height, main_camera.near, main_camera.far);
@@ -255,6 +257,8 @@ void VulkanEngine::cleanup()
 			destroy_buffer(p.ginstance_buffer);
 			destroy_buffer(p.draw_indirect_buffer);
 			destroy_buffer(p.clear_indirect_buffer);
+			destroy_buffer(p.compact_indirect_buffer);
+			destroy_buffer(p.count_buffer);
 		}
 
 		// (!) move destruction of combined vertex/idnex buffer here, away from loaded gltf
@@ -297,9 +301,16 @@ void VulkanEngine::draw()
 
 	ready_mesh_draw();
 
+	std::vector<RenderScene::MeshPass*> passes = { &render_scene.forward_pass, &render_scene.transparent_pass };
+	for (size_t i = 0; i < NUMBER_OF_CASCADES; i++)
+	{
+		passes.push_back(&render_scene.shadow_pass[i]);
+	}
+
 	std::array<CullData, NUMBER_OF_CASCADES> shadow_cull_data{};
 	CullData forward_cull_data{};
 	CullData transparent_cull_data{};
+
 	{
 		ZoneScopedN("Ready cull data");
 
@@ -327,19 +338,19 @@ void VulkanEngine::draw()
 
 	VK_CHECK(vkBeginCommandBuffer(cmd, &cmd_begin_info));
 
+
 	{
-		// always reset
 		TracyVkZone(tracy_ctx, cmd, "Reset indirect buffers");
 
 		VkBufferCopy copy{};
 		copy.dstOffset = 0;
 		copy.srcOffset = 0;
 		
-		std::vector<RenderScene::MeshPass*> passes = { &render_scene.forward_pass, &render_scene.transparent_pass };
-		for (size_t i = 0; i < NUMBER_OF_CASCADES; i++)
-		{
-			passes.push_back(&render_scene.shadow_pass[i]);
-		}
+		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT /*draw_indirect*/ | VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT /*count_buffer*/,
+			VK_PIPELINE_STAGE_2_COPY_BIT | VK_PIPELINE_STAGE_2_CLEAR_BIT,
+			VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT,
+			VK_ACCESS_2_TRANSFER_WRITE_BIT
+		);
 
 		for (auto* pass : passes)
 		{
@@ -348,13 +359,15 @@ void VulkanEngine::draw()
 			if (copy.size == 0)
 				continue;
 			vkCmdCopyBuffer(cmd, pass->clear_indirect_buffer.buffer, pass->draw_indirect_buffer.buffer, 1, &copy);
+
+			vkCmdFillBuffer(cmd, pass->count_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
 		}
 	}
 
 	{
-		TracyVkZone(tracy_ctx, get_current_frame().main_command_buffer, "Forward compute cull");
+		TracyVkZone(tracy_ctx, get_current_frame().main_command_buffer, "Compute cull");
 
-		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COPY_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COPY_BIT | VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
 			VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT
 		);
 
@@ -365,6 +378,21 @@ void VulkanEngine::draw()
 		}
 #endif
 		execute_compute_cull(cmd, render_scene.forward_pass, forward_cull_data);
+
+		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+			VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT
+		);
+	}
+
+	{
+		TracyVkZone(tracy_ctx, get_current_frame().main_command_buffer, "Compute compact");
+
+		for (auto* pass : passes)
+		{
+			if (pass->unbatched_objects.size() == 0)
+				continue;
+			execute_compact_indirect(cmd, *pass);
+		}
 
 		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
 			VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT
@@ -766,6 +794,7 @@ void VulkanEngine::init_vulkan()
 	features12.descriptorBindingVariableDescriptorCount = true;
 	features12.runtimeDescriptorArray = true;
 	features12.shaderSampledImageArrayNonUniformIndexing = true;
+	features12.drawIndirectCount = true;
 
 	// vulkan 1.0 features
 	VkPhysicalDeviceFeatures features10{};
@@ -1075,6 +1104,11 @@ void VulkanEngine::init_pipelines()
 	pc = { VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CullData) };
 	std::unique_ptr<ShaderPass> cull_pass = vkutil::build_shader(device, compute_builder, descriptor_layouts, &pc);
 
+	module = shader_cache.add_shader(device, "compact_indirect.comp.spv");
+	compute_builder.set_shaders(module);
+	pc = { VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CompactIndirectData) };
+	std::unique_ptr<ShaderPass> compact_pass = vkutil::build_shader(device, compute_builder, descriptor_layouts, &pc);
+
 	//> GRAPHICS PIPELINE
 	descriptor_layouts.clear();
 	descriptor_layouts = { scene_descriptor_layout, bindless_tex_layout, bindless_sampler_layout };
@@ -1168,6 +1202,7 @@ void VulkanEngine::init_pipelines()
 	shader_passes["tonemap"] = std::move(tonemap_pass);
 	shader_passes["blend"] = std::move(blend_pass);
 	shader_passes["cull"] = std::move(cull_pass);
+	shader_passes["compact"] = std::move(compact_pass);
 
 	for (const auto& [k, v] : shader_cache.data)
 	{
@@ -1584,8 +1619,8 @@ void VulkanEngine::init_renderables()
 	//std::string asset_path = "../../assets/plants.gltf";
 	//std::string asset_path = "../../assets/khronos_sponza/Sponza.gltf";
 	//std::string asset_path = "../../assets/bistro_interior_wine_ktx2/BistroInterior_WineFixed.gltf";
-	//std::string asset_path = "../../assets/bistro_exterior_ktx2/BistroExteriorFixed.gltf";
-	std::string asset_path = "../../assets/DamagedHelmet/DamagedHelmet.gltf";
+	std::string asset_path = "../../assets/bistro_exterior_ktx2/BistroExteriorFixed.gltf";
+	//std::string asset_path = "../../assets/DamagedHelmet/DamagedHelmet.gltf";
 	//std::string asset_path = "../../assets/AlphaBlendModeTest.glb";
 	auto start{ std::chrono::system_clock::now() };
 	auto asset_file = load_gltf(this, asset_path);
@@ -1597,35 +1632,10 @@ void VulkanEngine::init_renderables()
 	loaded_scenes["DamagedHelmet"] = *asset_file;
 	render_scene.combined_mesh_buffer = loaded_scenes["DamagedHelmet"]->combined_mesh_buffer;
 
-	const uint32_t draw_count = 10000;
-
-	std::srand(42);
-
-	std::vector<glm::mat4> offsets(draw_count);
-	for (size_t i = 0; i < offsets.size(); i++)
-	{
-		float x = ((float)std::rand() / RAND_MAX) * 40.0f - 20.0f;
-		float y = ((float)std::rand() / RAND_MAX) * 40.0f - 20.0f;
-		float z = ((float)std::rand() / RAND_MAX) * -30.0f - 5.0f ;
-
-		float angle = (float)std::rand() / RAND_MAX * 360.0f;
-
-		glm::vec3 axis = glm::vec3((float)std::rand() / RAND_MAX, (float)std::rand() / RAND_MAX, (float)std::rand() / RAND_MAX);
-		glm::vec3 scale = glm::vec3((float)std::rand() / RAND_MAX * 2.0f);
-
-		offsets[i] = glm::translate(glm::mat4(1.0f), glm::vec3(x, y, z));
-		offsets[i] = glm::rotate(offsets[i], glm::radians(angle), axis);
-		offsets[i] = glm::scale(offsets[i], scale);
-	}
-
 	for (const auto& n : loaded_scenes["DamagedHelmet"]->top_nodes)
 	{
-		for (size_t i = 0; i < offsets.size(); i++)
-		{
-			register_object(n.get(), offsets[i]);
-		}
+		register_object(n.get(), glm::mat4(1.0f));
 	}
-
 }
 
 void VulkanEngine::init_bindless()
@@ -1694,11 +1704,11 @@ void VulkanEngine::register_object(Node* node, const glm::mat4& top_matrix)
 
 			if (found)
 			{
-				obj.primitive_id.handle = handle + i;
+				obj.primitive_id.handle = static_cast<uint32_t>(handle + i);
 			}
 			else
 			{
-				obj.primitive_id.handle = render_scene.primitives.size();
+				obj.primitive_id.handle = static_cast<uint32_t>(render_scene.primitives.size());
 				render_scene.primitives.emplace_back(DrawPrimitive{ s.first_index, s.count });
 			}
 
@@ -1742,8 +1752,8 @@ void VulkanEngine::update_scene()
 	scene_data.view = main_camera.get_view_matrix();
 	scene_data.proj = main_camera.perspective;
 	scene_data.viewproj = scene_data.proj * scene_data.view;
-	scene_data.sunlight_dir = glm::vec4(7.75, 12.5, 12.5, 1.);
-	//scene_data.sunlight_dir = glm::vec4(0.001, 12.0, 0.0, 1.);
+	//scene_data.sunlight_dir = glm::vec4(7.75, 12.5, 12.5, 1.);
+	scene_data.sunlight_dir = glm::vec4(0.001, 12.0, 0.0, 1.);
 	//scene_data.sunlight_dir = glm::vec4(0.0, 12.0, 12.0, 1.);
 	scene_data.sunlight_color = glm::vec4(1);
 
@@ -1903,10 +1913,13 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 	for (size_t i = 0; i < render_scene.forward_pass.multibatches.size(); i++)
 	{
 		const auto& multibatch = render_scene.forward_pass.multibatches[i];
-		const auto& batch = render_scene.forward_pass.batches[multibatch.first];
+		const auto& pipeline = multibatch.pipeline;
 
-		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, batch.material->pipeline);
-		vkCmdDrawIndexedIndirect(cmd, render_scene.forward_pass.draw_indirect_buffer.buffer, multibatch.first * sizeof(VkDrawIndexedIndirectCommand), multibatch.count, sizeof(VkDrawIndexedIndirectCommand));
+		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->pipeline);
+		vkCmdDrawIndexedIndirectCount(cmd, render_scene.forward_pass.compact_indirect_buffer.buffer, multibatch.offset * sizeof(VkDrawIndexedIndirectCommand),
+			render_scene.forward_pass.count_buffer.buffer, i * sizeof(uint32_t),
+			multibatch.max_draw_count, sizeof(VkDrawIndexedIndirectCommand)
+		);
 		stats.draw_count++;
 	}
 
@@ -2104,14 +2117,17 @@ void VulkanEngine::shadow_pass(VkCommandBuffer cmd, RenderScene::MeshPass& pass,
 	for (size_t i = 0; i < pass.multibatches.size(); i++)
 	{
 		const auto& multibatch = pass.multibatches[i];
-		const auto& batch = pass.batches[multibatch.first];
+		const auto& pipeline = multibatch.pipeline;
 
-		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, batch.material->pipeline);
+		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->pipeline);
 
-		vkCmdDrawIndexedIndirect(cmd, pass.draw_indirect_buffer.buffer, multibatch.first * sizeof(VkDrawIndexedIndirectCommand), multibatch.count, sizeof(VkDrawIndexedIndirectCommand));
+		vkCmdDrawIndexedIndirectCount(cmd, pass.compact_indirect_buffer.buffer, multibatch.offset * sizeof(VkDrawIndexedIndirectCommand),
+			pass.count_buffer.buffer, i * sizeof(uint32_t),
+			multibatch.max_draw_count, sizeof(VkDrawIndexedIndirectCommand)
+		);
+
 		stats.draw_count++;
 	}
-
 	vkCmdEndRendering(cmd);
 };
 
@@ -2257,7 +2273,7 @@ void VulkanEngine::draw_imgui(VkCommandBuffer cmd, VkImageView swapchain_view)
 }
 
 // Update Object Buffer
-// ForEach RenderPass: Pass Object -> sort -> Indirect Batch -> Multi Batch -> Instance Buffer -> gInstance Buffer -> Indirect Buffer/Reset
+// ForEach RenderPass: Pass Object -> sort -> Indirect Batch -> Multi Batch -> Count Buffer -> Instance Buffer -> gInstance Buffer -> Indirect Buffer/Reset
 // (!) will break with streaming/dynamic scene, need to implement some flags
 void VulkanEngine::ready_mesh_draw()
 {
@@ -2297,6 +2313,17 @@ void VulkanEngine::ready_mesh_draw()
 			render_scene.build_multi_batch(pass);
 		}
 
+		if (pass.count_buffer.info.size < pass.multibatches.size() * sizeof(uint32_t))
+		{
+			fmt::println("count_buffer");
+			pass.count_buffer = reallocate_buffer(
+				pass.multibatches.size() * sizeof(uint32_t), // first element used as global counter for indexing into draw indirect buffer
+				pass.count_buffer,
+				0,
+				VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_2_TRANSFER_DST_BIT
+			);
+		}
+
 		if (pass.instance_buffer.info.size < pass.pass_objects.size() * sizeof(uint32_t))
 		{
 			fmt::println("instance_buffer");
@@ -2325,22 +2352,27 @@ void VulkanEngine::ready_mesh_draw()
 		{
 			fmt::println("clear_indirect_buffer");
 			pass.clear_indirect_buffer = reallocate_buffer(
-				pass.batches.size() * sizeof(VkDrawIndexedIndirectCommand),
+				pass.batches.size() * sizeof(GPUIndirect),
 				pass.clear_indirect_buffer,
 				VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-				VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT
+				VK_BUFFER_USAGE_TRANSFER_SRC_BIT
 			);
 			render_scene.build_indirect_buffer(pass);
-		}
 
-		if (pass.draw_indirect_buffer.info.size < pass.batches.size() * sizeof(VkDrawIndexedIndirectCommand))
-		{
 			fmt::println("draw_indirect_buffer");
 			pass.draw_indirect_buffer = reallocate_buffer(
-				pass.batches.size() * sizeof(VkDrawIndexedIndirectCommand),
+				pass.batches.size() * sizeof(GPUIndirect),
 				pass.draw_indirect_buffer,
 				0,
-				VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT
+				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT
+			);
+
+			fmt::println("compact_buffer");
+			pass.compact_indirect_buffer = reallocate_buffer(
+				pass.batches.size() * sizeof(VkDrawIndexedIndirectCommand),
+				pass.compact_indirect_buffer,
+				0,
+				VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT
 			);
 		}
 	}
@@ -2404,4 +2436,34 @@ void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPa
 
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CullData), &cull_data);
 	vkCmdDispatch(cmd, static_cast<uint32_t>(std::ceil(pass.pass_objects.size() / 256.0)), 1, 1);
+}
+
+void VulkanEngine::execute_compact_indirect(VkCommandBuffer cmd, RenderScene::MeshPass& pass)
+{
+	ShaderPass current_pass = *shader_passes["compact"];
+	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
+
+	CompactIndirectData pc{};
+
+	VkBufferDeviceAddressInfo address_info{};
+	address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
+	address_info.buffer = pass.draw_indirect_buffer.buffer;
+	pc.indirect_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+
+	address_info.buffer = pass.compact_indirect_buffer.buffer;
+	pc.compact_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+
+	address_info.buffer = pass.count_buffer.buffer;
+	pc.count_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+
+	assert(pass.multibatches.size() <= 8); // (!) TODO: refactor
+
+	for (size_t i = 0; i < pass.multibatches.size(); i++)
+	{
+		pc.offsets[i] = pass.multibatches[i].offset;
+	}
+	pc.count = static_cast<uint32_t>(pass.batches.size());
+
+	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CompactIndirectData), &pc);
+	vkCmdDispatch(cmd, static_cast<uint32_t>(std::ceil(pass.batches.size() / 256.0)), 1, 1);
 }
