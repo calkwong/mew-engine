@@ -68,6 +68,14 @@ struct SkyboxPushConstants
 	uint32_t texture_id{};
 };
 
+struct DepthPyramidPushConstants
+{
+	std::array<int32_t, 2> image_size{};
+	uint32_t texture_id{};
+	uint32_t image_id{};
+	uint32_t lod{};
+};
+
 struct PostFXPushConstants
 {
 	uint32_t texture_id{};
@@ -126,12 +134,18 @@ struct TextureCache
 	// (!) refactor
 	void set_draw_image(uint32_t id) { draw_id = id; };
 	void set_draw_image2(uint32_t id) { draw_id2 = id; };
+	void set_depth_image(uint32_t id) { depth_id = id; };
+	void set_depth_pyramid_image(uint32_t id) { depth_pyramid_id = id; };
 	uint32_t get_draw_image() { return draw_id; };
 	uint32_t get_draw_image2() { return draw_id2; };
+	uint32_t get_depth_image() { return depth_id; };
+	uint32_t get_depth_pyramid_image() { return depth_pyramid_id; };
 
 private:
 	uint32_t draw_id{};
 	uint32_t draw_id2{};
+	uint32_t depth_id{};
+	uint32_t depth_pyramid_id{};
 };
 
 struct SamplerCache
@@ -147,6 +161,12 @@ struct ImageCache
 	std::vector<VkDescriptorImageInfo> image_infos{};
 
 	uint32_t add_texture(const VkImageView& view);
+
+	void set_depth_pyramid_image(uint32_t id) { depth_pyramid_id = id; };
+	uint32_t get_depth_pyramid_image() { return depth_pyramid_id; };
+
+private:
+	uint32_t depth_pyramid_id{};
 };
 
 struct ShaderCache
@@ -220,7 +240,7 @@ public:
 	VkExtent2D draw_extent{};
 
 	AllocatedImage depth_image{};
-	VkExtent2D depth_extent{};
+	AllocatedImage depth_pyramid{};
 
 	VkExtent3D ibl_extent{};
 

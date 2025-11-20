@@ -270,7 +270,7 @@ void main()
 		color.xyz += emission;
 	}
 	
-	float ibl_strength = 0.2;
+	float ibl_strength = 0.1;
 	
 	color.xyz += ambient * ibl_strength;
 	// premultiplied alpha

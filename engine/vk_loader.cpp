@@ -233,8 +233,8 @@ std::optional<AllocatedImage> load_image(VulkanEngine* engine, fastgltf::Asset& 
 					const std::string path(filePath.uri.path().begin(), filePath.uri.path().end());
 
 					//std::string current_path = "../../assets/khronos_sponza/" + path; // (!) TODO handle this properly
-					//std::string current_path = "../../assets/DamagedHelmet/" + path; // (!) TODO handle this properly
-					std::string current_path = "../../assets/bistro_exterior_ktx2/" + path; // (!) TODO handle this properly
+					std::string current_path = "../../assets/DamagedHelmet/" + path; // (!) TODO handle this properly
+					//std::string current_path = "../../assets/bistro_exterior_ktx2/" + path; // (!) TODO handle this properly
 					//std::string current_path = "../../assets/bistro_interior_wine_ktx2/" + path; // (!) TODO handle this properly
 
 					std::filesystem::path p = path;
@@ -395,19 +395,22 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 
 	// (!) currently supports ktx2 in URI only
 	bool is_ktx2{};
-	std::visit(
-		fastgltf::visitor{
-			[](auto& arg) {},
-			[&](fastgltf::sources::URI& filePath) {
-				assert(filePath.uri.isLocalPath()); // only capable of loading local files
-				const std::string filename(filePath.uri.path().begin(), filePath.uri.path().end());
-				std::filesystem::path path = filename;
-				if (path.extension() == ".ktx2")
-					is_ktx2 = true;
-				}
-		},
-		gltf.images[0].data
-	);
+	if (gltf.images.size() > 0) // (!) TODO: hack
+	{
+		std::visit(
+			fastgltf::visitor{
+				[](auto& arg) {},
+				[&](fastgltf::sources::URI& filePath) {
+					assert(filePath.uri.isLocalPath()); // only capable of loading local files
+					const std::string filename(filePath.uri.path().begin(), filePath.uri.path().end());
+					std::filesystem::path path = filename;
+					if (path.extension() == ".ktx2")
+						is_ktx2 = true;
+					}
+			},
+			gltf.images[0].data
+		);
+	}
 
 	if (is_ktx2)
 	{

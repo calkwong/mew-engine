@@ -147,7 +147,14 @@ float calculate_shadow()
 #define PBR
 #define IBL
 
-void main() 
+void main()
+{
+	vec3 N = normalize(inNormal);
+	outFragColor = vec4(N, 1);
+	outFragColor.xyz = outFragColor.xyz * 0.5 + 0.5;
+}
+
+void main2() 
 {	
 	MaterialData m = pc.materialBuffer.materials[inMaterialID];
 	
@@ -269,7 +276,7 @@ void main()
 		color.xyz += emission;
 	}
 	
-	float ibl_strength = 0.2;
+	float ibl_strength = 0.1;
 	
 	color.xyz += ambient * ibl_strength;
 	color.a = 0.0;

@@ -38,6 +38,7 @@
 #include <cmath>
 #include <utility>
 #include <algorithm>
+#include <random>
 
 VulkanEngine* loaded_engine{};
 
@@ -45,7 +46,7 @@ VulkanEngine& VulkanEngine::get() { return *loaded_engine; }
 
 constexpr bool USE_VALIDATION_LAYERS = true;
 
-#define SHADOW
+//#define SHADOW
 
 constexpr float LIGHT_FAR_PLANE{ 150.0f };
 constexpr uint32_t SHADOW_MAP_SIZE{ 2048 };
@@ -205,7 +206,7 @@ void VulkanEngine::init()
 
 	main_camera.position = glm::vec3(0, 0, 5);
 	// (!) refactor? draw_extent set in init_default_data
-	main_camera.near = 1000.0f;
+	main_camera.near = 100.0f;
 	main_camera.far = 0.01f;
 	main_camera.fov = 70.0f;
 	main_camera.perspective = glm::perspective(glm::radians(main_camera.fov), static_cast<float>(draw_extent.width) / draw_extent.height, main_camera.near, main_camera.far);
@@ -337,7 +338,6 @@ void VulkanEngine::draw()
 	VkCommandBufferBeginInfo cmd_begin_info = vkinit::command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT); 
 
 	VK_CHECK(vkBeginCommandBuffer(cmd, &cmd_begin_info));
-
 
 	{
 		TracyVkZone(tracy_ctx, cmd, "Reset indirect buffers");
@@ -795,6 +795,7 @@ void VulkanEngine::init_vulkan()
 	features12.runtimeDescriptorArray = true;
 	features12.shaderSampledImageArrayNonUniformIndexing = true;
 	features12.drawIndirectCount = true;
+	features12.samplerFilterMinmax = true;
 
 	// vulkan 1.0 features
 	VkPhysicalDeviceFeatures features10{};
@@ -857,7 +858,7 @@ void VulkanEngine::init_swapchain()
 	draw_image2 = create_image(draw_image_extent, VK_FORMAT_R16G16B16A16_SFLOAT, draw_image_flags, VK_IMAGE_ASPECT_COLOR_BIT);
 
 	auto id = texture_cache.add_texture(draw_image.view);
-	assert(id == 0);
+	assert(id == 0); // (!) why am i checking this again?
 	texture_cache.set_draw_image(id);
 
 	id = texture_cache.add_texture(draw_image2.view);
@@ -867,7 +868,10 @@ void VulkanEngine::init_swapchain()
 	depth_image.format = VK_FORMAT_D32_SFLOAT;
 	depth_image.extent = draw_image_extent;
 
-	depth_image = create_image(draw_image_extent, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_IMAGE_ASPECT_DEPTH_BIT);
+	depth_image = create_image(draw_image_extent, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_DEPTH_BIT);
+
+	id = texture_cache.add_texture(depth_image.view);
+	texture_cache.set_depth_image(id);
 
 	main_deletion_queue.push_function([&]() {
 		vkDestroyImageView(device, draw_image.view, nullptr);
@@ -937,8 +941,8 @@ void VulkanEngine::create_swapchain(uint32_t width, uint32_t height)
 {
 	vkb::SwapchainBuilder swapchainBuilder{ chosen_gpu, device, surface };
 
-	//swapchain_image_format = VK_FORMAT_B8G8R8A8_UNORM;
-	swapchain_image_format = VK_FORMAT_B8G8R8A8_SRGB;
+	swapchain_image_format = VK_FORMAT_B8G8R8A8_UNORM;
+	//swapchain_image_format = VK_FORMAT_B8G8R8A8_SRGB;
 
 	vkb::Swapchain vkbSwapchain = swapchainBuilder
 		//.use_default_format_selection()
@@ -1003,7 +1007,7 @@ void VulkanEngine::init_descriptors()
 
 	std::vector<DescriptorAllocatorGrowable::PoolSizeRatio> sizes = {
 		{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
-		{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 20 },
+		{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000 },
 		{ VK_DESCRIPTOR_TYPE_SAMPLER, 10 },
 	};
 
@@ -1035,7 +1039,7 @@ void VulkanEngine::init_descriptors()
 
 		builder.clear();
 		builder.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT);
-		builder.bindings[0].descriptorCount = 20;
+		builder.bindings[0].descriptorCount = 1000;
 
 		bindless_image_layout = builder.build(device, &binding_flags_info);
 	}
@@ -1095,6 +1099,11 @@ void VulkanEngine::init_pipelines()
 	module = shader_cache.add_shader(device, "brdf.comp.spv");
 	compute_builder.set_shaders(module);
 	std::unique_ptr<ShaderPass> brdf_pass = vkutil::build_shader(device, compute_builder, descriptor_layouts, &pc);
+
+	module = shader_cache.add_shader(device, "depth_pyramid.comp.spv");
+	compute_builder.set_shaders(module);
+	pc = { VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(DepthPyramidPushConstants) };
+	std::unique_ptr<ShaderPass> depth_pyramid_pass = vkutil::build_shader(device, compute_builder, descriptor_layouts, &pc);
 
 	//> INDIRECT CULL
 	descriptor_layouts.clear();
@@ -1180,6 +1189,15 @@ void VulkanEngine::init_pipelines()
 	pc = { VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(SkyboxPushConstants) };
 	std::unique_ptr<ShaderPass> skybox_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
 
+	//> DEBUG
+	module = shader_cache.add_shader(device, "full_screen.vert.spv");
+	frag_module = shader_cache.add_shader(device, "debug.frag.spv");
+	builder.set_shaders(module, frag_module);
+	builder.disable_depth();
+	builder.set_depth_format(VK_FORMAT_UNDEFINED);
+	pc = { VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(SkyboxPushConstants) };
+	std::unique_ptr<ShaderPass> debug_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
+
 	//> POST FX
 	module = shader_cache.add_shader(device, "full_screen.vert.spv");
 	frag_module = shader_cache.add_shader(device, "tonemap.frag.spv");
@@ -1203,6 +1221,8 @@ void VulkanEngine::init_pipelines()
 	shader_passes["blend"] = std::move(blend_pass);
 	shader_passes["cull"] = std::move(cull_pass);
 	shader_passes["compact"] = std::move(compact_pass);
+	shader_passes["debug"] = std::move(debug_pass);
+	shader_passes["depth_pyramid"] = std::move(depth_pyramid_pass);
 
 	for (const auto& [k, v] : shader_cache.data)
 	{
@@ -1485,6 +1505,22 @@ void VulkanEngine::init_default_data()
 	vkCreateSampler(device, &sampler_info, nullptr, &sampler);
 	sampler_cache.add_sampler(sampler);
 
+	sampler_info.magFilter = VK_FILTER_NEAREST;
+	sampler_info.minFilter = VK_FILTER_NEAREST;
+	sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+	sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+	sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+	sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+
+	VkSamplerReductionModeCreateInfo reduction_info{};
+	reduction_info.sType = VK_STRUCTURE_TYPE_SAMPLER_REDUCTION_MODE_CREATE_INFO;
+	reduction_info.reductionMode = VK_SAMPLER_REDUCTION_MODE_MIN;
+
+	sampler_info.pNext = &reduction_info;
+
+	vkCreateSampler(device, &sampler_info, nullptr, &sampler);
+	sampler_cache.add_sampler(sampler); // id = 4
+
 	//> CSM
 	float far = LIGHT_FAR_PLANE; 
 	float near = main_camera.far; 
@@ -1521,6 +1557,44 @@ void VulkanEngine::init_default_data()
 
 	//> init scene
 	render_scene.init();
+
+	//> create depth pyramid
+	VkExtent3D depth_pyramid_extent{};
+	depth_pyramid_extent.width = 1 << static_cast<uint32_t>(std::floor(std::log2(draw_extent.width)));
+	depth_pyramid_extent.height = 1 << static_cast<uint32_t>(std::floor(std::log2(draw_extent.height)));
+	depth_pyramid_extent.depth = 1;
+
+	depth_pyramid = create_image(depth_pyramid_extent, VK_FORMAT_R32_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT, 0, true);
+	
+	// sampling in occlusion culling
+	auto id = texture_cache.add_texture(depth_pyramid.view);
+	texture_cache.set_depth_pyramid_image(id);
+
+	uint32_t mip_levels = static_cast<uint32_t>(std::floor(std::log2(std::max(depth_pyramid_extent.width, depth_pyramid_extent.height)))) + 1;
+
+	std::vector<VkImageView> pyramid_views(mip_levels);
+	VkImageViewCreateInfo img_view_info = vkinit::imageview_create_info(VK_FORMAT_R32_SFLOAT, depth_pyramid.image, VK_IMAGE_ASPECT_COLOR_BIT);
+	img_view_info.subresourceRange.levelCount = 1;
+	img_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+	img_view_info.subresourceRange.baseMipLevel = 0;
+	vkCreateImageView(device, &img_view_info, nullptr, &pyramid_views[0]);
+	id = image_cache.add_texture(pyramid_views[0]);
+	image_cache.set_depth_pyramid_image(id);
+
+	for (int mip = 1; mip < mip_levels; mip++)
+	{
+		img_view_info.subresourceRange.baseMipLevel = mip;
+		vkCreateImageView(device, &img_view_info, nullptr, &pyramid_views[mip]);
+		image_cache.add_texture(pyramid_views[mip]);
+	}
+
+	main_deletion_queue.push_function([&, pyramid_views]() {
+		destroy_image(depth_pyramid);
+		for (size_t i = 0; i < pyramid_views.size(); i++)
+		{
+			vkDestroyImageView(device, pyramid_views[i], nullptr);
+		}
+	});
 }
 
 void VulkanEngine::init_renderables()
@@ -1619,8 +1693,8 @@ void VulkanEngine::init_renderables()
 	//std::string asset_path = "../../assets/plants.gltf";
 	//std::string asset_path = "../../assets/khronos_sponza/Sponza.gltf";
 	//std::string asset_path = "../../assets/bistro_interior_wine_ktx2/BistroInterior_WineFixed.gltf";
-	std::string asset_path = "../../assets/bistro_exterior_ktx2/BistroExteriorFixed.gltf";
-	//std::string asset_path = "../../assets/DamagedHelmet/DamagedHelmet.gltf";
+	//std::string asset_path = "../../assets/bistro_exterior_ktx2/BistroExteriorFixed.gltf";
+	std::string asset_path = "../../assets/suzanne.gltf";
 	//std::string asset_path = "../../assets/AlphaBlendModeTest.glb";
 	auto start{ std::chrono::system_clock::now() };
 	auto asset_file = load_gltf(this, asset_path);
@@ -1632,10 +1706,34 @@ void VulkanEngine::init_renderables()
 	loaded_scenes["DamagedHelmet"] = *asset_file;
 	render_scene.combined_mesh_buffer = loaded_scenes["DamagedHelmet"]->combined_mesh_buffer;
 
+	glm::mat4 t = glm::translate(glm::mat4(1.0f), glm::vec3(0, 0, 4));
 	for (const auto& n : loaded_scenes["DamagedHelmet"]->top_nodes)
 	{
-		register_object(n.get(), glm::mat4(1.0f));
+		register_object(n.get(), t);
 	}
+
+	std::mt19937 mt(42);
+	auto draw_radius = 20.0f;
+	auto draw_count = 1000;
+
+	for (size_t i = 0; i < draw_count; i++)
+	{
+		const float x = static_cast<float>(mt()) / mt.max() * draw_radius - draw_radius * 0.5f;
+		const float y = static_cast<float>(mt()) / mt.max() * draw_radius - draw_radius * 0.5f;
+		const float z = static_cast<float>(mt()) / mt.max() * -draw_radius + draw_radius * 0.25f;
+
+		glm::mat4 t = glm::translate(glm::mat4(1.0f), glm::vec3(x, y, z));
+		glm::vec3 axis = glm::normalize(glm::vec3(static_cast<float>(mt()) / mt.max(), static_cast<float>(mt()) / mt.max(), static_cast<float>(mt()) / mt.max()));
+		glm::mat4 r = glm::rotate(glm::mat4(1.0f), glm::radians(static_cast<float>(mt()) / mt.max() * 360.0f), axis);
+		glm::mat4 s = glm::scale(glm::mat4(1.0f), glm::vec3(static_cast<float>(mt()) / mt.max()) + 1.0f);
+		const auto transform = t * r * s;
+
+		for (const auto& n : loaded_scenes["DamagedHelmet"]->top_nodes)
+		{
+			register_object(n.get(), transform);
+		}
+	}
+
 }
 
 void VulkanEngine::init_bindless()
@@ -1851,14 +1949,26 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 		VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT
 	);
 
+	//vkutil::transition_image(
+	//	cmd,
+	//	depth_image.image,
+	//	VK_IMAGE_LAYOUT_UNDEFINED,
+	//	VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+	//	VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+	//	VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+	//	VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+	//	VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
+	//	VK_IMAGE_ASPECT_DEPTH_BIT
+	//);
+
 	vkutil::transition_image(
 		cmd,
 		depth_image.image,
 		VK_IMAGE_LAYOUT_UNDEFINED,
 		VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
-		VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
-		VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
-		VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+		VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, // depth reduction read
+		VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
+		VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
 		VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
 		VK_IMAGE_ASPECT_DEPTH_BIT
 	);
@@ -1923,21 +2033,129 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 		stats.draw_count++;
 	}
 
-	//> skybox
-	current_pass = *shader_passes["skybox"];
+	vkCmdEndRendering(cmd);
+
+	//> depth pyramid 
+	vkutil::transition_image(
+		cmd,
+		depth_image.image,
+		VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+		VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+		VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+		VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+		VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
+		VK_IMAGE_ASPECT_DEPTH_BIT
+	);
+
+	vkutil::transition_image(
+		cmd,
+		depth_pyramid.image,
+		VK_IMAGE_LAYOUT_UNDEFINED,
+		VK_IMAGE_LAYOUT_GENERAL,
+		VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, // change to compute later - currently for debugging
+		VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+		VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
+		VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+		VK_IMAGE_ASPECT_COLOR_BIT
+	);
+
+	current_pass = *shader_passes["depth_pyramid"];
+	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &bindless_image_descriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
+
+	DepthPyramidPushConstants depth_pc{};
+
+	uint32_t mip_levels = static_cast<uint32_t>(std::floor(std::log2(std::max(depth_pyramid.extent.width, depth_pyramid.extent.height)))) + 1;
+
+	for (size_t i = 0; i < mip_levels; i++)
+	{
+		int32_t workgroup_x = std::max(static_cast<int32_t>(depth_pyramid.extent.width) >> i, 1);
+		int32_t workgroup_y = std::max(static_cast<int32_t>(depth_pyramid.extent.height) >> i, 1);
+		depth_pc.image_size = { workgroup_x, workgroup_y };
+		depth_pc.texture_id = i == 0 ? texture_cache.get_depth_image() : texture_cache.get_depth_pyramid_image();
+		depth_pc.image_id = image_cache.get_depth_pyramid_image() + i;
+		depth_pc.lod = i == 0 ? 0 : i - 1;
+
+		vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(DepthPyramidPushConstants), &depth_pc);
+		vkCmdDispatch(cmd, (workgroup_x + 31) / 32, (workgroup_y + 31) / 32, 1);
+
+		if (i < mip_levels - 1)
+		{
+			VkImageMemoryBarrier2 barrier{};
+			barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+			barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+			barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+			barrier.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+			barrier.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+			barrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+			barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+			VkImageSubresourceRange subresourcerange{};
+
+			subresourcerange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+			subresourcerange.baseMipLevel = i;
+			subresourcerange.levelCount = 1;
+			subresourcerange.layerCount = 1;
+			barrier.subresourceRange = subresourcerange;
+			barrier.image = depth_pyramid.image;
+
+			VkDependencyInfo info{};
+			info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+			info.imageMemoryBarrierCount = 1;
+			info.pImageMemoryBarriers = &barrier;
+
+			vkCmdPipelineBarrier2(cmd, &info);
+		}
+	}
+
+	//> debug
+	vkutil::transition_image(
+		cmd,
+		depth_pyramid.image,
+		VK_IMAGE_LAYOUT_GENERAL,
+		VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+		VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+		VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+		VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
+		VK_IMAGE_ASPECT_COLOR_BIT
+	);
+
+	color_attachment = vkinit::attachment_info(draw_image.view, nullptr);
+	render_info = vkinit::rendering_info(draw_extent, &color_attachment, nullptr);
+
+	vkCmdBeginRendering(cmd, &render_info);
+
+	current_pass = *shader_passes["debug"];
 	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
 	SkyboxPushConstants pc{};
-	auto proj = main_camera.perspective;
-	auto view_no_translation = glm::mat3(main_camera.get_view_matrix());
-	auto view = glm::mat4(view_no_translation);
-	pc.inverse_viewproj = glm::inverse(view) * glm::inverse(proj); // go in reverse order
-	pc.texture_id = bindless_texture.skybox;
-	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(SkyboxPushConstants), &pc);
+	//pc.inverse_viewproj = glm::inverse(view) * glm::inverse(proj); // go in reverse order
+	pc.texture_id = texture_cache.get_depth_pyramid_image();
+	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(SkyboxPushConstants), &pc);
 	vkCmdDraw(cmd, 3, 1, 0, 0);
-	stats.draw_count;
+	stats.draw_count++;
+
+	//> skybox
+	//current_pass = *shader_passes["skybox"];
+	//vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
+	//vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
+	//vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
+	//vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
+	//SkyboxPushConstants pc{};
+	//auto proj = main_camera.perspective;
+	//auto view_no_translation = glm::mat3(main_camera.get_view_matrix());
+	//auto view = glm::mat4(view_no_translation);
+	//pc.inverse_viewproj = glm::inverse(view) * glm::inverse(proj); // go in reverse order
+	//pc.texture_id = bindless_texture.skybox;
+	//vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(SkyboxPushConstants), &pc);
+	//vkCmdDraw(cmd, 3, 1, 0, 0);
+	//stats.draw_count++;
 
 	//> transparent geometries
 	//current_pass = *shader_passes["blend"];
@@ -2031,7 +2249,6 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 	scissor.extent.width = draw_extent.width;
 	scissor.extent.height = draw_extent.height;
 	vkCmdSetScissor(cmd, 0, 1, &scissor);
-
 
 	current_pass = *shader_passes["tonemap"];
 
