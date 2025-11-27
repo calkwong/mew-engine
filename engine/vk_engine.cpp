@@ -53,43 +53,9 @@ constexpr uint32_t SHADOW_MAP_SIZE{ 2048 };
 constexpr int NUMBER_OF_CASCADES{ 4 };
 
 AutoCVar_Int CVAR_SHADOW_NEAR{ "shadow.near", "pull back light frustum near plane", -20, -20, CVarFlags::EditSliderInt };
-AutoCVar_Int CVAR_OCCLUSION{ "occlusion", "occlusion enabled", 0, 0, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_OCCLUSION{ "occlusion", "occlusion enabled", 1, 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_PYRAMID{ "depth_pyramid.render", "render depth pyramid", 0, 0, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_DEPTH_PYRAMID_LOD{ "depth_pyramid.lod", "", 0, 0, CVarFlags::EditSliderInt };
-
-bool is_visible(const std::array<glm::vec4, 6>& frustum_planes, const RenderObject& obj)
-{
-	glm::vec3 center = obj.transform * glm::vec4(obj.bounds.origin, 1.0);
-
-	glm::vec3 right = obj.transform[0] * obj.bounds.extents.x;
-	glm::vec3 up = obj.transform[1] * obj.bounds.extents.y;
-	glm::vec3 forward = obj.transform[2] * obj.bounds.extents.z;
-
-	// recompute AABB
-	glm::vec3 updated_extents{};
-	updated_extents.x = std::abs(right.x) + std::abs(up.x) + std::abs(forward.x);
-	updated_extents.y = std::abs(right.y) + std::abs(up.y) + std::abs(forward.y);
-	updated_extents.z = std::abs(right.z) + std::abs(up.z) + std::abs(forward.z);
-
-	bool visible = true;
-
-	for (size_t i = 0; i < frustum_planes.size(); i++)
-	{
-		glm::vec3 normal = glm::vec3(frustum_planes[i]);
-
-		float distance = frustum_planes[i].w;
-
-		// project radius (extent) of box onto line
-		float r = glm::dot(updated_extents, glm::abs(normal)); // (!) abs?
-
-		// distance of box center from plane
-		float s = glm::dot(center, normal) + distance;
-
-		visible = visible && (s >= -r);
-	}
-
-	return visible;
-}
 
 void sort_transparency(const std::vector<RenderObject>& renderables, const Camera& cam, std::vector<size_t>& visible_indices)
 {
@@ -121,48 +87,6 @@ void sort_transparency(const std::vector<RenderObject>& renderables, const Camer
 	}
 
 	visible_indices = std::move(sorted);
-}
-
-std::vector<size_t> frustum_culling(const std::vector<RenderObject>& renderables, glm::mat4& viewproj, bool orthographic = false)
-{
-	auto m0 = glm::row(viewproj, 0);
-	auto m1 = glm::row(viewproj, 1);
-	auto m2 = glm::row(viewproj, 2);
-	auto m3 = glm::row(viewproj, 3);
-
-	// only correct for reverse depth
-	std::array<glm::vec4, 6> frustum_planes{
-		m3, // near
-		m2, // far
-		m3 + m1,
-		m3 - m1,
-		m3 + m0,
-		m3 - m0
-	};
-
-	if (orthographic)
-	{
-		frustum_planes[0] = m3 - m2; // near
-		frustum_planes[1] = m3 + m2; // far
-	}
-
-	for (size_t i = 0; i < frustum_planes.size(); i++)
-	{
-		float length = glm::length(glm::vec3(frustum_planes[i]));
-
-		frustum_planes[i] /= length;
-	}
-
-	std::vector<size_t> indices{};
-
-	for (size_t i = 0; i < renderables.size(); i++)
-	{
-		const auto& obj = renderables[i];
-		if (is_visible(frustum_planes, obj))
-			indices.push_back(i);
-	}
-
-	return indices;
 }
 
 void VulkanEngine::init()
@@ -213,6 +137,17 @@ void VulkanEngine::init()
 	main_camera.perspective = glm::perspective(glm::radians(main_camera.fov), static_cast<float>(draw_extent.width) / draw_extent.height, main_camera.near, main_camera.far);
 
 	//init_precomputations();
+
+	VkQueryPoolCreateInfo query_pool_info{};
+	query_pool_info.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
+	query_pool_info.queryType = VK_QUERY_TYPE_TIMESTAMP;
+	query_pool_info.queryCount = static_cast<uint32_t>(100);
+	VK_CHECK(vkCreateQueryPool(device, &query_pool_info, nullptr, &query_pool_timestamps));
+
+	query_pool_info.queryType = VK_QUERY_TYPE_PIPELINE_STATISTICS;
+	query_pool_info.queryCount = static_cast<uint32_t>(4);
+	query_pool_info.pipelineStatistics = VK_QUERY_PIPELINE_STATISTIC_CLIPPING_INVOCATIONS_BIT;
+	VK_CHECK(vkCreateQueryPool(device, &query_pool_info, nullptr, &query_pool_pipelines));
 
 	is_initialized = true;
 }
@@ -272,6 +207,9 @@ void VulkanEngine::cleanup()
 		}
 
 		main_deletion_queue.flush();
+
+		vkDestroyQueryPool(device, query_pool_timestamps, nullptr);
+		vkDestroyQueryPool(device, query_pool_pipelines, nullptr);
 
 		destroy_swapchain();
 
@@ -342,6 +280,10 @@ void VulkanEngine::draw()
 	VkCommandBufferBeginInfo cmd_begin_info = vkinit::command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT); 
 
 	VK_CHECK(vkBeginCommandBuffer(cmd, &cmd_begin_info));
+	vkCmdResetQueryPool(cmd, query_pool_timestamps, 0, 100);
+	vkCmdResetQueryPool(cmd, query_pool_pipelines, 0, 4);
+
+	vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, query_pool_timestamps, 0);
 
 	{
 		TracyVkZone(tracy_ctx, cmd, "Reset indirect buffers");
@@ -386,7 +328,18 @@ void VulkanEngine::draw()
 			VK_IMAGE_ASPECT_DEPTH_BIT
 		);
 
-		render(cmd, false);
+		vkutil::transition_image(
+			cmd,
+			draw_image.image,
+			VK_IMAGE_LAYOUT_UNDEFINED,
+			VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+			VK_PIPELINE_STAGE_2_BLIT_BIT,
+			VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+			VK_ACCESS_2_TRANSFER_READ_BIT,
+			VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT
+		); // from blit to swapchain prev frame
+
+		render(cmd, false, 0);
 
 		build_depth_pyramid(cmd);
 
@@ -418,7 +371,7 @@ void VulkanEngine::draw()
 			VK_IMAGE_ASPECT_DEPTH_BIT
 		);
 
-		render(cmd, true);
+		render(cmd, true, 1);
 
 		vkutil::transition_image(
 			cmd,
@@ -539,6 +492,7 @@ void VulkanEngine::draw()
 		0
 	);
 
+	vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, query_pool_timestamps, 1);
 	TracyVkCollect(tracy_ctx, get_current_frame().main_command_buffer);
 	VK_CHECK(vkEndCommandBuffer(cmd));
 
@@ -565,6 +519,37 @@ void VulkanEngine::draw()
 	VK_CHECK(vkQueuePresentKHR(graphics_queue, &present_info));
 	FrameMark;
 	frame_number++;
+
+	std::array<uint64_t, 2> timestamp_results{};
+
+	vkGetQueryPoolResults(
+		device,
+		query_pool_timestamps,
+		0,
+		timestamp_results.size(),
+		timestamp_results.size() * sizeof(uint64_t),
+		timestamp_results.data(),
+		sizeof(uint64_t),
+		VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT
+	);
+
+	std::array<uint64_t, 2> pipeline_results{};
+
+	vkGetQueryPoolResults(
+		device,
+		query_pool_pipelines,
+		0,
+		pipeline_results.size(),
+		pipeline_results.size() * sizeof(uint64_t),
+		pipeline_results.data(),
+		sizeof(uint64_t),
+		VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT
+	);
+
+	auto gpu_begin = static_cast<double>(timestamp_results[0]) * props.limits.timestampPeriod * 1e-6;
+	auto gpu_end = static_cast<double>(timestamp_results[1]) * props.limits.timestampPeriod * 1e-6;
+	stats.gpu_time = (gpu_end - gpu_begin);
+	stats.triangle_count = pipeline_results[0] + pipeline_results[1];
 }
 
 void VulkanEngine::init_precomputations()
@@ -795,6 +780,8 @@ void VulkanEngine::run()
 			ImGui::Text("frametime %f ms", stats.deltatime * 1000.0f);
 			ImGui::Text("draws %i", stats.draw_count);
 			ImGui::Text("scene update time %f ms", stats.scene_update_time);
+			ImGui::Text("gpu render time %f ms", stats.gpu_time);
+			ImGui::Text("triangles %u", stats.triangle_count);
 
 			ImGui::End();
 		}
@@ -847,6 +834,7 @@ void VulkanEngine::init_vulkan()
 	// vulkan 1.0 features
 	VkPhysicalDeviceFeatures features10{};
 	features10.multiDrawIndirect = true;
+	features10.pipelineStatisticsQuery = true;
 	//features10.samplerAnisotropy = true;
 	//features10.depthClamp = true;
 
@@ -886,6 +874,9 @@ void VulkanEngine::init_vulkan()
 	main_deletion_queue.push_function([&]() {
 		vmaDestroyAllocator(allocator); 
 		});
+
+	vkGetPhysicalDeviceProperties(chosen_gpu, &props);
+	assert(props.limits.timestampComputeAndGraphics);
 }
 
 void VulkanEngine::init_swapchain()
@@ -1770,7 +1761,7 @@ void VulkanEngine::init_renderables()
 
 	std::mt19937 mt(42);
 	auto draw_radius = 20.0f;
-	auto draw_count = 5000;
+	auto draw_count = 1000;
 
 	for (size_t i = 0; i < draw_count; i++)
 	{
@@ -1998,16 +1989,16 @@ uint32_t MaterialCache::add_material(ShaderPass* forward, ShaderPass* shadow)
 
 void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 {
-	vkutil::transition_image(
-		cmd,
-		draw_image.image,
-		VK_IMAGE_LAYOUT_UNDEFINED,
-		VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-		VK_PIPELINE_STAGE_2_BLIT_BIT,
-		VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-		VK_ACCESS_2_TRANSFER_READ_BIT,
-		VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT
-	);
+	//vkutil::transition_image(
+	//	cmd,
+	//	draw_image.image,
+	//	VK_IMAGE_LAYOUT_UNDEFINED,
+	//	VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+	//	VK_PIPELINE_STAGE_2_BLIT_BIT,
+	//	VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+	//	VK_ACCESS_2_TRANSFER_READ_BIT,
+	//	VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT
+	//); // commented as already performed prior to 2 pass occlusion culling
 
 	//vkutil::transition_image(
 	//	cmd,
@@ -2092,8 +2083,6 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
 	DebugPushConstants pc{};
-	//pc.inverse_viewproj = glm::inverse(view) * glm::inverse(proj); // go in reverse order
-	//pc.texture_id = texture_cache.get_depth_image();
 	pc.texture_id = texture_cache.get_depth_pyramid_image();
 	pc.lod = CVAR_DEPTH_PYRAMID_LOD.get();
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(DebugPushConstants), &pc);
@@ -2116,7 +2105,6 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 	//vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(SkyboxPushConstants), &pc);
 	//vkCmdDraw(cmd, 3, 1, 0, 0);
 	//stats.draw_count++;
-
 
 	vkCmdEndRendering(cmd);
 
@@ -2574,8 +2562,10 @@ void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPa
 	vkCmdDispatch(cmd, static_cast<uint32_t>(std::ceil(pass.pass_objects.size() / 256.0)), 1, 1);
 }
 
-void VulkanEngine::render(VkCommandBuffer cmd, bool late)
+void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t query)
 {
+	vkCmdBeginQuery(cmd, query_pool_pipelines, query, 0);
+
 	VkClearColorValue clear_color_value{ 0.0f, 0.0f, 0.0f, 1.0f };
 	VkClearValue clear_value{ .color = clear_color_value };
 	VkRenderingAttachmentInfo color_attachment = late ? vkinit::attachment_info(draw_image.view, nullptr) : vkinit::attachment_info(draw_image.view, &clear_value);
@@ -2639,6 +2629,7 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late)
 	}
 
 	vkCmdEndRendering(cmd);
+	vkCmdEndQuery(cmd, query_pool_pipelines, query);
 }
 
 void VulkanEngine::build_depth_pyramid(VkCommandBuffer cmd)

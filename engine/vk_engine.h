@@ -128,6 +128,8 @@ struct EngineStats
 	int draw_count{};
 	float scene_update_time{};
 	float deltatime{};
+	float gpu_time{};
+	unsigned int triangle_count{};
 };
 
 // destruction of textures handled by gltf (not internally); does not support dynamic objs
@@ -309,6 +311,10 @@ public:
 	tracy::VkCtx* tracy_ctx{};
 	RenderScene render_scene{};
 
+	VkQueryPool query_pool_timestamps{};
+	VkQueryPool query_pool_pipelines{};
+	VkPhysicalDeviceProperties props{};
+
 	static VulkanEngine& get();
 
 	void init();
@@ -336,7 +342,7 @@ public:
 	void ready_mesh_draw();
 	CullData ready_cull_data(RenderScene::MeshPass& pass, glm::mat4& viewproj, bool orthographic = false);
 	void execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPass& pass, CullData& cull_data, bool late);
-	void render(VkCommandBuffer cmd, bool late);
+	void render(VkCommandBuffer cmd, bool late, uint32_t query);
 	void build_depth_pyramid(VkCommandBuffer cmd);
 
 private:
