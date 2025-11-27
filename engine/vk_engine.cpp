@@ -53,8 +53,9 @@ constexpr uint32_t SHADOW_MAP_SIZE{ 2048 };
 constexpr int NUMBER_OF_CASCADES{ 4 };
 
 AutoCVar_Int CVAR_SHADOW_NEAR{ "shadow.near", "pull back light frustum near plane", -20, -20, CVarFlags::EditSliderInt };
-AutoCVar_Int CVAR_PROPER_SHADOW{ "shadow.double_sided", "render shadows for double sided geometry", 0, 0, CVarFlags::EditCheckbox };
-AutoCVar_Int shader_idx{ "debug.index", "", 0, 0, CVarFlags::EditSliderInt };
+AutoCVar_Int CVAR_OCCLUSION{ "occlusion", "occlusion enabled", 0, 0, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_RENDER_PYRAMID{ "depth_pyramid.render", "render depth pyramid", 0, 0, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_DEPTH_PYRAMID_LOD{ "depth_pyramid.lod", "", 0, 0, CVarFlags::EditSliderInt };
 
 bool is_visible(const std::array<glm::vec4, 6>& frustum_planes, const RenderObject& obj)
 {
@@ -206,11 +207,12 @@ void VulkanEngine::init()
 
 	main_camera.position = glm::vec3(0, 0, 5);
 	// (!) refactor? draw_extent set in init_default_data
-	main_camera.near = 100.0f;
+	main_camera.near = 1000.0f;
 	main_camera.far = 0.01f;
 	main_camera.fov = 70.0f;
 	main_camera.perspective = glm::perspective(glm::radians(main_camera.fov), static_cast<float>(draw_extent.width) / draw_extent.height, main_camera.near, main_camera.far);
-	init_precomputations();
+
+	//init_precomputations();
 
 	is_initialized = true;
 }
@@ -254,12 +256,11 @@ void VulkanEngine::cleanup()
 		for (auto* pass : passes)
 		{
 			auto p = *pass;
-			destroy_buffer(p.instance_buffer);
-			destroy_buffer(p.ginstance_buffer);
 			destroy_buffer(p.draw_indirect_buffer);
 			destroy_buffer(p.clear_indirect_buffer);
-			destroy_buffer(p.compact_indirect_buffer);
 			destroy_buffer(p.count_buffer);
+			destroy_buffer(p.vis_buffer);
+			destroy_buffer(p.debug_buffer);
 		}
 
 		// (!) move destruction of combined vertex/idnex buffer here, away from loaded gltf
@@ -302,15 +303,18 @@ void VulkanEngine::draw()
 
 	ready_mesh_draw();
 
-	std::vector<RenderScene::MeshPass*> passes = { &render_scene.forward_pass, &render_scene.transparent_pass };
+	std::vector<RenderScene::MeshPass*> passes = { &render_scene.forward_pass };
+
+#ifdef SHADOW
 	for (size_t i = 0; i < NUMBER_OF_CASCADES; i++)
 	{
 		passes.push_back(&render_scene.shadow_pass[i]);
 	}
 
 	std::array<CullData, NUMBER_OF_CASCADES> shadow_cull_data{};
+#endif
+
 	CullData forward_cull_data{};
-	CullData transparent_cull_data{};
 
 	{
 		ZoneScopedN("Ready cull data");
@@ -341,35 +345,22 @@ void VulkanEngine::draw()
 
 	{
 		TracyVkZone(tracy_ctx, cmd, "Reset indirect buffers");
-
-		VkBufferCopy copy{};
-		copy.dstOffset = 0;
-		copy.srcOffset = 0;
 		
-		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT /*draw_indirect*/ | VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT /*count_buffer*/,
-			VK_PIPELINE_STAGE_2_COPY_BIT | VK_PIPELINE_STAGE_2_CLEAR_BIT,
-			VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT,
+		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
+			VK_PIPELINE_STAGE_2_CLEAR_BIT,
+			VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT,
 			VK_ACCESS_2_TRANSFER_WRITE_BIT
 		);
 
-		for (auto* pass : passes)
-		{
-			copy.size = pass->clear_indirect_buffer.info.size;
-
-			if (copy.size == 0)
-				continue;
-			vkCmdCopyBuffer(cmd, pass->clear_indirect_buffer.buffer, pass->draw_indirect_buffer.buffer, 1, &copy);
-
-			vkCmdFillBuffer(cmd, pass->count_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
-		}
+		vkCmdFillBuffer(cmd, render_scene.forward_pass.count_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
 	}
 
 	{
 		TracyVkZone(tracy_ctx, get_current_frame().main_command_buffer, "Compute cull");
 
-		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COPY_BIT | VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
 			VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT
-		);
+		); 
 
 #ifdef SHADOW
 		for (size_t i = 0; i < NUMBER_OF_CASCADES; i++)
@@ -377,26 +368,82 @@ void VulkanEngine::draw()
 			execute_compute_cull(cmd, render_scene.shadow_pass[i], shadow_cull_data[i]);
 		}
 #endif
-		execute_compute_cull(cmd, render_scene.forward_pass, forward_cull_data);
-
-		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-			VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT
+		execute_compute_cull(cmd, render_scene.forward_pass, forward_cull_data, false);
+		
+		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
+			VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT
 		);
-	}
 
-	{
-		TracyVkZone(tracy_ctx, get_current_frame().main_command_buffer, "Compute compact");
-
-		for (auto* pass : passes)
-		{
-			if (pass->unbatched_objects.size() == 0)
-				continue;
-			execute_compact_indirect(cmd, *pass);
-		}
-
-		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
-			VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT
+		vkutil::transition_image(
+			cmd,
+			depth_image.image,
+			VK_IMAGE_LAYOUT_UNDEFINED,
+			VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+			VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT, // last frame lighting pass?
+			VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
+			VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+			VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
+			VK_IMAGE_ASPECT_DEPTH_BIT
 		);
+
+		render(cmd, false);
+
+		build_depth_pyramid(cmd);
+
+		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_PIPELINE_STAGE_2_CLEAR_BIT,
+			VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT
+		);
+
+		vkCmdFillBuffer(cmd, render_scene.forward_pass.count_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
+
+		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+			VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT
+		);
+
+		execute_compute_cull(cmd, render_scene.forward_pass, forward_cull_data, true);
+
+		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
+			VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT
+		);
+
+		vkutil::transition_image(
+			cmd,
+			depth_image.image,
+			VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+			VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+			VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+			VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+			VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
+			VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
+			VK_IMAGE_ASPECT_DEPTH_BIT
+		);
+
+		render(cmd, true);
+
+		vkutil::transition_image(
+			cmd,
+			depth_image.image,
+			VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+			VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+			VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+			VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+			VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+			VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
+			VK_IMAGE_ASPECT_DEPTH_BIT
+		);
+
+		vkutil::transition_image(
+			cmd,
+			depth_pyramid.image,
+			VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+			VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+			VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+			VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+			VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
+			VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
+			VK_IMAGE_ASPECT_COLOR_BIT
+		);
+
 	}
 
 	// (!) TODO: cull with AABB? ritter's?
@@ -463,7 +510,7 @@ void VulkanEngine::draw()
 		VK_ACCESS_2_TRANSFER_WRITE_BIT
 	);
 
-	vkutil::copy_image(cmd, draw_image2.image, swapchain_images[swapchain_image_idx], draw_extent, swapchain_extent);
+	vkutil::copy_image(cmd, draw_image.image, swapchain_images[swapchain_image_idx], draw_extent, swapchain_extent);
 
 	vkutil::transition_image(
 		cmd,
@@ -1106,17 +1153,10 @@ void VulkanEngine::init_pipelines()
 	std::unique_ptr<ShaderPass> depth_pyramid_pass = vkutil::build_shader(device, compute_builder, descriptor_layouts, &pc);
 
 	//> INDIRECT CULL
-	descriptor_layouts.clear();
-
 	module = shader_cache.add_shader(device, "indirect_cull.comp.spv");
 	compute_builder.set_shaders(module);
 	pc = { VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CullData) };
 	std::unique_ptr<ShaderPass> cull_pass = vkutil::build_shader(device, compute_builder, descriptor_layouts, &pc);
-
-	module = shader_cache.add_shader(device, "compact_indirect.comp.spv");
-	compute_builder.set_shaders(module);
-	pc = { VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CompactIndirectData) };
-	std::unique_ptr<ShaderPass> compact_pass = vkutil::build_shader(device, compute_builder, descriptor_layouts, &pc);
 
 	//> GRAPHICS PIPELINE
 	descriptor_layouts.clear();
@@ -1163,7 +1203,8 @@ void VulkanEngine::init_pipelines()
 	std::unique_ptr<ShaderPass> textured_lit_clip_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
 
 	//> DOUBLE SIDED LIT
-	frag_module = shader_cache.add_shader(device, "mesh_pbr.frag.spv");
+	//frag_module = shader_cache.add_shader(device, "mesh_pbr.frag.spv");
+	frag_module = shader_cache.add_shader(device, "basic_mesh.frag.spv");
 	builder.set_shaders(module, frag_module);
 	std::unique_ptr<ShaderPass> textured_lit2_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
 
@@ -1195,7 +1236,7 @@ void VulkanEngine::init_pipelines()
 	builder.set_shaders(module, frag_module);
 	builder.disable_depth();
 	builder.set_depth_format(VK_FORMAT_UNDEFINED);
-	pc = { VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(SkyboxPushConstants) };
+	pc = { VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(DebugPushConstants) };
 	std::unique_ptr<ShaderPass> debug_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
 
 	//> POST FX
@@ -1220,7 +1261,6 @@ void VulkanEngine::init_pipelines()
 	shader_passes["tonemap"] = std::move(tonemap_pass);
 	shader_passes["blend"] = std::move(blend_pass);
 	shader_passes["cull"] = std::move(cull_pass);
-	shader_passes["compact"] = std::move(compact_pass);
 	shader_passes["debug"] = std::move(debug_pass);
 	shader_passes["depth_pyramid"] = std::move(depth_pyramid_pass);
 
@@ -1505,8 +1545,8 @@ void VulkanEngine::init_default_data()
 	vkCreateSampler(device, &sampler_info, nullptr, &sampler);
 	sampler_cache.add_sampler(sampler);
 
-	sampler_info.magFilter = VK_FILTER_NEAREST;
-	sampler_info.minFilter = VK_FILTER_NEAREST;
+	sampler_info.magFilter = VK_FILTER_LINEAR;
+	sampler_info.minFilter = VK_FILTER_LINEAR;
 	sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 	sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 	sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
@@ -1520,6 +1560,17 @@ void VulkanEngine::init_default_data()
 
 	vkCreateSampler(device, &sampler_info, nullptr, &sampler);
 	sampler_cache.add_sampler(sampler); // id = 4
+
+	sampler_info.pNext = nullptr;
+	sampler_info.magFilter = VK_FILTER_NEAREST;
+	sampler_info.minFilter = VK_FILTER_NEAREST;
+	sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+	sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+	sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+	sampler_info.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK; // reverse depth
+
+	vkCreateSampler(device, &sampler_info, nullptr, &sampler);
+	sampler_cache.add_sampler(sampler); // id = 5
 
 	//> CSM
 	float far = LIGHT_FAR_PLANE; 
@@ -1706,21 +1757,26 @@ void VulkanEngine::init_renderables()
 	loaded_scenes["DamagedHelmet"] = *asset_file;
 	render_scene.combined_mesh_buffer = loaded_scenes["DamagedHelmet"]->combined_mesh_buffer;
 
-	glm::mat4 t = glm::translate(glm::mat4(1.0f), glm::vec3(0, 0, 4));
+	std::array<glm::mat4, 3> t{};
+	t[0] = glm::translate(glm::mat4(1.0f), glm::vec3(0, 0, 4));// * glm::scale(glm::mat4(1.0f), glm::vec3(2.0));
+	t[1] = glm::translate(glm::mat4(1.0f), glm::vec3(-0.75, -0.2, 4));// * glm::scale(glm::mat4(1.0f), glm::vec3(2.0));
+	t[2] = glm::translate(glm::mat4(1.0f), glm::vec3(0.75, 0.2, 4));// * glm::scale(glm::mat4(1.0f), glm::vec3(2.0));
 	for (const auto& n : loaded_scenes["DamagedHelmet"]->top_nodes)
 	{
-		register_object(n.get(), t);
+		register_object(n.get(), t[0]);
+		register_object(n.get(), t[1]);
+		register_object(n.get(), t[2]);
 	}
 
 	std::mt19937 mt(42);
 	auto draw_radius = 20.0f;
-	auto draw_count = 1000;
+	auto draw_count = 5000;
 
 	for (size_t i = 0; i < draw_count; i++)
 	{
 		const float x = static_cast<float>(mt()) / mt.max() * draw_radius - draw_radius * 0.5f;
 		const float y = static_cast<float>(mt()) / mt.max() * draw_radius - draw_radius * 0.5f;
-		const float z = static_cast<float>(mt()) / mt.max() * -draw_radius + draw_radius * 0.25f;
+		const float z = static_cast<float>(mt()) / mt.max() * -draw_radius;
 
 		glm::mat4 t = glm::translate(glm::mat4(1.0f), glm::vec3(x, y, z));
 		glm::vec3 axis = glm::normalize(glm::vec3(static_cast<float>(mt()) / mt.max(), static_cast<float>(mt()) / mt.max(), static_cast<float>(mt()) / mt.max()));
@@ -1734,6 +1790,10 @@ void VulkanEngine::init_renderables()
 		}
 	}
 
+	for (const auto& n : loaded_scenes["DamagedHelmet"]->top_nodes)
+	{
+		//register_object(n.get(), glm::mat4(1.0f));
+	}
 }
 
 void VulkanEngine::init_bindless()
@@ -1954,24 +2014,12 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 	//	depth_image.image,
 	//	VK_IMAGE_LAYOUT_UNDEFINED,
 	//	VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
-	//	VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
-	//	VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
-	//	VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+	//	VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, // depth reduction read
+	//	VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
+	//	VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
 	//	VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
 	//	VK_IMAGE_ASPECT_DEPTH_BIT
 	//);
-
-	vkutil::transition_image(
-		cmd,
-		depth_image.image,
-		VK_IMAGE_LAYOUT_UNDEFINED,
-		VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
-		VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, // depth reduction read
-		VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
-		VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-		VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
-		VK_IMAGE_ASPECT_DEPTH_BIT
-	);
 
 	VkClearColorValue clear_color_value{ 0.0f, 0.0f, 0.0f, 1.0f };
 	VkClearValue clear_value{ .color = clear_color_value };
@@ -1979,7 +2027,7 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 	VkRenderingAttachmentInfo depth_attachment = vkinit::depth_attachment_info(depth_image.view);
 	VkRenderingInfo render_info = vkinit::rendering_info(draw_extent, &color_attachment, &depth_attachment);
 
-	vkCmdBeginRendering(cmd, &render_info);
+	//vkCmdBeginRendering(cmd, &render_info);
 
 	VkViewport viewport{};
 	viewport.x = 0;
@@ -1999,130 +2047,39 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 
 	ShaderPass current_pass = *shader_passes["textured_lit"];
 
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
+	//vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
+	//vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
+	//vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
 
-	//> gpu driven
-	GPUPushConstants gpc{}; // (!) clean up
-	gpc.material_buffer_address = render_scene.renderables[0].material_buffer_address; // (!) refactor this
+	////> gpu driven
+	//GPUPushConstants gpc{}; // (!) clean up
+	//gpc.material_buffer_address = render_scene.renderables[0].material_buffer_address; // (!) refactor this
 
-	VkBufferDeviceAddressInfo address_info{};
-	address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
-	address_info.buffer = render_scene.object_buffer.buffer;
-	gpc.object_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+	//VkBufferDeviceAddressInfo address_info{};
+	//address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
+	//address_info.buffer = render_scene.object_buffer.buffer;
+	//gpc.object_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
 
-	address_info.buffer = render_scene.forward_pass.instance_buffer.buffer;
-	gpc.instance_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
-	gpc.vertex_buffer_address = render_scene.combined_mesh_buffer.vertex_buffer_address;
+	//gpc.vertex_buffer_address = render_scene.combined_mesh_buffer.vertex_buffer_address;
 
-	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GPUPushConstants), &gpc);
+	//vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GPUPushConstants), &gpc);
 
-	vkCmdBindIndexBuffer(cmd, render_scene.combined_mesh_buffer.index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+	//vkCmdBindIndexBuffer(cmd, render_scene.combined_mesh_buffer.index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
 
-	for (size_t i = 0; i < render_scene.forward_pass.multibatches.size(); i++)
-	{
-		const auto& multibatch = render_scene.forward_pass.multibatches[i];
-		const auto& pipeline = multibatch.pipeline;
+	//for (size_t i = 0; i < render_scene.forward_pass.multibatches.size(); i++)
+	//{
+	//	const auto& multibatch = render_scene.forward_pass.multibatches[i];
+	//	const auto& pipeline = multibatch.pipeline;
 
-		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->pipeline);
-		vkCmdDrawIndexedIndirectCount(cmd, render_scene.forward_pass.compact_indirect_buffer.buffer, multibatch.offset * sizeof(VkDrawIndexedIndirectCommand),
-			render_scene.forward_pass.count_buffer.buffer, i * sizeof(uint32_t),
-			multibatch.max_draw_count, sizeof(VkDrawIndexedIndirectCommand)
-		);
-		stats.draw_count++;
-	}
+	//	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->pipeline);
+	//	vkCmdDrawIndexedIndirectCount(cmd, render_scene.forward_pass.draw_indirect_buffer.buffer, multibatch.offset * sizeof(VkDrawIndexedIndirectCommand),
+	//		render_scene.forward_pass.count_buffer.buffer, i * sizeof(uint32_t),
+	//		multibatch.max_draw_count, sizeof(VkDrawIndexedIndirectCommand)
+	//	);
+	//	stats.draw_count++;
+	//}
 
-	vkCmdEndRendering(cmd);
-
-	//> depth pyramid 
-	vkutil::transition_image(
-		cmd,
-		depth_image.image,
-		VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
-		VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-		VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
-		VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-		VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-		VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-		VK_IMAGE_ASPECT_DEPTH_BIT
-	);
-
-	vkutil::transition_image(
-		cmd,
-		depth_pyramid.image,
-		VK_IMAGE_LAYOUT_UNDEFINED,
-		VK_IMAGE_LAYOUT_GENERAL,
-		VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, // change to compute later - currently for debugging
-		VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-		VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-		VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-		VK_IMAGE_ASPECT_COLOR_BIT
-	);
-
-	current_pass = *shader_passes["depth_pyramid"];
-	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &bindless_image_descriptor, 0, nullptr);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
-
-	DepthPyramidPushConstants depth_pc{};
-
-	uint32_t mip_levels = static_cast<uint32_t>(std::floor(std::log2(std::max(depth_pyramid.extent.width, depth_pyramid.extent.height)))) + 1;
-
-	for (size_t i = 0; i < mip_levels; i++)
-	{
-		int32_t workgroup_x = std::max(static_cast<int32_t>(depth_pyramid.extent.width) >> i, 1);
-		int32_t workgroup_y = std::max(static_cast<int32_t>(depth_pyramid.extent.height) >> i, 1);
-		depth_pc.image_size = { workgroup_x, workgroup_y };
-		depth_pc.texture_id = i == 0 ? texture_cache.get_depth_image() : texture_cache.get_depth_pyramid_image();
-		depth_pc.image_id = image_cache.get_depth_pyramid_image() + i;
-		depth_pc.lod = i == 0 ? 0 : i - 1;
-
-		vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(DepthPyramidPushConstants), &depth_pc);
-		vkCmdDispatch(cmd, (workgroup_x + 31) / 32, (workgroup_y + 31) / 32, 1);
-
-		if (i < mip_levels - 1)
-		{
-			VkImageMemoryBarrier2 barrier{};
-			barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-			barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-			barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-			barrier.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-			barrier.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
-			barrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-			barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-			VkImageSubresourceRange subresourcerange{};
-
-			subresourcerange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-			subresourcerange.baseMipLevel = i;
-			subresourcerange.levelCount = 1;
-			subresourcerange.layerCount = 1;
-			barrier.subresourceRange = subresourcerange;
-			barrier.image = depth_pyramid.image;
-
-			VkDependencyInfo info{};
-			info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-			info.imageMemoryBarrierCount = 1;
-			info.pImageMemoryBarriers = &barrier;
-
-			vkCmdPipelineBarrier2(cmd, &info);
-		}
-	}
-
-	//> debug
-	vkutil::transition_image(
-		cmd,
-		depth_pyramid.image,
-		VK_IMAGE_LAYOUT_GENERAL,
-		VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-		VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-		VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-		VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-		VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-		VK_IMAGE_ASPECT_COLOR_BIT
-	);
+	//vkCmdEndRendering(cmd);
 
 	color_attachment = vkinit::attachment_info(draw_image.view, nullptr);
 	render_info = vkinit::rendering_info(draw_extent, &color_attachment, nullptr);
@@ -2134,11 +2091,14 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
-	SkyboxPushConstants pc{};
+	DebugPushConstants pc{};
 	//pc.inverse_viewproj = glm::inverse(view) * glm::inverse(proj); // go in reverse order
+	//pc.texture_id = texture_cache.get_depth_image();
 	pc.texture_id = texture_cache.get_depth_pyramid_image();
-	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(SkyboxPushConstants), &pc);
-	vkCmdDraw(cmd, 3, 1, 0, 0);
+	pc.lod = CVAR_DEPTH_PYRAMID_LOD.get();
+	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(DebugPushConstants), &pc);
+	if (CVAR_RENDER_PYRAMID.get())
+		vkCmdDraw(cmd, 3, 1, 0, 0);
 	stats.draw_count++;
 
 	//> skybox
@@ -2157,116 +2117,70 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 	//vkCmdDraw(cmd, 3, 1, 0, 0);
 	//stats.draw_count++;
 
-	//> transparent geometries
-	//current_pass = *shader_passes["blend"];
 
-	// may be buggy 
-	// 
-	// 	VkPipeline last_pipeline = VK_NULL_HANDLE;
-	//  VkBuffer last_index_buffer = VK_NULL_HANDLE;
-	// 
-	//auto draw = [&](const RenderObject& obj) {
-	//	VkPipeline current_pipeline = obj.material->forward_pass->pipeline;
-	//	VkBuffer current_index_buffer = obj.index_buffer;
-	//	if (current_pipeline != last_pipeline)
-	//	{
-	//		last_pipeline = current_pipeline;
-	//		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pipeline);
-	//	}
-	//	if (current_index_buffer != last_index_buffer)
-	//	{
-	//		last_index_buffer = current_index_buffer;
-	//		vkCmdBindIndexBuffer(cmd, current_index_buffer, 0, VK_INDEX_TYPE_UINT32);
-	//	}
+	vkCmdEndRendering(cmd);
 
-	//	PushConstants pc{};
-	//	pc.world_transform = obj.transform;
-	//	pc.vertex_buffer_address = obj.vertex_buffer_address;
-	//	pc.material_buffer_address = obj.material_buffer_address;
-	//	pc.material_id = obj.material_id;
-	//	pc.debug_idx = shader_idx.get();
+	//vkutil::transition_image(
+	//	cmd,
+	//	draw_image.image,
+	//	VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+	//	VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+	//	VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+	//	VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+	//	VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+	//	VK_ACCESS_2_SHADER_READ_BIT
+	//);
 
-	//	vkCmdPushConstants(cmd, obj.material->forward_pass->layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushConstants), &pc);
-	//	vkCmdDrawIndexed(cmd, obj.index_count, 1, obj.first_index, 0, 0);
-	//	stats.triangle_count += obj.index_count / 3;
-	//	stats.draw_call_count++;
-	//	};
+	////> post fx
+	//color_attachment = vkinit::attachment_info(draw_image2.view, &clear_value);
+	////depth_attachment = vkinit::depth_attachment_info(depth_image.view);
+	//render_info = vkinit::rendering_info(draw_extent, &color_attachment, nullptr);
 
+	//vkutil::transition_image(
+	//	cmd,
+	//	draw_image2.image,
+	//	VK_IMAGE_LAYOUT_UNDEFINED,
+	//	VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+	//	VK_PIPELINE_STAGE_2_BLIT_BIT,
+	//	VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+	//	VK_ACCESS_2_TRANSFER_READ_BIT,
+	//	VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT
+	//);
+
+	//vkCmdBeginRendering(cmd, &render_info);
+
+	//viewport.x = 0;
+	//viewport.y = static_cast<float>(draw_extent.height);
+	//viewport.width = static_cast<float>(draw_extent.width);
+	//viewport.height = -static_cast<float>(draw_extent.height);
+	//viewport.minDepth = 0.0f;
+	//viewport.maxDepth = 1.0f;
+	//vkCmdSetViewport(cmd, 0, 1, &viewport);
+
+	//scissor.offset.x = 0;
+	//scissor.offset.y = 0;
+	//scissor.extent.width = draw_extent.width;
+	//scissor.extent.height = draw_extent.height;
+	//vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+	//current_pass = *shader_passes["tonemap"];
+
+	//vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
 	//vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
 	//vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
 	//vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
+	//PostFXPushConstants fx_pc{};
+	//fx_pc.texture_id = texture_cache.get_draw_image();
+	//vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PostFXPushConstants), &fx_pc);
+	//vkCmdDraw(cmd, 3, 1, 0, 0);
+	//stats.draw_count++;
 
-	//std::vector<size_t> visible_indices{};
-	//visible_indices = frustum_culling(main_draw_context.transparent_objects, scene_data.viewproj);
-	//sort_transparency(main_draw_context.transparent_objects, main_camera, visible_indices);
-
-	//for (auto i : visible_indices)
-	//{
-	//	draw(main_draw_context.transparent_objects[i]);
-	//}
-
-	vkCmdEndRendering(cmd);
+	//vkCmdEndRendering(cmd);
 
 	vkutil::transition_image(
 		cmd,
+		//draw_image2.image,
 		draw_image.image,
-		VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-		VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-		VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-		VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-		VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-		VK_ACCESS_2_SHADER_READ_BIT
-	);
-
-	//> post fx
-	color_attachment = vkinit::attachment_info(draw_image2.view, &clear_value);
-	//depth_attachment = vkinit::depth_attachment_info(depth_image.view);
-	render_info = vkinit::rendering_info(draw_extent, &color_attachment, nullptr);
-
-	vkutil::transition_image(
-		cmd,
-		draw_image2.image,
-		VK_IMAGE_LAYOUT_UNDEFINED,
-		VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-		VK_PIPELINE_STAGE_2_BLIT_BIT,
-		VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-		VK_ACCESS_2_TRANSFER_READ_BIT,
-		VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT
-	);
-
-	vkCmdBeginRendering(cmd, &render_info);
-
-	viewport.x = 0;
-	viewport.y = static_cast<float>(draw_extent.height);
-	viewport.width = static_cast<float>(draw_extent.width);
-	viewport.height = -static_cast<float>(draw_extent.height);
-	viewport.minDepth = 0.0f;
-	viewport.maxDepth = 1.0f;
-	vkCmdSetViewport(cmd, 0, 1, &viewport);
-
-	scissor.offset.x = 0;
-	scissor.offset.y = 0;
-	scissor.extent.width = draw_extent.width;
-	scissor.extent.height = draw_extent.height;
-	vkCmdSetScissor(cmd, 0, 1, &scissor);
-
-	current_pass = *shader_passes["tonemap"];
-
-	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
-	PostFXPushConstants fx_pc{};
-	fx_pc.texture_id = texture_cache.get_draw_image();
-	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PostFXPushConstants), &fx_pc);
-	vkCmdDraw(cmd, 3, 1, 0, 0);
-	stats.draw_count++;
-
-	vkCmdEndRendering(cmd);
-
-	vkutil::transition_image(
-		cmd,
-		draw_image2.image,
 		VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 		VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 		VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
@@ -2321,9 +2235,6 @@ void VulkanEngine::shadow_pass(VkCommandBuffer cmd, RenderScene::MeshPass& pass,
 	address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
 	pc.material_buffer_address = render_scene.renderables[0].material_buffer_address; // (!) refactor this
 
-	address_info.buffer = pass.instance_buffer.buffer;
-	pc.instance_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
-
 	address_info.buffer = render_scene.object_buffer.buffer;
 	pc.object_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
 
@@ -2338,7 +2249,7 @@ void VulkanEngine::shadow_pass(VkCommandBuffer cmd, RenderScene::MeshPass& pass,
 
 		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->pipeline);
 
-		vkCmdDrawIndexedIndirectCount(cmd, pass.compact_indirect_buffer.buffer, multibatch.offset * sizeof(VkDrawIndexedIndirectCommand),
+		vkCmdDrawIndexedIndirectCount(cmd, pass.draw_indirect_buffer.buffer, multibatch.offset * sizeof(VkDrawIndexedIndirectCommand),
 			pass.count_buffer.buffer, i * sizeof(uint32_t),
 			multibatch.max_draw_count, sizeof(VkDrawIndexedIndirectCommand)
 		);
@@ -2477,8 +2388,6 @@ void VulkanEngine::init_imgui()
 
 void VulkanEngine::draw_imgui(VkCommandBuffer cmd, VkImageView swapchain_view)
 {
-	//VkClearColorValue clear_color_value{ 0.0f, 0.0f, 0.0f, 1.0f };
-	//VkClearValue clear_value{ .color = clear_color_value };
 	VkRenderingAttachmentInfo color_attachment = vkinit::attachment_info(swapchain_view, nullptr);
 	VkRenderingInfo render_info = vkinit::rendering_info(swapchain_extent, &color_attachment, nullptr);
 	
@@ -2490,8 +2399,8 @@ void VulkanEngine::draw_imgui(VkCommandBuffer cmd, VkImageView swapchain_view)
 }
 
 // Update Object Buffer
-// ForEach RenderPass: Pass Object -> sort -> Indirect Batch -> Multi Batch -> Count Buffer -> Instance Buffer -> gInstance Buffer -> Indirect Buffer/Reset
-// (!) will break with streaming/dynamic scene, need to implement some flags
+// *Instancing* ForEach RenderPass: Pass Object -> sort -> Indirect Batch -> Multi Batch -> Count Buffer -> Instance Buffer -> gInstance Buffer -> Indirect Buffer
+// *No instancing* ForEach RenderPass: Pass Object -> sort -> Indirect Batch -> Multi Batch -> Visibility Buffer -> Count Buffer -> Indirect Buffer
 void VulkanEngine::ready_mesh_draw()
 {
 	ZoneScopedN("Ready mesh draw");
@@ -2530,66 +2439,61 @@ void VulkanEngine::ready_mesh_draw()
 			render_scene.build_multi_batch(pass);
 		}
 
+		if (pass.vis_buffer.info.size < pass.unbatched_objects.size())
+		{
+			fmt::println("visibility buffer");
+			pass.vis_buffer = reallocate_buffer(
+				pass.unbatched_objects.size() * sizeof(uint32_t),
+				pass.vis_buffer,
+				0,
+				VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT
+			);
+
+			pass.debug_buffer = reallocate_buffer(
+				pass.unbatched_objects.size() * sizeof(float),
+				pass.debug_buffer,
+				0,
+				VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
+			);
+
+			// test
+			immediate_submit([&](VkCommandBuffer cmd) {
+				vkCmdFillBuffer(cmd, pass.vis_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
+				});
+		}
+
 		if (pass.count_buffer.info.size < pass.multibatches.size() * sizeof(uint32_t))
 		{
 			fmt::println("count_buffer");
 			pass.count_buffer = reallocate_buffer(
-				pass.multibatches.size() * sizeof(uint32_t), // first element used as global counter for indexing into draw indirect buffer
+				pass.multibatches.size() * sizeof(uint32_t),
 				pass.count_buffer,
 				0,
 				VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_2_TRANSFER_DST_BIT
 			);
 		}
 
-		if (pass.instance_buffer.info.size < pass.pass_objects.size() * sizeof(uint32_t))
-		{
-			fmt::println("instance_buffer");
-			pass.instance_buffer = reallocate_buffer(
-				pass.pass_objects.size() * sizeof(uint32_t),
-				pass.instance_buffer,
-				0,
-				VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
-			);
-		}
-
-		if (pass.ginstance_buffer.info.size < pass.pass_objects.size() * sizeof(GPUInstance))
-		{
-			fmt::println("ginstance_buffer");
-			pass.ginstance_buffer = reallocate_buffer(
-				pass.pass_objects.size() * sizeof(GPUInstance),
-				pass.ginstance_buffer,
-				VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-				VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
-			);
-
-			render_scene.build_ginstance_buffer(pass);
-		}
-
 		if (pass.clear_indirect_buffer.info.size < pass.batches.size() * sizeof(VkDrawIndexedIndirectCommand))
 		{
 			fmt::println("clear_indirect_buffer");
 			pass.clear_indirect_buffer = reallocate_buffer(
-				pass.batches.size() * sizeof(GPUIndirect),
+				//pass.batches.size() * sizeof(GPUIndirect), // for draw indirect count instancing
+				pass.pass_objects.size() * sizeof(GPUIndirect),
 				pass.clear_indirect_buffer,
 				VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-				VK_BUFFER_USAGE_TRANSFER_SRC_BIT
+				//VK_BUFFER_USAGE_TRANSFER_SRC_BIT
+				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT
 			);
 			render_scene.build_indirect_buffer(pass);
 
 			fmt::println("draw_indirect_buffer");
 			pass.draw_indirect_buffer = reallocate_buffer(
-				pass.batches.size() * sizeof(GPUIndirect),
+				pass.pass_objects.size() * sizeof(GPUIndirect),
+				//pass.batches.size() * sizeof(GPUIndirect),
 				pass.draw_indirect_buffer,
 				0,
-				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT
-			);
-
-			fmt::println("compact_buffer");
-			pass.compact_indirect_buffer = reallocate_buffer(
-				pass.batches.size() * sizeof(VkDrawIndexedIndirectCommand),
-				pass.compact_indirect_buffer,
-				0,
-				VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT
+				//VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT
+				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT
 			);
 		}
 	}
@@ -2627,60 +2531,202 @@ CullData VulkanEngine::ready_cull_data(RenderScene::MeshPass& pass, glm::mat4& v
 		plane /= length;
 	}
 
+	cull_data.viewproj = viewproj;
+
 	VkBufferDeviceAddressInfo address_info{};
 	address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
 	address_info.buffer = render_scene.object_buffer.buffer;
 	cull_data.object_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
 
-	address_info.buffer = pass.ginstance_buffer.buffer;
-	cull_data.ginstance_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+	address_info.buffer = pass.clear_indirect_buffer.buffer;
+	cull_data.clear_indirect_address = vkGetBufferDeviceAddress(device, &address_info);
 
 	address_info.buffer = pass.draw_indirect_buffer.buffer;
-	cull_data.indirect_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+	cull_data.draw_indirect_address = vkGetBufferDeviceAddress(device, &address_info);
 
-	address_info.buffer = pass.instance_buffer.buffer;
-	cull_data.instance_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+	address_info.buffer = pass.count_buffer.buffer;
+	cull_data.count_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+
+	address_info.buffer = pass.vis_buffer.buffer;
+	cull_data.vis_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+
+	address_info.buffer = pass.debug_buffer.buffer;
+	cull_data.debug_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
 
 	cull_data.count = static_cast<uint32_t>(pass.pass_objects.size());
-
+	cull_data.texture_id = texture_cache.get_depth_pyramid_image();
+	cull_data.occlusion = CVAR_OCCLUSION.get();
 	return cull_data;
 }
 
-void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPass& pass, CullData& cull_data)
+void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPass& pass, CullData& cull_data, bool late)
 {
 	ShaderPass current_pass = *shader_passes["cull"];
 	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
+
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &bindless_image_descriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
+
+	cull_data.late = late ? 1 : 0;
 
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CullData), &cull_data);
 	vkCmdDispatch(cmd, static_cast<uint32_t>(std::ceil(pass.pass_objects.size() / 256.0)), 1, 1);
 }
 
-void VulkanEngine::execute_compact_indirect(VkCommandBuffer cmd, RenderScene::MeshPass& pass)
+void VulkanEngine::render(VkCommandBuffer cmd, bool late)
 {
-	ShaderPass current_pass = *shader_passes["compact"];
-	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
+	VkClearColorValue clear_color_value{ 0.0f, 0.0f, 0.0f, 1.0f };
+	VkClearValue clear_value{ .color = clear_color_value };
+	VkRenderingAttachmentInfo color_attachment = late ? vkinit::attachment_info(draw_image.view, nullptr) : vkinit::attachment_info(draw_image.view, &clear_value);
+	VkRenderingAttachmentInfo depth_attachment = vkinit::depth_attachment_info(depth_image.view);
+	depth_attachment.loadOp = late ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_CLEAR;
+	VkRenderingInfo render_info = vkinit::rendering_info(draw_extent, &color_attachment, &depth_attachment);
 
-	CompactIndirectData pc{};
+	vkCmdBeginRendering(cmd, &render_info);
+
+	VkViewport viewport{};
+	viewport.x = 0;
+	viewport.y = static_cast<float>(draw_extent.height);
+	viewport.width = static_cast<float>(draw_extent.width);
+	viewport.height = -static_cast<float>(draw_extent.height);
+	viewport.minDepth = 0.0f;
+	viewport.maxDepth = 1.0f;
+	vkCmdSetViewport(cmd, 0, 1, &viewport);
+
+	VkRect2D scissor{};
+	scissor.offset.x = 0;
+	scissor.offset.y = 0;
+	scissor.extent.width = draw_extent.width;
+	scissor.extent.height = draw_extent.height;
+	vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+	auto depth_bias = 0.f;
+	auto slope_scaled_depth_bias = 0.f;
+	vkCmdSetDepthBias(cmd, -depth_bias, 0.0f, -slope_scaled_depth_bias); // (!) modify for double sided geometry? no back face culling to assist with artifacts
+
+	ShaderPass current_pass = *shader_passes["textured_lit"];
+
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
+
+	GPUPushConstants pc{};
 
 	VkBufferDeviceAddressInfo address_info{};
 	address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
-	address_info.buffer = pass.draw_indirect_buffer.buffer;
-	pc.indirect_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+	address_info.buffer = render_scene.object_buffer.buffer;
 
-	address_info.buffer = pass.compact_indirect_buffer.buffer;
-	pc.compact_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+	pc.material_buffer_address = 0;
+	pc.object_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+	pc.vertex_buffer_address = render_scene.combined_mesh_buffer.vertex_buffer_address;
 
-	address_info.buffer = pass.count_buffer.buffer;
-	pc.count_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GPUPushConstants), &pc);
 
-	assert(pass.multibatches.size() <= 8); // (!) TODO: refactor
+	vkCmdBindIndexBuffer(cmd, render_scene.combined_mesh_buffer.index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
 
-	for (size_t i = 0; i < pass.multibatches.size(); i++)
+	for (size_t i = 0; i < render_scene.forward_pass.multibatches.size(); i++)
 	{
-		pc.offsets[i] = pass.multibatches[i].offset;
-	}
-	pc.count = static_cast<uint32_t>(pass.batches.size());
+		const auto& multibatch = render_scene.forward_pass.multibatches[i];
+		const auto& pipeline = multibatch.pipeline;
 
-	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CompactIndirectData), &pc);
-	vkCmdDispatch(cmd, static_cast<uint32_t>(std::ceil(pass.batches.size() / 256.0)), 1, 1);
+		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline); 
+		vkCmdDrawIndexedIndirectCount(cmd, render_scene.forward_pass.draw_indirect_buffer.buffer, multibatch.offset * sizeof(VkDrawIndexedIndirectCommand),
+			render_scene.forward_pass.count_buffer.buffer, i * sizeof(uint32_t),
+			multibatch.max_draw_count, sizeof(VkDrawIndexedIndirectCommand)
+		);
+		stats.draw_count++;
+	}
+
+	vkCmdEndRendering(cmd);
+}
+
+void VulkanEngine::build_depth_pyramid(VkCommandBuffer cmd)
+{
+	vkutil::transition_image(
+		cmd,
+		depth_image.image,
+		VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+		VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+		VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+		VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+		VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
+		VK_IMAGE_ASPECT_DEPTH_BIT
+	);
+
+	vkutil::transition_image(
+		cmd,
+		depth_pyramid.image,
+		VK_IMAGE_LAYOUT_UNDEFINED,
+		VK_IMAGE_LAYOUT_GENERAL,
+		VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, // debugging in fragment shader
+		VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+		VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
+		VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+		VK_IMAGE_ASPECT_COLOR_BIT
+	);
+
+	ShaderPass current_pass = *shader_passes["depth_pyramid"];
+	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &bindless_image_descriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
+
+	DepthPyramidPushConstants depth_pc{};
+
+	uint32_t mip_levels = static_cast<uint32_t>(std::floor(std::log2(std::max(depth_pyramid.extent.width, depth_pyramid.extent.height)))) + 1;
+
+	for (size_t i = 0; i < mip_levels; i++)
+	{
+		int32_t workgroup_x = std::max(static_cast<int32_t>(depth_pyramid.extent.width) >> i, 1);
+		int32_t workgroup_y = std::max(static_cast<int32_t>(depth_pyramid.extent.height) >> i, 1);
+		depth_pc.image_size = { workgroup_x, workgroup_y };
+		depth_pc.texture_id = i == 0 ? texture_cache.get_depth_image() : texture_cache.get_depth_pyramid_image();
+		depth_pc.image_id = image_cache.get_depth_pyramid_image() + i;
+		depth_pc.lod = i == 0 ? 0 : i - 1;
+
+		vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(DepthPyramidPushConstants), &depth_pc);
+		vkCmdDispatch(cmd, (workgroup_x + 31) / 32, (workgroup_y + 31) / 32, 1);
+
+		if (i < mip_levels - 1)
+		{
+			VkImageMemoryBarrier2 barrier{};
+			barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+			barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+			barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+			barrier.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+			barrier.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+			barrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+			barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+			VkImageSubresourceRange subresourcerange{};
+
+			subresourcerange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+			subresourcerange.baseMipLevel = i;
+			subresourcerange.levelCount = 1;
+			subresourcerange.layerCount = 1;
+			barrier.subresourceRange = subresourcerange;
+			barrier.image = depth_pyramid.image;
+
+			VkDependencyInfo info{};
+			info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+			info.imageMemoryBarrierCount = 1;
+			info.pImageMemoryBarriers = &barrier;
+
+			vkCmdPipelineBarrier2(cmd, &info);
+		}
+	}
+
+	vkutil::transition_image(
+		cmd,
+		depth_pyramid.image,
+		VK_IMAGE_LAYOUT_GENERAL,
+		VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+		VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+		VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+		VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
+		VK_IMAGE_ASPECT_COLOR_BIT
+	);
 }

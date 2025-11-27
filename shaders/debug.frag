@@ -14,8 +14,8 @@ layout (location = 0) out vec4 outFragColor;
 
 layout( push_constant ) uniform constants
 {
-	mat4 inverseViewProj; // unused
 	uint texture_id;
+	uint lod;
 } pc;
 
 float near = 0.01; 
@@ -29,7 +29,7 @@ float LinearizeDepth(float depth)
 
 void main()
 {
-	float depth = texture(sampler2D(allTextures[pc.texture_id], samplers[3]), inUV).r; // tonemap req
+	float depth = textureLod(sampler2D(allTextures[pc.texture_id], samplers[5]), inUV, float(pc.lod)).r; 
 
 	depth = LinearizeDepth(1.0 - depth);
 

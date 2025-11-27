@@ -33,7 +33,7 @@ struct GPUPushConstants
 {
 	VkDeviceAddress material_buffer_address{};
 	VkDeviceAddress object_buffer_address{};
-	VkDeviceAddress instance_buffer_address{};
+	//VkDeviceAddress instance_buffer_address{};
 	VkDeviceAddress vertex_buffer_address{};
 };
 
@@ -58,7 +58,7 @@ struct ShadowPushConstants
 	glm::mat4 viewproj{};
 	VkDeviceAddress material_buffer_address{};
 	VkDeviceAddress object_buffer_address{};
-	VkDeviceAddress instance_buffer_address{};
+	//VkDeviceAddress instance_buffer_address{};
 	VkDeviceAddress vertex_buffer_address{};
 };
 
@@ -66,6 +66,12 @@ struct SkyboxPushConstants
 {
 	glm::mat4 inverse_viewproj{};
 	uint32_t texture_id{};
+};
+
+struct DebugPushConstants
+{
+	uint32_t texture_id{};
+	uint32_t lod{}; // depth pyramid lod
 };
 
 struct DepthPyramidPushConstants
@@ -329,8 +335,9 @@ public:
 	void draw_imgui(VkCommandBuffer cmd, VkImageView swapchain_view);
 	void ready_mesh_draw();
 	CullData ready_cull_data(RenderScene::MeshPass& pass, glm::mat4& viewproj, bool orthographic = false);
-	void execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPass& pass, CullData& cull_data);
-	void execute_compact_indirect(VkCommandBuffer cmd, RenderScene::MeshPass& pass);
+	void execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPass& pass, CullData& cull_data, bool late);
+	void render(VkCommandBuffer cmd, bool late);
+	void build_depth_pyramid(VkCommandBuffer cmd);
 
 private:
 	void init_vulkan();

@@ -233,8 +233,8 @@ std::optional<AllocatedImage> load_image(VulkanEngine* engine, fastgltf::Asset& 
 					const std::string path(filePath.uri.path().begin(), filePath.uri.path().end());
 
 					//std::string current_path = "../../assets/khronos_sponza/" + path; // (!) TODO handle this properly
-					std::string current_path = "../../assets/DamagedHelmet/" + path; // (!) TODO handle this properly
-					//std::string current_path = "../../assets/bistro_exterior_ktx2/" + path; // (!) TODO handle this properly
+					//std::string current_path = "../../assets/DamagedHelmet/" + path; // (!) TODO handle this properly
+					std::string current_path = "../../assets/bistro_exterior_ktx2/" + path; // (!) TODO handle this properly
 					//std::string current_path = "../../assets/bistro_interior_wine_ktx2/" + path; // (!) TODO handle this properly
 
 					std::filesystem::path p = path;
@@ -704,8 +704,10 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 				switch (new_surface.pass)
 				{
 				case MaterialPass::Mask: // assumes double-sided 
-					forward = engine->shader_passes["textured_lit_clip"].get();
-					shadow = engine->shader_passes["shadow_flat"].get();
+					//forward = engine->shader_passes["textured_lit_clip"].get();
+					//shadow = engine->shader_passes["shadow_flat"].get();
+					forward = engine->shader_passes["textured_lit"].get();
+					shadow = engine->shader_passes["shadow"].get();
 					break;
 				case MaterialPass::Blend:
 					forward = engine->shader_passes["blend"].get();
@@ -714,8 +716,10 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 					//shadow = engine->shader_passes["shadow_flat"].get();
 					break;
 				case MaterialPass::Opaque:
-					forward = m.double_sided ? engine->shader_passes["textured_lit2"].get() : engine->shader_passes["textured_lit"].get();
-					shadow = m.double_sided ? engine->shader_passes["shadow_flat"].get() : engine->shader_passes["shadow"].get();
+					//forward = m.double_sided ? engine->shader_passes["textured_lit2"].get() : engine->shader_passes["textured_lit"].get();
+					//shadow = m.double_sided ? engine->shader_passes["shadow_flat"].get() : engine->shader_passes["shadow"].get();
+					forward = engine->shader_passes["textured_lit"].get();
+					shadow = engine->shader_passes["shadow"].get();
 					break;
 				default:
 					break;

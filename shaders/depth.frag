@@ -28,7 +28,6 @@ layout (push_constant) uniform constants
 	mat4 viewproj;
 	MaterialBuffer materialBuffer;
 //	ObjectBuffer objectBuffer;
-//	InstanceBuffer instanceBuffer;
 //	VertexBuffer vertexBuffer;
 } pc;
 

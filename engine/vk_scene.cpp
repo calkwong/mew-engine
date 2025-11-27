@@ -21,25 +21,26 @@ void RenderScene::build_indirect_batch(MeshPass& pass)
 {
 	pass.batches.clear();
 
-	Handle<DrawPrimitive> last_primitive{};
+	//Handle<DrawPrimitive> last_primitive{};
 	ShaderPass* last_material{};
 
 	for (size_t i = 0; i < pass.pass_objects.size(); i++)
 	{
 		PassObject& obj = pass.pass_objects[i];
 
-		bool same_primitive = obj.primitive_id.handle == last_primitive.handle; 
+		//bool same_primitive = obj.primitive_id.handle == last_primitive.handle; 
 		bool same_material = obj.material == last_material;
 
-		if (same_primitive && same_material)
+		//if (same_primitive && same_material)
+		if (same_material)
 			pass.batches.back().count++;
 		else
 		{
-			last_primitive = obj.primitive_id; 
+			//last_primitive = obj.primitive_id; 
 			last_material = obj.material;
 
 			IndirectBatch new_batch{};
-			new_batch.primitive_id = last_primitive;
+			//new_batch.primitive_id = last_primitive;
 			new_batch.material = last_material;
 			new_batch.first = static_cast<uint32_t>(i);
 			new_batch.count = 1;
@@ -54,9 +55,10 @@ void RenderScene::build_multi_batch(MeshPass& pass)
 	pass.multibatches.clear();
 
 	ShaderPass* last_material{};
-	for (size_t i = 0; i < pass.batches.size(); i++)
+	//for (size_t i = 0; i < pass.batches.size(); i++)
+	for (size_t i = 0; i < pass.pass_objects.size(); i++)
 	{
-		ShaderPass* new_material = pass.batches[i].material;
+		ShaderPass* new_material = pass.pass_objects[i].material;
 
 		if (last_material == new_material)
 			pass.multibatches.back().max_draw_count++;
@@ -79,19 +81,27 @@ void RenderScene::build_indirect_buffer(MeshPass& pass)
 
 	VkPipeline last_pipeline = VK_NULL_HANDLE;
 	uint32_t pipeline_count = -1;
-	for (size_t i = 0; i < pass.batches.size(); i++)
+	//for (size_t i = 0; i < pass.batches.size(); i++)
+	for (size_t i = 0; i < pass.pass_objects.size(); i++)
 	{
 		GPUIndirect indirect_data{};
 
-		uint32_t pass_object_id = pass.batches[i].first;
-		const DrawPrimitive& primitive = primitives[pass.pass_objects[pass_object_id].primitive_id.handle];
+		//uint32_t pass_object_id = pass.batches[i].first;
+		//const DrawPrimitive& primitive = primitives[pass.pass_objects[pass_object_id].primitive_id.handle];
+		const DrawPrimitive& primitive = primitives[pass.pass_objects[i].primitive_id.handle];
 		indirect_data.command.indexCount = primitive.count;
 		indirect_data.command.instanceCount = 0;
 		indirect_data.command.firstIndex = primitive.start_index;
 		indirect_data.command.vertexOffset = 0;
-		indirect_data.command.firstInstance = pass_object_id; // (!) not associated with pass object, just for indexing - verify
 
-		VkPipeline current_pipeline = pass.pass_objects[pass_object_id].material->pipeline;
+		// if using draw indirect count with instancing, just an ID for indexing, not associated with pass object
+		//indirect_data.command.firstInstance = i; 
+		// 
+		// if not supporting instancing, firstInstance = actual passObjectID
+		indirect_data.command.firstInstance = pass.pass_objects[i].renderable_id.handle;
+
+		//VkPipeline current_pipeline = pass.pass_objects[pass_object_id].material->pipeline;
+		VkPipeline current_pipeline = pass.pass_objects[i].material->pipeline;
 
 		if (current_pipeline != last_pipeline)
 		{
@@ -99,21 +109,8 @@ void RenderScene::build_indirect_buffer(MeshPass& pass)
 			pipeline_count++;
 		}
 		
-		indirect_data.pipeline_id = pipeline_count; 
-
 		indirect_objects[i] = indirect_data;
 	}
-}
-
-// (!) refactor, not used, performed manually in draw()
-void RenderScene::reset_indirect_buffer(MeshPass& pass, VkCommandBuffer cmd)
-{
-	//VkBufferCopy copy{};
-	//copy.dstOffset = 0;
-	//copy.srcOffset = 0;
-	//copy.size = pass.clear_indirect_buffer.info.size;
-
-	//vkCmdCopyBuffer(cmd, pass.clear_indirect_buffer.buffer, pass.draw_indirect_buffer[frame_number % FRAME_OVERLAP].buffer, 1, &copy);
 }
 
 void RenderScene::build_object_buffer()
@@ -167,25 +164,6 @@ void RenderScene::sort_objects(MeshPass& pass)
 		if (a.material != b.material)
 			return a.material < b.material;
 		else
-			return a.primitive_id.handle < b.primitive_id.handle;
+			return a.primitive_id.handle < b.primitive_id.handle; // only truly necessary if doing instanced draw indirect count
 		});
-}
-
-// PREREQ: object buffer, indirect batch & pass objects
-void RenderScene::build_ginstance_buffer(MeshPass& pass)
-{
-	GPUInstance* ginstance_data = static_cast<GPUInstance*>(pass.ginstance_buffer.info.pMappedData);
-
-	size_t index{};
-	for (size_t i = 0; i < pass.batches.size(); i++)
-	{
-		const auto& batch = pass.batches[i];
-		
-		for (uint32_t b = 0; b < batch.count; b++)
-		{
-			ginstance_data[index].object_id = pass.pass_objects[index].renderable_id.handle;
-			ginstance_data[index].batch_id = static_cast<uint32_t>(i);
-			index++;
-		}
-	}
 }

@@ -43,7 +43,7 @@ struct Handle<RenderObject> {
 
 struct IndirectBatch
 {
-	Handle<DrawPrimitive> primitive_id{}; 
+	//Handle<DrawPrimitive> primitive_id{}; 
 	ShaderPass* material{};
 	uint32_t first{}; // refers to pass object array
 	uint32_t count{}; // refers to pass object array
@@ -79,20 +79,17 @@ struct ObjectData
 struct CullData
 {
 	std::array<glm::vec4, 6> frustum_planes{};
+	glm::mat4 viewproj{};
 	VkDeviceAddress object_buffer_address{};
-	VkDeviceAddress ginstance_buffer_address{};
-	VkDeviceAddress indirect_buffer_address{};
-	VkDeviceAddress instance_buffer_address{};
-	uint32_t count{};
-};
-
-struct CompactIndirectData
-{
-	VkDeviceAddress indirect_buffer_address{};
-	VkDeviceAddress compact_buffer_address{};
+	VkDeviceAddress clear_indirect_address{};
+	VkDeviceAddress draw_indirect_address{};
 	VkDeviceAddress count_buffer_address{};
-	uint32_t offsets[8]{}; // (!) TODO: refactor
+	VkDeviceAddress vis_buffer_address{};
+	VkDeviceAddress debug_buffer_address{};
 	uint32_t count{};
+	uint32_t late{};
+	uint32_t texture_id{};
+	uint32_t occlusion{};
 };
 
 struct PassObject
@@ -106,7 +103,7 @@ struct PassObject
 struct GPUIndirect
 {
 	VkDrawIndexedIndirectCommand command{};
-	uint32_t pipeline_id{};
+	//uint32_t object_id{};
 };
 
 struct MeshAsset;
@@ -127,12 +124,11 @@ struct RenderScene // (!) forward only for now
 		std::vector<uint32_t> unbatched_objects{}; // handles for renderables
 		std::vector<PassObject> pass_objects{};
 
-		AllocatedBuffer instance_buffer{};
-		AllocatedBuffer ginstance_buffer{};
 		AllocatedBuffer draw_indirect_buffer{};
 		AllocatedBuffer clear_indirect_buffer{};
-		AllocatedBuffer compact_indirect_buffer{};
 		AllocatedBuffer count_buffer{};
+		AllocatedBuffer vis_buffer{};
+		AllocatedBuffer debug_buffer{};
 
 		MeshPassType type{};
 	};
@@ -155,7 +151,5 @@ struct RenderScene // (!) forward only for now
 	void build_indirect_batch(MeshPass& pass);
 	void build_multi_batch(MeshPass& pass);
 	void build_indirect_buffer(MeshPass& pass);
-	void build_ginstance_buffer(MeshPass& pass);
-	void reset_indirect_buffer(MeshPass& pass, VkCommandBuffer cmd);
 };
 

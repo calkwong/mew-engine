@@ -37,7 +37,6 @@ struct DrawCommand
 	uint first_index;
 	int vertex_offset;
 	uint first_instance;
-	uint pipeline_id;
 };
 
 layout(buffer_reference, std430) buffer DrawCommandsBuffer
@@ -45,22 +44,42 @@ layout(buffer_reference, std430) buffer DrawCommandsBuffer
 	DrawCommand commands[];
 };
 
-layout(buffer_reference, std430) buffer InstanceBuffer
+layout(buffer_reference, std430) buffer CountBuffer
 {
-	uint instances[];
+	uint count[];
+};
+	
+layout(buffer_reference, std430) buffer VisibilityBuffer
+{
+	uint visible[];
+};
+
+layout(buffer_reference, std430) buffer DebugBuffer
+{
+	float value[];
 };
 	
 layout(push_constant) uniform constants
 {
 	vec4 frustum_planes[6];
+	mat4 viewProj;
 	ObjectBuffer objectBuffer;
-	gInstanceBuffer ginstanceBuffer;
-	DrawCommandsBuffer drawCommandsBuffer;
-	InstanceBuffer instanceBuffer;
+	DrawCommandsBuffer clearBuffer;
+	DrawCommandsBuffer drawBuffer;
+	CountBuffer countBuffer;
+	VisibilityBuffer visBuffer;
+	DebugBuffer debugBuffer;
 	uint count;
+	uint late;
+	uint texture_id;
+	uint occlusionEnabled;
 } pc;
 
-bool is_visible(uint object_id)
+layout(set = 0, binding = 0, r32f) uniform image2D allImages[];
+layout(set = 1, binding = 0) uniform texture2D allTextures[];
+layout(set = 2, binding = 0) uniform sampler samplers[];
+
+bool frustumCulled(uint object_id)
 {
 	ObjectData obj = pc.objectBuffer.objects[object_id];
 	vec3 center = vec3(obj.worldMatrix * vec4(obj.origin, 1.0));
@@ -75,7 +94,7 @@ bool is_visible(uint object_id)
 	extent.y = abs(right.y) + abs(up.y) + abs(forward.y);
 	extent.z = abs(right.z) + abs(up.z) + abs(forward.z);
 	
-	bool visible = true;
+	bool visible;
 	
 	for (uint i = 0; i < 6; i++)
 	{
@@ -91,26 +110,145 @@ bool is_visible(uint object_id)
 		visible = visible && (s >= -r);
 	}
 	
-	return visible;
+	return !visible;
+}
+
+
+bool occlusionCulled(uint object_id, uint id)
+{
+	ObjectData obj = pc.objectBuffer.objects[object_id];
+	
+	vec4 corners[8];
+	corners[0] = vec4(obj.origin.x - obj.extent.x, obj.origin.y - obj.extent.y, obj.origin.z - obj.extent.z, 1.0);
+	corners[1] = vec4(obj.origin.x + obj.extent.x, obj.origin.y - obj.extent.y, obj.origin.z - obj.extent.z, 1.0);
+	corners[2] = vec4(obj.origin.x - obj.extent.x, obj.origin.y - obj.extent.y, obj.origin.z + obj.extent.z, 1.0);
+	corners[3] = vec4(obj.origin.x + obj.extent.x, obj.origin.y - obj.extent.y, obj.origin.z + obj.extent.z, 1.0);
+	corners[4] = vec4(obj.origin.x - obj.extent.x, obj.origin.y + obj.extent.y, obj.origin.z - obj.extent.z, 1.0);
+	corners[5] = vec4(obj.origin.x + obj.extent.x, obj.origin.y + obj.extent.y, obj.origin.z - obj.extent.z, 1.0);
+	corners[6] = vec4(obj.origin.x - obj.extent.x, obj.origin.y + obj.extent.y, obj.origin.z + obj.extent.z, 1.0);
+	corners[7] = vec4(obj.origin.x + obj.extent.x, obj.origin.y + obj.extent.y, obj.origin.z + obj.extent.z, 1.0);
+	
+	{
+		corners[0] = pc.viewProj * obj.worldMatrix * corners[0];
+		corners[0] /= corners[0].w;
+		
+		corners[1] = pc.viewProj * obj.worldMatrix * corners[1];
+		corners[1] /= corners[1].w;
+		
+		corners[2] = pc.viewProj * obj.worldMatrix * corners[2];
+		corners[2] /= corners[2].w;
+		
+		corners[3] = pc.viewProj * obj.worldMatrix * corners[3];
+		corners[3] /= corners[3].w;
+		
+		corners[4] = pc.viewProj * obj.worldMatrix * corners[4];
+		corners[4] /= corners[4].w;
+		
+		corners[5] = pc.viewProj * obj.worldMatrix * corners[5];
+		corners[5] /= corners[5].w;
+		
+		corners[6] = pc.viewProj * obj.worldMatrix * corners[6];
+		corners[6] /= corners[6].w;
+		
+		corners[7] = pc.viewProj * obj.worldMatrix * corners[7];
+		corners[7] /= corners[7].w;
+	}
+	
+	vec3 aabb_min = vec3(1.0, 1.0, 1.0);
+	vec3 aabb_max = vec3(-1.0, -1.0, 0.0);
+	{
+		aabb_min = min(aabb_min, corners[0].xyz);
+		aabb_max = max(aabb_max, corners[0].xyz);
+		
+		aabb_min = min(aabb_min, corners[1].xyz);
+		aabb_max = max(aabb_max, corners[1].xyz);
+		
+		aabb_min = min(aabb_min, corners[2].xyz);
+		aabb_max = max(aabb_max, corners[2].xyz);
+		
+		aabb_min = min(aabb_min, corners[3].xyz);
+		aabb_max = max(aabb_max, corners[3].xyz);
+		
+		aabb_min = min(aabb_min, corners[4].xyz);
+		aabb_max = max(aabb_max, corners[4].xyz);
+		
+		aabb_min = min(aabb_min, corners[5].xyz);
+		aabb_max = max(aabb_max, corners[5].xyz);
+		
+		aabb_min = min(aabb_min, corners[6].xyz);
+		aabb_max = max(aabb_max, corners[6].xyz);
+		
+		aabb_min = min(aabb_min, corners[7].xyz);
+		aabb_max = max(aabb_max, corners[7].xyz);
+	}
+	
+	vec4 box = vec4(aabb_min.xy, aabb_max.xy);
+	box = box * vec4(0.5, -0.5, 0.5, -0.5) + vec4(0.5);
+	
+	vec2 resolution = vec2(1024.0, 512.0);
+	vec2 pixel_size = (aabb_max.xy - aabb_min.xy) * resolution; 
+	
+	float max_dim = max(pixel_size.x, pixel_size.y);
+	
+	float mip = ceil(log2(max_dim));
+	//float mip = floor(log2(max_dim));
+	mip = min(mip, float(11)); // TODO: PC
+	
+	float sampled_z = textureLod(sampler2D(allTextures[pc.texture_id], samplers[4]), (box.zw + box.xy) * 0.5, mip).r;
+	
+	pc.debugBuffer.value[id] = mip; 
+	
+	float bias = 0.00;
+	return aabb_max.z < (sampled_z - bias); // reverse depth
 }
 
 void main()
 {
-	uint g_id = gl_GlobalInvocationID.x;
+	uint id = gl_GlobalInvocationID.x;
 	
-	if (g_id < pc.count)
+	
+	if (id < pc.count)
 	{
-		GPUInstance instance = pc.ginstanceBuffer.instances[g_id];
-		uint object = instance.object_id;
-		uint batch = instance.batch_id;
+		bool late = pc.late == 1;
+		bool visible_last_frame = pc.visBuffer.visible[id] == 1;
 		
-		if (is_visible(object))
+		if (!late && !visible_last_frame)
+			return;
+		
+		DrawCommand command = pc.clearBuffer.commands[id];
+		
+		uint object = command.first_instance;
+		
+		bool visible = !frustumCulled(object);
+		
+		pc.debugBuffer.value[id] = 99; 
+		
+		bool shouldDraw = false;
+		if (!late)
+			shouldDraw = visible;
+		else
 		{
-			uint count = atomicAdd(pc.drawCommandsBuffer.commands[batch].instance_count, 1);
-			
-			uint instance_index = pc.drawCommandsBuffer.commands[batch].first_instance + count; // req for instancing support
-			
-			pc.instanceBuffer.instances[instance_index] = object;
+			if (visible)
+			{
+				if (pc.occlusionEnabled == 1)
+					visible = visible && !occlusionCulled(object, id);
+				shouldDraw = visible && !visible_last_frame;
+			}
 		}
+		
+		if (shouldDraw)
+		{
+			uint count = atomicAdd(pc.countBuffer.count[0], 1);
+			
+			pc.drawBuffer.commands[count].index_count = command.index_count;
+			pc.drawBuffer.commands[count].instance_count = 1;
+			pc.drawBuffer.commands[count].first_index = command.first_index;
+			pc.drawBuffer.commands[count].vertex_offset = command.vertex_offset;
+			pc.drawBuffer.commands[count].first_instance = command.first_instance;
+		}
+		
+		if (late)
+			pc.visBuffer.visible[id] = uint(visible); 
+
 	}
 }

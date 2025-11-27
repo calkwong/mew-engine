@@ -55,15 +55,6 @@ layout( push_constant ) uniform constants
 	//ObjectBuffer objectBuffer;
 } pc;
 
-//layout( push_constant ) uniform constants
-//{
-//	mat4 worldMatrix;
-//	VertexBuffer vertexBuffer;
-//	MaterialBuffer materialBuffer;
-//	uint materialID;
-//	uint debug_idx;
-//} pc;
-
 layout(set = 1, binding = 0) uniform texture2D allTextures[];
 layout(set = 1, binding = 0) uniform textureCube allCubemaps[];
 layout(set = 2, binding = 0) uniform sampler samplers[];

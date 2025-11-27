@@ -203,7 +203,7 @@ void CVarSystemImpl::edit_parameters(CVarParameter* param)
 		if (slider_int_flag)
 		{
 			int value = get_cvars_array<int>()->get_current(param->array_index);
-			if (ImGui::SliderInt(param->name.c_str(), &value, 0, 9));
+			if (ImGui::SliderInt(param->name.c_str(), &value, 0, 10));
 			//if (ImGui::DragInt(param->name.c_str(), &value));
 			{
 				get_cvars_array<int>()->set_current(value, param->array_index);
