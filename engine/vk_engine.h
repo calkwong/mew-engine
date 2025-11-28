@@ -341,7 +341,7 @@ public:
 	void update_cascade();
 	void draw_imgui(VkCommandBuffer cmd, VkImageView swapchain_view);
 	void ready_mesh_draw();
-	CullData ready_cull_data(RenderScene::MeshPass& pass, glm::mat4& viewproj, bool orthographic = false);
+	CullData ready_cull_data(RenderScene::MeshPass& pass, glm::mat4& proj, bool orthographic = false);
 	void execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPass& pass, CullData& cull_data, bool late);
 	void render(VkCommandBuffer cmd, bool late, uint32_t query);
 	void build_depth_pyramid(VkCommandBuffer cmd);

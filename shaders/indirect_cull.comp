@@ -63,7 +63,7 @@ layout(buffer_reference, std430) buffer DebugBuffer
 layout(push_constant) uniform constants
 {
 	vec4 frustum_planes[6];
-	mat4 viewProj;
+	mat4 view;
 	ObjectBuffer objectBuffer;
 	DrawCommandsBuffer clearBuffer;
 	DrawCommandsBuffer drawBuffer;
@@ -74,16 +74,45 @@ layout(push_constant) uniform constants
 	uint late;
 	uint texture_id;
 	uint occlusionEnabled;
+	float p00;
+	float p11;
+	float znear;
 } pc;
 
 layout(set = 0, binding = 0, r32f) uniform image2D allImages[];
 layout(set = 1, binding = 0) uniform texture2D allTextures[];
 layout(set = 2, binding = 0) uniform sampler samplers[];
 
+// 2D Polyhedral Bounds of a Clipped, Perspective-Projected 3D Sphere. Michael Mara, Morgan McGuire. 2013
+bool projectSphere(vec3 c, float r, float znear, float P00, float P11, out vec4 aabb, uint id)
+{
+	if (c.z < r + znear)
+		return false;
+
+    vec3 cr = c * r;
+    float czr2 = c.z * c.z - r * r;
+
+    float vx = sqrt(c.x * c.x + czr2);
+    float minx = (vx * c.x - cr.z) / (vx * c.z + cr.x);
+    float maxx = (vx * c.x + cr.z) / (vx * c.z - cr.x);
+
+    float vy = sqrt(c.y * c.y + czr2);
+    float miny = (vy * c.y - cr.z) / (vy * c.z + cr.y);
+    float maxy = (vy * c.y + cr.z) / (vy * c.z - cr.y);
+
+    aabb = vec4(minx * P00, miny * P11, maxx * P00, maxy * P11);
+    // clip space -> uv space
+    aabb = aabb.xwzy * vec4(0.5f, -0.5f, 0.5f, -0.5f) + vec4(0.5f);
+
+    return true;
+}
+
 bool frustumCulled(uint object_id, uint id)
 {
 	ObjectData obj = pc.objectBuffer.objects[object_id];
-	vec3 center = vec3(obj.worldMatrix * vec4(obj.origin, 1.0));
+	//vec3 center = vec3(obj.worldMatrix * vec4(obj.origin, 1.0));
+	
+	vec3 center = vec3(pc.view * obj.worldMatrix * vec4(obj.origin, 1.0));
 	float radius = obj.radius;
 	
 	vec3 right = vec3(obj.worldMatrix[0]);
@@ -94,7 +123,6 @@ bool frustumCulled(uint object_id, uint id)
 	
 	float maxScale = max(scale.z, max(scale.x, scale.y));
 	radius = radius * maxScale;
-	pc.debugBuffer.value[id] = radius;
 	
 	bool visible;
 	
@@ -114,97 +142,42 @@ bool frustumCulled(uint object_id, uint id)
 	return !visible;
 }
 
-const uint CORNER_SIZE = 8;
-
-/*
 bool occlusionCulled(uint object_id, uint id)
 {
 	ObjectData obj = pc.objectBuffer.objects[object_id];
 	
-	vec4 corners[8];
-	corners[0] = vec4(obj.origin.x - obj.extent.x, obj.origin.y - obj.extent.y, obj.origin.z - obj.extent.z, 1.0);
-	corners[1] = vec4(obj.origin.x + obj.extent.x, obj.origin.y - obj.extent.y, obj.origin.z - obj.extent.z, 1.0);
-	corners[2] = vec4(obj.origin.x - obj.extent.x, obj.origin.y - obj.extent.y, obj.origin.z + obj.extent.z, 1.0);
-	corners[3] = vec4(obj.origin.x + obj.extent.x, obj.origin.y - obj.extent.y, obj.origin.z + obj.extent.z, 1.0);
-	corners[4] = vec4(obj.origin.x - obj.extent.x, obj.origin.y + obj.extent.y, obj.origin.z - obj.extent.z, 1.0);
-	corners[5] = vec4(obj.origin.x + obj.extent.x, obj.origin.y + obj.extent.y, obj.origin.z - obj.extent.z, 1.0);
-	corners[6] = vec4(obj.origin.x - obj.extent.x, obj.origin.y + obj.extent.y, obj.origin.z + obj.extent.z, 1.0);
-	corners[7] = vec4(obj.origin.x + obj.extent.x, obj.origin.y + obj.extent.y, obj.origin.z + obj.extent.z, 1.0);
+	vec3 center = vec3(pc.view * obj.worldMatrix * vec4(obj.origin, 1.0));
 	
+	float radius = obj.radius;
+	
+	vec3 right = vec3(obj.worldMatrix[0]);
+	vec3 up = vec3(obj.worldMatrix[1]);
+	vec3 forward = vec3(obj.worldMatrix[2]);
+	
+	vec3 scale = vec3(length(right), length(up), length(forward));
+	
+	float maxScale = max(scale.z, max(scale.x, scale.y));
+	radius = radius * maxScale;
+	
+	vec4 aabb;
+	
+	if (projectSphere(vec3(center.x, center.y, -center.z), radius, pc.znear, pc.p00, pc.p11, aabb, id))
 	{
-		corners[0] = pc.viewProj * obj.worldMatrix * corners[0];
-		corners[0] /= corners[0].w;
+		vec2 resolution = vec2(1024.0, 512.0); // HARDCODED
+		vec2 pixel_size = (aabb.zw - aabb.xy) * resolution; 
 		
-		corners[1] = pc.viewProj * obj.worldMatrix * corners[1];
-		corners[1] /= corners[1].w;
+		float max_dim = max(pixel_size.x, pixel_size.y);
 		
-		corners[2] = pc.viewProj * obj.worldMatrix * corners[2];
-		corners[2] /= corners[2].w;
+		float mip = ceil(log2(max_dim));
+		mip = min(mip, float(11)); // TODO: PC
 		
-		corners[3] = pc.viewProj * obj.worldMatrix * corners[3];
-		corners[3] /= corners[3].w;
+		float depth = textureLod(sampler2D(allTextures[pc.texture_id], samplers[4]), (aabb.zw + aabb.xy) * 0.5, mip).r;
 		
-		corners[4] = pc.viewProj * obj.worldMatrix * corners[4];
-		corners[4] /= corners[4].w;
+		float depthSphere = pc.znear / (-center.z - radius); 
 		
-		corners[5] = pc.viewProj * obj.worldMatrix * corners[5];
-		corners[5] /= corners[5].w;
-		
-		corners[6] = pc.viewProj * obj.worldMatrix * corners[6];
-		corners[6] /= corners[6].w;
-		
-		corners[7] = pc.viewProj * obj.worldMatrix * corners[7];
-		corners[7] /= corners[7].w;
+		return depthSphere < depth; // reverse depth
 	}
-	
-	vec3 aabb_min = vec3(1.0, 1.0, 1.0);
-	vec3 aabb_max = vec3(-1.0, -1.0, 0.0);
-	{
-		aabb_min = min(aabb_min, corners[0].xyz);
-		aabb_max = max(aabb_max, corners[0].xyz);
-		
-		aabb_min = min(aabb_min, corners[1].xyz);
-		aabb_max = max(aabb_max, corners[1].xyz);
-		
-		aabb_min = min(aabb_min, corners[2].xyz);
-		aabb_max = max(aabb_max, corners[2].xyz);
-		
-		aabb_min = min(aabb_min, corners[3].xyz);
-		aabb_max = max(aabb_max, corners[3].xyz);
-		
-		aabb_min = min(aabb_min, corners[4].xyz);
-		aabb_max = max(aabb_max, corners[4].xyz);
-		
-		aabb_min = min(aabb_min, corners[5].xyz);
-		aabb_max = max(aabb_max, corners[5].xyz);
-		
-		aabb_min = min(aabb_min, corners[6].xyz);
-		aabb_max = max(aabb_max, corners[6].xyz);
-		
-		aabb_min = min(aabb_min, corners[7].xyz);
-		aabb_max = max(aabb_max, corners[7].xyz);
-	}
-	
-	vec4 box = vec4(aabb_min.xy, aabb_max.xy);
-	box = box * vec4(0.5, -0.5, 0.5, -0.5) + vec4(0.5);
-	
-	vec2 resolution = vec2(1024.0, 512.0);
-	vec2 pixel_size = (aabb_max.xy - aabb_min.xy) * resolution; 
-	
-	float max_dim = max(pixel_size.x, pixel_size.y);
-	
-	float mip = ceil(log2(max_dim));
-	//float mip = floor(log2(max_dim));
-	mip = min(mip, float(11)); // TODO: PC
-	
-	float sampled_z = textureLod(sampler2D(allTextures[pc.texture_id], samplers[4]), (box.zw + box.xy) * 0.5, mip).r;
-	
-	pc.debugBuffer.value[id] = mip; 
-	
-	float bias = 0.00;
-	return aabb_max.z < (sampled_z - bias); // reverse depth
 }
-*/
 
 void main()
 {
@@ -223,7 +196,6 @@ void main()
 		
 		uint object = command.first_instance;
 		
-		pc.debugBuffer.value[id] = 99; 
 		bool visible = !frustumCulled(object, id);
 		
 		
@@ -235,7 +207,7 @@ void main()
 			if (visible)
 			{
 				if (pc.occlusionEnabled == 1)
-					visible = visible; // && !occlusionCulled(object, id);
+					visible = visible && !occlusionCulled(object, id);
 				shouldDraw = visible && !visible_last_frame;
 			}
 		}

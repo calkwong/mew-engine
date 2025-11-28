@@ -265,7 +265,7 @@ void VulkanEngine::draw()
 		}
 #endif
 
-		forward_cull_data = ready_cull_data(render_scene.forward_pass, scene_data.viewproj);
+		forward_cull_data = ready_cull_data(render_scene.forward_pass, scene_data.proj);
 	}
 
 	uint32_t swapchain_image_idx{};
@@ -372,6 +372,18 @@ void VulkanEngine::draw()
 			VK_IMAGE_ASPECT_DEPTH_BIT
 		);
 
+		vkutil::transition_image(
+			cmd,
+			depth_pyramid.image,
+			VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+			VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+			VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+			VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+			VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
+			VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
+			VK_IMAGE_ASPECT_COLOR_BIT
+		);
+
 		render(cmd, true, 1);
 
 		vkutil::transition_image(
@@ -384,18 +396,6 @@ void VulkanEngine::draw()
 			VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
 			VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
 			VK_IMAGE_ASPECT_DEPTH_BIT
-		);
-
-		vkutil::transition_image(
-			cmd,
-			depth_pyramid.image,
-			VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-			VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-			VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-			VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-			VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-			VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-			VK_IMAGE_ASPECT_COLOR_BIT
 		);
 
 	}
@@ -1762,7 +1762,7 @@ void VulkanEngine::init_renderables()
 
 	std::mt19937 mt(42);
 	auto draw_radius = 20.0f;
-	auto draw_count = 1000;
+	auto draw_count = 5000;
 
 	for (size_t i = 0; i < draw_count; i++)
 	{
@@ -1792,7 +1792,7 @@ void VulkanEngine::init_bindless()
 {
 	// TODO: move ds allocation out of this maybe?
 	std::array<uint32_t, 1> variable_desc_counts = {
-			static_cast<uint32_t>(texture_cache.image_infos.size())
+		static_cast<uint32_t>(texture_cache.image_infos.size())
 	};
 
 	VkDescriptorSetVariableDescriptorCountAllocateInfo variable_desc_info{};
@@ -2085,6 +2085,7 @@ void VulkanEngine::forward_pass(VkCommandBuffer cmd)
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
 	DebugPushConstants pc{};
 	pc.texture_id = texture_cache.get_depth_pyramid_image();
+	//pc.texture_id = texture_cache.get_depth_image();
 	pc.lod = CVAR_DEPTH_PYRAMID_LOD.get();
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(DebugPushConstants), &pc);
 	if (CVAR_RENDER_PYRAMID.get())
@@ -2488,14 +2489,16 @@ void VulkanEngine::ready_mesh_draw()
 	}
 }
 
-CullData VulkanEngine::ready_cull_data(RenderScene::MeshPass& pass, glm::mat4& viewproj, bool orthographic /*= false*/)
+CullData VulkanEngine::ready_cull_data(RenderScene::MeshPass& pass, glm::mat4& proj, bool orthographic /*= false*/)
 {
 	CullData cull_data{};
 
-	auto m0 = glm::row(viewproj, 0);
-	auto m1 = glm::row(viewproj, 1);
-	auto m2 = glm::row(viewproj, 2);
-	auto m3 = glm::row(viewproj, 3);
+	auto projT = glm::transpose(proj);
+
+	auto m0 = projT[0];
+	auto m1 = projT[1];
+	auto m2 = projT[2];
+	auto m3 = projT[3];
 
 	cull_data.frustum_planes = {
 		m3, // near
@@ -2520,7 +2523,7 @@ CullData VulkanEngine::ready_cull_data(RenderScene::MeshPass& pass, glm::mat4& v
 		plane /= length;
 	}
 
-	cull_data.viewproj = viewproj;
+	cull_data.view = scene_data.view;
 
 	VkBufferDeviceAddressInfo address_info{};
 	address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
@@ -2545,6 +2548,11 @@ CullData VulkanEngine::ready_cull_data(RenderScene::MeshPass& pass, glm::mat4& v
 	cull_data.count = static_cast<uint32_t>(pass.pass_objects.size());
 	cull_data.texture_id = texture_cache.get_depth_pyramid_image();
 	cull_data.occlusion = CVAR_OCCLUSION.get();
+	
+	cull_data.p00 = proj[0][0];
+	cull_data.p11 = proj[1][1];
+	cull_data.near = main_camera.far;
+
 	return cull_data;
 }
 
