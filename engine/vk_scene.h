@@ -71,9 +71,10 @@ struct ObjectData
 {
 	glm::mat4 transform{};
 	glm::vec3 origin{};
+	float radius{};
 	uint32_t material_id{};
-	glm::vec3 extent{};
-	uint32_t padding{}; 
+	//glm::vec3 extent{};
+	uint32_t padding[3]{}; 
 };
 
 struct CullData

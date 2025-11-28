@@ -14,9 +14,10 @@ struct ObjectData
 {
 	mat4 worldMatrix;
 	vec3 origin;
+	float radius;
 	uint materialID;
-	vec3 extent;
-	uint padding;
+	//vec3 extent;
+	uint padding[3];
 };
 
 struct MaterialData

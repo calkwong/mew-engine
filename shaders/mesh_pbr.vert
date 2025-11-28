@@ -46,9 +46,10 @@ struct ObjectData
 {
 	mat4 worldMatrix;
 	vec3 origin;
+	float radius;
 	uint materialID;
-	vec3 extent;
-	uint padding;
+	//vec3 extent;
+	uint padding[3];
 };
 
 
@@ -67,6 +68,7 @@ layout( push_constant ) uniform constants
 	MaterialBuffer materialBuffer;
 	ObjectBuffer objectBuffer;
 	VertexBuffer vertexBuffer;
+	bool sphere;
 } pc;
 
 
@@ -77,13 +79,22 @@ void main()
 	Vertex v = pc.vertexBuffer.vertices[gl_VertexIndex];
 	
 	vec4 position = o.worldMatrix * vec4(v.position, 1.0);
-	outViewPos = vec3(sceneData.view * position);
-	gl_Position =  sceneData.viewproj * position;
 
 	outNormal = mat3(transpose(inverse(o.worldMatrix))) * v.normal;
+	
+	// debug sphere
+	if (pc.sphere)
+	{
+		vec3 newPos = normalize(outNormal) * o.radius + o.origin;
+		position = o.worldMatrix * vec4(newPos, 1.0);
+	}
+	
+	outViewPos = vec3(sceneData.view * position);
 	outTangent = vec4(mat3(transpose(inverse(o.worldMatrix))) * v.tangent.xyz, v.tangent.w);
 	outWorldPos = position.xyz;
 	
 	outUV = vec2(v.uv_x, v.uv_y);
 	outMaterialID = o.materialID;
+	
+	gl_Position =  sceneData.viewproj * position;
 }

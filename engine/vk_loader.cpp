@@ -640,8 +640,9 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 			}
 
 			new_surface.bounds.origin = (max_pos + min_pos) / 2.0f;
-			new_surface.bounds.extents = (max_pos - min_pos) / 2.0f;
-			//new_surface.bounds.sphere_radius = glm::length(new_surface.bounds.extents);
+			auto extents = (max_pos - min_pos) / 2.0f;
+			new_surface.bounds.radius = glm::length(extents);
+			//new_surface.bounds.radius = (max_pos.z - min_pos.z) / 2.0f; // works for spheres only
 			
 			// load vertex normals
 			{

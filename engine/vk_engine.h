@@ -35,6 +35,7 @@ struct GPUPushConstants
 	VkDeviceAddress object_buffer_address{};
 	//VkDeviceAddress instance_buffer_address{};
 	VkDeviceAddress vertex_buffer_address{};
+	uint32_t sphere{};
 };
 
 struct IBLPushConstants

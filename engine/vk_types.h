@@ -63,8 +63,8 @@ enum class MaterialPass : uint32_t
 struct Bounds
 {
     glm::vec3 origin{};
-    glm::vec3 extents{};
-    //float sphere_radius{};
+    //glm::vec3 extents{};
+    float radius{};
 };
 
 struct MaterialData

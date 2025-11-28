@@ -9,9 +9,10 @@ struct ObjectData
 {
 	mat4 worldMatrix;
 	vec3 origin;
+	float radius;
 	uint materialID;
-	vec3 extent;
-	uint padding;
+	//vec3 extent;
+	uint padding[3];
 };
 
 layout(buffer_reference, std430) readonly buffer ObjectBuffer
@@ -79,20 +80,21 @@ layout(set = 0, binding = 0, r32f) uniform image2D allImages[];
 layout(set = 1, binding = 0) uniform texture2D allTextures[];
 layout(set = 2, binding = 0) uniform sampler samplers[];
 
-bool frustumCulled(uint object_id)
+bool frustumCulled(uint object_id, uint id)
 {
 	ObjectData obj = pc.objectBuffer.objects[object_id];
 	vec3 center = vec3(obj.worldMatrix * vec4(obj.origin, 1.0));
+	float radius = obj.radius;
 	
-	vec3 right = vec3(obj.worldMatrix[0] * obj.extent.x);
-	vec3 up = vec3(obj.worldMatrix[1] * obj.extent.y);
-	vec3 forward = vec3(obj.worldMatrix[2] * obj.extent.z);
+	vec3 right = vec3(obj.worldMatrix[0]);
+	vec3 up = vec3(obj.worldMatrix[1]);
+	vec3 forward = vec3(obj.worldMatrix[2]);
 	
-	// recompute AABB
-	vec3 extent = vec3(0.0);
-	extent.x = abs(right.x) + abs(up.x) + abs(forward.x);
-	extent.y = abs(right.y) + abs(up.y) + abs(forward.y);
-	extent.z = abs(right.z) + abs(up.z) + abs(forward.z);
+	vec3 scale = vec3(length(right), length(up), length(forward));
+	
+	float maxScale = max(scale.z, max(scale.x, scale.y));
+	radius = radius * maxScale;
+	pc.debugBuffer.value[id] = radius;
 	
 	bool visible;
 	
@@ -102,8 +104,7 @@ bool frustumCulled(uint object_id)
 		float distance = pc.frustum_planes[i].w;
 			
 		// project radius (extent) of box onto line
-		float r = dot(extent, abs(normal));
-		
+		float r = radius;
 		// distance of box center from plane
 		float s = dot(center, normal) + distance;
 		
@@ -113,7 +114,9 @@ bool frustumCulled(uint object_id)
 	return !visible;
 }
 
+const uint CORNER_SIZE = 8;
 
+/*
 bool occlusionCulled(uint object_id, uint id)
 {
 	ObjectData obj = pc.objectBuffer.objects[object_id];
@@ -201,6 +204,7 @@ bool occlusionCulled(uint object_id, uint id)
 	float bias = 0.00;
 	return aabb_max.z < (sampled_z - bias); // reverse depth
 }
+*/
 
 void main()
 {
@@ -219,9 +223,9 @@ void main()
 		
 		uint object = command.first_instance;
 		
-		bool visible = !frustumCulled(object);
-		
 		pc.debugBuffer.value[id] = 99; 
+		bool visible = !frustumCulled(object, id);
+		
 		
 		bool shouldDraw = false;
 		if (!late)
@@ -231,7 +235,7 @@ void main()
 			if (visible)
 			{
 				if (pc.occlusionEnabled == 1)
-					visible = visible && !occlusionCulled(object, id);
+					visible = visible; // && !occlusionCulled(object, id);
 				shouldDraw = visible && !visible_last_frame;
 			}
 		}

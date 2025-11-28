@@ -123,8 +123,9 @@ void RenderScene::build_object_buffer()
 
 		object_data[i].transform = obj.transform;
 		object_data[i].origin = obj.bounds.origin;
+		object_data[i].radius = obj.bounds.radius;
 		object_data[i].material_id = obj.material_id;
-		object_data[i].extent = obj.bounds.extents;
+		//object_data[i].extent = obj.bounds.extents;
 	}
 }
 

@@ -56,6 +56,7 @@ AutoCVar_Int CVAR_SHADOW_NEAR{ "shadow.near", "pull back light frustum near plan
 AutoCVar_Int CVAR_OCCLUSION{ "occlusion", "occlusion enabled", 1, 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_PYRAMID{ "depth_pyramid.render", "render depth pyramid", 0, 0, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_DEPTH_PYRAMID_LOD{ "depth_pyramid.lod", "", 0, 0, CVarFlags::EditSliderInt };
+AutoCVar_Int CVAR_SPHERE{ "visualize bounding spheres", "debug sphere", 0, 0, CVarFlags::EditCheckbox };
 
 void sort_transparency(const std::vector<RenderObject>& renderables, const Camera& cam, std::vector<size_t>& visible_indices)
 {
@@ -781,7 +782,8 @@ void VulkanEngine::run()
 			ImGui::Text("draws %i", stats.draw_count);
 			ImGui::Text("scene update time %f ms", stats.scene_update_time);
 			ImGui::Text("gpu render time %f ms", stats.gpu_time);
-			ImGui::Text("triangles %u", stats.triangle_count);
+			//ImGui::Text("triangles %.2fM", static_cast<double>(stats.triangle_count) * 1e-6);
+			ImGui::Text("triangles %.2u", stats.triangle_count);
 
 			ImGui::End();
 		}
@@ -1732,7 +1734,6 @@ void VulkanEngine::init_renderables()
 
 	//std::string asset_path = "../../assets/ABeautifulGame.glb";
 	//std::string asset_path = "../../assets/sphere.gltf";
-	//std::string asset_path = "../../assets/plants.gltf";
 	//std::string asset_path = "../../assets/khronos_sponza/Sponza.gltf";
 	//std::string asset_path = "../../assets/bistro_interior_wine_ktx2/BistroInterior_WineFixed.gltf";
 	//std::string asset_path = "../../assets/bistro_exterior_ktx2/BistroExteriorFixed.gltf";
@@ -1755,7 +1756,7 @@ void VulkanEngine::init_renderables()
 	for (const auto& n : loaded_scenes["DamagedHelmet"]->top_nodes)
 	{
 		register_object(n.get(), t[0]);
-		register_object(n.get(), t[1]);
+		register_object(n.get(), t[1]); 
 		register_object(n.get(), t[2]);
 	}
 
@@ -2610,6 +2611,7 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t query)
 	pc.material_buffer_address = 0;
 	pc.object_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
 	pc.vertex_buffer_address = render_scene.combined_mesh_buffer.vertex_buffer_address;
+	pc.sphere = CVAR_SPHERE.get();
 
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GPUPushConstants), &pc);
 
