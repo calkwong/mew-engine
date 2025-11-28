@@ -92,9 +92,13 @@ struct CullData
 	uint32_t texture_id{};
 	uint32_t occlusion{};
 
+	glm::vec2 resolution{};
+	float lod{};
+
 	float p00{};
 	float p11{};
 	float near{};
+
 };
 
 struct PassObject

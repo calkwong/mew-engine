@@ -58,6 +58,11 @@ AutoCVar_Int CVAR_RENDER_PYRAMID{ "depth_pyramid.render", "render depth pyramid"
 AutoCVar_Int CVAR_DEPTH_PYRAMID_LOD{ "depth_pyramid.lod", "", 0, 0, CVarFlags::EditSliderInt };
 AutoCVar_Int CVAR_SPHERE{ "visualize bounding spheres", "debug sphere", 0, 0, CVarFlags::EditCheckbox };
 
+uint32_t nearest_pow2(uint32_t extent)
+{
+	return 1 << static_cast<uint32_t>(std::floor(std::log2(extent)));
+}
+
 void sort_transparency(const std::vector<RenderObject>& renderables, const Camera& cam, std::vector<size_t>& visible_indices)
 {
 	std::vector<float> distances{};
@@ -284,10 +289,8 @@ void VulkanEngine::draw()
 	vkCmdResetQueryPool(cmd, query_pool_timestamps, 0, 100);
 	vkCmdResetQueryPool(cmd, query_pool_pipelines, 0, 4);
 
-	vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, query_pool_timestamps, 0);
-
 	{
-		TracyVkZone(tracy_ctx, cmd, "Reset indirect buffers");
+		//TracyVkZone(tracy_ctx, cmd, "Reset indirect buffers");
 		
 		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
 			VK_PIPELINE_STAGE_2_CLEAR_BIT,
@@ -299,7 +302,7 @@ void VulkanEngine::draw()
 	}
 
 	{
-		TracyVkZone(tracy_ctx, get_current_frame().main_command_buffer, "Compute cull");
+		//TracyVkZone(tracy_ctx, get_current_frame().main_command_buffer, "Compute cull");
 
 		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
 			VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT
@@ -311,8 +314,11 @@ void VulkanEngine::draw()
 			execute_compute_cull(cmd, render_scene.shadow_pass[i], shadow_cull_data[i]);
 		}
 #endif
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, query_pool_timestamps, 0);
 		execute_compute_cull(cmd, render_scene.forward_pass, forward_cull_data, false);
-		
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, query_pool_timestamps, 1);
+
+
 		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
 			VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT
 		);
@@ -340,7 +346,9 @@ void VulkanEngine::draw()
 			VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT
 		); // from blit to swapchain prev frame
 
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, query_pool_timestamps, 2);
 		render(cmd, false, 0);
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, query_pool_timestamps, 3);
 
 		build_depth_pyramid(cmd);
 
@@ -354,7 +362,9 @@ void VulkanEngine::draw()
 			VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT
 		);
 
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, query_pool_timestamps, 4);
 		execute_compute_cull(cmd, render_scene.forward_pass, forward_cull_data, true);
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, query_pool_timestamps, 5);
 
 		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
 			VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT
@@ -384,7 +394,9 @@ void VulkanEngine::draw()
 			VK_IMAGE_ASPECT_COLOR_BIT
 		);
 
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, query_pool_timestamps, 6);
 		render(cmd, true, 1);
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, query_pool_timestamps, 7);
 
 		vkutil::transition_image(
 			cmd,
@@ -449,7 +461,7 @@ void VulkanEngine::draw()
 #endif
 	
 	{
-		TracyVkZone(tracy_ctx, get_current_frame().main_command_buffer, "Forward pass");
+		//TracyVkZone(tracy_ctx, get_current_frame().main_command_buffer, "Forward pass");
 		forward_pass(cmd);
 	}
 
@@ -478,7 +490,7 @@ void VulkanEngine::draw()
 	);
 	
 	{
-		TracyVkZone(tracy_ctx, get_current_frame().main_command_buffer, "Imgui pass")
+		//TracyVkZone(tracy_ctx, get_current_frame().main_command_buffer, "Imgui pass")
 		draw_imgui(cmd, swapchain_image_views[swapchain_image_idx]);
 	}
 
@@ -492,8 +504,6 @@ void VulkanEngine::draw()
 		VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
 		0
 	);
-
-	vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, query_pool_timestamps, 1);
 	TracyVkCollect(tracy_ctx, get_current_frame().main_command_buffer);
 	VK_CHECK(vkEndCommandBuffer(cmd));
 
@@ -521,7 +531,7 @@ void VulkanEngine::draw()
 	FrameMark;
 	frame_number++;
 
-	std::array<uint64_t, 2> timestamp_results{};
+	std::array<uint64_t, 8> timestamp_results{};
 
 	vkGetQueryPoolResults(
 		device,
@@ -547,9 +557,22 @@ void VulkanEngine::draw()
 		VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT
 	);
 
-	auto gpu_begin = static_cast<double>(timestamp_results[0]) * props.limits.timestampPeriod * 1e-6;
-	auto gpu_end = static_cast<double>(timestamp_results[1]) * props.limits.timestampPeriod * 1e-6;
-	stats.gpu_time = (gpu_end - gpu_begin);
+	auto cull_begin = static_cast<double>(timestamp_results[0]) * props.limits.timestampPeriod * 1e-6;
+	auto cull_end   = static_cast<double>(timestamp_results[1]) * props.limits.timestampPeriod * 1e-6;
+	stats.early_cull = cull_end - cull_begin;
+
+	auto indirect_begin = static_cast<double>(timestamp_results[2]) * props.limits.timestampPeriod * 1e-6;
+	auto indirect_end   = static_cast<double>(timestamp_results[3]) * props.limits.timestampPeriod * 1e-6;
+	stats.early_indirect = indirect_end - indirect_begin;
+
+	cull_begin = static_cast<double>(timestamp_results[4]) * props.limits.timestampPeriod * 1e-6;
+	cull_end =   static_cast<double>(timestamp_results[5]) * props.limits.timestampPeriod * 1e-6;
+	stats.late_cull = cull_end - cull_begin;
+
+	indirect_begin = static_cast<double>(timestamp_results[6]) * props.limits.timestampPeriod * 1e-6;
+	indirect_end =   static_cast<double>(timestamp_results[7]) * props.limits.timestampPeriod * 1e-6;
+	stats.late_indirect = indirect_end - indirect_begin;
+
 	stats.triangle_count = pipeline_results[0] + pipeline_results[1];
 }
 
@@ -781,9 +804,12 @@ void VulkanEngine::run()
 			ImGui::Text("frametime %f ms", stats.deltatime * 1000.0f);
 			ImGui::Text("draws %i", stats.draw_count);
 			ImGui::Text("scene update time %f ms", stats.scene_update_time);
-			ImGui::Text("gpu render time %f ms", stats.gpu_time);
-			//ImGui::Text("triangles %.2fM", static_cast<double>(stats.triangle_count) * 1e-6);
-			ImGui::Text("triangles %.2u", stats.triangle_count);
+			ImGui::Text("early cull %f ms", stats.early_cull);
+			ImGui::Text("late  cull %f ms", stats.late_cull);
+			ImGui::Text("early indirect %f ms", stats.early_indirect);
+			ImGui::Text("late  indirect %f ms", stats.late_indirect);
+			ImGui::Text("triangles %.2fM", static_cast<double>(stats.triangle_count) * 1e-6);
+			//ImGui::Text("triangles %.2u", stats.triangle_count);
 
 			ImGui::End();
 		}
@@ -1604,8 +1630,8 @@ void VulkanEngine::init_default_data()
 
 	//> create depth pyramid
 	VkExtent3D depth_pyramid_extent{};
-	depth_pyramid_extent.width = 1 << static_cast<uint32_t>(std::floor(std::log2(draw_extent.width)));
-	depth_pyramid_extent.height = 1 << static_cast<uint32_t>(std::floor(std::log2(draw_extent.height)));
+	depth_pyramid_extent.width = nearest_pow2(draw_extent.width);
+	depth_pyramid_extent.height = nearest_pow2(draw_extent.height);
 	depth_pyramid_extent.depth = 1;
 
 	depth_pyramid = create_image(depth_pyramid_extent, VK_FORMAT_R32_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT, 0, true);
@@ -2549,6 +2575,9 @@ CullData VulkanEngine::ready_cull_data(RenderScene::MeshPass& pass, glm::mat4& p
 	cull_data.texture_id = texture_cache.get_depth_pyramid_image();
 	cull_data.occlusion = CVAR_OCCLUSION.get();
 	
+	cull_data.resolution = glm::vec2(depth_pyramid.extent.width, depth_pyramid.extent.height);
+	cull_data.lod = std::floor(std::log2(std::max(depth_pyramid.extent.width, depth_pyramid.extent.height))) + 1;
+
 	cull_data.p00 = proj[0][0];
 	cull_data.p11 = proj[1][1];
 	cull_data.near = main_camera.far;

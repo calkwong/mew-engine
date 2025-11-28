@@ -129,8 +129,11 @@ struct EngineStats
 	int draw_count{};
 	float scene_update_time{};
 	float deltatime{};
-	float gpu_time{};
 	unsigned int triangle_count{};
+	float early_cull{};
+	float late_cull{};
+	float early_indirect{};
+	float late_indirect{};
 };
 
 // destruction of textures handled by gltf (not internally); does not support dynamic objs
