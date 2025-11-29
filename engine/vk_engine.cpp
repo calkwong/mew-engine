@@ -47,6 +47,7 @@ VulkanEngine& VulkanEngine::get() { return *loaded_engine; }
 constexpr bool USE_VALIDATION_LAYERS = true;
 
 //#define SHADOW
+//#define SINGLE
 
 constexpr float LIGHT_FAR_PLANE{ 150.0f };
 constexpr uint32_t SHADOW_MAP_SIZE{ 2048 };
@@ -187,6 +188,7 @@ void VulkanEngine::cleanup()
 		}
 		
 		destroy_buffer(render_scene.object_buffer);
+		destroy_buffer(render_scene.mesh_buffer);
 
 		std::vector<RenderScene::MeshPass*> passes = { &render_scene.forward_pass, &render_scene.transparent_pass };
 		for (size_t i = 0; i < NUMBER_OF_CASCADES; i++)
@@ -198,10 +200,10 @@ void VulkanEngine::cleanup()
 		{
 			auto p = *pass;
 			destroy_buffer(p.draw_indirect_buffer);
-			destroy_buffer(p.clear_indirect_buffer);
 			destroy_buffer(p.count_buffer);
 			destroy_buffer(p.vis_buffer);
 			destroy_buffer(p.debug_buffer);
+			destroy_buffer(p.instance_buffer);
 		}
 
 		// (!) move destruction of combined vertex/idnex buffer here, away from loaded gltf
@@ -1782,8 +1784,10 @@ void VulkanEngine::init_renderables()
 	for (const auto& n : loaded_scenes["DamagedHelmet"]->top_nodes)
 	{
 		register_object(n.get(), t[0]);
+#ifndef SINGLE
 		register_object(n.get(), t[1]); 
 		register_object(n.get(), t[2]);
+#endif
 	}
 
 	std::mt19937 mt(42);
@@ -1804,7 +1808,9 @@ void VulkanEngine::init_renderables()
 
 		for (const auto& n : loaded_scenes["DamagedHelmet"]->top_nodes)
 		{
+#ifndef SINGLE
 			register_object(n.get(), transform);
+#endif
 		}
 	}
 }
@@ -1880,7 +1886,7 @@ void VulkanEngine::register_object(Node* node, const glm::mat4& top_matrix)
 			else
 			{
 				obj.primitive_id.handle = static_cast<uint32_t>(render_scene.primitives.size());
-				render_scene.primitives.emplace_back(DrawPrimitive{ s.first_index, s.count });
+				render_scene.primitives.emplace_back(DrawPrimitive{ s.bounds.origin, s.bounds.radius, s.first_index, s.count });
 			}
 
 			obj.material_buffer_address = node->mesh->material_buffer_address;
@@ -2429,6 +2435,19 @@ void VulkanEngine::ready_mesh_draw()
 		render_scene.build_object_buffer();
 	}
 
+	if (render_scene.mesh_buffer.info.size < render_scene.primitives.size() * sizeof(DrawPrimitive))
+	{
+		fmt::println("mesh_buffer");
+		render_scene.mesh_buffer = reallocate_buffer(
+			render_scene.primitives.size() * sizeof(DrawPrimitive),
+			render_scene.mesh_buffer,
+			VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
+			VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT // ssbo usage?
+		);
+
+		render_scene.build_mesh_buffer();
+	}
+
 	std::vector<RenderScene::MeshPass*> passes = { &render_scene.forward_pass, &render_scene.transparent_pass };
 	for (size_t i = 0; i < NUMBER_OF_CASCADES; i++)
 	{
@@ -2448,6 +2467,20 @@ void VulkanEngine::ready_mesh_draw()
 			render_scene.sort_objects(pass);
 			render_scene.build_indirect_batch(pass);
 			render_scene.build_multi_batch(pass);
+		}
+
+		if (pass.instance_buffer.info.size < pass.pass_objects.size() * sizeof(GPUInstance))
+		{
+			fmt::println("instance buffer");
+
+			pass.instance_buffer = reallocate_buffer(
+				pass.pass_objects.size() * sizeof(GPUInstance),
+				pass.instance_buffer,
+				VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
+				VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
+			);
+
+			render_scene.build_instance_buffer(pass);
 		}
 
 		if (pass.vis_buffer.info.size < pass.unbatched_objects.size())
@@ -2484,26 +2517,13 @@ void VulkanEngine::ready_mesh_draw()
 			);
 		}
 
-		if (pass.clear_indirect_buffer.info.size < pass.batches.size() * sizeof(VkDrawIndexedIndirectCommand))
+		if (pass.draw_indirect_buffer.info.size < pass.pass_objects.size() * sizeof(GPUIndirect))
 		{
-			fmt::println("clear_indirect_buffer");
-			pass.clear_indirect_buffer = reallocate_buffer(
-				//pass.batches.size() * sizeof(GPUIndirect), // for draw indirect count instancing
-				pass.pass_objects.size() * sizeof(GPUIndirect),
-				pass.clear_indirect_buffer,
-				VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-				//VK_BUFFER_USAGE_TRANSFER_SRC_BIT
-				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT
-			);
-			render_scene.build_indirect_buffer(pass);
-
 			fmt::println("draw_indirect_buffer");
 			pass.draw_indirect_buffer = reallocate_buffer(
 				pass.pass_objects.size() * sizeof(GPUIndirect),
-				//pass.batches.size() * sizeof(GPUIndirect),
 				pass.draw_indirect_buffer,
 				0,
-				//VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT
 				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT
 			);
 		}
@@ -2551,8 +2571,11 @@ CullData VulkanEngine::ready_cull_data(RenderScene::MeshPass& pass, glm::mat4& p
 	address_info.buffer = render_scene.object_buffer.buffer;
 	cull_data.object_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
 
-	address_info.buffer = pass.clear_indirect_buffer.buffer;
-	cull_data.clear_indirect_address = vkGetBufferDeviceAddress(device, &address_info);
+	address_info.buffer = render_scene.mesh_buffer.buffer;
+	cull_data.mesh_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+
+	address_info.buffer = pass.instance_buffer.buffer;
+	cull_data.instance_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
 
 	address_info.buffer = pass.draw_indirect_buffer.buffer;
 	cull_data.draw_indirect_address = vkGetBufferDeviceAddress(device, &address_info);

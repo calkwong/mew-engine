@@ -74,45 +74,6 @@ void RenderScene::build_multi_batch(MeshPass& pass)
 	}
 }
 
-// PREREQ: pass objects
-void RenderScene::build_indirect_buffer(MeshPass& pass)
-{
-	GPUIndirect* indirect_objects = static_cast<GPUIndirect*>(pass.clear_indirect_buffer.info.pMappedData);
-
-	VkPipeline last_pipeline = VK_NULL_HANDLE;
-	uint32_t pipeline_count = -1;
-	//for (size_t i = 0; i < pass.batches.size(); i++)
-	for (size_t i = 0; i < pass.pass_objects.size(); i++)
-	{
-		GPUIndirect indirect_data{};
-
-		//uint32_t pass_object_id = pass.batches[i].first;
-		//const DrawPrimitive& primitive = primitives[pass.pass_objects[pass_object_id].primitive_id.handle];
-		const DrawPrimitive& primitive = primitives[pass.pass_objects[i].primitive_id.handle];
-		indirect_data.command.indexCount = primitive.count;
-		indirect_data.command.instanceCount = 0;
-		indirect_data.command.firstIndex = primitive.start_index;
-		indirect_data.command.vertexOffset = 0;
-
-		// if using draw indirect count with instancing, just an ID for indexing, not associated with pass object
-		//indirect_data.command.firstInstance = i; 
-		// 
-		// if not supporting instancing, firstInstance = actual passObjectID
-		indirect_data.command.firstInstance = pass.pass_objects[i].renderable_id.handle;
-
-		//VkPipeline current_pipeline = pass.pass_objects[pass_object_id].material->pipeline;
-		VkPipeline current_pipeline = pass.pass_objects[i].material->pipeline;
-
-		if (current_pipeline != last_pipeline)
-		{
-			last_pipeline = current_pipeline;
-			pipeline_count++;
-		}
-		
-		indirect_objects[i] = indirect_data;
-	}
-}
-
 void RenderScene::build_object_buffer()
 {
 	ObjectData* object_data = static_cast<ObjectData*>(object_buffer.info.pMappedData);
@@ -122,10 +83,7 @@ void RenderScene::build_object_buffer()
 		const RenderObject& obj = renderables[i];
 
 		object_data[i].transform = obj.transform;
-		object_data[i].origin = obj.bounds.origin;
-		object_data[i].radius = obj.bounds.radius;
 		object_data[i].material_id = obj.material_id;
-		//object_data[i].extent = obj.bounds.extents;
 	}
 }
 
@@ -167,4 +125,34 @@ void RenderScene::sort_objects(MeshPass& pass)
 		else
 			return a.primitive_id.handle < b.primitive_id.handle; // only truly necessary if doing instanced draw indirect count
 		});
+}
+
+// PREREQ: sorted Pass Objects
+void RenderScene::build_mesh_buffer()
+{
+	DrawPrimitive* mesh_data = static_cast<DrawPrimitive*>(mesh_buffer.info.pMappedData);
+
+	for (size_t i = 0; i < primitives.size(); i++)
+	{
+		auto& mesh = primitives[i];
+
+		mesh_data[i].center = mesh.center;
+		mesh_data[i].radius = mesh.radius;
+		mesh_data[i].start_index = mesh.start_index;
+		mesh_data[i].count = mesh.count;
+	}
+}
+
+// PREREQ: sorted Pass Objects, Object Buffer, Mesh Buffer (or DrawPrimitive)
+void RenderScene::build_instance_buffer(MeshPass& pass)
+{
+	GPUInstance* instance = static_cast<GPUInstance*>(pass.instance_buffer.info.pMappedData);
+
+	for (size_t i = 0; i < pass.pass_objects.size(); i++)
+	{
+		auto& obj = pass.pass_objects[i];
+
+		instance[i].mesh_id = obj.primitive_id.handle;
+		instance[i].object_id = obj.renderable_id.handle;
+	}
 }

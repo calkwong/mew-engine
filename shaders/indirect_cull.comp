@@ -8,11 +8,26 @@ layout (local_size_x = 256) in;
 struct ObjectData
 {
 	mat4 worldMatrix;
-	vec3 origin;
-	float radius;
+	//vec3 origin;
+	//float radius;
 	uint materialID;
 	//vec3 extent;
 	uint padding[3];
+};
+
+struct MeshData
+{
+	vec3 center;
+	float radius;
+	uint first_index;
+	uint index_count;
+	uint padding[2];
+};
+
+struct GPUInstance
+{
+	uint mesh_id;
+	uint object_id;
 };
 
 layout(buffer_reference, std430) readonly buffer ObjectBuffer
@@ -20,15 +35,9 @@ layout(buffer_reference, std430) readonly buffer ObjectBuffer
 	ObjectData objects[];
 };
 
-struct GPUInstance
-{
-	uint object_id;
-	uint batch_id;
-};
-
-layout(buffer_reference, std430) readonly buffer gInstanceBuffer
+layout(buffer_reference, std430) readonly buffer MeshBuffer
 { 
-	GPUInstance instances[];
+	MeshData meshes[];
 };
 
 struct DrawCommand
@@ -59,13 +68,19 @@ layout(buffer_reference, std430) buffer DebugBuffer
 {
 	float value[];
 };
-	
+
+layout(buffer_reference, std430) buffer InstanceBuffer
+{
+	GPUInstance instances[];
+};
+
 layout(push_constant) uniform constants
 {
 	vec4 frustum_planes[6];
 	mat4 view;
 	ObjectBuffer objectBuffer;
-	DrawCommandsBuffer clearBuffer;
+	MeshBuffer meshBuffer;
+	InstanceBuffer instanceBuffer;
 	DrawCommandsBuffer drawBuffer;
 	CountBuffer countBuffer;
 	VisibilityBuffer visBuffer;
@@ -163,15 +178,16 @@ void main()
 		if (!late && !visible_last_frame)
 			return;
 		
-		DrawCommand command = pc.clearBuffer.commands[id];
+		GPUInstance instance = pc.instanceBuffer.instances[id];
+		uint mesh_id = instance.mesh_id;
+		uint object_id = instance.object_id;
 		
-		uint object_id = command.first_instance;
+		MeshData mesh = pc.meshBuffer.meshes[mesh_id];
 		
 		ObjectData obj = pc.objectBuffer.objects[object_id];
 	
-		vec3 center = vec3(pc.view * obj.worldMatrix * vec4(obj.origin, 1.0));
-		
-		float radius = obj.radius;
+		vec3 center = vec3(pc.view * obj.worldMatrix * vec4(mesh.center, 1.0));
+		float radius = mesh.radius;
 		
 		vec3 right = vec3(obj.worldMatrix[0]);
 		vec3 up = vec3(obj.worldMatrix[1]);
@@ -201,11 +217,11 @@ void main()
 		{
 			uint count = atomicAdd(pc.countBuffer.count[0], 1);
 			
-			pc.drawBuffer.commands[count].index_count = command.index_count;
+			pc.drawBuffer.commands[count].index_count = mesh.index_count;
 			pc.drawBuffer.commands[count].instance_count = 1;
-			pc.drawBuffer.commands[count].first_index = command.first_index;
-			pc.drawBuffer.commands[count].vertex_offset = command.vertex_offset;
-			pc.drawBuffer.commands[count].first_instance = command.first_instance;
+			pc.drawBuffer.commands[count].first_index = mesh.first_index;
+			pc.drawBuffer.commands[count].vertex_offset = 0;
+			pc.drawBuffer.commands[count].first_instance = object_id;
 		}
 		
 		if (late)

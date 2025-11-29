@@ -13,8 +13,11 @@ struct Material;
 struct ShaderPass;
 
 struct DrawPrimitive {
+	glm::vec3 center{};
+	float radius{};
 	uint32_t start_index{};
 	uint32_t count{};
+	uint32_t padding[2];
 };
 
 template<>
@@ -58,22 +61,14 @@ struct MultiBatch
 
 struct GPUInstance
 {
-	uint32_t object_id{};
-	uint32_t batch_id{};
-};
-
-struct CompactInstance
-{
+	uint32_t mesh_id{};
 	uint32_t object_id{};
 };
 
 struct ObjectData
 {
 	glm::mat4 transform{};
-	glm::vec3 origin{};
-	float radius{};
 	uint32_t material_id{};
-	//glm::vec3 extent{};
 	uint32_t padding[3]{}; 
 };
 
@@ -82,7 +77,8 @@ struct CullData
 	std::array<glm::vec4, 6> frustum_planes{};
 	glm::mat4 view{};
 	VkDeviceAddress object_buffer_address{};
-	VkDeviceAddress clear_indirect_address{};
+	VkDeviceAddress mesh_buffer_address{};
+	VkDeviceAddress instance_buffer_address{};
 	VkDeviceAddress draw_indirect_address{};
 	VkDeviceAddress count_buffer_address{};
 	VkDeviceAddress vis_buffer_address{};
@@ -128,14 +124,14 @@ struct RenderScene // (!) forward only for now
 
 	struct MeshPass
 	{
-		std::vector<MultiBatch> multibatches{};
-		std::vector<IndirectBatch> batches{};
+		std::vector<MultiBatch> multibatches{}; // unused during mesh shader test 
+		std::vector<IndirectBatch> batches{}; // unused during mesh shader test 
 		std::vector<uint32_t> unbatched_objects{}; // handles for renderables
 		std::vector<PassObject> pass_objects{};
 
 		AllocatedBuffer draw_indirect_buffer{};
-		AllocatedBuffer clear_indirect_buffer{};
 		AllocatedBuffer count_buffer{};
+		AllocatedBuffer instance_buffer{};
 		AllocatedBuffer vis_buffer{};
 		AllocatedBuffer debug_buffer{};
 
@@ -148,17 +144,19 @@ struct RenderScene // (!) forward only for now
 
 	GPUMeshBuffers combined_mesh_buffer{};
 	AllocatedBuffer object_buffer{}; 
+	AllocatedBuffer mesh_buffer{};
 
 	std::array<MeshPass, 4> shadow_pass{};
 	MeshPass forward_pass{};
 	MeshPass transparent_pass{};
 
 	void init();
+	void build_mesh_buffer();
+	void build_object_buffer();
 	void build_pass_objects(MeshPass& pass);
 	void sort_objects(MeshPass& pass); // sorts pass objects
-	void build_object_buffer();
 	void build_indirect_batch(MeshPass& pass);
 	void build_multi_batch(MeshPass& pass);
-	void build_indirect_buffer(MeshPass& pass);
+	void build_instance_buffer(MeshPass& pass);
 };
 

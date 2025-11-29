@@ -45,8 +45,8 @@ layout(buffer_reference, std430) readonly buffer MaterialBuffer
 struct ObjectData
 {
 	mat4 worldMatrix;
-	vec3 origin;
-	float radius;
+	//vec3 origin;
+	//float radius;
 	uint materialID;
 	//vec3 extent;
 	uint padding[3];
@@ -83,11 +83,11 @@ void main()
 	outNormal = mat3(transpose(inverse(o.worldMatrix))) * v.normal;
 	
 	// debug sphere
-	if (pc.sphere)
-	{
-		vec3 newPos = normalize(outNormal) * o.radius + o.origin;
-		position = o.worldMatrix * vec4(newPos, 1.0);
-	}
+	//if (pc.sphere)
+	//{
+	//	vec3 newPos = normalize(outNormal) * o.radius + o.origin;
+	//	position = o.worldMatrix * vec4(newPos, 1.0);
+	//}
 	
 	outViewPos = vec3(sceneData.view * position);
 	outTangent = vec4(mat3(transpose(inverse(o.worldMatrix))) * v.tangent.xyz, v.tangent.w);
