@@ -808,8 +808,8 @@ void VulkanEngine::run()
 			ImGui::Text("late  cull %f ms", stats.late_cull);
 			ImGui::Text("early indirect %f ms", stats.early_indirect);
 			ImGui::Text("late  indirect %f ms", stats.late_indirect);
-			ImGui::Text("triangles %.2fM", static_cast<double>(stats.triangle_count) * 1e-6);
-			//ImGui::Text("triangles %.2u", stats.triangle_count);
+			//ImGui::Text("triangles %.2fM", static_cast<double>(stats.triangle_count) * 1e-6);
+			ImGui::Text("triangles %.2u", stats.triangle_count);
 
 			ImGui::End();
 		}
@@ -1806,11 +1806,6 @@ void VulkanEngine::init_renderables()
 		{
 			register_object(n.get(), transform);
 		}
-	}
-
-	for (const auto& n : loaded_scenes["DamagedHelmet"]->top_nodes)
-	{
-		//register_object(n.get(), glm::mat4(1.0f));
 	}
 }
 

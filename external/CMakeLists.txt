@@ -6,6 +6,7 @@ add_library(vma INTERFACE)
 add_library(stb_image INTERFACE)
 add_library(mikktspace STATIC)
 add_library(basisu STATIC)
+add_library(meshoptimizer STATIC)
 
 add_subdirectory(fastgltf)
 add_subdirectory(fmt EXCLUDE_FROM_ALL)
@@ -51,3 +52,25 @@ target_sources(basisu PRIVATE
 	basisu/zstd/zstd.c
 	basisu/zstd/zstd.h
 	)
+	
+target_include_directories(meshoptimizer PUBLIC meshoptimizer)
+target_sources(meshoptimizer PRIVATE 
+  meshoptimizer/meshoptimizer.h
+  meshoptimizer/allocator.cpp
+  meshoptimizer/clusterizer.cpp
+  meshoptimizer/indexanalyzer.cpp
+  meshoptimizer/indexcodec.cpp
+  meshoptimizer/indexgenerator.cpp
+  meshoptimizer/overdrawoptimizer.cpp
+  meshoptimizer/partition.cpp
+  meshoptimizer/quantization.cpp
+  meshoptimizer/rasterizer.cpp
+  meshoptimizer/simplifier.cpp
+  meshoptimizer/spatialorder.cpp
+  #meshoptimizer/stripifier.cpp
+  meshoptimizer/vcacheoptimizer.cpp
+  meshoptimizer/vertexcodec.cpp
+  #meshoptimizer/vertexfilter.cpp
+  meshoptimizer/vfetchoptimizer.cpp
+  )
+  

@@ -23,6 +23,48 @@
 #include <filesystem>
 #include <variant>
 
+
+void optimize_mesh(std::vector<Vertex>& vertices, std::vector<uint32_t>& indices, GeoSurface& surface)
+{
+	// indexing
+	std::vector<uint32_t> remap(vertices.size());
+	size_t unique_vertices = meshopt_generateVertexRemap(remap.data(), indices.data(), indices.size(), vertices.data(), vertices.size(), sizeof(Vertex));
+
+	meshopt_remapIndexBuffer(indices.data(), indices.data(), indices.size(), remap.data());
+	meshopt_remapVertexBuffer(vertices.data(), vertices.data(), vertices.size(), sizeof(Vertex), remap.data());
+
+	vertices.resize(unique_vertices);
+
+	// vertex cache optimization
+	meshopt_optimizeVertexCache(indices.data(), indices.data(), indices.size(), vertices.size());
+
+	// vertex fetch optmization
+	meshopt_optimizeVertexFetch(vertices.data(), indices.data(), indices.size(), vertices.data(), vertices.size(), sizeof(Vertex));
+
+	glm::vec3 center{};
+	glm::vec3 min_pos = glm::vec3(std::numeric_limits<float>::max());
+	glm::vec3 max_pos = glm::vec3(std::numeric_limits<float>::lowest());
+
+	std::vector<glm::vec3> positions(vertices.size());
+	for (size_t i = 0; i < vertices.size(); i++)
+	{
+		positions[i] = vertices[i].position;
+		center += positions[i];
+	}
+
+	center /= vertices.size();
+	float radius = 0.0;
+
+	for (size_t i = 0; i < positions.size(); i++)
+	{
+		radius = std::max(radius, glm::distance(center, positions[i]));
+	}
+
+	surface.bounds.origin = center;
+	surface.bounds.radius = radius;
+	surface.count = indices.size(); // maybe move this out?
+}
+
 bool read_ktx2_file(const char* filename, std::vector<uint8_t>& ktx_data)
 {
 	// cursor at the end
@@ -585,8 +627,8 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 		material_idx++;
 	}
 
-	std::vector<uint32_t> indices{};
-	std::vector<Vertex> vertices{};
+	std::vector<uint32_t> combined_indices{};
+	std::vector<Vertex> combined_vertices{};
 
 	fmt::println("gltf file has {} meshes", gltf.meshes.size());
 
@@ -603,47 +645,40 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 
 		for (auto&& p : mesh.primitives)
 		{
+			std::vector<Vertex> vertices{};
+			std::vector<uint32_t> indices{};
+
 			GeoSurface new_surface{};
 
-			new_surface.first_index = static_cast<uint32_t>(indices.size());
-			new_surface.count = static_cast<uint32_t>(gltf.accessors[p.indicesAccessor.value()].count);
+			new_surface.first_index = static_cast<uint32_t>(combined_indices.size());
 
-			size_t initial_vtx = vertices.size();
+			size_t initial_vtx = combined_vertices.size();
 
 			// load indexes
 			{
 				fastgltf::Accessor& index_accessor = gltf.accessors[p.indicesAccessor.value()];
-				indices.reserve(indices.size() + index_accessor.count);
+				indices.reserve(index_accessor.count);
+				auto k = index_accessor.count;
 
 				fastgltf::iterateAccessor<std::uint32_t>(gltf, index_accessor,
 					[&](std::uint32_t idx) {
-						indices.push_back(idx + static_cast<uint32_t>(initial_vtx));
+						indices.push_back(idx);// +static_cast<uint32_t>(initial_vtx));
 					});
 			}
-
-			glm::vec3 min_pos = glm::vec3(std::numeric_limits<float>::max());
-			glm::vec3 max_pos = glm::vec3(std::numeric_limits<float>::lowest());
 
 			// load vertex positions
 			{
 				fastgltf::Accessor& pos_accessor = gltf.accessors[p.findAttribute("POSITION")->second];
-				vertices.resize(vertices.size() + pos_accessor.count);
+				vertices.resize(pos_accessor.count);
 
 				fastgltf::iterateAccessorWithIndex<glm::vec3>(gltf, pos_accessor,
 					[&](glm::vec3 v, size_t index) {
 						Vertex new_vtx{};
 						new_vtx.position = v;
-						min_pos = glm::min(min_pos, v);
-						max_pos = glm::max(max_pos, v);
-						vertices[initial_vtx + index] = new_vtx;
+						vertices[index] = new_vtx;
 					});
 			}
 
-			new_surface.bounds.origin = (max_pos + min_pos) / 2.0f;
-			auto extents = (max_pos - min_pos) / 2.0f;
-			new_surface.bounds.radius = glm::length(extents);
-			//new_surface.bounds.radius = (max_pos.z - min_pos.z) / 2.0f; // works for spheres only
-			
 			// load vertex normals
 			{
 				auto normals = p.findAttribute("NORMAL");
@@ -651,7 +686,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 				{
 					fastgltf::iterateAccessorWithIndex<glm::vec3>(gltf, gltf.accessors[(*normals).second],
 						[&](glm::vec3 v, size_t index) {
-							vertices[initial_vtx + index].normal = v;
+							vertices[index].normal = v;
 						});
 				}
 			}
@@ -664,7 +699,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 				{
 					fastgltf::iterateAccessorWithIndex<glm::vec4>(gltf, gltf.accessors[(*tangents).second],
 						[&](glm::vec4 v, size_t index) {
-							vertices[initial_vtx + index].tangent = v;
+							vertices[index].tangent = v;
 						});
 				}
 				else
@@ -676,6 +711,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 			// mikk tangent generation
 			if (generate_tangents)
 			{
+				fmt::println("generating tangents manually");
 				MikkMesh mesh{ &vertices, &indices };
 				calculateTangents(mesh);
 			}
@@ -687,11 +723,22 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 				{
 					fastgltf::iterateAccessorWithIndex<glm::vec2>(gltf, gltf.accessors[(*uv).second],
 						[&](glm::vec2 v, size_t index) {
-							vertices[initial_vtx + index].uv_x = v.x;
-							vertices[initial_vtx + index].uv_y = v.y;
+							vertices[index].uv_x = v.x;
+							vertices[index].uv_y = v.y;
 						});
 				}
 			}
+
+			// meshoptimizer step
+			optimize_mesh(vertices, indices, new_surface);
+
+			for (size_t i = 0; i < indices.size(); i++)
+			{
+				indices[i] += initial_vtx;
+			}
+
+			combined_vertices.insert(combined_vertices.end(), vertices.begin(), vertices.end());
+			combined_indices.insert(combined_indices.end(), indices.begin(), indices.end());
 
 			if (p.materialIndex.has_value())
 			{
@@ -742,7 +789,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 		}
 	}
 
-	file.combined_mesh_buffer = engine->upload_mesh(indices, vertices);
+	file.combined_mesh_buffer = engine->upload_mesh(combined_indices, combined_vertices);
 
 	for (size_t i = 0; i < meshes.size(); i++)
 	{

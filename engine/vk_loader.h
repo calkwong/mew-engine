@@ -4,6 +4,7 @@
 #include <vk_pipelines.h>
 
 #include "mikktspace.h"
+#include "meshoptimizer.h"
 #include <vulkan/vulkan.h>
 
 #include <unordered_map>
