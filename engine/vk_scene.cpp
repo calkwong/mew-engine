@@ -1,4 +1,5 @@
 #include <vk_scene.h>
+#include <vk_types.h>
 #include <vk_pipelines.h>
 
 #include <vulkan/vulkan.h>
@@ -138,8 +139,8 @@ void RenderScene::build_mesh_buffer()
 
 		mesh_data[i].center = mesh.center;
 		mesh_data[i].radius = mesh.radius;
-		mesh_data[i].start_index = mesh.start_index;
-		mesh_data[i].count = mesh.count;
+		mesh_data[i].mesh_lods = mesh.mesh_lods;
+		mesh_data[i].lod_count = mesh.lod_count;
 	}
 }
 

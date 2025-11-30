@@ -11,13 +11,16 @@
 
 struct Material;
 struct ShaderPass;
+struct MeshLod;
 
-struct DrawPrimitive {
+struct alignas(16) DrawPrimitive {
 	glm::vec3 center{};
 	float radius{};
-	uint32_t start_index{};
-	uint32_t count{};
-	uint32_t padding[2];
+
+	std::array<MeshLod, 8> mesh_lods{};
+
+	uint32_t lod_count{};
+	uint32_t padding[3];
 };
 
 template<>
@@ -94,7 +97,9 @@ struct CullData
 	float far{};
 
 	glm::vec2 resolution{};
-	float lod{};
+	float texture_lod{};
+	float lod_distance_factor{};
+	uint32_t debug_lod{};
 };
 
 struct PassObject

@@ -15,13 +15,25 @@ struct ObjectData
 	uint padding[3];
 };
 
+struct MeshLod
+{
+	uint first_index;
+	uint count;
+	float error;
+};
+
 struct MeshData
 {
 	vec3 center;
 	float radius;
-	uint first_index;
-	uint index_count;
-	uint padding[2];
+	
+	MeshLod lods[8];
+	
+	uint lodCount;
+	uint padding[3];
+	
+	//uint first_index;
+	//uint index_count;
 };
 
 struct GPUInstance
@@ -96,8 +108,9 @@ layout(push_constant) uniform constants
 	float zfar;
 	
 	vec2 resolution;
-	float lod;
-	
+	float textureLod;
+	float lodDistanceFactor;
+	uint lodEnabled;
 } pc;
 
 layout(set = 0, binding = 0, r32f) uniform image2D allImages[];
@@ -152,7 +165,7 @@ bool occlusionCulled(vec3 center, float radius)
 		float max_dim = max(pixel_size.x, pixel_size.y);
 		
 		float mip = ceil(log2(max_dim));
-		mip = min(mip, pc.lod); // TODO: PC
+		mip = min(mip, pc.textureLod); // TODO: PC
 		
 		float depth = textureLod(sampler2D(allTextures[pc.texture_id], samplers[4]), (aabb.zw + aabb.xy) * 0.5, mip).r;
 		
@@ -213,9 +226,23 @@ void main()
 		{
 			uint count = atomicAdd(pc.countBuffer.count[0], 1);
 			
-			pc.drawBuffer.commands[count].index_count = mesh.index_count;
+			// automatic LOD selection - at distance d, how many world space units does each pixel cover? 
+			// is the absolute error computed (simplifyscale * result_error) less visible than error above? if so, move onto higher LOD
+			float d = max(0.0, length(center) - radius);
+			float e = d * pc.lodDistanceFactor / maxScale;
+			
+			uint index = 0;
+			if (pc.lodEnabled == 1)
+			{
+				for (uint i = 0; i < mesh.lodCount; i++)
+				{
+					index = e >= mesh.lods[i].error ? i : index;
+				}
+			}
+			
+			pc.drawBuffer.commands[count].index_count = mesh.lods[index].count;
 			pc.drawBuffer.commands[count].instance_count = 1;
-			pc.drawBuffer.commands[count].first_index = mesh.first_index;
+			pc.drawBuffer.commands[count].first_index = mesh.lods[index].first_index;
 			pc.drawBuffer.commands[count].vertex_offset = 0;
 			pc.drawBuffer.commands[count].first_instance = object_id;
 		}

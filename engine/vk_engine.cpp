@@ -47,7 +47,7 @@ VulkanEngine& VulkanEngine::get() { return *loaded_engine; }
 constexpr bool USE_VALIDATION_LAYERS = true;
 
 //#define SHADOW
-//#define SINGLE
+#define SINGLE
 
 constexpr float LIGHT_FAR_PLANE{ 150.0f };
 constexpr uint32_t SHADOW_MAP_SIZE{ 2048 };
@@ -57,6 +57,7 @@ AutoCVar_Int CVAR_SHADOW_NEAR{ "shadow.near", "pull back light frustum near plan
 AutoCVar_Int CVAR_OCCLUSION{ "occlusion", "occlusion enabled", 1, 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_PYRAMID{ "depth_pyramid.render", "render depth pyramid", 0, 0, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_DEPTH_PYRAMID_LOD{ "depth_pyramid.lod", "", 0, 0, CVarFlags::EditSliderInt };
+AutoCVar_Int CVAR_DEBUG_LOD{ "LOD", "LOD enabled", 0, 0, CVarFlags::EditCheckbox};
 AutoCVar_Int CVAR_SPHERE{ "visualize bounding spheres", "debug sphere", 0, 0, CVarFlags::EditCheckbox };
 
 uint32_t nearest_pow2(uint32_t extent)
@@ -1886,7 +1887,7 @@ void VulkanEngine::register_object(Node* node, const glm::mat4& top_matrix)
 			else
 			{
 				obj.primitive_id.handle = static_cast<uint32_t>(render_scene.primitives.size());
-				render_scene.primitives.emplace_back(DrawPrimitive{ s.bounds.origin, s.bounds.radius, s.first_index, s.count });
+				render_scene.primitives.emplace_back(DrawPrimitive{ s.bounds.origin, s.bounds.radius, s.mesh_lods, s.lod_count });
 			}
 
 			obj.material_buffer_address = node->mesh->material_buffer_address;
@@ -2602,7 +2603,9 @@ CullData VulkanEngine::ready_cull_data(RenderScene::MeshPass& pass, glm::mat4& p
 	cull_data.far = main_camera.near;
 
 	cull_data.resolution = glm::vec2(depth_pyramid.extent.width, depth_pyramid.extent.height);
-	cull_data.lod = std::floor(std::log2(std::max(depth_pyramid.extent.width, depth_pyramid.extent.height))) + 1;
+	cull_data.texture_lod = std::floor(std::log2(std::max(depth_pyramid.extent.width, depth_pyramid.extent.height))) + 1;
+	cull_data.lod_distance_factor = 2.0 / (cull_data.p11 * static_cast<float>(draw_extent.height));
+	cull_data.debug_lod = CVAR_DEBUG_LOD.get();
 
 	return cull_data;
 }

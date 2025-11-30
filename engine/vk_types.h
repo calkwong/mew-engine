@@ -66,6 +66,13 @@ struct Bounds
     float radius{};
 };
 
+struct MeshLod
+{
+    uint32_t first_index{};
+    uint32_t count{};
+    float error{};
+};
+
 struct MaterialData
 {
     glm::vec4 base_color_factor{ glm::vec4(1.0f) };

@@ -15,8 +15,11 @@
 
 struct GeoSurface // rename this
 {
-	uint32_t first_index{};
-	uint32_t count{};
+	//uint32_t first_index{};
+	//uint32_t count{};
+
+	std::array<MeshLod, 8> mesh_lods{};
+	uint32_t lod_count{};
 
 	uint32_t material{}; // master material handle
 	uint32_t material_id{}; // for bindless material buffer

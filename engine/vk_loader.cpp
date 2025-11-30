@@ -24,7 +24,7 @@
 #include <variant>
 
 
-void optimize_mesh(std::vector<Vertex>& vertices, std::vector<uint32_t>& indices, GeoSurface& surface)
+void optimize_mesh(std::vector<Vertex>& vertices, std::vector<uint32_t>& indices, GeoSurface& surface, std::vector<uint32_t>& combined_indices, uint32_t initial_vtx)
 {
 	// indexing
 	std::vector<uint32_t> remap(vertices.size());
@@ -34,35 +34,93 @@ void optimize_mesh(std::vector<Vertex>& vertices, std::vector<uint32_t>& indices
 	meshopt_remapVertexBuffer(vertices.data(), vertices.data(), vertices.size(), sizeof(Vertex), remap.data());
 
 	vertices.resize(unique_vertices);
+	size_t vertex_count = vertices.size();
 
 	// vertex cache optimization
-	meshopt_optimizeVertexCache(indices.data(), indices.data(), indices.size(), vertices.size());
+	meshopt_optimizeVertexCache(indices.data(), indices.data(), indices.size(), vertex_count);
 
 	// vertex fetch optmization
-	meshopt_optimizeVertexFetch(vertices.data(), indices.data(), indices.size(), vertices.data(), vertices.size(), sizeof(Vertex));
+	meshopt_optimizeVertexFetch(vertices.data(), indices.data(), indices.size(), vertices.data(), vertex_count, sizeof(Vertex));
 
 	glm::vec3 center{};
-	glm::vec3 min_pos = glm::vec3(std::numeric_limits<float>::max());
-	glm::vec3 max_pos = glm::vec3(std::numeric_limits<float>::lowest());
 
-	std::vector<glm::vec3> positions(vertices.size());
-	for (size_t i = 0; i < vertices.size(); i++)
+	std::vector<glm::vec3> positions(vertex_count);
+	for (size_t i = 0; i < vertex_count; i++)
 	{
 		positions[i] = vertices[i].position;
 		center += positions[i];
 	}
 
+	std::vector<glm::vec3> normals(vertex_count);
+	for (size_t i = 0; i < vertex_count; i++)
+	{
+		normals[i] = vertices[i].normal;
+	}
+
 	center /= vertices.size();
 	float radius = 0.0;
 
-	for (size_t i = 0; i < positions.size(); i++)
+	for (size_t i = 0; i < vertex_count; i++)
 	{
 		radius = std::max(radius, glm::distance(center, positions[i]));
 	}
 
 	surface.bounds.origin = center;
 	surface.bounds.radius = radius;
-	surface.count = indices.size(); // maybe move this out?
+
+	float lod_error_scale = meshopt_simplifyScale(&positions[0].x, vertex_count, sizeof(glm::vec3));
+	float target_error = 1e-1f;
+	float lod_error = 0.f;
+	
+	const float attr_weights[3] = { 1.0f, 1.0f, 1.0f }; // for normals
+	float next_error{};
+
+	const uint32_t MAX_LOD = 8;
+	while (surface.lod_count < MAX_LOD)
+	{
+		// workaround for not requiring vertex offset, not efficient but loading time/offline cost
+		for (size_t i = 0; i < indices.size(); i++)
+		{
+			indices[i] += initial_vtx;
+		}
+
+		uint32_t first_index = combined_indices.size();
+		uint32_t count = indices.size();
+		combined_indices.insert(combined_indices.end(), indices.begin(), indices.end());
+
+		MeshLod lod_info{};
+		lod_info.first_index = first_index;
+		lod_info.count = count;
+		lod_info.error = lod_error * lod_error_scale;
+
+		surface.mesh_lods[surface.lod_count++] = lod_info;
+
+		float threshold = 0.6f;
+		size_t target_index_count = static_cast<size_t>(indices.size() * threshold) / 3 * 3;
+
+		if (surface.lod_count < MAX_LOD)
+		{
+			size_t new_size = meshopt_simplifyWithAttributes(indices.data(), indices.data(), indices.size(), &positions[0].x, vertex_count, sizeof(glm::vec3),
+				&normals[0].x, sizeof(glm::vec3), &attr_weights[0], 3, nullptr, target_index_count, target_error, 0, &next_error);
+
+			assert(new_size <= indices.size());
+
+			if (new_size == 0)
+				break;
+
+			// too similar to last LOD
+			if (new_size >= static_cast<size_t>(indices.size() * 0.85))
+				break;
+
+			indices.resize(new_size);
+
+			lod_error = std::max(lod_error, next_error);
+
+			meshopt_optimizeVertexCache(indices.data(), indices.data(), new_size, vertex_count);
+		}
+
+	}
+
 }
 
 bool read_ktx2_file(const char* filename, std::vector<uint8_t>& ktx_data)
@@ -650,8 +708,6 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 
 			GeoSurface new_surface{};
 
-			new_surface.first_index = static_cast<uint32_t>(combined_indices.size());
-
 			size_t initial_vtx = combined_vertices.size();
 
 			// load indexes
@@ -730,15 +786,15 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 			}
 
 			// meshoptimizer step
-			optimize_mesh(vertices, indices, new_surface);
+			optimize_mesh(vertices, indices, new_surface, combined_indices, initial_vtx);
 
-			for (size_t i = 0; i < indices.size(); i++)
-			{
-				indices[i] += initial_vtx;
-			}
+			//for (size_t i = 0; i < indices.size(); i++)
+			//{
+			//	indices[i] += initial_vtx;
+			//}
 
 			combined_vertices.insert(combined_vertices.end(), vertices.begin(), vertices.end());
-			combined_indices.insert(combined_indices.end(), indices.begin(), indices.end());
+			//combined_indices.insert(combined_indices.end(), indices.begin(), indices.end());
 
 			if (p.materialIndex.has_value())
 			{
