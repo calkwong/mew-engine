@@ -76,8 +76,8 @@ layout(buffer_reference, std430) buffer InstanceBuffer
 
 layout(push_constant) uniform constants
 {
-	vec4 frustum_planes[6];
 	mat4 view;
+	vec4 frustum_planes;
 	ObjectBuffer objectBuffer;
 	MeshBuffer meshBuffer;
 	InstanceBuffer instanceBuffer;
@@ -90,12 +90,14 @@ layout(push_constant) uniform constants
 	uint texture_id;
 	uint occlusionEnabled;
 	
-	vec2 resolution;
-	float lod;
-	
 	float p00;
 	float p11;
 	float znear;
+	float zfar;
+	
+	vec2 resolution;
+	float lod;
+	
 } pc;
 
 layout(set = 0, binding = 0, r32f) uniform image2D allImages[];
@@ -131,17 +133,11 @@ bool frustumCulled(vec3 center, float radius)
 {
 	bool visible = true;
 	
-	for (uint i = 0; i < 6; i++)
-	{
-		vec3 normal = pc.frustum_planes[i].xyz;
-		float distance = pc.frustum_planes[i].w;
-			
-		// distance of box center from plane
-		float s = dot(center, normal) + distance;
+	// symmetrical sphere-plane distance test
+	visible = visible && (center.z * pc.frustum_planes.y - abs(center.x) * pc.frustum_planes.x) >= -radius;
+	visible = visible && (center.z * pc.frustum_planes.w - abs(center.y) * pc.frustum_planes.z) >= -radius;
+	visible = visible && (center.z - radius <= -pc.znear) && (center.z + radius >= -pc.zfar);	
 		
-		visible = visible && (s >= -radius);
-	}
-	
 	return !visible;
 }
 

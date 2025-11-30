@@ -74,8 +74,8 @@ struct ObjectData
 
 struct CullData
 {
-	std::array<glm::vec4, 6> frustum_planes{};
 	glm::mat4 view{};
+	glm::vec4 frustum_planes{};
 	VkDeviceAddress object_buffer_address{};
 	VkDeviceAddress mesh_buffer_address{};
 	VkDeviceAddress instance_buffer_address{};
@@ -88,13 +88,13 @@ struct CullData
 	uint32_t texture_id{};
 	uint32_t occlusion{};
 
-	glm::vec2 resolution{};
-	float lod{};
-
 	float p00{};
 	float p11{};
 	float near{};
+	float far{};
 
+	glm::vec2 resolution{};
+	float lod{};
 };
 
 struct PassObject

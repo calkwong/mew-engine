@@ -2541,30 +2541,33 @@ CullData VulkanEngine::ready_cull_data(RenderScene::MeshPass& pass, glm::mat4& p
 	auto m2 = projT[2];
 	auto m3 = projT[3];
 
-	cull_data.frustum_planes = {
-		m3, // near
-		m2, // far
-		m3 + m1,
-		m3 - m1,
-		m3 + m0,
-		m3 - m0
+	//	m3, // near, if orthographic, m3 - m2
+	//	m2, // far, if orthographic, m3 + m2
+	//	m3 + m1, // bottom
+	//	m3 - m1,
+	//	m3 + m0, // left
+	//	m3 - m0
+
+	auto left_plane = m3 + m0;
+	auto bottom_plane = m3 + m1;
+		
+	auto normalize_plane = [&](glm::vec4& plane) {
+		float length = glm::length(glm::vec3(plane));
+		plane /= length;
 	};
 
-	if (orthographic)
-	{
-		cull_data.frustum_planes[0] = m3 - m2; // near
-		cull_data.frustum_planes[1] = m3 + m2; // far
-	}
+	normalize_plane(left_plane);
+	normalize_plane(bottom_plane);
 
-	for (size_t i = 0; i < cull_data.frustum_planes.size(); i++)
-	{
-		glm::vec4& plane = cull_data.frustum_planes[i];
-		float length = glm::length(glm::vec3(plane));
-
-		plane /= length;
-	}
+	// (!) TODO: fix
+	//if (orthographic)
+	//{
+	//	cull_data.frustum_planes[0] = m3 - m2; // near
+	//	cull_data.frustum_planes[1] = m3 + m2; // far
+	//}
 
 	cull_data.view = scene_data.view;
+	cull_data.frustum_planes = glm::vec4(left_plane.x, left_plane.z, bottom_plane.y, bottom_plane.z);
 
 	VkBufferDeviceAddressInfo address_info{};
 	address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
@@ -2593,12 +2596,13 @@ CullData VulkanEngine::ready_cull_data(RenderScene::MeshPass& pass, glm::mat4& p
 	cull_data.texture_id = texture_cache.get_depth_pyramid_image();
 	cull_data.occlusion = CVAR_OCCLUSION.get();
 	
-	cull_data.resolution = glm::vec2(depth_pyramid.extent.width, depth_pyramid.extent.height);
-	cull_data.lod = std::floor(std::log2(std::max(depth_pyramid.extent.width, depth_pyramid.extent.height))) + 1;
-
 	cull_data.p00 = proj[0][0];
 	cull_data.p11 = proj[1][1];
 	cull_data.near = main_camera.far;
+	cull_data.far = main_camera.near;
+
+	cull_data.resolution = glm::vec2(depth_pyramid.extent.width, depth_pyramid.extent.height);
+	cull_data.lod = std::floor(std::log2(std::max(depth_pyramid.extent.width, depth_pyramid.extent.height))) + 1;
 
 	return cull_data;
 }
