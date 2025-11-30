@@ -47,7 +47,7 @@ VulkanEngine& VulkanEngine::get() { return *loaded_engine; }
 constexpr bool USE_VALIDATION_LAYERS = true;
 
 //#define SHADOW
-#define SINGLE
+//#define SINGLE
 
 constexpr float LIGHT_FAR_PLANE{ 150.0f };
 constexpr uint32_t SHADOW_MAP_SIZE{ 2048 };
@@ -65,6 +65,8 @@ uint32_t nearest_pow2(uint32_t extent)
 	return 1 << static_cast<uint32_t>(std::floor(std::log2(extent)));
 }
 
+// TODO: refactor in future
+/*
 void sort_transparency(const std::vector<RenderObject>& renderables, const Camera& cam, std::vector<size_t>& visible_indices)
 {
 	std::vector<float> distances{};
@@ -96,6 +98,7 @@ void sort_transparency(const std::vector<RenderObject>& renderables, const Camer
 
 	visible_indices = std::move(sorted);
 }
+*/
 
 void VulkanEngine::init()
 {
@@ -1893,7 +1896,6 @@ void VulkanEngine::register_object(Node* node, const glm::mat4& top_matrix)
 			obj.material_buffer_address = node->mesh->material_buffer_address;
 			obj.material = &material_cache.data[s.material];
 			obj.material_id = s.material_id;
-			obj.bounds = s.bounds;
 			obj.transform = node_matrix;
 
 			uint32_t handle = static_cast<uint32_t>(render_scene.renderables.size());

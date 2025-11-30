@@ -75,15 +75,11 @@ void optimize_mesh(std::vector<Vertex>& vertices, std::vector<uint32_t>& indices
 	const float attr_weights[3] = { 1.0f, 1.0f, 1.0f }; // for normals
 	float next_error{};
 
+	size_t combined_indices_size = combined_indices.size();
+
 	const uint32_t MAX_LOD = 8;
 	while (surface.lod_count < MAX_LOD)
 	{
-		// workaround for not requiring vertex offset, not efficient but loading time/offline cost
-		for (size_t i = 0; i < indices.size(); i++)
-		{
-			indices[i] += initial_vtx;
-		}
-
 		uint32_t first_index = combined_indices.size();
 		uint32_t count = indices.size();
 		combined_indices.insert(combined_indices.end(), indices.begin(), indices.end());
@@ -121,6 +117,11 @@ void optimize_mesh(std::vector<Vertex>& vertices, std::vector<uint32_t>& indices
 
 	}
 
+	// workaround for not requiring vertex offset
+	for (size_t i = combined_indices_size; i < combined_indices.size(); i++)
+	{
+		combined_indices[i] += initial_vtx;
+	}
 }
 
 bool read_ktx2_file(const char* filename, std::vector<uint8_t>& ktx_data)

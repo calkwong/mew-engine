@@ -37,8 +37,6 @@ struct RenderObject
 	Material* material{};
 	glm::mat4 transform{};
 
-	Bounds bounds{};
-
 	VkDeviceAddress material_buffer_address{};
 };
 

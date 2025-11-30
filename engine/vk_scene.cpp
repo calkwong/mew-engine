@@ -22,26 +22,21 @@ void RenderScene::build_indirect_batch(MeshPass& pass)
 {
 	pass.batches.clear();
 
-	//Handle<DrawPrimitive> last_primitive{};
 	ShaderPass* last_material{};
 
 	for (size_t i = 0; i < pass.pass_objects.size(); i++)
 	{
 		PassObject& obj = pass.pass_objects[i];
 
-		//bool same_primitive = obj.primitive_id.handle == last_primitive.handle; 
 		bool same_material = obj.material == last_material;
 
-		//if (same_primitive && same_material)
 		if (same_material)
 			pass.batches.back().count++;
 		else
 		{
-			//last_primitive = obj.primitive_id; 
 			last_material = obj.material;
 
 			IndirectBatch new_batch{};
-			//new_batch.primitive_id = last_primitive;
 			new_batch.material = last_material;
 			new_batch.first = static_cast<uint32_t>(i);
 			new_batch.count = 1;
