@@ -1,46 +1,12 @@
 #version 450
 
+#extension GL_GOOGLE_include_directive : require
 #extension GL_EXT_nonuniform_qualifier : require
 #extension GL_EXT_buffer_reference : require
 
+#include "mesh.glsl"
+
 layout (local_size_x = 256) in;
-
-struct ObjectData
-{
-	mat4 worldMatrix;
-	//vec3 origin;
-	//float radius;
-	uint materialID;
-	//vec3 extent;
-	uint padding[3];
-};
-
-struct MeshLod
-{
-	uint first_index;
-	uint count;
-	float error;
-};
-
-struct MeshData
-{
-	vec3 center;
-	float radius;
-	
-	MeshLod lods[8];
-	
-	uint lodCount;
-	uint padding[3];
-	
-	//uint first_index;
-	//uint index_count;
-};
-
-struct GPUInstance
-{
-	uint mesh_id;
-	uint object_id;
-};
 
 layout(buffer_reference, std430) readonly buffer ObjectBuffer
 { 
@@ -50,15 +16,6 @@ layout(buffer_reference, std430) readonly buffer ObjectBuffer
 layout(buffer_reference, std430) readonly buffer MeshBuffer
 { 
 	MeshData meshes[];
-};
-
-struct DrawCommand
-{
-	uint index_count;
-	uint instance_count;
-	uint first_index;
-	int vertex_offset;
-	uint first_instance;
 };
 
 layout(buffer_reference, std430) buffer DrawCommandsBuffer
@@ -89,7 +46,7 @@ layout(buffer_reference, std430) buffer InstanceBuffer
 layout(push_constant) uniform constants
 {
 	mat4 view;
-	vec4 frustum_planes;
+	vec4 frustumPlanes;
 	ObjectBuffer objectBuffer;
 	MeshBuffer meshBuffer;
 	InstanceBuffer instanceBuffer;
@@ -99,7 +56,7 @@ layout(push_constant) uniform constants
 	DebugBuffer debugBuffer;
 	uint count;
 	uint late;
-	uint texture_id;
+	uint textureId;
 	uint occlusionEnabled;
 	
 	float p00;
@@ -147,8 +104,8 @@ bool frustumCulled(vec3 center, float radius)
 	bool visible = true;
 	
 	// symmetrical sphere-plane distance test
-	visible = visible && (center.z * pc.frustum_planes.y - abs(center.x) * pc.frustum_planes.x) >= -radius;
-	visible = visible && (center.z * pc.frustum_planes.w - abs(center.y) * pc.frustum_planes.z) >= -radius;
+	visible = visible && (center.z * pc.frustumPlanes.y - abs(center.x) * pc.frustumPlanes.x) >= -radius;
+	visible = visible && (center.z * pc.frustumPlanes.w - abs(center.y) * pc.frustumPlanes.z) >= -radius;
 	visible = visible && (center.z - radius <= -pc.znear) && (center.z + radius >= -pc.zfar);	
 		
 	return !visible;
@@ -160,14 +117,14 @@ bool occlusionCulled(vec3 center, float radius)
 	
 	if (projectSphere(vec3(center.x, center.y, -center.z), radius, pc.znear, pc.p00, pc.p11, aabb))
 	{
-		vec2 pixel_size = (aabb.zw - aabb.xy) * pc.resolution; 
+		vec2 pixelSize = (aabb.zw - aabb.xy) * pc.resolution; 
 		
-		float max_dim = max(pixel_size.x, pixel_size.y);
+		float max_dim = max(pixelSize.x, pixelSize.y);
 		
 		float mip = ceil(log2(max_dim));
 		mip = min(mip, pc.textureLod); // TODO: PC
 		
-		float depth = textureLod(sampler2D(allTextures[pc.texture_id], samplers[4]), (aabb.zw + aabb.xy) * 0.5, mip).r;
+		float depth = textureLod(sampler2D(allTextures[pc.textureId], samplers[4]), (aabb.zw + aabb.xy) * 0.5, mip).r;
 		
 		float depthSphere = pc.znear / (-center.z - radius); 
 		
@@ -182,18 +139,18 @@ void main()
 	if (id < pc.count)
 	{
 		bool late = pc.late == 1;
-		bool visible_last_frame = pc.visBuffer.visible[id] == 1;
+		bool visibleLastFrame = pc.visBuffer.visible[id] == 1;
 		
-		if (!late && !visible_last_frame)
+		if (!late && !visibleLastFrame)
 			return;
 		
 		GPUInstance instance = pc.instanceBuffer.instances[id];
-		uint mesh_id = instance.mesh_id;
-		uint object_id = instance.object_id;
+		uint meshId = instance.meshId;
+		uint objectId = instance.objectId;
 		
-		MeshData mesh = pc.meshBuffer.meshes[mesh_id];
+		MeshData mesh = pc.meshBuffer.meshes[meshId];
 		
-		ObjectData obj = pc.objectBuffer.objects[object_id];
+		ObjectData obj = pc.objectBuffer.objects[objectId];
 	
 		vec3 center = vec3(pc.view * obj.worldMatrix * vec4(mesh.center, 1.0));
 		float radius = mesh.radius;
@@ -218,7 +175,7 @@ void main()
 			{
 				if (pc.occlusionEnabled == 1)
 					visible = visible && !occlusionCulled(center, radius);
-				shouldDraw = visible && !visible_last_frame;
+				shouldDraw = visible && !visibleLastFrame;
 			}
 		}
 		
@@ -240,11 +197,11 @@ void main()
 				}
 			}
 			
-			pc.drawBuffer.commands[count].index_count = mesh.lods[index].count;
-			pc.drawBuffer.commands[count].instance_count = 1;
-			pc.drawBuffer.commands[count].first_index = mesh.lods[index].first_index;
-			pc.drawBuffer.commands[count].vertex_offset = 0;
-			pc.drawBuffer.commands[count].first_instance = object_id;
+			pc.drawBuffer.commands[count].indexCount = mesh.lods[index].count;
+			pc.drawBuffer.commands[count].instanceCount = 1;
+			pc.drawBuffer.commands[count].firstIndex = mesh.lods[index].firstIndex;
+			pc.drawBuffer.commands[count].vertexOffset = 0;
+			pc.drawBuffer.commands[count].firstInstance = objectId;
 		}
 		
 		if (late)

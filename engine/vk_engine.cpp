@@ -57,7 +57,7 @@ AutoCVar_Int CVAR_SHADOW_NEAR{ "shadow.near", "pull back light frustum near plan
 AutoCVar_Int CVAR_OCCLUSION{ "occlusion", "occlusion enabled", 1, 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_PYRAMID{ "depth_pyramid.render", "render depth pyramid", 0, 0, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_DEPTH_PYRAMID_LOD{ "depth_pyramid.lod", "", 0, 0, CVarFlags::EditSliderInt };
-AutoCVar_Int CVAR_DEBUG_LOD{ "LOD", "LOD enabled", 0, 0, CVarFlags::EditCheckbox};
+AutoCVar_Int CVAR_DEBUG_LOD{ "LOD", "LOD enabled", 1, 1, CVarFlags::EditCheckbox};
 AutoCVar_Int CVAR_SPHERE{ "visualize bounding spheres", "debug sphere", 0, 0, CVarFlags::EditCheckbox };
 
 uint32_t nearest_pow2(uint32_t extent)
@@ -814,8 +814,8 @@ void VulkanEngine::run()
 			ImGui::Text("late  cull %f ms", stats.late_cull);
 			ImGui::Text("early indirect %f ms", stats.early_indirect);
 			ImGui::Text("late  indirect %f ms", stats.late_indirect);
-			//ImGui::Text("triangles %.2fM", static_cast<double>(stats.triangle_count) * 1e-6);
 			ImGui::Text("triangles %.2u", stats.triangle_count);
+			ImGui::Text("triangles %.2fM", static_cast<double>(stats.triangle_count) * 1e-6);
 
 			ImGui::End();
 		}
@@ -1223,7 +1223,6 @@ void VulkanEngine::init_pipelines()
 	builder.enable_depth(true, VK_COMPARE_OP_GREATER_OR_EQUAL);
 	builder.dynamic_state.pop_back(); // remove depth bias dynamic state
 	builder.rasterization.depthBiasEnable = VK_FALSE;
-	//pc = { VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushConstants) };
 	pc = { VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GPUPushConstants) }; // (!) gpu driven
 	std::unique_ptr<ShaderPass> textured_lit_clip_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
 
@@ -1243,7 +1242,6 @@ void VulkanEngine::init_pipelines()
 	builder.enable_blending_alphablend();
 	builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
 	builder.enable_depth(false, VK_COMPARE_OP_GREATER_OR_EQUAL);
-	//pc = { VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushConstants) }; // (!) uncomment if not gpu driven
 	std::unique_ptr<ShaderPass> blend_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
 
 	//> SKYBOX
@@ -2675,7 +2673,6 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t query)
 	pc.material_buffer_address = 0;
 	pc.object_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
 	pc.vertex_buffer_address = render_scene.combined_mesh_buffer.vertex_buffer_address;
-	pc.sphere = CVAR_SPHERE.get();
 
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GPUPushConstants), &pc);
 

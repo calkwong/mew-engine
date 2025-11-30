@@ -3,7 +3,9 @@
 #extension GL_GOOGLE_include_directive : require
 #extension GL_EXT_buffer_reference : require
 #extension GL_EXT_nonuniform_qualifier : require
+
 #include "scene.glsl"
+#include "mesh.glsl"
 
 layout (location = 0) in vec3 inNormal;
 layout (location = 1) in vec3 inWorldPos;
@@ -17,27 +19,6 @@ layout (location = 0) out vec4 outFragColor;
 const float exposure = 4.0;
 const float gamma = 2.2;
 const float PI = 3.14159265359;
-
-struct Vertex 
-{
-	vec3 position;
-	float uv_x;
-	vec3 normal;
-	float uv_y;
-	vec4 tangent;
-}; 
-
-struct MaterialData
-{
-	vec4 baseColorFactor;
-	float metallicFactor;
-	float roughnessFactor;
-	uint diffuseID;
-	uint metalRoughnessID;
-	uint normalID;
-	uint occlusionID;
-	uint emissiveID;
-};
 
 layout(buffer_reference, std430) readonly buffer VertexBuffer
 { 

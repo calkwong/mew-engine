@@ -19,23 +19,11 @@
 
 constexpr unsigned int FRAME_OVERLAP = 2;
 
-// (!) hardware min size 128 bytes
-struct PushConstants
-{
-	glm::mat4 world_transform{};
-	VkDeviceAddress vertex_buffer_address{};
-	VkDeviceAddress material_buffer_address{};
-	uint32_t material_id{};
-	uint32_t debug_idx{};
-};
-
 struct GPUPushConstants
 {
 	VkDeviceAddress material_buffer_address{};
 	VkDeviceAddress object_buffer_address{};
-	//VkDeviceAddress instance_buffer_address{};
 	VkDeviceAddress vertex_buffer_address{};
-	uint32_t sphere{};
 };
 
 struct IBLPushConstants
