@@ -5,11 +5,21 @@ struct ObjectData
 	uint padding[3];
 };
 
+struct Meshlet
+{
+	uint dataOffset; // index into MeshletIndices
+	uint vertexCount;
+	uint triangleCount;
+	uint padding;
+};
+
 struct MeshLod
 {
 	uint firstIndex;
 	uint count;
 	float error;
+	uint meshletOffset; // index into Meshlets, which has triangle count, vertices count and offset into Meshlet indices buffer
+	uint meshletCount;
 };
 
 struct MeshData
@@ -20,7 +30,8 @@ struct MeshData
 	MeshLod lods[8];
 	
 	uint lodCount;
-	uint padding[3];
+	uint vertexOffset;
+	uint padding[2];
 };
 
 struct GPUInstance
@@ -34,11 +45,18 @@ struct DrawCommand
 	uint indexCount;
 	uint instanceCount;
 	uint firstIndex;
-	int vertexOffset;
+	uint vertexOffset;
 	uint firstInstance;
 };
 
-struct Vertex {
+struct MeshTaskCommand
+{
+	uint meshletOffset;
+	uint objectId;
+};
+
+struct Vertex
+{
 	vec3 position;
 	float uv_x;
 	vec3 normal;

@@ -19,18 +19,23 @@
 
 constexpr unsigned int FRAME_OVERLAP = 2;
 
-struct GPUPushConstants
-{
-	VkDeviceAddress material_buffer_address{};
-	VkDeviceAddress object_buffer_address{};
-	VkDeviceAddress vertex_buffer_address{};
-};
-
 struct IBLPushConstants
 {
 	uint32_t texture_id{};
 	uint32_t image_id{};
 	float roughness{};
+};
+
+struct GPUPushConstants // temporarily shared by vertex and mesh shading path
+{
+	VkDeviceAddress object_buffer_address{};
+	VkDeviceAddress vertex_buffer_address{};
+	VkDeviceAddress mesh_buffer_address{};
+	VkDeviceAddress meshtask_buffer_address{};
+	VkDeviceAddress meshlet_buffer_address{};
+	VkDeviceAddress meshlet_indices_buffer_address{};
+	VkDeviceAddress count_buffer_address{};
+	uint32_t debug_meshlets;
 };
 
 //struct ShadowPushConstants
@@ -318,6 +323,8 @@ public:
 	AllocatedBuffer reallocate_buffer(size_t alloc_size, AllocatedBuffer old_buffer, VmaAllocationCreateFlags flags, VkBufferUsageFlags usage);
 	void destroy_buffer(const AllocatedBuffer& buffer);
 	GPUMeshBuffers upload_mesh(std::span<uint32_t> indices, std::span<Vertex> vertices);
+	AllocatedBuffer upload_buffer(void* data, size_t data_size);
+
 	// view has access to all mip and layers
 	AllocatedImage create_image(VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspect, VmaAllocationCreateFlags flags = 0, bool mipmapped = false); // does not currently handle priority
 	AllocatedImage create_image(void* data, VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspect, VmaAllocationCreateFlags flags = 0, bool mipmapped = false);

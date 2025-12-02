@@ -4,7 +4,6 @@
 #include <vk_pipelines.h>
 
 #include "mikktspace.h"
-#include "meshoptimizer.h"
 #include <vulkan/vulkan.h>
 
 #include <unordered_map>
@@ -20,6 +19,7 @@ struct GeoSurface // rename this
 
 	std::array<MeshLod, 8> mesh_lods{};
 	uint32_t lod_count{};
+	uint32_t vertex_offset{};
 
 	uint32_t material{}; // master material handle
 	uint32_t material_id{}; // for bindless material buffer
@@ -76,6 +76,9 @@ struct LoadedGLTF
 	GPUMeshBuffers combined_mesh_buffer{};
 	AllocatedBuffer material_buffer{}; // (!) possible refactor
 	VkDeviceAddress material_buffer_address{};
+
+	AllocatedBuffer meshlet_indices{};
+	AllocatedBuffer meshlets{};
 
 	VulkanEngine* creator{};
 

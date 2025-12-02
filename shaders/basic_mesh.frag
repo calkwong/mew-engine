@@ -20,20 +20,17 @@ const float exposure = 4.0;
 const float gamma = 2.2;
 const float PI = 3.14159265359;
 
-layout(buffer_reference, std430) readonly buffer VertexBuffer
-{ 
-	Vertex vertices[];
-};
-
-layout(buffer_reference, std430) readonly buffer MaterialBuffer
-{ 
-	MaterialData materials[];
-};
-
 layout( push_constant ) uniform constants
 {
-	MaterialBuffer materialBuffer;
 	//ObjectBuffer objectBuffer;
+	//VertexBuffer vertexBuffer;
+	//MeshBuffer meshBuffer;
+	//MeshTaskBuffer meshTaskBuffer;
+	//MeshletBuffer meshletBuffer;
+	//MeshletIndicesBuffer meshletIndicesBuffer;
+	//CountBuffer countBuffer;
+	uint padding[14];
+	uint debugMeshlets;
 } pc;
 
 layout(set = 1, binding = 0) uniform texture2D allTextures[];
@@ -45,4 +42,8 @@ void main()
 	vec3 N = normalize(inNormal);
 	outFragColor = vec4(N, 1);
 	outFragColor.xyz = outFragColor.xyz * 0.5 + 0.5;
+	
+	if (pc.debugMeshlets == 1)
+		outFragColor = vec4(N, 1);
+	
 }

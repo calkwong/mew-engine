@@ -136,6 +136,7 @@ void RenderScene::build_mesh_buffer()
 		mesh_data[i].radius = mesh.radius;
 		mesh_data[i].mesh_lods = mesh.mesh_lods;
 		mesh_data[i].lod_count = mesh.lod_count;
+		mesh_data[i].vertex_offset = mesh.vertex_offset;
 	}
 }
 

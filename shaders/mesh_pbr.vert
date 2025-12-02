@@ -35,9 +35,15 @@ layout(buffer_reference, std430) readonly buffer InstanceBuffer
 
 layout( push_constant ) uniform constants
 {
-	MaterialBuffer materialBuffer;
 	ObjectBuffer objectBuffer;
 	VertexBuffer vertexBuffer;
+	//MeshBuffer meshBuffer;
+	//MeshTaskBuffer meshTaskBuffer;
+	//MeshletBuffer meshletBuffer;
+	//MeshletIndicesBuffer meshletIndicesBuffer;
+	//CountBuffer countBuffer;
+	uint padding[10]; 
+	uint debugMeshlets;
 } pc;
 
 void main() 

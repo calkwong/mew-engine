@@ -23,19 +23,23 @@ layout(buffer_reference, std430) buffer DrawCommandsBuffer
 	DrawCommand commands[];
 };
 
+
 layout(buffer_reference, std430) buffer CountBuffer
 {
-	uint count[];
+	uint count;
+	uint workgroupX;
+	uint workgroupY;
+	uint workgroupZ;
+};
+
+layout(buffer_reference, std430) buffer MeshTaskBuffer
+{ 
+	MeshTaskCommand commands[];
 };
 	
 layout(buffer_reference, std430) buffer VisibilityBuffer
 {
 	uint visible[];
-};
-
-layout(buffer_reference, std430) buffer DebugBuffer
-{
-	float value[];
 };
 
 layout(buffer_reference, std430) buffer InstanceBuffer
@@ -47,13 +51,15 @@ layout(push_constant) uniform constants
 {
 	mat4 view;
 	vec4 frustumPlanes;
+	
 	ObjectBuffer objectBuffer;
 	MeshBuffer meshBuffer;
 	InstanceBuffer instanceBuffer;
 	DrawCommandsBuffer drawBuffer;
 	CountBuffer countBuffer;
 	VisibilityBuffer visBuffer;
-	DebugBuffer debugBuffer;
+	MeshTaskBuffer meshTaskBuffer;
+	
 	uint count;
 	uint late;
 	uint textureId;
@@ -68,6 +74,7 @@ layout(push_constant) uniform constants
 	float textureLod;
 	float lodDistanceFactor;
 	uint lodEnabled;
+	uint taskSubmit;
 } pc;
 
 layout(set = 0, binding = 0, r32f) uniform image2D allImages[];
@@ -181,8 +188,6 @@ void main()
 		
 		if (shouldDraw)
 		{
-			uint count = atomicAdd(pc.countBuffer.count[0], 1);
-			
 			// automatic LOD selection - at distance d, how many world space units does each pixel cover? 
 			// is the absolute error computed (simplifyscale * result_error) less visible than error above? if so, move onto higher LOD
 			float d = max(0.0, length(center) - radius);
@@ -197,11 +202,31 @@ void main()
 				}
 			}
 			
-			pc.drawBuffer.commands[count].indexCount = mesh.lods[index].count;
-			pc.drawBuffer.commands[count].instanceCount = 1;
-			pc.drawBuffer.commands[count].firstIndex = mesh.lods[index].firstIndex;
-			pc.drawBuffer.commands[count].vertexOffset = 0;
-			pc.drawBuffer.commands[count].firstInstance = objectId;
+			if (pc.taskSubmit == 1)
+			{
+				uint meshletCount = mesh.lods[index].meshletCount;
+				uint meshletOffset = mesh.lods[index].meshletOffset;
+				uint count = atomicAdd(pc.countBuffer.count, meshletCount);
+				
+				for (uint i = 0; i < meshletCount; i++)
+				{
+					pc.meshTaskBuffer.commands[count + i].meshletOffset = meshletOffset + i;
+					pc.meshTaskBuffer.commands[count + i].objectId = objectId;
+				}
+				
+				pc.countBuffer.workgroupX = 1;
+				pc.countBuffer.workgroupY = 1;
+				pc.countBuffer.workgroupZ = 1;
+			}
+			else
+			{
+				uint count = atomicAdd(pc.countBuffer.count, 1);
+				pc.drawBuffer.commands[count].indexCount = mesh.lods[index].count;
+				pc.drawBuffer.commands[count].instanceCount = 1;
+				pc.drawBuffer.commands[count].firstIndex = mesh.lods[index].firstIndex;
+				pc.drawBuffer.commands[count].vertexOffset = mesh.vertexOffset;
+				pc.drawBuffer.commands[count].firstInstance = objectId;
+			}
 		}
 		
 		if (late)

@@ -1,0 +1,29 @@
+#version 450
+
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_nonuniform_qualifier : require
+#extension GL_EXT_buffer_reference : require
+
+#include "mesh.glsl"
+
+layout (local_size_x = 1) in;
+
+layout(buffer_reference, std430) buffer CountBuffer
+{
+	uint count;
+	uint workgroupX;
+	uint workgroupY;
+	uint workgroupZ;
+};
+
+layout( push_constant ) uniform constants
+{
+	CountBuffer countBuffer;
+} pc;
+
+void main()
+{
+	uint count = pc.countBuffer.count;
+	
+	pc.countBuffer.workgroupX = count;
+}

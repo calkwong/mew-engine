@@ -71,6 +71,15 @@ struct MeshLod
     uint32_t first_index{};
     uint32_t count{};
     float error{};
+    uint32_t meshlet_offset{};
+    uint32_t meshlet_count{};
+};
+
+struct alignas(16) Meshlet
+{
+    uint32_t data_offset{}; // aka index first count
+    uint32_t vertex_count{};
+    uint32_t triangle_count{};
 };
 
 struct MaterialData

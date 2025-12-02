@@ -144,6 +144,19 @@ void PipelineBuilder::set_shaders(VkShaderModule vert_shader)
     );
 }
 
+void PipelineBuilder::set_mesh_shaders(VkShaderModule mesh_shader, VkShaderModule frag_shader)
+{
+    shader_stages.clear();
+
+    shader_stages.push_back(
+        vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_MESH_BIT_EXT, mesh_shader)
+    );
+
+    shader_stages.push_back(
+        vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, frag_shader)
+    );
+}
+
 void PipelineBuilder::set_input_topology(VkPrimitiveTopology topology)
 {
     input_assembly.topology = topology;
@@ -292,7 +305,7 @@ std::unique_ptr<ShaderPass> vkutil::build_shader(VkDevice device, ComputePipelin
     pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     pipeline_layout_info.setLayoutCount = static_cast<uint32_t>(layouts.size());
     pipeline_layout_info.pSetLayouts = layouts.data();
-    pipeline_layout_info.pushConstantRangeCount = 1;
+    pipeline_layout_info.pushConstantRangeCount = pc != nullptr ? 1 : 0;
     pipeline_layout_info.pPushConstantRanges = pc;
 
     vkCreatePipelineLayout(device, &pipeline_layout_info, nullptr, &shader->layout);

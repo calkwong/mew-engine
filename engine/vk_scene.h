@@ -20,7 +20,8 @@ struct alignas(16) DrawPrimitive {
 	std::array<MeshLod, 8> mesh_lods{};
 
 	uint32_t lod_count{};
-	uint32_t padding[3];
+	uint32_t vertex_offset{};
+	uint32_t padding[2];
 };
 
 template<>
@@ -83,11 +84,11 @@ struct CullData
 	VkDeviceAddress draw_indirect_address{};
 	VkDeviceAddress count_buffer_address{};
 	VkDeviceAddress vis_buffer_address{};
-	VkDeviceAddress debug_buffer_address{};
+	VkDeviceAddress meshtask_buffer_address{};
 	uint32_t count{};
 	uint32_t late{};
 	uint32_t texture_id{};
-	uint32_t occlusion{};
+	uint32_t occlusion_enabled{};
 
 	float p00{};
 	float p11{};
@@ -97,7 +98,8 @@ struct CullData
 	glm::vec2 resolution{};
 	float texture_lod{};
 	float lod_distance_factor{};
-	uint32_t debug_lod{};
+	uint32_t lod_enabled{};
+	uint32_t task_submit{};
 };
 
 struct PassObject
@@ -108,10 +110,10 @@ struct PassObject
 	// (!) to do hash
 };
 
-struct GPUIndirect
+struct MeshTaskCommand
 {
-	VkDrawIndexedIndirectCommand command{};
-	//uint32_t object_id{};
+	uint32_t meshlet_offset{};
+	uint32_t object_id{};
 };
 
 struct MeshAsset;
@@ -133,10 +135,10 @@ struct RenderScene // (!) forward only for now
 		std::vector<PassObject> pass_objects{};
 
 		AllocatedBuffer draw_indirect_buffer{};
+		AllocatedBuffer meshtask_indirect_buffer{};
 		AllocatedBuffer count_buffer{};
 		AllocatedBuffer instance_buffer{};
 		AllocatedBuffer vis_buffer{};
-		AllocatedBuffer debug_buffer{};
 
 		MeshPassType type{};
 	};
@@ -148,6 +150,8 @@ struct RenderScene // (!) forward only for now
 	GPUMeshBuffers combined_mesh_buffer{};
 	AllocatedBuffer object_buffer{}; 
 	AllocatedBuffer mesh_buffer{};
+	AllocatedBuffer meshlet_buffer{};
+	AllocatedBuffer meshlet_indices{};
 
 	std::array<MeshPass, 4> shadow_pass{};
 	MeshPass forward_pass{};
