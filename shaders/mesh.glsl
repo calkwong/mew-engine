@@ -7,6 +7,8 @@ struct ObjectData
 
 struct Meshlet
 {
+	vec3 center;
+	float radius;
 	uint dataOffset; // index into MeshletIndices
 	uint vertexCount;
 	uint triangleCount;

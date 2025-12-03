@@ -173,17 +173,13 @@ void main()
 		
 		bool visible = !frustumCulled(center, radius);
 		
-		bool shouldDraw = false;
-		if (!late)
-			shouldDraw = visible;
-		else
+		bool shouldDraw = visible;
+		
+		if (late && visible)
 		{
-			if (visible)
-			{
-				if (pc.occlusionEnabled == 1)
-					visible = visible && !occlusionCulled(center, radius);
-				shouldDraw = visible && !visibleLastFrame;
-			}
+			if (pc.occlusionEnabled == 1)
+				visible = visible && !occlusionCulled(center, radius);
+			shouldDraw = visible && !visibleLastFrame;
 		}
 		
 		if (shouldDraw)

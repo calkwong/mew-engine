@@ -25,7 +25,7 @@
 #include <variant>
 
 // meshlet_indices stores meshlet vertices & triangles, meshlet stores offset into meshlet_indices, and triangle/vertices count
-void optimize_mesh(std::vector<Vertex>& vertices, std::vector<uint32_t>& indices, std::vector<uint32_t>& meshlet_indices, std::vector<Meshlet>& meshlets, GeoSurface& surface, std::vector<uint32_t>& combined_indices)
+void optimize_mesh(std::vector<Vertex>& vertices, std::vector<uint32_t>& indices, std::vector<uint32_t>& meshlet_indices, std::vector<Meshlet>& meshlets, GeoSurface& surface, std::vector<Vertex>& combined_vertices, std::vector<uint32_t>& combined_indices)
 {
 	// indexing
 	std::vector<uint32_t> remap(vertices.size());
@@ -77,13 +77,11 @@ void optimize_mesh(std::vector<Vertex>& vertices, std::vector<uint32_t>& indices
 	float next_error{};
 
 	size_t combined_indices_size = combined_indices.size();
-
 	// meshlets
 	const size_t max_vertices = 64;
 	const size_t max_triangles = 124;
 	const float cone_weight = 0.f;
 	float simplify_threshold = 0.6f;
-
 	const uint32_t MAX_LOD = 8;
 	while (surface.lod_count < MAX_LOD)
 	{
@@ -119,14 +117,18 @@ void optimize_mesh(std::vector<Vertex>& vertices, std::vector<uint32_t>& indices
 		lod_info.meshlet_offset = meshlet_offset; 
 		lod_info.meshlet_count = meshlet_count;
 		surface.mesh_lods[surface.lod_count++] = lod_info;
-
 		uint32_t meshlet_indices_offset = static_cast<uint32_t>(meshlet_indices.size());
 		for (size_t i = 0; i < meshopt_meshlets.size(); i++)
 		{
 			auto& m = meshopt_meshlets[i];
 			meshopt_optimizeMeshlet(&meshlet_vertices[m.vertex_offset], &meshlet_triangles[m.triangle_offset], m.triangle_count, m.vertex_count);
 
+			meshopt_Bounds bounds = meshopt_computeMeshletBounds(&meshlet_vertices[m.vertex_offset], &meshlet_triangles[m.triangle_offset],
+				m.triangle_count, &positions[0].x, vertex_count, sizeof(glm::vec3));
+
 			Meshlet new_meshlet{};
+			new_meshlet.center = glm::vec3(bounds.center[0], bounds.center[1], bounds.center[2]);
+			new_meshlet.radius = bounds.radius;
 			new_meshlet.data_offset = meshlet_indices_offset;
 			new_meshlet.vertex_count = m.vertex_count;
 			new_meshlet.triangle_count = m.triangle_count;
@@ -137,7 +139,7 @@ void optimize_mesh(std::vector<Vertex>& vertices, std::vector<uint32_t>& indices
 
 			for (size_t i = 0; i < m.vertex_count; i++)
 			{
-				meshlet_indices.push_back(meshlet_vertices[m.vertex_offset + i]);
+				meshlet_indices.push_back(meshlet_vertices[m.vertex_offset + i] + combined_vertices.size());
 			}
 
 			for (size_t i = 0; i < m.triangle_count; i++)
@@ -839,7 +841,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 			new_surface.vertex_offset = combined_vertices.size();
 
 			// meshoptimizer step
-			optimize_mesh(vertices, indices, v_meshlet_indices, v_combined_meshlets, new_surface, combined_indices);
+			optimize_mesh(vertices, indices, v_meshlet_indices, v_combined_meshlets, new_surface, combined_vertices, combined_indices);
 			combined_vertices.insert(combined_vertices.end(), vertices.begin(), vertices.end());
 
 			if (p.materialIndex.has_value())

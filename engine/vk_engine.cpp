@@ -44,7 +44,11 @@ VulkanEngine* loaded_engine{};
 
 VulkanEngine& VulkanEngine::get() { return *loaded_engine; }
 
-constexpr bool USE_VALIDATION_LAYERS = true;
+#ifdef NDEBUG
+	constexpr bool USE_VALIDATION_LAYERS = false;
+#else
+	constexpr bool USE_VALIDATION_LAYERS = true;
+#endif
 
 //#define SHADOW
 //#define SINGLE
@@ -58,8 +62,8 @@ AutoCVar_Int CVAR_TOGGLE_OCCLUSION{ "occlusion", "occlusion enabled", 1, 1, CVar
 AutoCVar_Int CVAR_RENDER_PYRAMID{ "depth_pyramid.render", "render depth pyramid", 0, 0, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_DEPTH_PYRAMID_LOD{ "depth_pyramid.lod", "", 0, 0, CVarFlags::EditSliderInt };
 AutoCVar_Int CVAR_TOGGLE_LOD{ "LOD", "LOD enabled", 0, 0, CVarFlags::EditCheckbox};
-AutoCVar_Int CVAR_TOGGLE_MESH_SHADING{ "Mesh shading", "Mesh shaders enabled", 0, 0, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_TOGGLE_MESHLETS{ "visualize meshlets", "visualize meshlets", 0, 0, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_TOGGLE_MESH_SHADING{ "Mesh shading", "Mesh shaders enabled", 1, 1, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_TOGGLE_MESHLETS{ "visualize meshlets", "visualize meshlets", 1, 1, CVarFlags::EditCheckbox };
 
 uint32_t nearest_pow2(uint32_t extent)
 {

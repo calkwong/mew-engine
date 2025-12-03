@@ -77,6 +77,8 @@ struct MeshLod
 
 struct alignas(16) Meshlet
 {
+    glm::vec3 center{};
+    float radius{};
     uint32_t data_offset{}; // aka index first count
     uint32_t vertex_count{};
     uint32_t triangle_count{};
