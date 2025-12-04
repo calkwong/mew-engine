@@ -1,0 +1,237 @@
+#version 450
+
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_nonuniform_qualifier : require
+#extension GL_EXT_buffer_reference : require
+
+#include "mesh.glsl"
+
+layout (local_size_x = 256) in;
+
+layout(buffer_reference, std430) readonly buffer ObjectBuffer
+{ 
+	ObjectData objects[];
+};
+
+layout(buffer_reference, std430) readonly buffer MeshBuffer
+{ 
+	MeshData meshes[];
+};
+
+layout(buffer_reference, std430) buffer DrawCommandsBuffer
+{ 
+	DrawCommand commands[];
+};
+
+
+layout(buffer_reference, std430) buffer CountBuffer
+{
+	uint count;
+	uint workgroupX;
+	uint workgroupY;
+	uint workgroupZ;
+};
+
+layout(buffer_reference, std430) buffer MeshTaskBuffer
+{ 
+	MeshTaskCommand commands[];
+};
+	
+layout(buffer_reference, std430) buffer VisibilityBuffer
+{
+	uint visible[];
+};
+
+layout(buffer_reference, std430) buffer InstanceBuffer
+{
+	GPUInstance instances[];
+};
+
+layout(push_constant) uniform constants
+{
+	mat4 view;
+	vec4 frustumPlanes;
+	
+	ObjectBuffer objectBuffer;
+	MeshBuffer meshBuffer;
+	InstanceBuffer instanceBuffer;
+	DrawCommandsBuffer drawBuffer;
+	CountBuffer countBuffer;
+	VisibilityBuffer visBuffer;
+	MeshTaskBuffer meshTaskBuffer;
+	
+	uint count;
+	uint late;
+	uint textureId;
+	uint occlusionEnabled;
+	
+	float p00;
+	float p11;
+	float znear;
+	float zfar;
+	
+	vec2 resolution;
+	float textureLod;
+	float lodDistanceFactor;
+	uint lodEnabled;
+	uint taskSubmit;
+} pc;
+
+layout(set = 0, binding = 0, r32f) uniform image2D allImages[];
+layout(set = 1, binding = 0) uniform texture2D allTextures[];
+layout(set = 2, binding = 0) uniform sampler samplers[];
+
+// 2D Polyhedral Bounds of a Clipped, Perspective-Projected 3D Sphere. Michael Mara, Morgan McGuire. 2013
+// https://zeux.io/2023/01/12/approximate-projected-bounds/
+bool projectSphere(vec3 c, float r, float znear, float P00, float P11, out vec4 aabb)
+{
+	if (c.z < r + znear)
+		return false;
+
+    vec3 cr = c * r;
+    float czr2 = c.z * c.z - r * r;
+
+    float vx = sqrt(c.x * c.x + czr2);
+    float minx = (vx * c.x - cr.z) / (vx * c.z + cr.x);
+    float maxx = (vx * c.x + cr.z) / (vx * c.z - cr.x);
+
+    float vy = sqrt(c.y * c.y + czr2);
+    float miny = (vy * c.y - cr.z) / (vy * c.z + cr.y);
+    float maxy = (vy * c.y + cr.z) / (vy * c.z - cr.y);
+
+    aabb = vec4(minx * P00, miny * P11, maxx * P00, maxy * P11);
+    // clip space -> uv space
+    aabb = aabb.xwzy * vec4(0.5f, -0.5f, 0.5f, -0.5f) + vec4(0.5f);
+
+    return true;
+}
+
+bool frustumCulled(vec3 center, float radius)
+{
+	bool visible = true;
+	
+	// symmetrical sphere-plane distance test
+	visible = visible && (center.z * pc.frustumPlanes.y - abs(center.x) * pc.frustumPlanes.x) >= -radius;
+	visible = visible && (center.z * pc.frustumPlanes.w - abs(center.y) * pc.frustumPlanes.z) >= -radius;
+	visible = visible && (center.z - radius <= -pc.znear) && (center.z + radius >= -pc.zfar);	
+		
+	return !visible;
+}
+
+bool occlusionCulled(vec3 center, float radius)
+{
+	vec4 aabb;
+	
+	if (projectSphere(vec3(center.x, center.y, -center.z), radius, pc.znear, pc.p00, pc.p11, aabb))
+	{
+		vec2 pixelSize = (aabb.zw - aabb.xy) * pc.resolution; 
+		
+		float max_dim = max(pixelSize.x, pixelSize.y);
+		
+		float mip = ceil(log2(max_dim));
+		mip = min(mip, pc.textureLod); // TODO: PC
+		
+		float depth = textureLod(sampler2D(allTextures[pc.textureId], samplers[4]), (aabb.zw + aabb.xy) * 0.5, mip).r;
+		
+		float depthSphere = pc.znear / (-center.z - radius); 
+		
+		return depthSphere < depth; // reverse depth
+	}
+}
+
+void main()
+{
+	uint id = gl_GlobalInvocationID.x;
+	
+	if (id < pc.count)
+	{
+		bool late = pc.late == 1;
+		bool visibleLastFrame = pc.visBuffer.visible[id] == 1;
+		
+		if (!late && !visibleLastFrame)
+			return;
+		
+		GPUInstance instance = pc.instanceBuffer.instances[id];
+		uint meshId = instance.meshId;
+		uint objectId = instance.objectId;
+		
+		MeshData mesh = pc.meshBuffer.meshes[meshId];
+		
+		ObjectData obj = pc.objectBuffer.objects[objectId];
+	
+		vec3 center = vec3(pc.view * obj.worldMatrix * vec4(mesh.center, 1.0));
+		float radius = mesh.radius;
+		
+		vec3 right = vec3(obj.worldMatrix[0]);
+		vec3 up = vec3(obj.worldMatrix[1]);
+		vec3 forward = vec3(obj.worldMatrix[2]);
+		
+		vec3 scale = vec3(length(right), length(up), length(forward));
+		
+		float maxScale = max(scale.z, max(scale.x, scale.y));
+		radius = radius * maxScale;
+		
+		bool visible = !frustumCulled(center, radius);
+		
+		bool shouldDraw = visible;
+		
+		if (late && visible)
+		{
+			if (pc.occlusionEnabled == 1)
+				visible = visible && !occlusionCulled(center, radius);
+			//shouldDraw = visible && !visibleLastFrame;
+			if (pc.taskSubmit == 0)
+				shouldDraw = visible && !visibleLastFrame;
+		}
+		
+		if (shouldDraw)
+		{
+			// automatic LOD selection - at distance d, how many world space units does each pixel cover? 
+			// is the absolute error computed (simplifyscale * result_error) less visible than error above? if so, move onto higher LOD
+			float d = max(0.0, length(center) - radius);
+			float e = d * pc.lodDistanceFactor / maxScale;
+			
+			uint index = 0;
+			if (pc.lodEnabled == 1)
+			{
+				for (uint i = 0; i < mesh.lodCount; i++)
+				{
+					index = e >= mesh.lods[i].error ? i : index;
+				}
+			}
+			
+			if (pc.taskSubmit == 1)
+			{
+				uint meshletCount = mesh.lods[index].meshletCount;
+				uint meshletOffset = mesh.lods[index].meshletOffset;
+				uint count = atomicAdd(pc.countBuffer.count, meshletCount);
+				
+				for (uint i = 0; i < meshletCount; i++)
+				{
+					pc.meshTaskBuffer.commands[count + i].meshletOffset = meshletOffset + i;
+					pc.meshTaskBuffer.commands[count + i].objectId = objectId;
+					pc.meshTaskBuffer.commands[count + i].meshletVisibilityOffset = obj.meshletBitOffset + i;
+					//pc.meshTaskBuffer.commands[count + i].meshVisibility = pc.visBuffer.visible[id]; // verify
+					//pc.meshTaskBuffer.commands[count + i].meshVisibility = 1;
+				}
+				
+				pc.countBuffer.workgroupX = 1;
+				pc.countBuffer.workgroupY = 1;
+				pc.countBuffer.workgroupZ = 1;
+			}
+			else
+			{
+				uint count = atomicAdd(pc.countBuffer.count, 1);
+				pc.drawBuffer.commands[count].indexCount = mesh.lods[index].count;
+				pc.drawBuffer.commands[count].instanceCount = 1;
+				pc.drawBuffer.commands[count].firstIndex = mesh.lods[index].firstIndex;
+				pc.drawBuffer.commands[count].vertexOffset = mesh.vertexOffset;
+				pc.drawBuffer.commands[count].firstInstance = objectId;
+			}
+		}
+		
+		if (late)
+			pc.visBuffer.visible[id] = uint(visible); 
+
+	}
+}

@@ -2,7 +2,8 @@ struct ObjectData
 {
 	mat4 worldMatrix;
 	uint materialID;
-	uint padding[3];
+	uint meshletBitOffset;
+	uint padding[2];
 };
 
 struct Meshlet
@@ -55,6 +56,8 @@ struct MeshTaskCommand
 {
 	uint meshletOffset;
 	uint objectId;
+	uint meshletVisibilityOffset;
+	uint meshVisibility;
 };
 
 struct Vertex

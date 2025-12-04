@@ -25,7 +25,10 @@
 #include <variant>
 
 // meshlet_indices stores meshlet vertices & triangles, meshlet stores offset into meshlet_indices, and triangle/vertices count
-void optimize_mesh(std::vector<Vertex>& vertices, std::vector<uint32_t>& indices, std::vector<uint32_t>& meshlet_indices, std::vector<Meshlet>& meshlets, GeoSurface& surface, std::vector<Vertex>& combined_vertices, std::vector<uint32_t>& combined_indices)
+void optimize_mesh(
+	std::vector<Vertex>& vertices, std::vector<uint32_t>& indices, std::vector<uint32_t>& meshlet_indices, std::vector<Meshlet>& meshlets, 
+	GeoSurface& surface, std::vector<Vertex>& combined_vertices, std::vector<uint32_t>& combined_indices
+)
 {
 	// indexing
 	std::vector<uint32_t> remap(vertices.size());
@@ -116,6 +119,12 @@ void optimize_mesh(std::vector<Vertex>& vertices, std::vector<uint32_t>& indices
 		uint32_t meshlet_offset = static_cast<uint32_t>(meshlets.size());
 		lod_info.meshlet_offset = meshlet_offset; 
 		lod_info.meshlet_count = meshlet_count;
+
+		if (surface.lod_count == 0)
+		{
+			surface.meshlet_bits = meshlet_count;
+		}
+
 		surface.mesh_lods[surface.lod_count++] = lod_info;
 		uint32_t meshlet_indices_offset = static_cast<uint32_t>(meshlet_indices.size());
 		for (size_t i = 0; i < meshopt_meshlets.size(); i++)
@@ -384,8 +393,8 @@ std::optional<AllocatedImage> load_image(VulkanEngine* engine, fastgltf::Asset& 
 
 					//std::string current_path = "../../assets/khronos_sponza/" + path; // (!) TODO handle this properly
 					//std::string current_path = "../../assets/DamagedHelmet/" + path; // (!) TODO handle this properly
-					std::string current_path = "../../assets/bistro_exterior_ktx2/" + path; // (!) TODO handle this properly
-					//std::string current_path = "../../assets/bistro_interior_wine_ktx2/" + path; // (!) TODO handle this properly
+					//std::string current_path = "../../assets/bistro_exterior_ktx2/" + path; // (!) TODO handle this properly
+					std::string current_path = "../../assets/bistro_interior_wine_ktx2/" + path; // (!) TODO handle this properly
 
 					std::filesystem::path p = path;
 					if (p.extension() == ".ktx2")

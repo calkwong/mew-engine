@@ -25,5 +25,5 @@ void main()
 {
 	uint count = pc.countBuffer.count;
 	
-	pc.countBuffer.workgroupX = count;
+	pc.countBuffer.workgroupX = (count + 31) / 32;
 }

@@ -39,6 +39,7 @@ struct RenderObject
 	glm::mat4 transform{};
 
 	VkDeviceAddress material_buffer_address{};
+	uint32_t meshlet_bits{};
 };
 
 template<>
@@ -71,7 +72,8 @@ struct ObjectData
 {
 	glm::mat4 transform{};
 	uint32_t material_id{};
-	uint32_t padding[3]{}; 
+	uint32_t meshlet_bit_offset{};
+	uint32_t padding[2]{}; 
 };
 
 struct CullData
@@ -114,6 +116,8 @@ struct MeshTaskCommand
 {
 	uint32_t meshlet_offset{};
 	uint32_t object_id{};
+	uint32_t meshlet_visibility_offset{};
+	uint32_t mesh_visibility{};
 };
 
 struct MeshAsset;
@@ -139,6 +143,10 @@ struct RenderScene // (!) forward only for now
 		AllocatedBuffer count_buffer{};
 		AllocatedBuffer instance_buffer{};
 		AllocatedBuffer vis_buffer{};
+		AllocatedBuffer meshlet_vis_buffer{};
+
+		AllocatedBuffer cluster_count_buffer{};
+		AllocatedBuffer cluster_indices{};
 
 		MeshPassType type{};
 	};
@@ -148,7 +156,7 @@ struct RenderScene // (!) forward only for now
 	std::unordered_map<MeshAsset*, Handle<DrawPrimitive>> mesh_cache{};
 
 	GPUMeshBuffers combined_mesh_buffer{};
-	AllocatedBuffer object_buffer{}; 
+	AllocatedBuffer object_buffer{};
 	AllocatedBuffer mesh_buffer{};
 	AllocatedBuffer meshlet_buffer{};
 	AllocatedBuffer meshlet_indices{};
@@ -156,6 +164,7 @@ struct RenderScene // (!) forward only for now
 	std::array<MeshPass, 4> shadow_pass{};
 	MeshPass forward_pass{};
 	MeshPass transparent_pass{};
+	uint32_t total_meshlets_bits{};
 
 	void init();
 	void build_mesh_buffer();

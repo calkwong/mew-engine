@@ -74,13 +74,20 @@ void RenderScene::build_object_buffer()
 {
 	ObjectData* object_data = static_cast<ObjectData*>(object_buffer.info.pMappedData);
 
+	uint32_t offset = 0;
+
 	for (size_t i = 0; i < renderables.size(); i++)
 	{
 		const RenderObject& obj = renderables[i];
 
 		object_data[i].transform = obj.transform;
 		object_data[i].material_id = obj.material_id;
+		object_data[i].meshlet_bit_offset = offset;
+
+		offset += obj.meshlet_bits;
 	}
+
+	total_meshlets_bits = offset;
 }
 
 // PREREQ: unbatched objects
