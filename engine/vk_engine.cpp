@@ -158,12 +158,17 @@ void VulkanEngine::init()
 	query_pool_info.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
 	query_pool_info.queryType = VK_QUERY_TYPE_TIMESTAMP;
 	query_pool_info.queryCount = static_cast<uint32_t>(100);
-	VK_CHECK(vkCreateQueryPool(device, &query_pool_info, nullptr, &query_pool_timestamps));
-
+	for (size_t i = 0; i < FRAME_OVERLAP; i++)
+	{
+		VK_CHECK(vkCreateQueryPool(device, &query_pool_info, nullptr, &frames[i].query_pool_timestamps));
+	}
 	query_pool_info.queryType = VK_QUERY_TYPE_PIPELINE_STATISTICS;
 	query_pool_info.queryCount = static_cast<uint32_t>(4);
 	query_pool_info.pipelineStatistics = VK_QUERY_PIPELINE_STATISTIC_CLIPPING_INVOCATIONS_BIT;
-	VK_CHECK(vkCreateQueryPool(device, &query_pool_info, nullptr, &query_pool_pipelines));
+	for (size_t i = 0; i < FRAME_OVERLAP; i++)
+	{
+		VK_CHECK(vkCreateQueryPool(device, &query_pool_info, nullptr, &frames[i]. query_pool_pipelines));
+	}
 
 	is_initialized = true;
 }
@@ -194,6 +199,9 @@ void VulkanEngine::cleanup()
 			destroy_buffer(frames[i].scene_buffer);
 
 			frames[i].deletion_queue.flush();
+
+			vkDestroyQueryPool(device, frames[i].query_pool_timestamps, nullptr);
+			vkDestroyQueryPool(device, frames[i].query_pool_pipelines, nullptr);
 		}
 		
 		destroy_buffer(render_scene.object_buffer);
@@ -229,9 +237,6 @@ void VulkanEngine::cleanup()
 		}
 
 		main_deletion_queue.flush();
-
-		vkDestroyQueryPool(device, query_pool_timestamps, nullptr);
-		vkDestroyQueryPool(device, query_pool_pipelines, nullptr);
 
 		destroy_swapchain();
 
@@ -284,8 +289,12 @@ void VulkanEngine::draw()
 	VkCommandBufferBeginInfo cmd_begin_info = vkinit::command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT); 
 
 	VK_CHECK(vkBeginCommandBuffer(cmd, &cmd_begin_info));
-	vkCmdResetQueryPool(cmd, query_pool_timestamps, 0, 100);
-	vkCmdResetQueryPool(cmd, query_pool_pipelines, 0, 4);
+
+	auto& frame_query_pool_timestamps = get_current_frame().query_pool_timestamps;
+	auto& frame_query_pool_pipelines = get_current_frame().query_pool_pipelines;
+
+	vkCmdResetQueryPool(cmd, frame_query_pool_timestamps, 0, 100);
+	vkCmdResetQueryPool(cmd, frame_query_pool_pipelines, 0, 4);
 
 	// two-pass mesh/cluster occlusion culling
 	{
@@ -302,9 +311,9 @@ void VulkanEngine::draw()
 			VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT
 		); 
 
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, query_pool_timestamps, 0);
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 0);
 		execute_compute_cull(cmd, render_scene.forward_pass, forward_mesh_cull_data, false);
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, query_pool_timestamps, 1);
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 1);
 
 		if (CVAR_TOGGLE_MESH_SHADING.get())
 		{
@@ -357,9 +366,9 @@ void VulkanEngine::draw()
 			VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT
 		); // from blit to swapchain prev frame
 
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, query_pool_timestamps, 2);
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 2);
 		render(cmd, false, 0);
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, query_pool_timestamps, 3);
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 3);
 
 		build_depth_pyramid(cmd);
 
@@ -374,9 +383,9 @@ void VulkanEngine::draw()
 			VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT
 		);
 
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, query_pool_timestamps, 4);
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 4);
 		execute_compute_cull(cmd, render_scene.forward_pass, forward_mesh_cull_data, true);
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, query_pool_timestamps, 5);
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 5);
 
 		if (CVAR_TOGGLE_MESH_SHADING.get())
 		{
@@ -430,9 +439,9 @@ void VulkanEngine::draw()
 			VK_IMAGE_ASPECT_COLOR_BIT
 		);
 
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, query_pool_timestamps, 6);
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 6);
 		render(cmd, true, 1);
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, query_pool_timestamps, 7);
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 7);
 
 		vkutil::transition_image(
 			cmd,
@@ -520,7 +529,7 @@ void VulkanEngine::draw()
 
 	vkGetQueryPoolResults(
 		device,
-		query_pool_timestamps,
+		frame_query_pool_timestamps,
 		0,
 		timestamp_results.size(),
 		timestamp_results.size() * sizeof(uint64_t),
@@ -533,7 +542,7 @@ void VulkanEngine::draw()
 
 	vkGetQueryPoolResults(
 		device,
-		query_pool_pipelines,
+		frame_query_pool_pipelines,
 		0,
 		pipeline_results.size(),
 		pipeline_results.size() * sizeof(uint64_t),
@@ -2650,7 +2659,7 @@ void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPa
 
 void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t query)
 {
-	vkCmdBeginQuery(cmd, query_pool_pipelines, query, 0);
+	vkCmdBeginQuery(cmd, get_current_frame().query_pool_pipelines, query, 0);
 
 	VkClearColorValue clear_color_value{ 0.0f, 0.0f, 0.0f, 1.0f };
 	VkClearValue clear_value{ .color = clear_color_value };
@@ -2758,7 +2767,7 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t query)
 	}
 
 	vkCmdEndRendering(cmd);
-	vkCmdEndQuery(cmd, query_pool_pipelines, query);
+	vkCmdEndQuery(cmd, get_current_frame().query_pool_pipelines, query);
 }
 
 void VulkanEngine::build_depth_pyramid(VkCommandBuffer cmd)

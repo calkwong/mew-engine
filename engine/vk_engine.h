@@ -107,6 +107,9 @@ struct FrameData
 	VkCommandPool command_pool{};
 	VkCommandBuffer main_command_buffer{};
 
+	VkQueryPool query_pool_timestamps{};
+	VkQueryPool query_pool_pipelines{};
+
 	VkSemaphore swapchain_semaphore{};
 	VkSemaphore render_semaphore{};
 	VkFence render_fence{};
@@ -309,8 +312,6 @@ public:
 	tracy::VkCtx* tracy_ctx{};
 	RenderScene render_scene{};
 
-	VkQueryPool query_pool_timestamps{};
-	VkQueryPool query_pool_pipelines{};
 	VkPhysicalDeviceProperties props{};
 
 	static VulkanEngine& get();
