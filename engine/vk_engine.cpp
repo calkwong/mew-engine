@@ -313,7 +313,6 @@ void VulkanEngine::draw()
 
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 0);
 		execute_compute_cull(cmd, render_scene.forward_pass, forward_mesh_cull_data, false);
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 1);
 
 		if (CVAR_TOGGLE_MESH_SHADING.get())
 		{
@@ -338,6 +337,7 @@ void VulkanEngine::draw()
 
 			execute_compute_cull(cmd, render_scene.forward_pass, forward_cluster_cull_data, render_scene.forward_pass.count_buffer.buffer, 4, 0);
 		}
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 1);
 
 		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT,
 			VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT
@@ -385,7 +385,6 @@ void VulkanEngine::draw()
 
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 4);
 		execute_compute_cull(cmd, render_scene.forward_pass, forward_mesh_cull_data, true);
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 5);
 
 		if (CVAR_TOGGLE_MESH_SHADING.get())
 		{
@@ -410,6 +409,7 @@ void VulkanEngine::draw()
 
 			execute_compute_cull(cmd, render_scene.forward_pass, forward_cluster_cull_data, render_scene.forward_pass.count_buffer.buffer, 4, 1);
 		}
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 5);
 
 		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT,
 			VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT

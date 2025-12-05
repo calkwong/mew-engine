@@ -146,30 +146,28 @@ bool occlusionCulled(vec3 center, float radius)
 
 void main()
 {
-	uint id = gl_GlobalInvocationID.x;
+	uint id = gl_WorkGroupID.x; // 0 - workgroupX-1
+	uint ti = gl_LocalInvocationIndex; // 0 - 31
 	
-	uint meshletOffset = pc.meshTaskBuffer.commands[id].meshletOffset;
+	uint meshletOffset = pc.meshTaskBuffer.commands[id].meshletOffset + ti;
 	uint objectId = pc.meshTaskBuffer.commands[id].objectId;
-	uint meshletVisibilityOffset = pc.meshTaskBuffer.commands[id].meshletVisibilityOffset;
-	uint meshVisibility = pc.meshTaskBuffer.commands[id].meshVisibility;
+	uint meshletVisibilityOffset = pc.meshTaskBuffer.commands[id].meshletVisibilityOffset + ti;
+	uint meshletCount = pc.meshTaskBuffer.commands[id].meshletCount; 
 	
-	uint totalMeshlets = pc.countBuffer.count; 
-	
-	if (id < totalMeshlets)
+	if (ti < meshletCount)
 	{
 		bool late = pc.late == 1;
-		bool visibleLastFrame = pc.meshletVisBuffer.visible[meshletVisibilityOffset] == 1;
+		bool visibleLastFrame = pc.meshletVisBuffer.visible[meshletVisibilityOffset] == 1; 
 		
 		if (!late && !visibleLastFrame)
 			return;
 		
 		bool skip = false;
-		//if (late && meshVisibility == 1 && visibleLastFrame)
-		if (late && visibleLastFrame) // meshVisibility redundant? uncomment for now
+		if (late && visibleLastFrame) 
 			skip = true;
 			
 		// reprocess all meshlets of visible meshes	
-		Meshlet meshlet = pc.meshletBuffer.meshlets[meshletOffset];
+		Meshlet meshlet = pc.meshletBuffer.meshlets[meshletOffset]; 
 		
 		ObjectData obj = pc.objectBuffer.objects[objectId];
 	
@@ -201,15 +199,11 @@ void main()
 			pc.clusterCountBuffer.workgroupY = 1;
 			pc.clusterCountBuffer.workgroupZ = 1;
 			
-			pc.clusterIndicesBuffer.indices[clusterIndex] = id;
+			pc.clusterIndicesBuffer.indices[clusterIndex] = id | (ti << 27); // no error checking yet
 			
-			pc.countBuffer.workgroupY = meshletVisibilityOffset;
 		}
 		
 		if (late)
 			pc.meshletVisBuffer.visible[meshletVisibilityOffset] = uint(visible); 
 	}
 }
-
-// purpose of cluster submit
-// does meshlets.mesh read from an instance-like buffer?

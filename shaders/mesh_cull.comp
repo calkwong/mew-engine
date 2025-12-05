@@ -202,20 +202,17 @@ void main()
 			{
 				uint meshletCount = mesh.lods[index].meshletCount;
 				uint meshletOffset = mesh.lods[index].meshletOffset;
-				uint count = atomicAdd(pc.countBuffer.count, meshletCount);
-				
-				for (uint i = 0; i < meshletCount; i++)
+
+				// experiment 32 meshlets per workgroup, each workgroup limited to meshlets from a single mesh
+				uint tasks = (meshletCount + 31) / 32;
+				uint count = atomicAdd(pc.countBuffer.count, tasks); // could technically modify workgroupX here, making tasksubmit redundant?
+				for (uint i = 0; i < tasks; i++)
 				{
-					pc.meshTaskBuffer.commands[count + i].meshletOffset = meshletOffset + i;
+					pc.meshTaskBuffer.commands[count + i].meshletOffset = meshletOffset + i * 32;
 					pc.meshTaskBuffer.commands[count + i].objectId = objectId;
-					pc.meshTaskBuffer.commands[count + i].meshletVisibilityOffset = obj.meshletBitOffset + i;
-					//pc.meshTaskBuffer.commands[count + i].meshVisibility = pc.visBuffer.visible[id]; // verify
-					//pc.meshTaskBuffer.commands[count + i].meshVisibility = 1;
+					pc.meshTaskBuffer.commands[count + i].meshletVisibilityOffset = obj.meshletBitOffset + i * 32;
+					pc.meshTaskBuffer.commands[count + i].meshletCount = min(32, meshletCount - i * 32);
 				}
-				
-				pc.countBuffer.workgroupX = 1;
-				pc.countBuffer.workgroupY = 1;
-				pc.countBuffer.workgroupZ = 1;
 			}
 			else
 			{

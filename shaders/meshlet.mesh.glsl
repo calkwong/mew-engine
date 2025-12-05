@@ -91,10 +91,14 @@ void main()
 	
 	uint id = gl_WorkGroupID.x;
 	
-	uint meshTaskId = pc.clusterIndicesBuffer.indices[id];
+	uint value = pc.clusterIndicesBuffer.indices[id];
 	
+	// extract bits
+	uint offset = bitfieldExtract(value, 27, 5);
+	uint meshTaskId = bitfieldExtract(value, 0, 27);
+		
 	MeshTaskCommand command = pc.meshTaskBuffer.commands[meshTaskId];
-	uint meshletOffset = command.meshletOffset;
+	uint meshletOffset = command.meshletOffset + offset;
 	Meshlet meshlet = pc.meshletBuffer.meshlets[meshletOffset];
 	uint vertexCount = meshlet.vertexCount;
 	uint triangleCount = meshlet.triangleCount;

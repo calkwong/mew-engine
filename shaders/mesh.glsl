@@ -57,7 +57,7 @@ struct MeshTaskCommand
 	uint meshletOffset;
 	uint objectId;
 	uint meshletVisibilityOffset;
-	uint meshVisibility;
+	uint meshletCount;
 };
 
 struct Vertex
