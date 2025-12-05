@@ -179,9 +179,7 @@ void main()
 		{
 			if (pc.occlusionEnabled == 1)
 				visible = visible && !occlusionCulled(center, radius);
-			//shouldDraw = visible && !visibleLastFrame;
-			if (pc.taskSubmit == 0)
-				shouldDraw = visible && !visibleLastFrame;
+			shouldDraw = (pc.taskSubmit == 0) ? visible && !visibleLastFrame : visible;
 		}
 		
 		if (shouldDraw)

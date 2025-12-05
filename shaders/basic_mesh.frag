@@ -40,11 +40,21 @@ layout(set = 2, binding = 0) uniform sampler samplers[];
 
 void main() 
 {	
-	vec3 N = normalize(inNormal);
-	outFragColor = vec4(N, 1);
-	outFragColor.xyz = outFragColor.xyz * 0.5 + 0.5;
+	vec3 N = normalize(inNormal); 
+	vec3 T = normalize(inTangent.xyz); 
 	
-	if (pc.debugMeshlets == 1)
+	switch (pc.debugMeshlets)
+	{
+	case 0: // NORMALS
+		N = N.xyz * 0.5 + 0.5;
 		outFragColor = vec4(N, 1);
-	
+		break;
+	case 1:
+		T = T.xyz * 0.5 + 0.5;
+		outFragColor = vec4(T, 1);
+		break;
+	case 2:
+		outFragColor = vec4(inUV, 0, 1);
+		break;
+	}
 }

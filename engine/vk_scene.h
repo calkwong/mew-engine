@@ -104,6 +104,34 @@ struct CullData
 	uint32_t task_submit{};
 };
 
+struct ClusterCullData
+{
+	glm::mat4 view{};
+	glm::vec4 frustum_planes{};
+	VkDeviceAddress object_buffer_address{};
+	VkDeviceAddress meshlet_buffer_address{};
+	VkDeviceAddress cluster_indices_address{};
+	VkDeviceAddress cluster_count_address{};
+	VkDeviceAddress count_buffer_address{};
+	VkDeviceAddress cluster_vis_address{};
+	VkDeviceAddress meshtask_buffer_address{};
+	uint32_t count{};
+	uint32_t late{};
+	uint32_t texture_id{};
+	uint32_t occlusion_enabled{};
+
+	float p00{};
+	float p11{};
+	float near{};
+	float far{};
+
+	glm::vec2 resolution{};
+	float texture_lod{};
+	float lod_distance_factor{};
+	uint32_t lod_enabled{};
+	uint32_t task_submit{};
+};
+
 struct PassObject
 {
 	ShaderPass* material{};

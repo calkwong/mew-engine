@@ -36,7 +36,7 @@ struct GPUPushConstants // temporarily shared by vertex and mesh shading path
 	VkDeviceAddress meshlet_indices_buffer_address{};
 	VkDeviceAddress count_buffer_address{};
 	VkDeviceAddress cluster_indices_address{};
-	uint32_t debug_meshlets;
+	uint32_t debug;
 };
 
 //struct ShadowPushConstants
@@ -335,13 +335,15 @@ public:
 	void update_scene();
 
 	void register_object(Node* node, const glm::mat4& top_matrix);
-	void forward_pass(VkCommandBuffer cmd);
+	void execute_debug_pass(VkCommandBuffer cmd);
 	void shadow_pass(VkCommandBuffer cmd, RenderScene::MeshPass& pass, size_t cascade_idx);
 	void update_cascade();
 	void draw_imgui(VkCommandBuffer cmd, VkImageView swapchain_view);
 	void ready_mesh_draw();
-	CullData ready_cull_data(RenderScene::MeshPass& pass, glm::mat4& proj, bool orthographic = false);
+	void ready_cull_data(RenderScene::MeshPass& pass, CullData& cull_data, glm::mat4& proj, bool orthographic = false);
+	void ready_cull_data(RenderScene::MeshPass& pass, ClusterCullData& cull_data, glm::mat4& proj, bool orthographic = false);
 	void execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPass& pass, CullData& cull_data, bool late);
+	void execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPass& pass, ClusterCullData& cull_data, VkBuffer count_buffer, uint32_t offset, bool late);
 	void render(VkCommandBuffer cmd, bool late, uint32_t query);
 	void build_depth_pyramid(VkCommandBuffer cmd);
 
