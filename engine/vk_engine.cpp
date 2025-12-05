@@ -1846,7 +1846,7 @@ void VulkanEngine::init_renderables()
 
 	std::mt19937 mt(42);
 	auto draw_radius = 20.0f;
-	auto draw_count = 5000;
+	auto draw_count = 5'000;
 
 	for (size_t i = 0; i < draw_count; i++)
 	{
@@ -2431,6 +2431,7 @@ void VulkanEngine::ready_mesh_draw()
 			);
 		}
 
+		// TODO: resize - currently 1m meshes with 300 clusters each = ~1.2GB buffer
 		if (pass.cluster_indices.info.size < render_scene.total_meshlets_bits * sizeof(uint32_t))
 		{
 			fmt::println("cluster_indices");
@@ -2445,10 +2446,10 @@ void VulkanEngine::ready_mesh_draw()
 			fmt::println("cluster indices size: {}", pass.cluster_indices.info.size);
 		}
 
-		if (pass.meshtask_indirect_buffer.info.size < render_scene.total_meshlets_bits * sizeof(MeshTaskCommand))
+		if (pass.meshtask_indirect_buffer.info.size < render_scene.max_meshtask_commands * sizeof(MeshTaskCommand))
 		{
 			pass.meshtask_indirect_buffer = reallocate_buffer(
-				render_scene.total_meshlets_bits * sizeof(MeshTaskCommand),
+				render_scene.max_meshtask_commands * sizeof(MeshTaskCommand),
 				pass.meshtask_indirect_buffer,
 				0,
 				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT
@@ -2456,11 +2457,11 @@ void VulkanEngine::ready_mesh_draw()
 			fmt::println("meshtask_buffer size: {}", pass.meshtask_indirect_buffer.info.size);
 		}
 
-		
-		if (pass.meshlet_vis_buffer.info.size < render_scene.total_meshlets_bits * sizeof(uint32_t))
+		size_t meshlet_visibility_size = (render_scene.total_meshlets_bits + 31) / 32;
+		if (pass.meshlet_vis_buffer.info.size < meshlet_visibility_size * sizeof(uint32_t))
 		{
 			pass.meshlet_vis_buffer = reallocate_buffer(
-				render_scene.total_meshlets_bits * sizeof(uint32_t),
+				meshlet_visibility_size * sizeof(uint32_t),
 				pass.meshlet_vis_buffer,
 				0,
 				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT

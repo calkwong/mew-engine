@@ -192,7 +192,8 @@ struct RenderScene // (!) forward only for now
 	std::array<MeshPass, 4> shadow_pass{};
 	MeshPass forward_pass{};
 	MeshPass transparent_pass{};
-	uint32_t total_meshlets_bits{};
+	uint32_t total_meshlets_bits{};	  // should be per-pass
+	uint32_t max_meshtask_commands{}; // should be per-pass
 
 	void init();
 	void build_mesh_buffer();

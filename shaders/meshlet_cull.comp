@@ -157,7 +157,11 @@ void main()
 	if (ti < meshletCount)
 	{
 		bool late = pc.late == 1;
-		bool visibleLastFrame = pc.meshletVisBuffer.visible[meshletVisibilityOffset] == 1; 
+		
+		// bit shift in place of floor division, then bit& to extract the relevant bit
+		uint meshletVisibilityBit = pc.meshletVisBuffer.visible[meshletVisibilityOffset >> 5] & (1u << (meshletVisibilityOffset & 31));
+		
+		bool visibleLastFrame = meshletVisibilityBit != 0; 
 		
 		if (!late && !visibleLastFrame)
 			return;
@@ -200,10 +204,15 @@ void main()
 			pc.clusterCountBuffer.workgroupZ = 1;
 			
 			pc.clusterIndicesBuffer.indices[clusterIndex] = id | (ti << 27); // no error checking yet
-			
 		}
 		
 		if (late)
-			pc.meshletVisBuffer.visible[meshletVisibilityOffset] = uint(visible); 
+		{
+			// TODO: use subgroups and update from a single thread, potentially need to update 2 uints
+			if (visible)
+				atomicOr(pc.meshletVisBuffer.visible[meshletVisibilityOffset >> 5], 1u << (meshletVisibilityOffset & 31));
+			else
+				atomicAnd(pc.meshletVisBuffer.visible[meshletVisibilityOffset >> 5], ~(1u << (meshletVisibilityOffset & 31)));
+		}
 	}
 }
