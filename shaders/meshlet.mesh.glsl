@@ -6,6 +6,7 @@
 
 #include "scene.glsl"
 #include "mesh.glsl"
+#include "samplers.glsl"
 
 layout(local_size_x = 32) in;
 layout(triangles, max_vertices = 64, max_primitives = 124) out;

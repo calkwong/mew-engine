@@ -94,7 +94,7 @@ struct MaterialData
     uint32_t normal_id{};
     uint32_t occlusion_id{};
     uint32_t emissive_id{};
-    uint32_t padding{}; // (!) test without padding 
+    uint32_t padding{}; 
 };
 
 struct SceneData

@@ -137,7 +137,7 @@ struct PassObject
 	ShaderPass* material{};
 	Handle<DrawPrimitive> primitive_id{};
 	Handle<RenderObject> renderable_id{}; // handle into renderables
-	// (!) to do hash
+	// TODO: implement hashing?
 };
 
 struct MeshTaskCommand
@@ -150,7 +150,7 @@ struct MeshTaskCommand
 
 struct MeshAsset;
 
-struct RenderScene // (!) forward only for now
+struct RenderScene
 {
 	enum class MeshPassType
 	{

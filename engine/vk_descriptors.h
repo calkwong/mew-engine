@@ -16,7 +16,7 @@ struct DescriptorLayoutBuilder
 	VkDescriptorSetLayout build(VkDevice device, void* pNext = nullptr, VkDescriptorSetLayoutCreateFlags flags = 0);
 };
 
-// (!) refactor for bindless?
+// TODO: refactor for bindless?
 class DescriptorAllocatorGrowable
 {
 public:
@@ -43,7 +43,7 @@ private:
 
 };
 
-// (!) refactor for bindless?
+// TODO: refactor for bindless?
 struct DescriptorWriter
 {
 	std::deque<VkDescriptorImageInfo> image_infos{};

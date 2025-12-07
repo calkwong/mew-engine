@@ -53,11 +53,19 @@ VulkanEngine& VulkanEngine::get() { return *loaded_engine; }
 //#define SHADOW
 //#define SINGLE
 
+//std::string ASSET_PATH = "../../assets/ABeautifulGame.glb";
+//std::string ASSET_PATH = "../../assets/sphere.gltf";
+//std::string ASSET_PATH = "../../assets/khronos_sponza/Sponza.gltf";
+//std::string ASSET_PATH = "../../assets/bistro_interior_wine_ktx2/BistroInterior_WineFixed.gltf";
+//std::string ASSET_PATH = "../../assets/bistro_exterior_ktx2/BistroExteriorFixed.gltf";
+std::string ASSET_PATH = "../../assets/suzanne.gltf";
+//std::string ASSET_PATH = "../../assets/AlphaBlendModeTest.glb";
+
 constexpr float LIGHT_FAR_PLANE{ 150.0f };
 constexpr uint32_t SHADOW_MAP_SIZE{ 2048 };
 constexpr int NUMBER_OF_CASCADES{ 4 };
 
-AutoCVar_Int CVAR_SHADOW_NEAR{ "shadow.near", "pull back light frustum near plane", -20, -20, CVarFlags::EditSliderInt };
+AutoCVar_Int CVAR_SHADOW_NEAR{ "shadow.near", "pull back light frustum near plane", 1000, 1000, CVarFlags::EditSliderInt };
 AutoCVar_Int CVAR_TOGGLE_OCCLUSION{ "occlusion", "occlusion enabled", 1, 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_PYRAMID{ "depth_pyramid.render", "render depth pyramid", 0, 0, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_DEPTH_PYRAMID_LOD{ "depth_pyramid.lod", "", 0, 0, CVarFlags::EditSliderInt };
@@ -146,11 +154,11 @@ void VulkanEngine::init()
 	init_imgui();
 
 	main_camera.position = glm::vec3(0, 0, 5);
-	// (!) refactor? draw_extent set in init_default_data
 	main_camera.near = 1000.0f;
 	main_camera.far = 0.01f;
 	main_camera.fov = 70.0f;
-	main_camera.perspective = glm::perspective(glm::radians(main_camera.fov), static_cast<float>(draw_extent.width) / draw_extent.height, main_camera.near, main_camera.far);
+	// TODO: refactor if window resize
+	main_camera.set_perspective_matrix(glm::radians(main_camera.fov), static_cast<float>(draw_extent.width) / draw_extent.height, main_camera.far);
 
 	//init_precomputations();
 
@@ -228,7 +236,7 @@ void VulkanEngine::cleanup()
 			destroy_buffer(p.cluster_indices);
 		}
 
-		// (!) move destruction of combined vertex/idnex buffer here, away from loaded gltf
+		// TODO: possibly destroy loadedgltf resources here instead?
 
 		for (const auto& [k, v] : shader_passes)
 		{
@@ -920,18 +928,17 @@ void VulkanEngine::init_swapchain()
 		VK_IMAGE_USAGE_SAMPLED_BIT // for post FX sampling
 	};
 
-	// (!) refactor ping pong
+	// TODO: make creaton and selection of pingpong attachment cleaner
 	draw_image = create_image(draw_image_extent, VK_FORMAT_R16G16B16A16_SFLOAT, draw_image_flags, VK_IMAGE_ASPECT_COLOR_BIT);
 	draw_image2 = create_image(draw_image_extent, VK_FORMAT_R16G16B16A16_SFLOAT, draw_image_flags, VK_IMAGE_ASPECT_COLOR_BIT);
 
 	auto id = texture_cache.add_texture(draw_image.view);
-	assert(id == 0); // (!) why am i checking this again?
+	assert(id == 0); // TODO: remove hardcoding drawimage1 to have texture id 0
 	texture_cache.set_draw_image(id);
 
 	id = texture_cache.add_texture(draw_image2.view);
 	texture_cache.set_draw_image2(id);
 
-	// depth image
 	depth_image.format = VK_FORMAT_D32_SFLOAT;
 	depth_image.extent = draw_image_extent;
 
@@ -1096,13 +1103,13 @@ void VulkanEngine::init_descriptors()
 		binding_flags_info.bindingCount = 1;
 		binding_flags_info.pBindingFlags = flags.data();
 
-		bindless_tex_layout = builder.build(device, &binding_flags_info); // (!) update after bind req if included above?
+		bindless_tex_layout = builder.build(device, &binding_flags_info); 
 
 		builder.clear();
 		builder.add_binding(0, VK_DESCRIPTOR_TYPE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
-		builder.bindings[0].descriptorCount = 10; // (!) validation layer not reporting if this is higher than pool maximum
+		builder.bindings[0].descriptorCount = 10; // validation layer not reporting if this is higher than pool maximum
 
-		bindless_sampler_layout = builder.build(device, &binding_flags_info); // (!) update after bind req if included above?
+		bindless_sampler_layout = builder.build(device, &binding_flags_info); 
 
 		builder.clear();
 		builder.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT);
@@ -1337,7 +1344,7 @@ AllocatedBuffer VulkanEngine::reallocate_buffer(size_t alloc_size, AllocatedBuff
 	new_buffer = create_buffer(alloc_size, flags, usage);
 
 	get_current_frame().deletion_queue.push_function([=]() {
-		destroy_buffer(old_buffer); // (!) or destroy directly?
+		destroy_buffer(old_buffer); 
 		});
 
 	return new_buffer;
@@ -1459,7 +1466,7 @@ AllocatedImage VulkanEngine::create_image(VkExtent3D extent, VkFormat format, Vk
 AllocatedImage VulkanEngine::create_image(void* data, VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspect, VmaAllocationCreateFlags flags /*= 0*/, bool mipmapped /*= false*/)
 {
 	size_t data_size = extent.depth * extent.width * extent.height * 4; // 4 is # of channels
-	if (format == VK_FORMAT_R32G32B32A32_SFLOAT) // (!) review - hdr?
+	if (format == VK_FORMAT_R32G32B32A32_SFLOAT) // TODO: hdr only?
 		data_size *= sizeof(float);
 	AllocatedBuffer upload_buffer = create_buffer(data_size, VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT, VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
 	
@@ -1525,7 +1532,7 @@ AllocatedImage VulkanEngine::create_cubemap(VkExtent3D extent, VkFormat format, 
 	if (mipmapped)
 	{
 		img_info.mipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(extent.width, extent.height)))) + 1;
-		img_info.usage |= (VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT); // (!) prefiltered cubemap wont need these
+		img_info.usage |= (VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT); // TODO: possible refactor - prefiltered cubemap wont need these
 	}
 
 	VmaAllocationCreateInfo alloc_info{};
@@ -1553,7 +1560,7 @@ void VulkanEngine::destroy_image(const AllocatedImage& image)
 
 void VulkanEngine::init_default_data()
 {
-	// (!) refactor prob necessary after implementing window/swapchain resize
+	// TODO: refactor prob necessary after implementing window/swapchain resize
 	draw_extent.width = draw_image.extent.width;
 	draw_extent.height = draw_image.extent.height;
 
@@ -1575,7 +1582,6 @@ void VulkanEngine::init_default_data()
 
 	bindless_texture.checkerboard = texture_cache.add_texture(error_image.view);
 
-	//> default samplers
 	VkSampler sampler{};
 	VkSamplerCreateInfo sampler_info{};
 	sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
@@ -1588,7 +1594,7 @@ void VulkanEngine::init_default_data()
 	//sampler_info.anisotropyEnable = VK_TRUE;
 	//sampler_info.maxAnisotropy = 16.0f;
 
-	vkCreateSampler(device, &sampler_info, nullptr, &sampler);
+	vkCreateSampler(device, &sampler_info, nullptr, &sampler); // linear 
 	sampler_cache.add_sampler(sampler);
 
 	//sampler_info.anisotropyEnable = VK_FALSE;
@@ -1596,25 +1602,15 @@ void VulkanEngine::init_default_data()
 	sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 	sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 
-	vkCreateSampler(device, &sampler_info, nullptr, &sampler);
+	vkCreateSampler(device, &sampler_info, nullptr, &sampler); // cube map sampling
 	sampler_cache.add_sampler(sampler);
 
 	sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
 	sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
 	sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
-	sampler_info.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK; // reverse depth
+	sampler_info.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK; 
 
-	vkCreateSampler(device, &sampler_info, nullptr, &sampler);
-	sampler_cache.add_sampler(sampler);
-
-	sampler_info.magFilter = VK_FILTER_NEAREST;
-	sampler_info.minFilter = VK_FILTER_NEAREST;
-	sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-	sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-	sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-	sampler_info.borderColor = {};
-
-	vkCreateSampler(device, &sampler_info, nullptr, &sampler);
+	vkCreateSampler(device, &sampler_info, nullptr, &sampler); // shadow map sampler - potentially problematic, clamp to edge?
 	sampler_cache.add_sampler(sampler);
 
 	sampler_info.magFilter = VK_FILTER_LINEAR;
@@ -1630,8 +1626,8 @@ void VulkanEngine::init_default_data()
 
 	sampler_info.pNext = &reduction_info;
 
-	vkCreateSampler(device, &sampler_info, nullptr, &sampler);
-	sampler_cache.add_sampler(sampler); // id = 4
+	vkCreateSampler(device, &sampler_info, nullptr, &sampler); // building hi-z 
+	sampler_cache.add_sampler(sampler); 
 
 	sampler_info.pNext = nullptr;
 	sampler_info.magFilter = VK_FILTER_NEAREST;
@@ -1642,7 +1638,7 @@ void VulkanEngine::init_default_data()
 	sampler_info.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK; // reverse depth
 
 	vkCreateSampler(device, &sampler_info, nullptr, &sampler);
-	sampler_cache.add_sampler(sampler); // id = 5
+	sampler_cache.add_sampler(sampler); 
 
 	//> CSM
 	float far = LIGHT_FAR_PLANE; 
@@ -1811,15 +1807,8 @@ void VulkanEngine::init_renderables()
 		destroy_image(brdflut_image);
 		});
 
-	//std::string asset_path = "../../assets/ABeautifulGame.glb";
-	//std::string asset_path = "../../assets/sphere.gltf";
-	//std::string asset_path = "../../assets/khronos_sponza/Sponza.gltf";
-	//std::string asset_path = "../../assets/bistro_interior_wine_ktx2/BistroInterior_WineFixed.gltf";
-	//std::string asset_path = "../../assets/bistro_exterior_ktx2/BistroExteriorFixed.gltf";
-	std::string asset_path = "../../assets/suzanne.gltf";
-	//std::string asset_path = "../../assets/AlphaBlendModeTest.glb";
 	auto start{ std::chrono::system_clock::now() };
-	auto asset_file = load_gltf(this, asset_path);
+	auto asset_file = load_gltf(this, ASSET_PATH);
 	auto end{ std::chrono::system_clock::now() };
 	auto elapsed{ std::chrono::duration_cast<std::chrono::microseconds>(end - start) };
 	float ret = elapsed.count() / 1000.0f;
@@ -1893,7 +1882,7 @@ void VulkanEngine::init_bindless()
 	write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 	write.dstSet = bindless_tex_descriptor;
 	write.dstBinding = 0;
-	write.descriptorCount = static_cast<uint32_t>(texture_cache.image_infos.size()); // (!) validation layer does not report if smaller count than req used; fragment sample simply returns black
+	write.descriptorCount = static_cast<uint32_t>(texture_cache.image_infos.size()); // validation layer does not report if smaller count than req used
 	write.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
 	write.pImageInfo = texture_cache.image_infos.data();
 	writes.push_back(write);
@@ -1980,6 +1969,7 @@ void VulkanEngine::update_scene()
 	stats.draw_count = 0;
 	auto start = std::chrono::system_clock::now();
 
+	main_camera.near = CVAR_SHADOW_NEAR.get();
 	main_camera.update(stats.deltatime);
 
 	scene_data.view = main_camera.get_view_matrix();
@@ -1997,7 +1987,7 @@ void VulkanEngine::update_scene()
 	}
 	scene_data.camera_pos = glm::vec4(main_camera.position, 1.0);
 
-	// (!) uncomment if registering objects here
+	// uncomment if registering objects here
 	//render_scene.renderables.clear();
 	//render_scene.unbatched_objects.clear();
 
@@ -2059,7 +2049,7 @@ VkShaderModule ShaderCache::add_shader(VkDevice device, const char* path)
 
 uint32_t MaterialCache::add_material(ShaderPass* forward, ShaderPass* shadow)
 {
-	// (!) highly inefficient due to linear search, refactor
+	// TODO: refactor - highly inefficient, performing linear search
 	for (size_t i = 0; i < data.size(); i++)
 	{
 		if (data[i].forward_pass == forward && data[i].shadow_pass == shadow)
@@ -2149,22 +2139,21 @@ void VulkanEngine::shadow_pass(VkCommandBuffer cmd, RenderScene::MeshPass& pass,
 
 	auto depth_bias = 0.f;
 	auto slope_scaled_depth_bias = 0.f;
-	vkCmdSetDepthBias(cmd, -depth_bias, 0.0f, -slope_scaled_depth_bias); // (!) modify for double sided geometry? no back face culling to assist with artifacts
+	// TODO: refactor to account for different geometry (double-sided or back face culled)
+	vkCmdSetDepthBias(cmd, -depth_bias, 0.0f, -slope_scaled_depth_bias); 
 
 	ShaderPass current_pass = *shader_passes["shadow"];
-	// (!) ugly - refactor current_pass.layout and current_pass? 
-	// (!) these are not reset between dynamic rendering instances - verify
+	// TODO: refactor - clean up when reimplementing shadows
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
 
-	//> gpu driven
-	ShadowPushConstants pc{}; // (!) clean up
+	ShadowPushConstants pc{}; 
 	pc.viewproj = cascade.viewproj;
 
 	VkBufferDeviceAddressInfo address_info{};
 	address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
-	pc.material_buffer_address = render_scene.renderables[0].material_buffer_address; // (!) refactor this
+	pc.material_buffer_address = render_scene.renderables[0].material_buffer_address; // TODO: hardcoded, refactor
 
 	address_info.buffer = render_scene.object_buffer.buffer;
 	pc.object_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
@@ -2195,7 +2184,9 @@ void VulkanEngine::update_cascade()
 	auto light_dir = glm::normalize(glm::vec3(scene_data.sunlight_dir));
 
 	glm::mat4 view = main_camera.get_view_matrix();
-	// (!) refactor draw_extent?
+	// TODO: refactor when implementing window resize
+
+	// TODO: change to infinite far plane and use draw distance in culling shader
 	glm::mat4 proj = glm::perspective(glm::radians(main_camera.fov), static_cast<float>(draw_extent.width) / draw_extent.height, LIGHT_FAR_PLANE, main_camera.far);
 	glm::mat4 inv_viewproj = glm::inverse(proj * view);
 	
@@ -2233,7 +2224,7 @@ void VulkanEngine::update_cascade()
 		}
 		last_split = current_split;
 
-		// (!) TODO: try ritter's
+		// TODO: try ritter's for tighter stable cascades?
 		glm::vec3 center{};
 		for (size_t i = 0; i < transformed_corners.size(); i++)
 		{
@@ -2291,7 +2282,7 @@ void VulkanEngine::init_imgui()
 	// Setup Platform/Renderer backends
 	ImGui_ImplSDL2_InitForVulkan(window);
 	ImGui_ImplVulkan_InitInfo init_info{};
-	init_info.ApiVersion = VK_API_VERSION_1_3; // (!) hardcoded
+	init_info.ApiVersion = VK_API_VERSION_1_3; // TODO: hardcoded
 	init_info.Instance = instance;
 	init_info.PhysicalDevice = chosen_gpu;
 	init_info.Device = device;
@@ -2406,14 +2397,14 @@ void VulkanEngine::ready_mesh_draw()
 		{
 			fmt::println("count_buffer");
 			pass.count_buffer = reallocate_buffer(
-				4 * sizeof(uint32_t), // (!) TODO: refactor when reintroducing multiple pipelines - will break
+				4 * sizeof(uint32_t), // TODO: refactor when reintroducing multiple pipelines - will break
 				pass.count_buffer,
 				0,
 				VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_2_TRANSFER_DST_BIT
 			);
 
 			pass.cluster_count_buffer = reallocate_buffer(
-				4 * sizeof(uint32_t), // (!) TODO: refactor when reintroducing multiple pipelines - will break
+				4 * sizeof(uint32_t), // TODO: refactor when reintroducing multiple pipelines - will break
 				pass.cluster_count_buffer,
 				0,
 				VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_2_TRANSFER_DST_BIT
@@ -2502,7 +2493,7 @@ void VulkanEngine::ready_cull_data(RenderScene::MeshPass& pass, CullData& cull_d
 	normalize_plane(left_plane);
 	normalize_plane(bottom_plane);
 
-	// (!) TODO: fix
+	// TODO: fix
 	//if (orthographic)
 	//{
 	//	cull_data.frustum_planes[0] = m3 - m2; // near
@@ -2578,7 +2569,7 @@ void VulkanEngine::ready_cull_data(RenderScene::MeshPass& pass, ClusterCullData&
 	normalize_plane(left_plane);
 	normalize_plane(bottom_plane);
 
-	// (!) TODO: fix
+	// TODO: fix
 	//if (orthographic)
 	//{
 	//	cull_data.frustum_planes[0] = m3 - m2; // near
@@ -2689,7 +2680,8 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t query)
 
 	auto depth_bias = 0.f;
 	auto slope_scaled_depth_bias = 0.f;
-	vkCmdSetDepthBias(cmd, -depth_bias, 0.0f, -slope_scaled_depth_bias); // (!) modify for double sided geometry? no back face culling to assist with artifacts
+	// TODO: refactor to account for different geometry (double-sided or back face culled)
+	vkCmdSetDepthBias(cmd, -depth_bias, 0.0f, -slope_scaled_depth_bias); 
 
 	GPUPushConstants pc{};
 	VkBufferDeviceAddressInfo address_info{};
@@ -2733,7 +2725,7 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t query)
 			vkCmdDrawIndexedIndirectCount(cmd, render_scene.forward_pass.draw_indirect_buffer.buffer, multibatch.offset * sizeof(VkDrawIndexedIndirectCommand),
 				render_scene.forward_pass.count_buffer.buffer, i * sizeof(uint32_t),
 				multibatch.max_draw_count, sizeof(VkDrawIndexedIndirectCommand)
-			); // (!) TODO: refactor when reintroducing multiple pipelines - will break
+			); // TODO: refactor when reintroducing multiple pipelines - will break
 
 			stats.draw_count++;
 		}
@@ -2759,7 +2751,7 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t query)
 			const auto& pipeline = multibatch.pipeline;
 
 			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
-			// (!) TODO: refactor when reintroducing multiple pipelines - will break, will probably need indirectcount
+			// TODO: refactor when reintroducing multiple pipelines - will break, will probably need indirectcount
 			//vkCmdDrawMeshTasksIndirectEXT(cmd, render_scene.forward_pass.count_buffer.buffer, sizeof(uint32_t), 1, 0); 
 			vkCmdDrawMeshTasksIndirectEXT(cmd, render_scene.forward_pass.cluster_count_buffer.buffer, sizeof(uint32_t), 1, 0);
 

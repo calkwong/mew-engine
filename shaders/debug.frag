@@ -4,6 +4,7 @@
 #extension GL_EXT_nonuniform_qualifier : require
 
 #include "scene.glsl"
+#include "samplers.glsl"
 
 layout (location = 0) in vec2 inUV;
 
@@ -29,7 +30,7 @@ float LinearizeDepth(float depth)
 
 void main()
 {
-	float depth = textureLod(sampler2D(allTextures[pc.texture_id], samplers[5]), inUV, float(pc.lod)).r; 
+	float depth = textureLod(sampler2D(allTextures[pc.texture_id], samplers[DEPTH_PYRAMID_DEBUG_SAMPLER]), inUV, float(pc.lod)).r; 
 
 	depth = LinearizeDepth(1.0 - depth);
 

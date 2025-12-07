@@ -10,7 +10,7 @@ void DescriptorLayoutBuilder::add_binding(uint32_t binding, VkDescriptorType typ
 {
 	VkDescriptorSetLayoutBinding newbind{};
 	newbind.binding = binding;
-	newbind.descriptorCount = 1; // (!) what about bindless indexing
+	newbind.descriptorCount = 1; // TODO: account for bindless?
 	newbind.descriptorType = type;
 	newbind.stageFlags = shader_stage;
 	
@@ -147,7 +147,7 @@ VkDescriptorPool DescriptorAllocatorGrowable::create_pool(VkDevice device, uint3
 
 	VkDescriptorPoolCreateInfo pool_info{};
 	pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-	pool_info.flags = 0; // (!) bindless indexing? update after bind?
+	pool_info.flags = 0; 
 	pool_info.maxSets = max_sets;
 	pool_info.poolSizeCount = static_cast<uint32_t>(pool_sizes.size());
 	pool_info.pPoolSizes = pool_sizes.data();

@@ -134,7 +134,7 @@ VkImageViewCreateInfo vkinit::imageview_create_info(VkFormat format, VkImage ima
     info.format = format;
     
     VkImageSubresourceRange subimage = vkinit::image_subresource_range(aspect_mask);
-    info.subresourceRange = subimage; // (!) layer and level count with remaining
+    info.subresourceRange = subimage; // uses remaining layer and levels
 
     return info;
 }

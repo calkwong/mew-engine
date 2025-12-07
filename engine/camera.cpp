@@ -54,3 +54,19 @@ void Camera::update(float deltatime)
 	glm::mat4 camera_rotation = get_rotation_matrix();
 	position += glm::vec3(camera_rotation * glm::vec4(velocity * speed * deltatime, 0.0f));
 }
+
+void Camera::set_perspective_matrix(float fovy, float aspect, float znear)
+{
+	float f = 1.0f / std::tanf(fovy / 2.0f);
+
+	//perspective[0] = { f / aspect, 0.0f, 0.0f, 0.0f };
+	//perspective[1] = { 0.0f, f, 0.0f, 0.0f };
+	//perspective[2] = { 0.0f, 0.0f, 0.0f, znear };
+	//perspective[3] = { 0.0f, 0.0f, 1.0f, 0.0f };
+
+	perspective = glm::mat4(
+		f / aspect, 0.0f, 0.0f, 0.0f,
+		0.0f, f, 0.0f, 0.0f,
+		0.0f, 0.0f, 0.0f, -1.0f,
+		0.0f, 0.0f, znear, 0.0f);
+}

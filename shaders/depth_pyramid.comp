@@ -1,7 +1,10 @@
 #version 450
 
+#extension GL_GOOGLE_include_directive : require
 #extension GL_EXT_nonuniform_qualifier : require
 #extension GL_EXT_buffer_reference : require
+
+#include "samplers.glsl"
 
 layout (local_size_x = 32, local_size_y = 32) in;
 
@@ -26,7 +29,7 @@ void main()
 		vec2 uv = vec2(pos) + vec2(0.5);
 		uv = uv / pc.imageSize;
 		
-		float depth = textureLod(sampler2D(allTextures[pc.texture_id], samplers[4]), uv, pc.lod).r; // tonemap req
+		float depth = textureLod(sampler2D(allTextures[pc.texture_id], samplers[DEPTH_REDUCTION_SAMPLER]), uv, pc.lod).r; 
 	
 		imageStore(allImages[pc.image_id], pos, vec4(depth));
 	}

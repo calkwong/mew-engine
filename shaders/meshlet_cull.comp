@@ -5,6 +5,7 @@
 #extension GL_EXT_buffer_reference : require
 
 #include "mesh.glsl"
+#include "samplers.glsl"
 
 layout (local_size_x = 32) in;
 
@@ -73,7 +74,7 @@ layout(push_constant) uniform constants
 	float p00;
 	float p11;
 	float znear;
-	float zfar;
+	float zfar; // this is draw distance
 	
 	vec2 resolution;
 	float textureLod;
@@ -136,10 +137,9 @@ bool occlusionCulled(vec3 center, float radius)
 		float mip = ceil(log2(max_dim));
 		mip = min(mip, pc.textureLod); // TODO: PC
 		
-		float depth = textureLod(sampler2D(allTextures[pc.textureId], samplers[4]), (aabb.zw + aabb.xy) * 0.5, mip).r;
+		float depth = textureLod(sampler2D(allTextures[pc.textureId], samplers[DEPTH_REDUCTION_SAMPLER]), (aabb.zw + aabb.xy) * 0.5, mip).r;
 		
 		float depthSphere = pc.znear / (-center.z - radius); 
-		
 		return depthSphere < depth; // reverse depth
 	}
 }

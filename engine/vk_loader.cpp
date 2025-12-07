@@ -274,7 +274,7 @@ AllocatedImage basisu_load(VulkanEngine* engine, const char* filepath)
 	auto ss = header.m_supercompression_scheme;
 	if (ss == basist::KTX2_SS_NONE)
 	{
-		assert(0); // (!) transcoding not req, verify ktx2 in GPU ready format - not currently handled
+		assert(0); // TODO: transcoding not req, verify ktx2 in GPU ready format - not currently handled
 	}
 
 	transcoder.start_transcoding();
@@ -391,10 +391,10 @@ std::optional<AllocatedImage> load_image(VulkanEngine* engine, fastgltf::Asset& 
 
 					const std::string path(filePath.uri.path().begin(), filePath.uri.path().end());
 
-					std::string current_path = "../../assets/khronos_sponza/" + path; // (!) TODO handle this properly
-					//std::string current_path = "../../assets/DamagedHelmet/" + path; // (!) TODO handle this properly
-					//std::string current_path = "../../assets/bistro_exterior_ktx2/" + path; // (!) TODO handle this properly
-					//std::string current_path = "../../assets/bistro_interior_wine_ktx2/" + path; // (!) TODO handle this properly
+					std::string current_path = "../../assets/khronos_sponza/" + path; // TODO handle this properly
+					//std::string current_path = "../../assets/DamagedHelmet/" + path; // TODO handle this properly
+					//std::string current_path = "../../assets/bistro_exterior_ktx2/" + path; // TODO handle this properly
+					//std::string current_path = "../../assets/bistro_interior_wine_ktx2/" + path; // TODO handle this properly
 
 					std::filesystem::path p = path;
 					if (p.extension() == ".ktx2")
@@ -413,7 +413,7 @@ std::optional<AllocatedImage> load_image(VulkanEngine* engine, fastgltf::Asset& 
 					}
 
 				},
-		// (!) handle KTX2
+		// TODO: handle KTX2
 			[&](fastgltf::sources::Vector& vector) {
 					unsigned char* data = stbi_load_from_memory(vector.bytes.data(), static_cast<int>(vector.bytes.size()), &width, &height, &channels, 4);
 					if (data)
@@ -424,7 +424,7 @@ std::optional<AllocatedImage> load_image(VulkanEngine* engine, fastgltf::Asset& 
 						stbi_image_free(data);
 					}
 				},
-		// (!) handle KTX2
+		// TODO: handle KTX2
 			[&](fastgltf::sources::BufferView& view) {
 					auto& bufferView = asset.bufferViews[view.bufferViewIndex];
 					auto& buffer = asset.buffers[bufferView.bufferIndex];
@@ -526,7 +526,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 		return {};
 	}
 
-	// (!) load samplers - not used, to handle
+	// TODO: samplers unused, refactor
 	fmt::println("gltf file has {} samplers", gltf.samplers.size());
 	for (fastgltf::Sampler& sampler : gltf.samplers)
 	{
@@ -552,9 +552,9 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 	fmt::println("gltf file has {} images", gltf.images.size());
 	std::vector<AllocatedImage> images(gltf.images.size());
 
-	// (!) currently supports ktx2 in URI only
+	// TODO: currently supports ktx2 in URI only
 	bool is_ktx2{};
-	if (gltf.images.size() > 0) // (!) TODO: hack
+	if (gltf.images.size() > 0) // TODO: hack, refactor
 	{
 		std::visit(
 			fastgltf::visitor{
@@ -889,7 +889,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 			}
 			else
 			{
-				// (!) mesh has no material, assign first material
+				// TODO: refactor - mesh has no material, assign first material
 				auto m = materials[0];
 				new_surface.material_id = 0;
 				ShaderPass* forward = engine->shader_passes["textured_lit"].get();
@@ -926,7 +926,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 		else
 		{
 			fmt::println("node has no mesh: ", node.name.c_str());
-			new_node = std::make_shared<Node>(); // (!) absorbing allocation cost for dummy node
+			new_node = std::make_shared<Node>(); // TODO: refactor? absorbing allocation cost for dummy node
 		}
 
 		nodes.push_back(new_node);

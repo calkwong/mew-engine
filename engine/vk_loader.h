@@ -39,7 +39,7 @@ struct MeshAsset
 	VkBuffer index_buffer{};
 	VkDeviceAddress vertex_buffer_address{};
 
-	// (!) refactor in the future? added for multiple scenes compatibility
+	// TODO: refactor in the future? added for multiple scenes compatibility
 	VkDeviceAddress material_buffer_address{};
 };
 
@@ -72,7 +72,7 @@ struct LoadedGLTF
 	std::vector<VkSampler> samplers{};
 
 	GPUMeshBuffers combined_mesh_buffer{};
-	AllocatedBuffer material_buffer{}; // (!) possible refactor
+	AllocatedBuffer material_buffer{}; // TODO: possibly move this out to vk_scene?
 	VkDeviceAddress material_buffer_address{};
 
 	AllocatedBuffer meshlet_indices{};

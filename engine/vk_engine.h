@@ -140,7 +140,7 @@ struct TextureCache
 
 	uint32_t add_texture(const VkImageView& view);
 
-	// (!) refactor
+	// TODO: refactor
 	void set_draw_image(uint32_t id) { draw_id = id; };
 	void set_draw_image2(uint32_t id) { draw_id2 = id; };
 	void set_depth_image(uint32_t id) { depth_id = id; };
@@ -161,7 +161,7 @@ struct SamplerCache
 {
 	std::vector<VkDescriptorImageInfo> image_infos{};
 
-	// (!) currently performs no checking
+	// TODO: perform cache checking
 	void add_sampler(const VkSampler& sampler);
 };
 
