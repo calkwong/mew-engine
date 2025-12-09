@@ -43,8 +43,8 @@ layout( push_constant ) uniform constants
 	//MeshletIndicesBuffer meshletIndicesBuffer;
 	//CountBuffer countBuffer;
 	//ClusterIndicesBuffer clusterIndicesBuffer; 
-	uint padding[12]; 
-	uint debugMeshlets;
+	//uint debugMeshlets;
+	uint padding[13]; 
 } pc;
 
 void main() 

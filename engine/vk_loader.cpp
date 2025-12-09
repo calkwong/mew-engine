@@ -374,7 +374,7 @@ VkSamplerMipmapMode extract_mipmap(fastgltf::Filter filter)
 	}
 }
 
-std::optional<AllocatedImage> load_image(VulkanEngine* engine, fastgltf::Asset& asset, fastgltf::Image& image, VkFormat format, bool mipmapped = false)
+std::optional<AllocatedImage> load_image(VulkanEngine* engine, const std::string& parent_path, fastgltf::Asset& asset, fastgltf::Image& image, VkFormat format, bool mipmapped = false)
 {
 	AllocatedImage new_image{};
 
@@ -391,10 +391,8 @@ std::optional<AllocatedImage> load_image(VulkanEngine* engine, fastgltf::Asset& 
 
 					const std::string path(filePath.uri.path().begin(), filePath.uri.path().end());
 
-					std::string current_path = "../../assets/khronos_sponza/" + path; // TODO handle this properly
-					//std::string current_path = "../../assets/DamagedHelmet/" + path; // TODO handle this properly
-					//std::string current_path = "../../assets/bistro_exterior_ktx2/" + path; // TODO handle this properly
-					//std::string current_path = "../../assets/bistro_interior_wine_ktx2/" + path; // TODO handle this properly
+					std::filesystem::path parent = parent_path;
+					std::string current_path = parent.parent_path().string() + '/' + path; // TODO: make this cleaner
 
 					std::filesystem::path p = path;
 					if (p.extension() == ".ktx2")
@@ -462,7 +460,7 @@ std::optional<AllocatedImage> load_image(VulkanEngine* engine, fastgltf::Asset& 
 	return new_image;
 }
 
-std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::string_view file_path)
+std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const std::string& file_path)
 {
 	fmt::println("Loading GLTF: {}", file_path);
 
@@ -579,7 +577,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 		{
 			fastgltf::Image& image = gltf.images[idx];
 			//fmt::println("image: {}", image.name.c_str()); // debug
-			std::optional<AllocatedImage> img = load_image(engine, gltf, image, VK_FORMAT_R8G8B8A8_SRGB, true);
+			std::optional<AllocatedImage> img = load_image(engine, file_path, gltf, image, VK_FORMAT_R8G8B8A8_SRGB, true);
 			if (img.has_value())
 			{
 				images[idx] = (*img);
@@ -620,7 +618,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, std::
 		if (!images_set[idx])
 		{
 			images_set[idx] = true;
-			img = load_image(engine, gltf, gltf.images[idx], format, true);
+			img = load_image(engine, file_path, gltf, gltf.images[idx], format, true);
 			if (img.has_value())
 			{
 				images[idx] = (*img);

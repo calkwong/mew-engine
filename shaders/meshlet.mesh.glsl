@@ -122,11 +122,11 @@ void main()
 		vec4 position = o.worldMatrix * vec4(v.position, 1.0);
 		outNormal[i] = mat3(transpose(inverse(o.worldMatrix))) * v.normal;
 		
-		//if (pc.debugMeshlets == 1)
-		//{
-		//	uint mhash = hash(meshletOffset);
-		//	outNormal[i] = vec3(float(mhash & 255), float((mhash >> 8) & 255), float((mhash >> 16) & 255)) / 255.0;
-		//}
+		if (pc.debugMeshlets == 1)
+		{
+			uint mhash = hash(meshletOffset);
+			outNormal[i] = vec3(float(mhash & 255), float((mhash >> 8) & 255), float((mhash >> 16) & 255)) / 255.0;
+		}
 		
 		outViewPos[i] = vec3(sceneData.view * position);
 		outTangent[i] = vec4(mat3(transpose(inverse(o.worldMatrix))) * v.tangent.xyz, v.tangent.w);

@@ -36,7 +36,7 @@ struct GPUPushConstants // temporarily shared by vertex and mesh shading path
 	VkDeviceAddress meshlet_indices_buffer_address{};
 	VkDeviceAddress count_buffer_address{};
 	VkDeviceAddress cluster_indices_address{};
-	uint32_t debug;
+	uint32_t debug_meshlets;
 };
 
 //struct ShadowPushConstants
@@ -221,6 +221,10 @@ public:
 	uint32_t frame_number{ 0 };
 	bool stop_rendering{ false };
 	bool stop_movement{ false };
+	bool freeze_camera{ false };
+	glm::mat4 last_view{};
+	glm::mat4 last_proj{};
+
 	VkExtent2D window_extent{ 1700, 900 };
 
 	VkInstance instance{}; // vulkan library handle

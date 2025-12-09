@@ -1,3 +1,5 @@
+// TODO: REFACTOR, PLENTY OF COMMITS BEHIND
+
 #version 450
 
 layout (location = 0) out vec3 outUVW;

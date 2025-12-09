@@ -29,7 +29,6 @@ struct Handle<DrawPrimitive> {
 	uint32_t handle{};
 };
 
-// (!) reorder
 struct RenderObject
 {
 	Handle<DrawPrimitive> primitive_id{};

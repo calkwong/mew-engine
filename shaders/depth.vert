@@ -1,3 +1,5 @@
+// TODO: REFACTOR, PLENTY OF COMMITS BEHIND
+
 #version 450
 #extension GL_EXT_buffer_reference : require
 

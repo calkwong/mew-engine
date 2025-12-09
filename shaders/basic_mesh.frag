@@ -8,6 +8,7 @@
 #include "mesh.glsl"
 #include "samplers.glsl"
 
+// TODO: clean up - lots of redundant interpolants based on old pbr code that's been put aside
 layout (location = 0) in vec3 inNormal;
 layout (location = 1) in vec3 inWorldPos;
 layout (location = 2) in vec3 inViewPos;
@@ -42,20 +43,13 @@ layout(set = 2, binding = 0) uniform sampler samplers[];
 void main() 
 {	
 	vec3 N = normalize(inNormal); 
-	vec3 T = normalize(inTangent.xyz); 
 	
-	switch (pc.debugMeshlets)
+	outFragColor = vec4(N, 1.0);
+	
+	if (pc.debugMeshlets == 0)
 	{
-	case 0: // NORMALS
 		N = N.xyz * 0.5 + 0.5;
 		outFragColor = vec4(N, 1);
-		break;
-	case 1:
-		T = T.xyz * 0.5 + 0.5;
-		outFragColor = vec4(T, 1);
-		break;
-	case 2:
-		outFragColor = vec4(inUV, 0, 1);
-		break;
 	}
+	
 }

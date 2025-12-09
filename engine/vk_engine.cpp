@@ -50,16 +50,14 @@ VulkanEngine& VulkanEngine::get() { return *loaded_engine; }
 	constexpr bool USE_VALIDATION_LAYERS = true;
 #endif
 
-//#define SHADOW
+//#define SHADOW // TODO: currently not working
 //#define SINGLE
 
-//std::string ASSET_PATH = "../../assets/ABeautifulGame.glb";
 //std::string ASSET_PATH = "../../assets/sphere.gltf";
 //std::string ASSET_PATH = "../../assets/khronos_sponza/Sponza.gltf";
 //std::string ASSET_PATH = "../../assets/bistro_interior_wine_ktx2/BistroInterior_WineFixed.gltf";
 //std::string ASSET_PATH = "../../assets/bistro_exterior_ktx2/BistroExteriorFixed.gltf";
 std::string ASSET_PATH = "../../assets/suzanne.gltf";
-//std::string ASSET_PATH = "../../assets/AlphaBlendModeTest.glb";
 
 constexpr float LIGHT_FAR_PLANE{ 150.0f };
 constexpr uint32_t SHADOW_MAP_SIZE{ 2048 };
@@ -67,11 +65,12 @@ constexpr int NUMBER_OF_CASCADES{ 4 };
 
 AutoCVar_Int CVAR_SHADOW_NEAR{ "shadow.near", "pull back light frustum near plane", 1000, 1000, CVarFlags::EditSliderInt };
 AutoCVar_Int CVAR_TOGGLE_OCCLUSION{ "occlusion", "occlusion enabled", 1, 1, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_RENDER_PYRAMID{ "depth_pyramid.render", "render depth pyramid", 0, 0, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_TOGGLE_DEPTH_PYRAMID{ "depth_pyramid.render", "render depth pyramid", 0, 0, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_DEPTH_PYRAMID_LOD{ "depth_pyramid.lod", "", 0, 0, CVarFlags::EditSliderInt };
-AutoCVar_Int CVAR_TOGGLE_LOD{ "LOD", "LOD enabled", 0, 0, CVarFlags::EditCheckbox};
+AutoCVar_Int CVAR_TOGGLE_LOD{ "LOD", "LOD enabled", 1, 1, CVarFlags::EditCheckbox};
 AutoCVar_Int CVAR_TOGGLE_MESH_SHADING{ "Mesh shading", "Mesh shaders enabled", 1, 1, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_TOGGLE_DEBUG{ "Debug", "Debugging vertex coordinates", 0, 0, CVarFlags::EditSliderInt };
+AutoCVar_Int CVAR_TOGGLE_VIEW_MESHLETS{ "Visualize meshlets", "Visualize meshlets", 1, 1, CVarFlags::EditCheckbox};
+AutoCVar_Int CVAR_TOGGLE_FREEZE{ "Freeze rendering", "Freeze rendering", 0, 0, CVarFlags::EditCheckbox };
 
 uint32_t nearest_pow2(uint32_t extent)
 {
@@ -281,8 +280,10 @@ void VulkanEngine::draw()
 	ClusterCullData forward_cluster_cull_data{};
 
 	{
-		ready_cull_data(render_scene.forward_pass, forward_mesh_cull_data, scene_data.proj);
-		ready_cull_data(render_scene.forward_pass, forward_cluster_cull_data, scene_data.proj);
+		auto proj = freeze_camera ? last_proj : scene_data.proj;
+
+		ready_cull_data(render_scene.forward_pass, forward_mesh_cull_data, proj);
+		ready_cull_data(render_scene.forward_pass, forward_cluster_cull_data, proj);
 	}
 
 	uint32_t swapchain_image_idx{};
@@ -321,7 +322,6 @@ void VulkanEngine::draw()
 
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 0);
 		execute_compute_cull(cmd, render_scene.forward_pass, forward_mesh_cull_data, false);
-
 		if (CVAR_TOGGLE_MESH_SHADING.get())
 		{
 			vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
@@ -337,7 +337,7 @@ void VulkanEngine::draw()
 			auto addr = vkGetBufferDeviceAddress(device, &address_info);
 
 			vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(VkDeviceAddress), &addr);
-			vkCmdDispatch(cmd, 1, 1, 1); // tasksubmit
+			vkCmdDispatch(cmd, 1, 1, 1); // TODO: task submit - currently redundant, but may come useful as renderer becomes more complex
 
 			vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
 				VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT
@@ -378,7 +378,8 @@ void VulkanEngine::draw()
 		render(cmd, false, 0);
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 3);
 
-		build_depth_pyramid(cmd);
+		if (!freeze_camera)
+			build_depth_pyramid(cmd);
 
 		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_PIPELINE_STAGE_2_CLEAR_BIT,
 			VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT
@@ -409,7 +410,7 @@ void VulkanEngine::draw()
 			auto addr = vkGetBufferDeviceAddress(device, &address_info);
 
 			vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(VkDeviceAddress), &addr);
-			vkCmdDispatch(cmd, 1, 1, 1);
+			vkCmdDispatch(cmd, 1, 1, 1); // TODO: task submit - currently redundant, but may come useful as renderer becomes more complex
 
 			vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
 				VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT
@@ -417,23 +418,27 @@ void VulkanEngine::draw()
 
 			execute_compute_cull(cmd, render_scene.forward_pass, forward_cluster_cull_data, render_scene.forward_pass.count_buffer.buffer, 4, 1);
 		}
+
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 5);
 
 		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT,
 			VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT
 		);
 
-		vkutil::transition_image(
-			cmd,
-			depth_image.image,
-			VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-			VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
-			VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-			VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
-			VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-			VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
-			VK_IMAGE_ASPECT_DEPTH_BIT
-		);
+		if (!freeze_camera)
+		{
+			vkutil::transition_image(
+				cmd,
+				depth_image.image,
+				VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+				VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+				VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+				VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+				VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
+				VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
+				VK_IMAGE_ASPECT_DEPTH_BIT
+			);
+		}
 
 		vkutil::transition_image(
 			cmd,
@@ -450,24 +455,23 @@ void VulkanEngine::draw()
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 6);
 		render(cmd, true, 1);
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 7);
-
-		vkutil::transition_image(
-			cmd,
-			depth_image.image,
-			VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
-			VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-			VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
-			VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-			VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-			VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-			VK_IMAGE_ASPECT_DEPTH_BIT
-		);
-
 	}
 	
+	if (CVAR_TOGGLE_DEPTH_PYRAMID.get())
 	{
 		execute_debug_pass(cmd);
 	}
+
+	vkutil::transition_image(
+		cmd,
+		draw_image.image,
+		VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+		VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+		VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+		VK_PIPELINE_STAGE_2_BLIT_BIT,
+		VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+		VK_ACCESS_2_TRANSFER_READ_BIT
+	);
 
 	vkutil::transition_image(
 		cmd,
@@ -793,6 +797,8 @@ void VulkanEngine::run()
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
             continue;
         }
+
+		freeze_camera = CVAR_TOGGLE_FREEZE.get();
 
 		ImGui_ImplVulkan_NewFrame();
 		ImGui_ImplSDL2_NewFrame();
@@ -1834,8 +1840,8 @@ void VulkanEngine::init_renderables()
 	}
 
 	std::mt19937 mt(42);
-	auto draw_radius = 20.0f;
-	auto draw_count = 5'000;
+	auto draw_radius = 200.0f;
+	auto draw_count = 500'000;
 
 	for (size_t i = 0; i < draw_count; i++)
 	{
@@ -1969,12 +1975,16 @@ void VulkanEngine::update_scene()
 	stats.draw_count = 0;
 	auto start = std::chrono::system_clock::now();
 
-	main_camera.near = CVAR_SHADOW_NEAR.get();
+	// TODO: consider updating main_camera.near to account for configurable draw distance?
 	main_camera.update(stats.deltatime);
 
 	scene_data.view = main_camera.get_view_matrix();
 	scene_data.proj = main_camera.perspective;
 	scene_data.viewproj = scene_data.proj * scene_data.view;
+
+	last_view = freeze_camera ? last_view : scene_data.view;
+	last_proj = freeze_camera ? last_proj : scene_data.proj;
+
 	//scene_data.sunlight_dir = glm::vec4(7.75, 12.5, 12.5, 1.);
 	scene_data.sunlight_dir = glm::vec4(0.001, 12.0, 0.0, 1.);
 	//scene_data.sunlight_dir = glm::vec4(0.0, 12.0, 12.0, 1.);
@@ -2093,22 +2103,11 @@ void VulkanEngine::execute_debug_pass(VkCommandBuffer cmd)
 	pc.texture_id = texture_cache.get_depth_pyramid_image();
 	pc.lod = CVAR_DEPTH_PYRAMID_LOD.get();
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(DebugPushConstants), &pc);
-	if (CVAR_RENDER_PYRAMID.get())
-		vkCmdDraw(cmd, 3, 1, 0, 0);
+	vkCmdDraw(cmd, 3, 1, 0, 0);
+
 	stats.draw_count++;
 
 	vkCmdEndRendering(cmd);
-
-	vkutil::transition_image(
-		cmd,
-		draw_image.image,
-		VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-		VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-		VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-		VK_PIPELINE_STAGE_2_BLIT_BIT,
-		VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-		VK_ACCESS_2_TRANSFER_READ_BIT
-	);
 }
 
 void VulkanEngine::shadow_pass(VkCommandBuffer cmd, RenderScene::MeshPass& pass, size_t cascade_idx)
@@ -2500,7 +2499,7 @@ void VulkanEngine::ready_cull_data(RenderScene::MeshPass& pass, CullData& cull_d
 	//	cull_data.frustum_planes[1] = m3 + m2; // far
 	//}
 
-	cull_data.view = scene_data.view;
+	cull_data.view = freeze_camera ? last_view : scene_data.view;
 	cull_data.frustum_planes = glm::vec4(left_plane.x, left_plane.z, bottom_plane.y, bottom_plane.z);
 
 	VkBufferDeviceAddressInfo address_info{};
@@ -2576,7 +2575,7 @@ void VulkanEngine::ready_cull_data(RenderScene::MeshPass& pass, ClusterCullData&
 	//	cull_data.frustum_planes[1] = m3 + m2; // far
 	//}
 
-	cull_data.view = scene_data.view;
+	cull_data.view = freeze_camera ? last_view : scene_data.view;
 	cull_data.frustum_planes = glm::vec4(left_plane.x, left_plane.z, bottom_plane.y, bottom_plane.z);
 
 	VkBufferDeviceAddressInfo address_info{};
@@ -2653,7 +2652,7 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t query)
 {
 	vkCmdBeginQuery(cmd, get_current_frame().query_pool_pipelines, query, 0);
 
-	VkClearColorValue clear_color_value{ 0.0f, 0.0f, 0.0f, 1.0f };
+	VkClearColorValue clear_color_value{ 1.0f, 1.0f, 1.0f, 1.0f };
 	VkClearValue clear_value{ .color = clear_color_value };
 	VkRenderingAttachmentInfo color_attachment = late ? vkinit::attachment_info(draw_image.view, nullptr) : vkinit::attachment_info(draw_image.view, &clear_value);
 	VkRenderingAttachmentInfo depth_attachment = vkinit::depth_attachment_info(depth_image.view);
@@ -2702,7 +2701,7 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t query)
 	pc.count_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
 	address_info.buffer = render_scene.forward_pass.cluster_indices.buffer;
 	pc.cluster_indices_address = vkGetBufferDeviceAddress(device, &address_info);
-	pc.debug = CVAR_TOGGLE_DEBUG.get();
+	pc.debug_meshlets = CVAR_TOGGLE_MESH_SHADING.get() ? CVAR_TOGGLE_VIEW_MESHLETS.get() : 0;
 
 	if (!CVAR_TOGGLE_MESH_SHADING.get())
 	{
