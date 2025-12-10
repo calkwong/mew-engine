@@ -1,0 +1,36 @@
+[submodule "external/imgui"]
+	path = external/imgui
+	url = https://github.com/ocornut/imgui
+[submodule "external/fmt"]
+	path = external/fmt
+	url = https://github.com/fmtlib/fmt
+[submodule "external/MikkTSpace"]
+	path = external/MikkTSpace
+	url = https://github.com/mmikk/MikkTSpace
+[submodule "external/meshoptimizer"]
+	path = external/meshoptimizer
+	url = https://github.com/zeux/meshoptimizer
+[submodule "external/stb"]
+	path = external/stb
+	url = https://github.com/nothings/stb
+[submodule "external/basis_universal"]
+	path = external/basis_universal
+	url = https://github.com/BinomialLLC/basis_universal
+[submodule "external/glm"]
+	path = external/glm
+	url = https://github.com/g-truc/glm
+[submodule "external/tracy"]
+	path = external/tracy
+	url = https://github.com/wolfpld/tracy
+[submodule "external/vk-bootstrap"]
+	path = external/vk-bootstrap
+	url = https://github.com/charles-lunarg/vk-bootstrap
+[submodule "external/VulkanMemoryAllocator"]
+	path = external/VulkanMemoryAllocator
+	url = https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator
+[submodule "external/fastgltf"]
+	path = external/fastgltf
+	url = https://github.com/spnda/fastgltf
+[submodule "external/SDL"]
+	path = external/SDL
+	url = https://github.com/libsdl-org/SDL
