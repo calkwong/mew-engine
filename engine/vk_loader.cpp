@@ -11,10 +11,17 @@
 #include "meshoptimizer.h"
 
 #include <vulkan/vulkan.h>
+#define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/quaternion.hpp>
-#include <fastgltf/glm_element_traits.hpp>
-#include <fastgltf/parser.hpp>
+
+#include <fastgltf/core.hpp>
+#include <fastgltf/types.hpp>
 #include <fastgltf/tools.hpp>
+#include <fastgltf/glm_element_traits.hpp>
+
+//#include <fastgltf/parser.hpp>
+//#include <fastgltf/tools.hpp>
+
 #include <fmt/core.h>
 
 #include <limits>
@@ -88,8 +95,8 @@ void optimize_mesh(
 	const uint32_t MAX_LOD = 8;
 	while (surface.lod_count < MAX_LOD)
 	{
-		uint32_t first_index = combined_indices.size();
-		uint32_t count = indices.size();
+		uint32_t first_index = static_cast<uint32_t>(combined_indices.size());
+		uint32_t count = static_cast<uint32_t>(indices.size());
 
 		// appending mesh indices
 		combined_indices.insert(combined_indices.end(), indices.begin(), indices.end());  
@@ -118,11 +125,11 @@ void optimize_mesh(
 
 		uint32_t meshlet_offset = static_cast<uint32_t>(meshlets.size());
 		lod_info.meshlet_offset = meshlet_offset; 
-		lod_info.meshlet_count = meshlet_count;
+		lod_info.meshlet_count = static_cast<uint32_t>(meshlet_count);
 
 		if (surface.lod_count == 0)
 		{
-			surface.meshlet_bits = meshlet_count;
+			surface.meshlet_bits = static_cast<uint32_t>(meshlet_count);
 		}
 
 		surface.mesh_lods[surface.lod_count++] = lod_info;
@@ -148,7 +155,7 @@ void optimize_mesh(
 
 			for (size_t i = 0; i < m.vertex_count; i++)
 			{
-				meshlet_indices.push_back(meshlet_vertices[m.vertex_offset + i] + combined_vertices.size());
+				meshlet_indices.push_back(meshlet_vertices[m.vertex_offset + i] + static_cast<uint32_t>(combined_vertices.size()));
 			}
 
 			for (size_t i = 0; i < m.triangle_count; i++)
@@ -411,9 +418,9 @@ std::optional<AllocatedImage> load_image(VulkanEngine* engine, const std::string
 					}
 
 				},
-		// TODO: handle KTX2
+		// TODO: handle KTX2; also verify reinterpret cast works after fastgltf 0.9 upgrade
 			[&](fastgltf::sources::Vector& vector) {
-					unsigned char* data = stbi_load_from_memory(vector.bytes.data(), static_cast<int>(vector.bytes.size()), &width, &height, &channels, 4);
+					unsigned char* data = stbi_load_from_memory(reinterpret_cast<const stbi_uc*>(vector.bytes.data()), static_cast<int>(vector.bytes.size()), &width, &height, &channels, 4);
 					if (data)
 					{
 						VkExtent3D image_size{ static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1 };
@@ -422,14 +429,14 @@ std::optional<AllocatedImage> load_image(VulkanEngine* engine, const std::string
 						stbi_image_free(data);
 					}
 				},
-		// TODO: handle KTX2
+		// TODO: handle KTX2; also verify reinterpret cast works after fastgltf 0.9 upgrade
 			[&](fastgltf::sources::BufferView& view) {
 					auto& bufferView = asset.bufferViews[view.bufferViewIndex];
 					auto& buffer = asset.buffers[bufferView.bufferIndex];
 					std::visit(fastgltf::visitor{
 						[](auto& arg) {},
 						[&](fastgltf::sources::Vector& vector) {
-								unsigned char* data = stbi_load_from_memory(vector.bytes.data() + bufferView.byteOffset, 
+								unsigned char* data = stbi_load_from_memory(reinterpret_cast<const stbi_uc*>(vector.bytes.data()) + bufferView.byteOffset,
 									static_cast<int>(bufferView.byteLength), &width, &height, &channels, 4
 								);
 
@@ -479,22 +486,24 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const
 
 	constexpr auto gltf_options{
 		fastgltf::Options::DontRequireValidAssetMember |
-		fastgltf::Options::LoadGLBBuffers |
+		//fastgltf::Options::LoadGLBBuffers | // now default behaviour
 		fastgltf::Options::AllowDouble |
 		fastgltf::Options::LoadExternalBuffers
 	};
 
-	fastgltf::GltfDataBuffer data{};
-	data.loadFromFile(file_path);
+	auto gltf_file = fastgltf::GltfDataBuffer::FromPath(file_path);
+	if (gltf_file.error() != fastgltf::Error::None)
+		return {};
 
 	fastgltf::Asset gltf{};
 
-	std::filesystem::path path{ file_path };
+	std::filesystem::path path = file_path;
 
-	auto type = fastgltf::determineGltfFileType(&data);
+	auto type = fastgltf::determineGltfFileType(gltf_file.get());
 	if (type == fastgltf::GltfType::glTF)
 	{
-		auto load = parser.loadGLTF(&data, path.parent_path(), gltf_options);
+		//auto load = parser.loadGLTF(&data, path.parent_path(), gltf_options);
+		auto load = parser.loadGltf(gltf_file.get(), path.parent_path(), gltf_options);
 		if (load)
 		{
 			gltf = std::move(load.get());
@@ -507,7 +516,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const
 	}
 	else if (type == fastgltf::GltfType::GLB)
 	{
-		auto load{ parser.loadBinaryGLTF(&data, path.parent_path(), gltf_options) };
+		auto load{ parser.loadGltfBinary(gltf_file.get(), path.parent_path(), gltf_options)};
 		if (load)
 		{
 			gltf = std::move(load.get());
@@ -784,7 +793,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const
 
 			// load vertex positions
 			{
-				fastgltf::Accessor& pos_accessor = gltf.accessors[p.findAttribute("POSITION")->second];
+				fastgltf::Accessor& pos_accessor = gltf.accessors[p.findAttribute("POSITION")->accessorIndex];
 				vertices.resize(pos_accessor.count);
 
 				fastgltf::iterateAccessorWithIndex<glm::vec3>(gltf, pos_accessor,
@@ -800,7 +809,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const
 				auto normals = p.findAttribute("NORMAL");
 				if (normals != p.attributes.end())
 				{
-					fastgltf::iterateAccessorWithIndex<glm::vec3>(gltf, gltf.accessors[(*normals).second],
+					fastgltf::iterateAccessorWithIndex<glm::vec3>(gltf, gltf.accessors[(*normals).accessorIndex],
 						[&](glm::vec3 v, size_t index) {
 							vertices[index].normal = v;
 						});
@@ -813,7 +822,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const
 				auto tangents = p.findAttribute("TANGENT");
 				if (tangents != p.attributes.end())
 				{
-					fastgltf::iterateAccessorWithIndex<glm::vec4>(gltf, gltf.accessors[(*tangents).second],
+					fastgltf::iterateAccessorWithIndex<glm::vec4>(gltf, gltf.accessors[(*tangents).accessorIndex],
 						[&](glm::vec4 v, size_t index) {
 							vertices[index].tangent = v;
 						});
@@ -837,7 +846,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const
 				auto uv = p.findAttribute("TEXCOORD_0");
 				if (uv != p.attributes.end())
 				{
-					fastgltf::iterateAccessorWithIndex<glm::vec2>(gltf, gltf.accessors[(*uv).second],
+					fastgltf::iterateAccessorWithIndex<glm::vec2>(gltf, gltf.accessors[(*uv).accessorIndex],
 						[&](glm::vec2 v, size_t index) {
 							vertices[index].uv_x = v.x;
 							vertices[index].uv_y = v.y;
@@ -845,7 +854,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const
 				}
 			}
 
-			new_surface.vertex_offset = combined_vertices.size();
+			new_surface.vertex_offset = static_cast<uint32_t>(combined_vertices.size());
 
 			// meshoptimizer step
 			optimize_mesh(vertices, indices, v_meshlet_indices, v_combined_meshlets, new_surface, combined_vertices, combined_indices);
@@ -932,10 +941,10 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const
 		node_idx++;
 
 		std::visit(fastgltf::visitor{
-				[&](fastgltf::Node::TransformMatrix matrix) {
+				[&](fastgltf::math::fmat4x4 matrix) {
 					memcpy(&new_node->local_transform, matrix.data(), sizeof(matrix));
 				},
-				[&](fastgltf::Node::TRS transform) {
+				[&](fastgltf::TRS transform) {
 					glm::vec3 tl(transform.translation[0], transform.translation[1],
 						transform.translation[2]);
 					glm::quat rot(transform.rotation[3], transform.rotation[0], transform.rotation[1],

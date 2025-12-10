@@ -37,7 +37,7 @@ template<typename T>
 struct CVarArray
 {
 	std::unique_ptr<CVarStorage<T>[]> cvars{};
-	int32_t size{};
+	int32_t size{}; // TODO: did i intend for this to be signed?
 
 	CVarArray(size_t capacity)
 	{
@@ -170,7 +170,7 @@ void CVarSystemImpl::draw_imgui_editor()
 
 	std::vector<CVarParameter*> params{};
 
-	for (size_t i = 0; i < get_cvars_array<int>()->size; i++)
+	for (uint32_t i = 0; i < get_cvars_array<int>()->size; i++)
 	{
 		auto p = get_cvars_array<int>()->get_current_storage(i);
 		params.push_back(p->param);
@@ -203,8 +203,7 @@ void CVarSystemImpl::edit_parameters(CVarParameter* param)
 		if (slider_int_flag)
 		{
 			int value = get_cvars_array<int>()->get_current(param->array_index);
-			if (ImGui::SliderInt(param->name.c_str(), &value, 0, 10));
-			//if (ImGui::DragInt(param->name.c_str(), &value));
+			if (ImGui::SliderInt(param->name.c_str(), &value, 0, 10)) // TODO: clean this up, make range a variable
 			{
 				get_cvars_array<int>()->set_current(value, param->array_index);
 			}

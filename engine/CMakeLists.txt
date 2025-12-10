@@ -12,8 +12,8 @@ set(imgui_sources
 	"${PROJECT_SOURCE_DIR}/external/imgui/imstb_rectpack.h"
 	"${PROJECT_SOURCE_DIR}/external/imgui/imstb_textedit.h"
 	"${PROJECT_SOURCE_DIR}/external/imgui/imstb_truetype.h"
-	"${PROJECT_SOURCE_DIR}/external/imgui/backends/imgui_impl_sdl2.cpp"
-	"${PROJECT_SOURCE_DIR}/external/imgui/backends/imgui_impl_sdl2.h"
+	"${PROJECT_SOURCE_DIR}/external/imgui/backends/imgui_impl_sdl3.cpp"
+	"${PROJECT_SOURCE_DIR}/external/imgui/backends/imgui_impl_sdl3.h"
 	"${PROJECT_SOURCE_DIR}/external/imgui/backends/imgui_impl_vulkan.cpp"
 	"${PROJECT_SOURCE_DIR}/external/imgui/backends/imgui_impl_vulkan.h"
 )
@@ -54,15 +54,15 @@ target_include_directories(engine PUBLIC
 target_link_libraries(engine PUBLIC 
 	vma 
 	glm 
-	Vulkan::Vulkan 
+	Vulkan::Vulkan
 	fmt::fmt 
-	stb_image 
-	SDL2::SDL2 
-	vkbootstrap 
+	stb
+	SDL3::SDL3
+	vk-bootstrap::vk-bootstrap
 	fastgltf::fastgltf
 	mikktspace
 	Tracy::TracyClient
-	basisu
+	basis_universal
 	meshoptimizer
 )
 

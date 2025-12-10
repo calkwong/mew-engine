@@ -1,4 +1,7 @@
 #include "camera.h"
+
+#include <SDL3/SDL.h>
+#define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/transform.hpp>
 #include <glm/gtx/quaternion.hpp>
 
@@ -21,23 +24,23 @@ glm::mat4 Camera::get_rotation_matrix() const
 
 void Camera::process_sdl_event(SDL_Event& e)
 {
-	if (e.type == SDL_KEYDOWN)
+	if (e.type == SDL_EVENT_KEY_DOWN)
 	{
-		if (e.key.repeat == 0 && e.key.keysym.sym == SDLK_w) { velocity.z -= 1; }
-		if (e.key.repeat == 0 && e.key.keysym.sym == SDLK_s) { velocity.z += 1; }
-		if (e.key.repeat == 0 && e.key.keysym.sym == SDLK_a) { velocity.x -= 1; }
-		if (e.key.repeat == 0 && e.key.keysym.sym == SDLK_d) { velocity.x += 1; }
+		if (e.key.repeat == 0 && e.key.key == SDLK_W) { velocity.z -= 1; }
+		if (e.key.repeat == 0 && e.key.key == SDLK_S) { velocity.z += 1; }
+		if (e.key.repeat == 0 && e.key.key == SDLK_A) { velocity.x -= 1; }
+		if (e.key.repeat == 0 && e.key.key == SDLK_D) { velocity.x += 1; }
 	}
 
-	if (e.type == SDL_KEYUP)
+	if (e.type == SDL_EVENT_KEY_UP)
 	{
-		if (e.key.keysym.sym == SDLK_w) { velocity.z += 1; }
-		if (e.key.keysym.sym == SDLK_s) { velocity.z -= 1; }
-		if (e.key.keysym.sym == SDLK_a) { velocity.x += 1; }
-		if (e.key.keysym.sym == SDLK_d) { velocity.x -= 1; }
+		if (e.key.key == SDLK_W) { velocity.z += 1; }
+		if (e.key.key == SDLK_S) { velocity.z -= 1; }
+		if (e.key.key == SDLK_A) { velocity.x += 1; }
+		if (e.key.key == SDLK_D) { velocity.x -= 1; }
 	}
 
-	if (e.type == SDL_MOUSEMOTION)
+	if (e.type == SDL_EVENT_MOUSE_MOTION)
 	{
 		yaw += static_cast<float>(e.motion.xrel) * sensitivity;
 		pitch -= static_cast<float>(e.motion.yrel) * sensitivity;

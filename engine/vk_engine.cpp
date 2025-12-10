@@ -14,6 +14,7 @@
 #define VMA_IMPLEMENTATION
 #include "vk_mem_alloc.h"
 
+#define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/transform.hpp>
 #include "stb_image.h"
 
@@ -22,11 +23,11 @@
 #include "glm/gtx/string_cast.hpp"
 
 #include "imgui.h"
-#include "imgui_impl_sdl2.h"
+#include "imgui_impl_sdl3.h"
 #include "imgui_impl_vulkan.h"
 
-#include <SDL.h>
-#include <SDL_vulkan.h>
+#include <SDL3/SDL.h>
+#include <SDL3/SDL_vulkan.h>
 #include <vulkan/vulkan.h>
 
 #include <thread>
@@ -50,6 +51,7 @@ VulkanEngine& VulkanEngine::get() { return *loaded_engine; }
 	constexpr bool USE_VALIDATION_LAYERS = true;
 #endif
 
+//#define IBL
 //#define SHADOW // TODO: currently not working
 //#define SINGLE
 
@@ -123,14 +125,13 @@ void VulkanEngine::init()
 
 	window = SDL_CreateWindow(
 		"Vulkan Engine",
-		SDL_WINDOWPOS_UNDEFINED,
-		SDL_WINDOWPOS_UNDEFINED,
 		window_extent.width,
 		window_extent.height,
 		window_flags
 	);
 
-	SDL_SetRelativeMouseMode(SDL_TRUE);
+	//SDL_SetRelativeMouseMode(true);
+	SDL_SetWindowRelativeMouseMode(window, true);
 
 	init_vulkan();
 
@@ -543,7 +544,7 @@ void VulkanEngine::draw()
 		device,
 		frame_query_pool_timestamps,
 		0,
-		timestamp_results.size(),
+		static_cast<uint32_t>(timestamp_results.size()),
 		timestamp_results.size() * sizeof(uint64_t),
 		timestamp_results.data(),
 		sizeof(uint64_t),
@@ -556,30 +557,30 @@ void VulkanEngine::draw()
 		device,
 		frame_query_pool_pipelines,
 		0,
-		pipeline_results.size(),
+		static_cast<uint32_t>(pipeline_results.size()),
 		pipeline_results.size() * sizeof(uint64_t),
 		pipeline_results.data(),
 		sizeof(uint64_t),
 		VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT
 	);
 
-	auto cull_begin = static_cast<double>(timestamp_results[0]) * props.limits.timestampPeriod * 1e-6;
-	auto cull_end   = static_cast<double>(timestamp_results[1]) * props.limits.timestampPeriod * 1e-6;
+	auto cull_begin = static_cast<float>(timestamp_results[0]) * props.limits.timestampPeriod * 1e-6f;
+	auto cull_end   = static_cast<float>(timestamp_results[1]) * props.limits.timestampPeriod * 1e-6f;
 	stats.early_cull = cull_end - cull_begin;
 
-	auto indirect_begin = static_cast<double>(timestamp_results[2]) * props.limits.timestampPeriod * 1e-6;
-	auto indirect_end   = static_cast<double>(timestamp_results[3]) * props.limits.timestampPeriod * 1e-6;
+	auto indirect_begin = static_cast<float>(timestamp_results[2]) * props.limits.timestampPeriod * 1e-6f;
+	auto indirect_end   = static_cast<float>(timestamp_results[3]) * props.limits.timestampPeriod * 1e-6f;
 	stats.early_indirect = indirect_end - indirect_begin;
 
-	cull_begin = static_cast<double>(timestamp_results[4]) * props.limits.timestampPeriod * 1e-6;
-	cull_end =   static_cast<double>(timestamp_results[5]) * props.limits.timestampPeriod * 1e-6;
+	cull_begin = static_cast<float>(timestamp_results[4]) * props.limits.timestampPeriod * 1e-6f;
+	cull_end =   static_cast<float>(timestamp_results[5]) * props.limits.timestampPeriod * 1e-6f;
 	stats.late_cull = cull_end - cull_begin;
 
-	indirect_begin = static_cast<double>(timestamp_results[6]) * props.limits.timestampPeriod * 1e-6;
-	indirect_end =   static_cast<double>(timestamp_results[7]) * props.limits.timestampPeriod * 1e-6;
+	indirect_begin = static_cast<float>(timestamp_results[6]) * props.limits.timestampPeriod * 1e-6f;
+	indirect_end =   static_cast<float>(timestamp_results[7]) * props.limits.timestampPeriod * 1e-6f;
 	stats.late_indirect = indirect_end - indirect_begin;
 
-	stats.triangle_count = pipeline_results[0] + pipeline_results[1];
+	stats.triangle_count = static_cast<uint32_t>(pipeline_results[0] + pipeline_results[1]); // narrowing
 }
 
 void VulkanEngine::init_precomputations()
@@ -767,29 +768,27 @@ void VulkanEngine::run()
         // Handle events on queue
         while (SDL_PollEvent(&e) != 0) 
 		{
-            if (e.type == SDL_QUIT)
+            if (e.type == SDL_EVENT_QUIT)
                 bQuit = true;
 
-            if (e.type == SDL_WINDOWEVENT) {
-                if (e.window.event == SDL_WINDOWEVENT_MINIMIZED) 
-                    stop_rendering = true;
-                if (e.window.event == SDL_WINDOWEVENT_RESTORED) 
-                    stop_rendering = false;
-            }
+			if (e.type  == SDL_EVENT_WINDOW_MINIMIZED)
+				stop_rendering = true;
+			if (e.type == SDL_EVENT_WINDOW_RESTORED) 
+				stop_rendering = false;
 
-			if (e.type == SDL_KEYDOWN)
+			if (e.type == SDL_EVENT_KEY_DOWN)
 			{
-				if (e.key.repeat == 0 && e.key.keysym.sym == SDLK_SPACE)
+				if (e.key.repeat == 0 && e.key.key == SDLK_SPACE)
 				{
 					stop_movement = !stop_movement;
-					stop_movement ? SDL_SetRelativeMouseMode(SDL_FALSE) : SDL_SetRelativeMouseMode(SDL_TRUE);
+					stop_movement ? SDL_SetWindowRelativeMouseMode(window, false) : SDL_SetWindowRelativeMouseMode(window, true);
 				}
 			}
 
 			if (!stop_movement)
 				main_camera.process_sdl_event(e);
 
-			ImGui_ImplSDL2_ProcessEvent(&e);
+			ImGui_ImplSDL3_ProcessEvent(&e);
         }
 
         if (stop_rendering) 
@@ -801,7 +800,7 @@ void VulkanEngine::run()
 		freeze_camera = CVAR_TOGGLE_FREEZE.get();
 
 		ImGui_ImplVulkan_NewFrame();
-		ImGui_ImplSDL2_NewFrame();
+		ImGui_ImplSDL3_NewFrame();
 		ImGui::NewFrame();
 		
 		//ImGui::ShowDemoWindow();
@@ -847,7 +846,7 @@ void VulkanEngine::init_vulkan()
 	instance = vkb_inst.instance;
 	debug_messenger = vkb_inst.debug_messenger;
 
-	SDL_Vulkan_CreateSurface(window, instance, &surface);
+	SDL_Vulkan_CreateSurface(window, instance, nullptr, &surface);
 
 	// vulkan 1.3 features
 	VkPhysicalDeviceVulkan13Features features13{};
@@ -1706,7 +1705,7 @@ void VulkanEngine::init_default_data()
 	id = image_cache.add_texture(pyramid_views[0]);
 	image_cache.set_depth_pyramid_image(id);
 
-	for (int mip = 1; mip < mip_levels; mip++)
+	for (uint32_t mip = 1; mip < mip_levels; mip++)
 	{
 		img_view_info.subresourceRange.baseMipLevel = mip;
 		vkCreateImageView(device, &img_view_info, nullptr, &pyramid_views[mip]);
@@ -1724,6 +1723,7 @@ void VulkanEngine::init_default_data()
 
 void VulkanEngine::init_renderables()
 {
+#ifdef IBL
 	const char* hdr_path{ "../../assets/pisa.hdr" };
 	float* hdr_data{};
 
@@ -1812,25 +1812,26 @@ void VulkanEngine::init_renderables()
 		destroy_image(prefiltered_image);
 		destroy_image(brdflut_image);
 		});
+#endif
 
-	auto start{ std::chrono::system_clock::now() };
+	auto start = std::chrono::system_clock::now();
 	auto asset_file = load_gltf(this, ASSET_PATH);
-	auto end{ std::chrono::system_clock::now() };
-	auto elapsed{ std::chrono::duration_cast<std::chrono::microseconds>(end - start) };
+	auto end = std::chrono::system_clock::now();
+	auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
 	float ret = elapsed.count() / 1000.0f;
 	fmt::println("load gltf: {}ms", ret);
 	assert(asset_file.has_value());
-	loaded_scenes["DamagedHelmet"] = *asset_file;
+	loaded_scenes["scene1"] = *asset_file;
 
-	render_scene.combined_mesh_buffer = loaded_scenes["DamagedHelmet"]->combined_mesh_buffer;
-	render_scene.meshlet_buffer = loaded_scenes["DamagedHelmet"]->meshlets;
-	render_scene.meshlet_indices = loaded_scenes["DamagedHelmet"]->meshlet_indices;
+	render_scene.combined_mesh_buffer = loaded_scenes["scene1"]->combined_mesh_buffer;
+	render_scene.meshlet_buffer = loaded_scenes["scene1"]->meshlets;
+	render_scene.meshlet_indices = loaded_scenes["scene1"]->meshlet_indices;
 
 	std::array<glm::mat4, 3> t{};
 	t[0] = glm::translate(glm::mat4(1.0f), glm::vec3(0, 0, 4));// * glm::scale(glm::mat4(1.0f), glm::vec3(2.0));
 	t[1] = glm::translate(glm::mat4(1.0f), glm::vec3(-0.75, -0.2, 4));// * glm::scale(glm::mat4(1.0f), glm::vec3(2.0));
 	t[2] = glm::translate(glm::mat4(1.0f), glm::vec3(0.75, 0.2, 4));// * glm::scale(glm::mat4(1.0f), glm::vec3(2.0));
-	for (const auto& n : loaded_scenes["DamagedHelmet"]->top_nodes)
+	for (const auto& n : loaded_scenes["scene1"]->top_nodes)
 	{
 		register_object(n.get(), t[0]);
 #ifndef SINGLE
@@ -1855,7 +1856,7 @@ void VulkanEngine::init_renderables()
 		glm::mat4 s = glm::scale(glm::mat4(1.0f), glm::vec3(static_cast<float>(mt()) / mt.max()) + 1.0f);
 		const auto transform = t * r * s;
 
-		for (const auto& n : loaded_scenes["DamagedHelmet"]->top_nodes)
+		for (const auto& n : loaded_scenes["scene1"]->top_nodes)
 		{
 #ifndef SINGLE
 			register_object(n.get(), transform);
@@ -2279,7 +2280,7 @@ void VulkanEngine::init_imgui()
 	io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
 
 	// Setup Platform/Renderer backends
-	ImGui_ImplSDL2_InitForVulkan(window);
+	ImGui_ImplSDL3_InitForVulkan(window);
 	ImGui_ImplVulkan_InitInfo init_info{};
 	init_info.ApiVersion = VK_API_VERSION_1_3; // TODO: hardcoded
 	init_info.Instance = instance;
@@ -2301,7 +2302,7 @@ void VulkanEngine::init_imgui()
 
 	main_deletion_queue.push_function([&, imgui_pool]() {
 		ImGui_ImplVulkan_Shutdown();
-		ImGui_ImplSDL2_Shutdown();
+		ImGui_ImplSDL3_Shutdown();
 		ImGui::DestroyContext();
 		vkDestroyDescriptorPool(device, imgui_pool, nullptr);
 	});
@@ -2535,8 +2536,8 @@ void VulkanEngine::ready_cull_data(RenderScene::MeshPass& pass, CullData& cull_d
 	cull_data.far = main_camera.near;
 
 	cull_data.resolution = glm::vec2(depth_pyramid.extent.width, depth_pyramid.extent.height);
-	cull_data.texture_lod = std::floor(std::log2(std::max(depth_pyramid.extent.width, depth_pyramid.extent.height))) + 1;
-	cull_data.lod_distance_factor = 2.0 / (cull_data.p11 * static_cast<float>(draw_extent.height));
+	cull_data.texture_lod = static_cast<float>(std::floor(std::log2(std::max(depth_pyramid.extent.width, depth_pyramid.extent.height))) + 1);
+	cull_data.lod_distance_factor = 2.0f / (cull_data.p11 * static_cast<float>(draw_extent.height));
 	cull_data.lod_enabled = CVAR_TOGGLE_LOD.get();
 	cull_data.task_submit = CVAR_TOGGLE_MESH_SHADING.get();
 }
@@ -2611,8 +2612,8 @@ void VulkanEngine::ready_cull_data(RenderScene::MeshPass& pass, ClusterCullData&
 	cull_data.far = main_camera.near;
 
 	cull_data.resolution = glm::vec2(depth_pyramid.extent.width, depth_pyramid.extent.height);
-	cull_data.texture_lod = std::floor(std::log2(std::max(depth_pyramid.extent.width, depth_pyramid.extent.height))) + 1;
-	cull_data.lod_distance_factor = 2.0 / (cull_data.p11 * static_cast<float>(draw_extent.height));
+	cull_data.texture_lod = static_cast<float>(std::floor(std::log2(std::max(depth_pyramid.extent.width, depth_pyramid.extent.height))) + 1);
+	cull_data.lod_distance_factor = 2.0f / (cull_data.p11 * static_cast<float>(draw_extent.height));
 	cull_data.lod_enabled = CVAR_TOGGLE_LOD.get();
 	cull_data.task_submit = CVAR_TOGGLE_MESH_SHADING.get();
 }
@@ -2798,7 +2799,7 @@ void VulkanEngine::build_depth_pyramid(VkCommandBuffer cmd)
 
 	uint32_t mip_levels = static_cast<uint32_t>(std::floor(std::log2(std::max(depth_pyramid.extent.width, depth_pyramid.extent.height)))) + 1;
 
-	for (size_t i = 0; i < mip_levels; i++)
+	for (uint32_t i = 0; i < mip_levels; i++)
 	{
 		int32_t workgroup_x = std::max(static_cast<int32_t>(depth_pyramid.extent.width) >> i, 1);
 		int32_t workgroup_y = std::max(static_cast<int32_t>(depth_pyramid.extent.height) >> i, 1);
