@@ -19,19 +19,21 @@ class CVarParameter
 public:
 	friend class CVarSystemImpl;
 
-	int32_t array_index{};
+	uint32_t array_index{};
 
 	CVarType type{};
 	CVarFlags flags{}; 
 	std::string name{};
-	std::string description{};
 };
 
 template<typename T>
 struct CVarStorage
 {
-	T initial{};
+	T initial{}; // keep or remove?
 	T current{};
+	T min{};	   // TODO: may not be applicable for some types - reevaluate in the future
+	T max{};	   // TODO: may not be applicable for some types - reevaluate in the future
+	T step_size{}; // TODO: may not be applicable for some types - reevaluate in the future
 	CVarParameter* param{};
 };
 
@@ -39,7 +41,7 @@ template<typename T>
 struct CVarArray
 {
 	std::unique_ptr<CVarStorage<T>[]> cvars{};
-	int32_t size{}; // TODO: did i intend for this to be signed?
+	uint32_t size{}; 
 
 	CVarArray(size_t capacity)
 	{
@@ -66,13 +68,17 @@ struct CVarArray
 		cvars[index].current = value;
 	}
 
-	int add(const T& default_value, const T& current_value, CVarParameter* param)
+	template<typename T>
+	int add(const T& default_value, const T& current_value, CVarParameter* param, T min, T max, T step_size)
 	{
 		int index = size;
 
 		cvars[index].initial = default_value;
 		cvars[index].current = current_value;
 		cvars[index].param = param;
+		cvars[index].min = min;
+		cvars[index].max = max;
+		cvars[index].step_size = step_size;
 
 		param->array_index = index;
 		size++;
@@ -80,7 +86,12 @@ struct CVarArray
 		return index;
 	}
 
+	int add(const int& default_value, const int& current_value, CVarParameter* param, int min, int max, int step_size)
+	{
+		return add<int>(default_value, current_value, param, min, max, step_size);
+	}
 };
+
 
 class CVarSystemImpl final : public CVarSystem
 {
@@ -98,7 +109,7 @@ public:
 	}
 
 	CVarParameter* get_cvar(const std::string& str) override final;
-	CVarParameter* create_int_cvar(const char* name, const char* description, int default_value, int current_value) override final;
+	CVarParameter* create_int_cvar(const char* name, int default_value, int current_value, int min, int max, int step_size) override final;
 	int* get_int_cvar(const std::string&) override final;
 	void set_int_cvar(const std::string&, int value) override final;
 	void draw_imgui_editor() override final;
@@ -106,7 +117,7 @@ public:
 	static CVarSystemImpl* get();
 
 private:
-	CVarParameter* init_cvar(const char* name, const char* description)
+	CVarParameter* init_cvar(const char* name)
 	{
 		if (get_cvar(name))
 			return nullptr; // will fail the program
@@ -116,7 +127,6 @@ private:
 		CVarParameter& param = saved_cvars[name];
 
 		param.name = name;
-		param.description = description;
 
 		return &param;
 	}
@@ -134,15 +144,15 @@ CVarParameter* CVarSystemImpl::get_cvar(const std::string& str)
 	return nullptr;
 }
 
-CVarParameter* CVarSystemImpl::create_int_cvar(const char* name, const char* description, int default_value, int current_value)
+CVarParameter* CVarSystemImpl::create_int_cvar(const char* name, int default_value, int current_value, int min, int max, int step_size)
 {
-	CVarParameter* param = init_cvar(name, description);
+	CVarParameter* param = init_cvar(name);
 	if (!param)
 		return nullptr; // param already exists
 
 	param->type = CVarType::INT;
 
-	get_cvars_array<int>()->add(default_value, current_value, param);
+	get_cvars_array<int>()->add(default_value, current_value, param, min, max, step_size);
 
 	return param;
 }
@@ -204,21 +214,16 @@ void CVarSystemImpl::edit_parameters(CVarParameter* param)
 		}
 		if (slider_int_flag)
 		{
-			int value = get_cvars_array<int>()->get_current(param->array_index);
-			if (ImGui::SliderInt(param->name.c_str(), &value, 0, 10)) // TODO: clean this up, make range a variable
+			auto storage = get_cvars_array<int>()->get_current_storage(param->array_index);
+			if (ImGui::SliderInt(param->name.c_str(), &storage->current, storage->min, storage->max)) // TODO: clean this up, make range a variable
 			{
-				get_cvars_array<int>()->set_current(value, param->array_index);
+				get_cvars_array<int>()->set_current(storage->current, param->array_index);
 			}
 		}
 		break;
 
 	default:
 		break;
-	}
-
-	if (ImGui::IsItemHovered())
-	{
-		ImGui::SetTooltip(param->description.c_str());
 	}
 }
 
@@ -233,9 +238,9 @@ CVarSystem* CVarSystem::get()
 	return &cvar_system;
 }
 
-AutoCVar_Int::AutoCVar_Int(const char* name, const char* description, int default_value, int current_value, CVarFlags flags)
+AutoCVar_Int::AutoCVar_Int(const char* name, int default_value, int current_value, CVarFlags flags, int min, int max, int step_size)
 {
-	CVarParameter* param = CVarSystem::get()->create_int_cvar(name, description, default_value, current_value);
+	CVarParameter* param = CVarSystem::get()->create_int_cvar(name, default_value, current_value, min, max, step_size);
 
 	param->flags = flags; // fail the program
 	index = param->array_index;

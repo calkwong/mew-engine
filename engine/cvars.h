@@ -10,7 +10,7 @@ public:
 	static CVarSystem* get();
 
 	virtual CVarParameter* get_cvar(const std::string& str) = 0;
-	virtual CVarParameter* create_int_cvar(const char* name, const char* description, int default_value, int current_value) = 0;
+	virtual CVarParameter* create_int_cvar(const char* name, int default_value, int current_value, int min, int max, int step_size) = 0;
 
 	virtual int* get_int_cvar(const std::string&) = 0;
 	virtual void set_int_cvar(const std::string&, int value) = 0;
@@ -35,7 +35,7 @@ protected:
 
 struct AutoCVar_Int : AutoCVar<int>
 {
-	AutoCVar_Int(const char* name, const char* description, int default_value, int current_value, CVarFlags flags);
+	AutoCVar_Int(const char* name, int default_value, int current_value, CVarFlags flags, int min = 0, int max = 10, int step_size = 1);
 
 	int get();
 	void set(int value);

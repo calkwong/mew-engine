@@ -58,14 +58,14 @@ constexpr float LIGHT_FAR_PLANE{ 150.0f };
 constexpr uint32_t SHADOW_MAP_SIZE{ 2048 };
 constexpr int NUMBER_OF_CASCADES{ 4 };
 
-AutoCVar_Int CVAR_SHADOW_NEAR{ "shadow.near", "pull back light frustum near plane", 1000, 1000, CVarFlags::EditSliderInt };
-AutoCVar_Int CVAR_TOGGLE_OCCLUSION{ "occlusion", "occlusion enabled", 1, 1, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_TOGGLE_DEPTH_PYRAMID{ "depth_pyramid.render", "render depth pyramid", 0, 0, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_DEPTH_PYRAMID_LOD{ "depth_pyramid.lod", "", 0, 0, CVarFlags::EditSliderInt };
-AutoCVar_Int CVAR_TOGGLE_LOD{ "LOD", "LOD enabled", 1, 1, CVarFlags::EditCheckbox};
-AutoCVar_Int CVAR_TOGGLE_MESH_SHADING{ "Mesh shading", "Mesh shaders enabled", 1, 1, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_TOGGLE_VIEW_MESHLETS{ "Visualize meshlets", "Visualize meshlets", 1, 1, CVarFlags::EditCheckbox};
-AutoCVar_Int CVAR_TOGGLE_FREEZE{ "Freeze rendering", "Freeze rendering", 0, 0, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_DRAW_DISTANCE{ "draw distance", 1000, 1000, CVarFlags::EditSliderInt, 100, 1000, 100 };
+AutoCVar_Int CVAR_TOGGLE_OCCLUSION{ "occlusion", 1, 1, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_TOGGLE_DEPTH_PYRAMID{ "depth_pyramid.render", 0, 0, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_DEPTH_PYRAMID_LOD{ "depth_pyramid.lod", 0, 0, CVarFlags::EditSliderInt, 0, 10, 1 };
+AutoCVar_Int CVAR_TOGGLE_LOD{ "LOD", 1, 1, CVarFlags::EditCheckbox};
+AutoCVar_Int CVAR_TOGGLE_MESH_SHADING{ "Mesh shading", 1, 1, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_TOGGLE_VIEW_MESHLETS{ "Visualize meshlets", 1, 1, CVarFlags::EditCheckbox};
+AutoCVar_Int CVAR_TOGGLE_FREEZE{ "Freeze rendering", 0, 0, CVarFlags::EditCheckbox };
 
 uint32_t nearest_pow2(uint32_t extent)
 {
@@ -147,7 +147,7 @@ void VulkanEngine::init()
 	init_imgui();
 
 	main_camera.position = glm::vec3(0, 0, 5);
-	main_camera.near = 1000.0f;
+	main_camera.near = static_cast<float>(CVAR_DRAW_DISTANCE.get());
 	main_camera.far = 0.01f;
 	main_camera.fov = 70.0f;
 	// TODO: refactor if window resize
@@ -1969,7 +1969,7 @@ void VulkanEngine::update_scene()
 	stats.draw_count = 0;
 	auto start = std::chrono::system_clock::now();
 
-	// TODO: consider updating main_camera.near to account for configurable draw distance?
+	main_camera.near = CVAR_DRAW_DISTANCE.get();
 	main_camera.update(stats.deltatime);
 
 	scene_data.view = main_camera.get_view_matrix();
@@ -1984,11 +1984,14 @@ void VulkanEngine::update_scene()
 	//scene_data.sunlight_dir = glm::vec4(0.0, 12.0, 12.0, 1.);
 	scene_data.sunlight_color = glm::vec4(1);
 
+#ifdef SHADOW
 	update_cascade();
 	for (size_t i = 0; i < cascade_data.size(); i++)
 	{
 		scene_data.shadow_transforms[i] = cascade_data[i].viewproj;
 	}
+#endif
+
 	scene_data.camera_pos = glm::vec4(main_camera.position, 1.0);
 
 	// uncomment if registering objects here
@@ -2172,6 +2175,7 @@ void VulkanEngine::shadow_pass(VkCommandBuffer cmd, RenderScene::MeshPass& pass,
 	vkCmdEndRendering(cmd);
 };
 
+
 void VulkanEngine::update_cascade()
 {
 	auto light_dir = glm::normalize(glm::vec3(scene_data.sunlight_dir));
@@ -2235,7 +2239,7 @@ void VulkanEngine::update_cascade()
 		// stable csm via snapping projection matrix - https://github.com/TheRealMJP/Shadows/blob/master/Shadows/SetupShadows.hlsl
 		// stable csm via snapping frustum center, less robust - https://alextardif.com/shadowmapping.html
 		glm::mat4 shadow_view = glm::lookAt(center + radius * light_dir, center, glm::vec3(0, 1, 0));
-		glm::mat4 shadow_proj = glm::ortho(-radius, radius, -radius, radius, radius * 2.0f, 0.0f + CVAR_SHADOW_NEAR.get());
+		glm::mat4 shadow_proj = glm::ortho(-radius, radius, -radius, radius, radius * 2.0f, 0.0f); // TODO: handle - CVAR_SHADOW_NEAR.get() removed
 		glm::vec2 shadow_origin = glm::vec2(0.0);
 
 		shadow_origin = shadow_proj * shadow_view * glm::vec4(shadow_origin, 0.0, 1.0);
@@ -2251,6 +2255,7 @@ void VulkanEngine::update_cascade()
 		cascade_data[i].viewproj = shadow_proj * shadow_view;
 	}
 }
+
 
 void VulkanEngine::init_imgui()
 {
