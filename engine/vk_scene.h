@@ -1,7 +1,7 @@
 #pragma once
 
 #include "vk_types.h"
-#include "math.h"
+#include "vk_math.h"
 
 #include <vulkan/vulkan.h>
 

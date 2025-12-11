@@ -1,6 +1,6 @@
 #pragma once
 
-#include "math.h"
+#include "vk_math.h"
 
 #include <vulkan/vulkan.h>
 #include <vulkan/vk_enum_string_helper.h>

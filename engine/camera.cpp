@@ -1,5 +1,5 @@
 #include "camera.h"
-#include "math.h"
+#include "vk_math.h"
 
 #include <SDL3/SDL_events.h>
 
