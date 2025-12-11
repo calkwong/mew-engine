@@ -1,6 +1,7 @@
 #pragma once
 
-#include <SDL3/SDL.h>
+#include "math.h"
+#include <SDL3/SDL_events.h>
 
 class Camera
 {

@@ -1,32 +1,25 @@
 #include "vk_engine.h"
-#include <vk_initializers.h>
-#include <vk_types.h>
-#include <vk_images.h>
-#include <vk_descriptors.h>
-#include <vk_pipelines.h>
-#include <vk_loader.h>
-#include <vk_scene.h>
-#include <cvars.h>
+#include "math.h"
+#include "vk_initializers.h"
+#include "vk_types.h"
+#include "vk_images.h"
+#include "vk_descriptors.h"
+#include "vk_pipelines.h"
+#include "vk_loader.h"
+#include "vk_scene.h"
+#include "cvars.h"
 
-#include "tracy/Tracy.hpp"
-#include "tracy/TracyVulkan.hpp"
-
+#include <tracy/Tracy.hpp>
+#include <tracy/TracyVulkan.hpp>
 #define VMA_IMPLEMENTATION
-#include "vk_mem_alloc.h"
-
-#define GLM_ENABLE_EXPERIMENTAL
-#include <glm/gtx/transform.hpp>
-#include "stb_image.h"
-
-#include "glm/ext.hpp"
-// for glm debug
-#include "glm/gtx/string_cast.hpp"
-
-#include "imgui.h"
-#include "imgui_impl_sdl3.h"
-#include "imgui_impl_vulkan.h"
-
-#include <SDL3/SDL.h>
+#include <vk_mem_alloc.h>
+#include <stb_image.h>
+#include <glm/gtx/string_cast.hpp> // glm debug
+#include <imgui.h>
+#include <imgui_impl_sdl3.h>
+#include <imgui_impl_vulkan.h>
+#include <SDL3/SDL_init.h>
+#include <SDL3/SDL_events.h>
 #include <SDL3/SDL_vulkan.h>
 #include <vulkan/vulkan.h>
 

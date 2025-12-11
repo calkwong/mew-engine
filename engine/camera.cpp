@@ -1,9 +1,7 @@
 #include "camera.h"
+#include "math.h"
 
-#include <SDL3/SDL.h>
-#define GLM_ENABLE_EXPERIMENTAL
-#include <glm/gtx/transform.hpp>
-#include <glm/gtx/quaternion.hpp>
+#include <SDL3/SDL_events.h>
 
 glm::mat4 Camera::get_view_matrix() const
 {

@@ -1,13 +1,13 @@
 #pragma once
 
-#include <vk_types.h>
-#include <vk_descriptors.h>
-#include <vk_loader.h>
-#include <vk_scene.h>
-#include <camera.h>
+#include "vk_types.h"
+#include "vk_descriptors.h"
+#include "vk_loader.h"
+#include "vk_scene.h"
+#include "camera.h"
 
-#include "VkBootstrap.h"
-#include "tracy/TracyVulkan.hpp"
+#include <VkBootstrap.h>
+#include <tracy/TracyVulkan.hpp>
 #include <vulkan/vulkan.h>
 
 #include <span>

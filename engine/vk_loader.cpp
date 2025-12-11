@@ -1,27 +1,19 @@
-#include <vk_loader.h>
-
+#include "vk_loader.h"
+#include "math.h"
 #include "vk_engine.h"
 #include "vk_types.h"
 #include "vk_images.h"
 
 #define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
-#include "mikktspace.h"
-#include "basisu_transcoder.h"
-#include "meshoptimizer.h"
-
+#include <stb_image.h>
+#include <mikktspace.h>
+#include <basisu_transcoder.h>
+#include <meshoptimizer.h>
 #include <vulkan/vulkan.h>
-#define GLM_ENABLE_EXPERIMENTAL
-#include <glm/gtx/quaternion.hpp>
-
 #include <fastgltf/core.hpp>
 #include <fastgltf/types.hpp>
 #include <fastgltf/tools.hpp>
 #include <fastgltf/glm_element_traits.hpp>
-
-//#include <fastgltf/parser.hpp>
-//#include <fastgltf/tools.hpp>
-
 #include <fmt/core.h>
 
 #include <limits>

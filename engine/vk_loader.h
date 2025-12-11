@@ -1,9 +1,9 @@
 #pragma once
 
-#include <vk_types.h>
-#include <vk_pipelines.h>
+#include "vk_types.h"
+#include "vk_pipelines.h"
 
-#include "mikktspace.h"
+#include <mikktspace.h>
 #include <vulkan/vulkan.h>
 
 #include <unordered_map>
