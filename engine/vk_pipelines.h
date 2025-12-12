@@ -38,6 +38,7 @@ struct PipelineBuilder
     void set_shaders(VkShaderModule vert_shader, VkShaderModule frag_shader);
     void set_shaders(VkShaderModule vert_shader);
     void set_mesh_shaders(VkShaderModule mesh_shader, VkShaderModule frag_shader);
+    void set_mesh_shaders(VkShaderModule mesh_shader);
     void set_input_topology(VkPrimitiveTopology topology);
     void set_polygon_mode(VkPolygonMode mode);
     void set_cull_mode(VkCullModeFlags cull_mode, VkFrontFace front_face);

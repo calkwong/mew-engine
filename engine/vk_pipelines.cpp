@@ -157,6 +157,15 @@ void PipelineBuilder::set_mesh_shaders(VkShaderModule mesh_shader, VkShaderModul
     );
 }
 
+void PipelineBuilder::set_mesh_shaders(VkShaderModule mesh_shader)
+{
+    shader_stages.clear();
+
+    shader_stages.push_back(
+        vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_MESH_BIT_EXT, mesh_shader)
+    );
+}
+
 void PipelineBuilder::set_input_topology(VkPrimitiveTopology topology)
 {
     input_assembly.topology = topology;

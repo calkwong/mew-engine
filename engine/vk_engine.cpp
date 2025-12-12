@@ -46,26 +46,20 @@ VulkanEngine& VulkanEngine::get() { return *loaded_engine; }
 
 //#define IBL
 //#define SHADOW // TODO: currently not working
-//#define SINGLE
-
-//std::string ASSET_PATH = "../../assets/sphere.gltf";
-//std::string ASSET_PATH = "../../assets/khronos_sponza/Sponza.gltf";
-//std::string ASSET_PATH = "../../assets/bistro_interior_wine_ktx2/BistroInterior_WineFixed.gltf";
-//std::string ASSET_PATH = "../../assets/bistro_exterior_ktx2/BistroExteriorFixed.gltf";
-std::string ASSET_PATH = "../../assets/suzanne.gltf";
+//#define SINGLE // uncomment if loading a proper scene
 
 constexpr float LIGHT_FAR_PLANE{ 150.0f };
 constexpr uint32_t SHADOW_MAP_SIZE{ 2048 };
 constexpr int NUMBER_OF_CASCADES{ 4 };
 
-AutoCVar_Int CVAR_DRAW_DISTANCE{ "draw distance", 1000, 1000, CVarFlags::EditSliderInt, 100, 1000, 100 };
-AutoCVar_Int CVAR_TOGGLE_OCCLUSION{ "occlusion", 1, 1, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_TOGGLE_DEPTH_PYRAMID{ "depth_pyramid.render", 0, 0, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_DEPTH_PYRAMID_LOD{ "depth_pyramid.lod", 0, 0, CVarFlags::EditSliderInt, 0, 10, 1 };
-AutoCVar_Int CVAR_TOGGLE_LOD{ "LOD", 1, 1, CVarFlags::EditCheckbox};
+AutoCVar_Int CVAR_DRAW_DISTANCE{ "Draw distance", 1000, 1000, CVarFlags::EditSliderInt, 100, 1000, 100 };
 AutoCVar_Int CVAR_TOGGLE_MESH_SHADING{ "Mesh shading", 1, 1, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_TOGGLE_VIEW_MESHLETS{ "Visualize meshlets", 1, 1, CVarFlags::EditCheckbox};
+AutoCVar_Int CVAR_TOGGLE_OCCLUSION{ "Occlusion", 1, 1, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_TOGGLE_LOD{ "LOD", 1, 1, CVarFlags::EditCheckbox};
 AutoCVar_Int CVAR_TOGGLE_FREEZE{ "Freeze rendering", 0, 0, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_TOGGLE_VIEW_MESHLETS{ "Visualize meshlets", 0, 0, CVarFlags::EditCheckbox};
+AutoCVar_Int CVAR_TOGGLE_DEPTH_PYRAMID{ "Visualize Hi-Z", 0, 0, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_DEPTH_PYRAMID_LOD{ "Hi-Z LOD", 0, 0, CVarFlags::EditSliderInt, 0, 10, 1 };
 
 uint32_t nearest_pow2(uint32_t extent)
 {
@@ -107,7 +101,7 @@ void sort_transparency(const std::vector<RenderObject>& renderables, const Camer
 }
 */
 
-void VulkanEngine::init()
+void VulkanEngine::init(const std::string& file_path)
 {
 	assert(loaded_engine == nullptr);
 	loaded_engine = this;
@@ -140,7 +134,7 @@ void VulkanEngine::init()
 
 	init_default_data();
 
-	init_renderables();
+	init_renderables(file_path);
 
 	init_bindless();
 
@@ -557,21 +551,21 @@ void VulkanEngine::draw()
 		VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT
 	);
 
-	auto cull_begin = static_cast<float>(timestamp_results[0]) * props.limits.timestampPeriod * 1e-6f;
-	auto cull_end   = static_cast<float>(timestamp_results[1]) * props.limits.timestampPeriod * 1e-6f;
-	stats.early_cull = cull_end - cull_begin;
+	auto cull_begin = static_cast<double>(timestamp_results[0]) * props.limits.timestampPeriod * 1e-6f;
+	auto cull_end   = static_cast<double>(timestamp_results[1]) * props.limits.timestampPeriod * 1e-6f;
+	stats.early_cull = static_cast<float>(cull_end - cull_begin);
 
-	auto indirect_begin = static_cast<float>(timestamp_results[2]) * props.limits.timestampPeriod * 1e-6f;
-	auto indirect_end   = static_cast<float>(timestamp_results[3]) * props.limits.timestampPeriod * 1e-6f;
-	stats.early_indirect = indirect_end - indirect_begin;
+	auto indirect_begin = static_cast<double>(timestamp_results[2]) * props.limits.timestampPeriod * 1e-6f;
+	auto indirect_end   = static_cast<double>(timestamp_results[3]) * props.limits.timestampPeriod * 1e-6f;
+	stats.early_indirect = static_cast<float>(indirect_end - indirect_begin);
 
-	cull_begin = static_cast<float>(timestamp_results[4]) * props.limits.timestampPeriod * 1e-6f;
-	cull_end =   static_cast<float>(timestamp_results[5]) * props.limits.timestampPeriod * 1e-6f;
-	stats.late_cull = cull_end - cull_begin;
+	cull_begin = static_cast<double>(timestamp_results[4]) * props.limits.timestampPeriod * 1e-6f;
+	cull_end =   static_cast<double>(timestamp_results[5]) * props.limits.timestampPeriod * 1e-6f;
+	stats.late_cull = static_cast<float>(cull_end - cull_begin);
 
-	indirect_begin = static_cast<float>(timestamp_results[6]) * props.limits.timestampPeriod * 1e-6f;
-	indirect_end =   static_cast<float>(timestamp_results[7]) * props.limits.timestampPeriod * 1e-6f;
-	stats.late_indirect = indirect_end - indirect_begin;
+	indirect_begin = static_cast<double>(timestamp_results[6]) * props.limits.timestampPeriod * 1e-6f;
+	indirect_end =   static_cast<double>(timestamp_results[7]) * props.limits.timestampPeriod * 1e-6f;
+	stats.late_indirect = static_cast<float>(indirect_end - indirect_begin);
 
 	stats.triangle_count = static_cast<uint32_t>(pipeline_results[0] + pipeline_results[1]); // narrowing
 }
@@ -809,7 +803,7 @@ void VulkanEngine::run()
 			ImGui::Text("early indirect %f ms", stats.early_indirect);
 			ImGui::Text("late  indirect %f ms", stats.late_indirect);
 			ImGui::Text("triangles %.2u", stats.triangle_count);
-			ImGui::Text("triangles %.2fM", static_cast<double>(stats.triangle_count) * 1e-6);
+			ImGui::Text("clipping invocations %.2fM", static_cast<double>(stats.triangle_count) * 1e-6);
 
 			ImGui::End();
 		}
@@ -1714,7 +1708,7 @@ void VulkanEngine::init_default_data()
 	});
 }
 
-void VulkanEngine::init_renderables()
+void VulkanEngine::init_renderables(const std::string& file_path)
 {
 #ifdef IBL
 	const char* hdr_path{ "../../assets/pisa.hdr" };
@@ -1808,7 +1802,7 @@ void VulkanEngine::init_renderables()
 #endif
 
 	auto start = std::chrono::system_clock::now();
-	auto asset_file = load_gltf(this, ASSET_PATH);
+	auto asset_file = load_gltf(this, file_path);
 	auto end = std::chrono::system_clock::now();
 	auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
 	float ret = elapsed.count() / 1000.0f;
@@ -1820,21 +1814,14 @@ void VulkanEngine::init_renderables()
 	render_scene.meshlet_buffer = loaded_scenes["scene1"]->meshlets;
 	render_scene.meshlet_indices = loaded_scenes["scene1"]->meshlet_indices;
 
-	std::array<glm::mat4, 3> t{};
-	t[0] = glm::translate(glm::mat4(1.0f), glm::vec3(0, 0, 4));// * glm::scale(glm::mat4(1.0f), glm::vec3(2.0));
-	t[1] = glm::translate(glm::mat4(1.0f), glm::vec3(-0.75, -0.2, 4));// * glm::scale(glm::mat4(1.0f), glm::vec3(2.0));
-	t[2] = glm::translate(glm::mat4(1.0f), glm::vec3(0.75, 0.2, 4));// * glm::scale(glm::mat4(1.0f), glm::vec3(2.0));
+	auto t = glm::translate(glm::mat4(1.0f), glm::vec3(0, 0, 2));// * glm::scale(glm::mat4(1.0f), glm::vec3(2.0));
 	for (const auto& n : loaded_scenes["scene1"]->top_nodes)
 	{
-		register_object(n.get(), t[0]);
-#ifndef SINGLE
-		register_object(n.get(), t[1]); 
-		register_object(n.get(), t[2]);
-#endif
+		register_object(n.get(), t);
 	}
 
 	std::mt19937 mt(42);
-	auto draw_radius = 200.0f;
+	auto draw_radius = 400.0f;
 	auto draw_count = 500'000;
 
 	for (size_t i = 0; i < draw_count; i++)
@@ -1969,7 +1956,7 @@ void VulkanEngine::update_scene()
 	stats.draw_count = 0;
 	auto start = std::chrono::system_clock::now();
 
-	main_camera.near = CVAR_DRAW_DISTANCE.get();
+	main_camera.near = static_cast<float>(CVAR_DRAW_DISTANCE.get());
 	main_camera.update(stats.deltatime);
 
 	scene_data.view = main_camera.get_view_matrix();

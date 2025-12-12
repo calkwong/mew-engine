@@ -320,7 +320,7 @@ public:
 
 	static VulkanEngine& get();
 
-	void init();
+	void init(const std::string& file_path);
 	void cleanup();
 	void draw();
 	void run();
@@ -360,7 +360,7 @@ private:
 	void init_descriptors();
 	void init_pipelines();
 	void init_default_data();
-	void init_renderables();
+	void init_renderables(const std::string& file_path);
 	void init_bindless(); 
 	void init_precomputations();
 	void init_imgui();
