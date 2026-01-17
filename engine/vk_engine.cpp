@@ -46,7 +46,7 @@ VulkanEngine& VulkanEngine::get() { return *loaded_engine; }
 
 //#define IBL
 //#define SHADOW // TODO: currently not working
-//#define SINGLE // uncomment if loading a proper scene
+#define SINGLE // uncomment if loading a proper scene
 
 constexpr float LIGHT_FAR_PLANE{ 150.0f };
 constexpr uint32_t SHADOW_MAP_SIZE{ 2048 };
@@ -1243,7 +1243,6 @@ void VulkanEngine::init_pipelines()
 	std::unique_ptr<ShaderPass> textured_lit_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
 
 	//> MESHLET LIT
-	descriptor_layouts = { scene_descriptor_layout };
 	module = shader_cache.add_shader(device, "meshlet.mesh.glsl.spv");
 	builder.set_mesh_shaders(module, frag_module);
 	pc = { VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GPUPushConstants) };
@@ -1814,14 +1813,14 @@ void VulkanEngine::init_renderables(const std::string& file_path)
 	render_scene.meshlet_buffer = loaded_scenes["scene1"]->meshlets;
 	render_scene.meshlet_indices = loaded_scenes["scene1"]->meshlet_indices;
 
-	auto t = glm::translate(glm::mat4(1.0f), glm::vec3(0, 0, 2));// * glm::scale(glm::mat4(1.0f), glm::vec3(2.0));
+	auto t = glm::translate(glm::mat4(1.0f), glm::vec3(0, 0, 2));
 	for (const auto& n : loaded_scenes["scene1"]->top_nodes)
 	{
 		register_object(n.get(), t);
 	}
 
 	std::mt19937 mt(42);
-	auto draw_radius = 400.0f;
+	auto draw_radius = 200.0f;
 	auto draw_count = 500'000;
 
 	for (size_t i = 0; i < draw_count; i++)
@@ -2687,6 +2686,7 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t query)
 	pc.count_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
 	address_info.buffer = render_scene.forward_pass.cluster_indices.buffer;
 	pc.cluster_indices_address = vkGetBufferDeviceAddress(device, &address_info);
+	pc.material_buffer_address = loaded_scenes["scene1"]->material_buffer_address;
 	pc.debug_meshlets = CVAR_TOGGLE_MESH_SHADING.get() ? CVAR_TOGGLE_VIEW_MESHLETS.get() : 0;
 
 	if (!CVAR_TOGGLE_MESH_SHADING.get())
@@ -2720,6 +2720,8 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t query)
 		ShaderPass current_pass = *shader_passes["meshlet"];
 
 		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
+		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
+		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
 
 		vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GPUPushConstants), &pc);
 

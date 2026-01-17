@@ -43,6 +43,11 @@ layout(buffer_reference, std430) readonly buffer MeshletIndicesBuffer
 	uint indices[];
 };
 
+layout(buffer_reference, std430) readonly buffer MaterialBuffer
+{ 
+	MaterialData materials[];
+};
+
 layout(buffer_reference, std430) buffer CountBuffer
 {
 	uint count;
@@ -66,6 +71,7 @@ layout( push_constant ) uniform constants
 	MeshletIndicesBuffer meshletIndicesBuffer;
 	CountBuffer countBuffer;
 	ClusterIndicesBuffer clusterIndicesBuffer; // new
+	MaterialBuffer materialBuffer;
 	uint debugMeshlets;
 } pc;
 

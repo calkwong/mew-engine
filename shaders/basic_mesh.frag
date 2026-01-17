@@ -22,6 +22,11 @@ const float exposure = 4.0;
 const float gamma = 2.2;
 const float PI = 3.14159265359;
 
+layout(buffer_reference, std430) readonly buffer MaterialBuffer
+{ 
+	MaterialData materials[];
+};
+
 layout( push_constant ) uniform constants
 {
 	//ObjectBuffer objectBuffer;
@@ -33,6 +38,7 @@ layout( push_constant ) uniform constants
 	//CountBuffer countBuffer;
 	//ClusterIndicesBuffer clusterIndicesBuffer; 
 	uint padding[16];
+	MaterialBuffer materialBuffer;
 	uint debugMeshlets;
 } pc;
 
@@ -42,14 +48,25 @@ layout(set = 2, binding = 0) uniform sampler samplers[];
 
 void main() 
 {	
+	MaterialData m = pc.materialBuffer.materials[inMaterialID];
+	
+	vec4 albedo = m.baseColorFactor;
+	if (m.diffuseID != 0)
+		albedo *= texture(sampler2D(allTextures[m.diffuseID], samplers[0]), inUV);
+
 	vec3 N = normalize(inNormal); 
 	
-	outFragColor = vec4(N, 1.0);
+	//outFragColor = vec4(N, 1.0);
 	
 	if (pc.debugMeshlets == 0)
+	{
+		outFragColor = albedo;
+	}
+	else
 	{
 		N = N.xyz * 0.5 + 0.5;
 		outFragColor = vec4(N, 1);
 	}
+	
 	
 }
