@@ -61,6 +61,8 @@ void main()
 	if (pc.debugMeshlets == 0)
 	{
 		outFragColor = albedo;
+		N = N.xyz * 0.5 + 0.5;
+		outFragColor = vec4(N, 1);
 	}
 	else
 	{

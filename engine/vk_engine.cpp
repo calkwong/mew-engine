@@ -46,7 +46,9 @@ VulkanEngine& VulkanEngine::get() { return *loaded_engine; }
 
 //#define IBL
 //#define SHADOW // TODO: currently not working
-#define SINGLE // uncomment if loading a proper scene
+//#define SINGLE // uncomment if loading a proper scene
+
+bool RENDER_IMGUI = true;
 
 constexpr float LIGHT_FAR_PLANE{ 150.0f };
 constexpr uint32_t SHADOW_MAP_SIZE{ 2048 };
@@ -486,7 +488,8 @@ void VulkanEngine::draw()
 	);
 	
 	{
-		draw_imgui(cmd, swapchain_image_views[swapchain_image_idx]);
+		if (RENDER_IMGUI)
+			draw_imgui(cmd, swapchain_image_views[swapchain_image_idx]);
 	}
 
 	vkutil::transition_image(
@@ -769,6 +772,12 @@ void VulkanEngine::run()
 				{
 					stop_movement = !stop_movement;
 					stop_movement ? SDL_SetWindowRelativeMouseMode(window, false) : SDL_SetWindowRelativeMouseMode(window, true);
+				}
+
+				// toggle IMGUI render
+				if (e.key.repeat == 0 && e.key.key == SDLK_R)
+				{
+					RENDER_IMGUI = !RENDER_IMGUI;
 				}
 			}
 
@@ -1820,7 +1829,7 @@ void VulkanEngine::init_renderables(const std::string& file_path)
 	}
 
 	std::mt19937 mt(42);
-	auto draw_radius = 200.0f;
+	auto draw_radius = 400.0f;
 	auto draw_count = 500'000;
 
 	for (size_t i = 0; i < draw_count; i++)
