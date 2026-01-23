@@ -40,6 +40,12 @@ struct GPUPushConstants // temporarily shared by vertex and mesh shading path
 	uint32_t debug_meshlets;
 };
 
+struct DeferredPushConstants
+{
+	uint32_t albedo_id{};
+	uint32_t normal_id{};
+};
+
 //struct ShadowPushConstants
 //{
 //	glm::mat4 model{};
@@ -143,17 +149,17 @@ struct TextureCache
 
 	// TODO: refactor
 	void set_draw_image(uint32_t id) { draw_id = id; };
-	void set_draw_image2(uint32_t id) { draw_id2 = id; };
+	void set_gbuffers(uint32_t id) { gbuffer_id = id; };
 	void set_depth_image(uint32_t id) { depth_id = id; };
 	void set_depth_pyramid_image(uint32_t id) { depth_pyramid_id = id; };
 	uint32_t get_draw_image() { return draw_id; };
-	uint32_t get_draw_image2() { return draw_id2; };
+	uint32_t get_first_gbuffer() { return gbuffer_id; };
 	uint32_t get_depth_image() { return depth_id; };
 	uint32_t get_depth_pyramid_image() { return depth_pyramid_id; };
 
 private:
 	uint32_t draw_id{};
-	uint32_t draw_id2{};
+	uint32_t gbuffer_id{};
 	uint32_t depth_id{};
 	uint32_t depth_pyramid_id{};
 };
@@ -250,7 +256,7 @@ public:
 	VmaAllocator allocator{};
 
 	AllocatedImage draw_image{};
-	AllocatedImage draw_image2{};
+	std::vector<AllocatedImage> gbuffers{};
 	VkExtent2D draw_extent{};
 
 	AllocatedImage depth_image{};
@@ -342,6 +348,7 @@ public:
 
 	void register_object(Node* node, const glm::mat4& top_matrix);
 	void execute_debug_pass(VkCommandBuffer cmd);
+	void execute_deferred_shading(VkCommandBuffer cmd);
 	void shadow_pass(VkCommandBuffer cmd, RenderScene::MeshPass& pass, size_t cascade_idx);
 	void update_cascade();
 	void draw_imgui(VkCommandBuffer cmd, VkImageView swapchain_view);

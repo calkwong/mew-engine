@@ -62,7 +62,7 @@ layout(push_constant) uniform constants
 	MeshletBuffer meshletBuffer;
 	ClusterIndicesBuffer clusterIndicesBuffer;
 	ClusterCountBuffer clusterCountBuffer; 
-	CountBuffer countBuffer; 
+	CountBuffer countBuffer; // UNUSED?
 	VisibilityBuffer meshletVisBuffer; // meshletVisibilityBuffer
 	MeshTaskBuffer meshTaskBuffer;
 	
@@ -166,7 +166,7 @@ void main()
 		if (!late && !visibleLastFrame)
 			return;
 		
-		bool skip = false;
+		bool skip = false; // always false for early pass
 		if (late && visibleLastFrame) 
 			skip = true;
 			

@@ -53,6 +53,7 @@ bool RENDER_IMGUI = true;
 constexpr float LIGHT_FAR_PLANE{ 150.0f };
 constexpr uint32_t SHADOW_MAP_SIZE{ 2048 };
 constexpr int NUMBER_OF_CASCADES{ 4 };
+constexpr int GBUFFER_COUNT{ 2 };
 
 AutoCVar_Int CVAR_DRAW_DISTANCE{ "Draw distance", 1000, 1000, CVarFlags::EditSliderInt, 100, 1000, 100 };
 AutoCVar_Int CVAR_TOGGLE_MESH_SHADING{ "Mesh shading", 1, 1, CVarFlags::EditCheckbox };
@@ -353,16 +354,30 @@ void VulkanEngine::draw()
 			VK_IMAGE_ASPECT_DEPTH_BIT
 		);
 
-		vkutil::transition_image(
-			cmd,
-			draw_image.image,
-			VK_IMAGE_LAYOUT_UNDEFINED,
-			VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-			VK_PIPELINE_STAGE_2_BLIT_BIT,
-			VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-			VK_ACCESS_2_TRANSFER_READ_BIT,
-			VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT
-		); // from blit to swapchain prev frame
+		//vkutil::transition_image(
+		//	cmd,
+		//	draw_image.image,
+		//	VK_IMAGE_LAYOUT_UNDEFINED,
+		//	VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+		//	VK_PIPELINE_STAGE_2_BLIT_BIT,
+		//	VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+		//	VK_ACCESS_2_TRANSFER_READ_BIT,
+		//	VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT
+		//); // from blit to swapchain prev frame
+
+		for (int i = 0; i < GBUFFER_COUNT; i++)
+		{
+			vkutil::transition_image(
+				cmd,
+				gbuffers[i].image,
+				VK_IMAGE_LAYOUT_UNDEFINED,
+				VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+				VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+				VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+				VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
+				VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT
+			); 
+		}
 
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 2);
 		render(cmd, false, 0);
@@ -447,9 +462,40 @@ void VulkanEngine::draw()
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 7);
 	}
 	
+	// necessary barrier for either visualizing hi-z or deferred shading
+	vkutil::transition_image(
+		cmd,
+		draw_image.image,
+		VK_IMAGE_LAYOUT_UNDEFINED,
+		VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+		VK_PIPELINE_STAGE_2_BLIT_BIT,
+		VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+		VK_ACCESS_2_TRANSFER_READ_BIT,
+		VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT
+	); // from prev frame's blit to swapchain 
+
+	// visualize hi-z
 	if (CVAR_TOGGLE_DEPTH_PYRAMID.get())
 	{
 		execute_debug_pass(cmd);
+	}
+	else // deferred shading; TODO - split this up instead of in an if block
+	{
+		for (int i = 0; i < GBUFFER_COUNT; i++)
+		{
+			vkutil::transition_image(
+				cmd,
+				gbuffers[i].image,
+				VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+				VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+				VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+				VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+				VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+				VK_ACCESS_2_SHADER_SAMPLED_READ_BIT
+			);
+		}
+
+		execute_deferred_shading(cmd);
 	}
 
 	vkutil::transition_image(
@@ -804,15 +850,15 @@ void VulkanEngine::run()
 
 		{
 			ImGui::Begin("Stats");
-			ImGui::Text("frametime %f ms", stats.deltatime * 1000.0f);
-			ImGui::Text("draws %i", stats.draw_count);
-			ImGui::Text("scene update time %f ms", stats.scene_update_time);
-			ImGui::Text("early cull %f ms", stats.early_cull);
-			ImGui::Text("late  cull %f ms", stats.late_cull);
-			ImGui::Text("early indirect %f ms", stats.early_indirect);
-			ImGui::Text("late  indirect %f ms", stats.late_indirect);
-			ImGui::Text("triangles %.2u", stats.triangle_count);
-			ImGui::Text("clipping invocations %.2fM", static_cast<double>(stats.triangle_count) * 1e-6);
+			ImGui::Text("Frametime:            %.3f ms", stats.deltatime * 1000.0f);
+			ImGui::Text("Draw calls:           %i", stats.draw_count);
+			//ImGui::Text("scene update time %f ms", stats.scene_update_time);
+			ImGui::Text("Early cull:           %.3f ms", stats.early_cull);
+			ImGui::Text("Late  cull:           %.3f ms", stats.late_cull);
+			ImGui::Text("Early render:         %.3f ms", stats.early_indirect);
+			ImGui::Text("Late render:          %.3f ms", stats.late_indirect);
+			ImGui::Text("Triangles:            %u", stats.triangle_count);
+			ImGui::Text("Clipping invocations: %.1fM", static_cast<double>(stats.triangle_count) * 1e-6);
 
 			ImGui::End();
 		}
@@ -923,22 +969,34 @@ void VulkanEngine::init_swapchain()
 
 	VkExtent3D draw_image_extent{ window_extent.width, window_extent.height, 1 };
 
+	// TODO: after deferred - transfer_src & general only?
 	VkImageUsageFlags draw_image_flags{
-		VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+		VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | // this is now redundant?
 		VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
 		VK_IMAGE_USAGE_SAMPLED_BIT // for post FX sampling
 	};
 
-	// TODO: make creaton and selection of pingpong attachment cleaner
 	draw_image = create_image(draw_image_extent, VK_FORMAT_R16G16B16A16_SFLOAT, draw_image_flags, VK_IMAGE_ASPECT_COLOR_BIT);
-	draw_image2 = create_image(draw_image_extent, VK_FORMAT_R16G16B16A16_SFLOAT, draw_image_flags, VK_IMAGE_ASPECT_COLOR_BIT);
 
 	auto id = texture_cache.add_texture(draw_image.view);
 	assert(id == 0); // TODO: remove hardcoding drawimage1 to have texture id 0
 	texture_cache.set_draw_image(id);
 
-	id = texture_cache.add_texture(draw_image2.view);
-	texture_cache.set_draw_image2(id);
+	VkImageUsageFlags gbuffer_flags{
+		VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+		VK_IMAGE_USAGE_SAMPLED_BIT // for deferred shading
+	};
+
+	// TODO: correct vk format and image aspect for every gbuffer?
+	for (int i = 0; i < GBUFFER_COUNT; i++)
+	{
+		AllocatedImage gbuffer = gbuffers.emplace_back(create_image(draw_image_extent, VK_FORMAT_R16G16B16A16_SFLOAT, draw_image_flags, VK_IMAGE_ASPECT_COLOR_BIT));
+		id = texture_cache.add_texture(gbuffers[i].view);
+		if (i == 0)
+		{
+			texture_cache.set_gbuffers(id);
+		}
+	}
 
 	depth_image.format = VK_FORMAT_D32_SFLOAT;
 	depth_image.extent = draw_image_extent;
@@ -954,8 +1012,11 @@ void VulkanEngine::init_swapchain()
 		vkDestroyImageView(device, depth_image.view, nullptr);
 		vmaDestroyImage(allocator, depth_image.image, depth_image.allocation);
 
-		vkDestroyImageView(device, draw_image2.view, nullptr);
-		vmaDestroyImage(allocator, draw_image2.image, draw_image2.allocation);
+		for (int i = 0; i < GBUFFER_COUNT; i++)
+		{
+			vkDestroyImageView(device, gbuffers[i].view, nullptr);
+			vmaDestroyImage(allocator, gbuffers[i].image, gbuffers[i].allocation);
+		}
 	});
 }
 
@@ -1232,9 +1293,23 @@ void VulkanEngine::init_pipelines()
 	module = shader_cache.add_shader(device, "mesh_pbr.vert.spv");
 	frag_module = shader_cache.add_shader(device, "mesh_pbr_clip.frag.spv");
 	builder.set_shaders(module, frag_module);
-	builder.set_color_attachment_format(draw_image.format); 
+	//builder.set_color_attachment_format(draw_image.format); 
+	builder.set_gbuffer_format(draw_image.format, GBUFFER_COUNT); // TODO: rewrite this
 	builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-	builder.disable_blending();
+	//builder.disable_blending();
+
+	std::vector<VkPipelineColorBlendAttachmentState> gbuffer_blend_states{};
+	for (size_t i = 0; i < GBUFFER_COUNT; i++)
+	{
+		VkPipelineColorBlendAttachmentState state{};
+		state.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+		state.blendEnable = VK_FALSE;
+
+		gbuffer_blend_states.push_back(state);
+	}
+
+	builder.set_blending_state(gbuffer_blend_states.data(), gbuffer_blend_states.size());
+
 	builder.enable_depth(true, VK_COMPARE_OP_GREATER_OR_EQUAL);
 	builder.dynamic_state.pop_back(); // remove depth bias dynamic state
 	builder.rasterization.depthBiasEnable = VK_FALSE;
@@ -1243,6 +1318,7 @@ void VulkanEngine::init_pipelines()
 
 	//> DOUBLE SIDED LIT
 	//frag_module = shader_cache.add_shader(device, "mesh_pbr.frag.spv");
+	//module = shader_cache.add_shader(device, "mesh_pbr.vert.spv");
 	frag_module = shader_cache.add_shader(device, "basic_mesh.frag.spv");
 	builder.set_shaders(module, frag_module);
 	std::unique_ptr<ShaderPass> textured_lit2_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
@@ -1253,6 +1329,7 @@ void VulkanEngine::init_pipelines()
 
 	//> MESHLET LIT
 	module = shader_cache.add_shader(device, "meshlet.mesh.glsl.spv");
+	//frag_module = shader_cache.add_shader(device, "basic_mesh.frag.spv");
 	builder.set_mesh_shaders(module, frag_module);
 	pc = { VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GPUPushConstants) };
 	std::unique_ptr<ShaderPass> meshlet_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
@@ -1267,6 +1344,26 @@ void VulkanEngine::init_pipelines()
 	builder.enable_depth(false, VK_COMPARE_OP_GREATER_OR_EQUAL);
 	pc = { VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GPUPushConstants) };
 	std::unique_ptr<ShaderPass> blend_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
+
+	//> DEFERRED SHADING
+	descriptor_layouts = { scene_descriptor_layout, bindless_tex_layout, bindless_sampler_layout };
+	module = shader_cache.add_shader(device, "full_screen.vert.spv");
+	frag_module = shader_cache.add_shader(device, "deferred.frag.spv");
+	
+	builder.gbuffer_blend_attachment.clear(); // TODO: make it clearer - currently switches back to single blend attachment and attachment format
+	builder.set_color_attachment_format(draw_image.format);
+
+	VkPipelineColorBlendAttachmentState blend_state{};
+	blend_state.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+	blend_state.blendEnable = VK_FALSE;
+
+	builder.set_blending_state(&blend_state, 1);
+	builder.set_shaders(module, frag_module);
+	builder.disable_blending();
+	builder.disable_depth();
+	// cull mode?
+	pc = { VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(DeferredPushConstants) };
+	std::unique_ptr<ShaderPass> deferred_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
 
 	//> SKYBOX
 	module = shader_cache.add_shader(device, "skybox.vert.spv");
@@ -1313,6 +1410,7 @@ void VulkanEngine::init_pipelines()
 	shader_passes["meshlet"] = std::move(meshlet_pass);
 	shader_passes["task_submit"] = std::move(task_submit_pass);
 	shader_passes["meshlet_cull"] = std::move(meshlet_cull_pass);
+	shader_passes["deferred"] = std::move(deferred_pass);
 
 	for (const auto& [k, v] : shader_cache.data)
 	{
@@ -2102,6 +2200,45 @@ void VulkanEngine::execute_debug_pass(VkCommandBuffer cmd)
 	vkCmdEndRendering(cmd);
 }
 
+void VulkanEngine::execute_deferred_shading(VkCommandBuffer cmd)
+{
+	VkViewport viewport{};
+	viewport.x = 0;
+	viewport.y = static_cast<float>(draw_extent.height);
+	viewport.width = static_cast<float>(draw_extent.width);
+	viewport.height = -static_cast<float>(draw_extent.height);
+	viewport.minDepth = 0.0f;
+	viewport.maxDepth = 1.0f;
+	vkCmdSetViewport(cmd, 0, 1, &viewport);
+
+	VkRect2D scissor{};
+	scissor.offset.x = 0;
+	scissor.offset.y = 0;
+	scissor.extent.width = draw_extent.width;
+	scissor.extent.height = draw_extent.height;
+	vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+	VkRenderingAttachmentInfo color_attachment = vkinit::attachment_info(draw_image.view, nullptr);
+	VkRenderingInfo render_info = vkinit::rendering_info(draw_extent, &color_attachment, nullptr);
+
+	vkCmdBeginRendering(cmd, &render_info);
+
+	ShaderPass current_pass = *shader_passes["deferred"];
+	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
+	DeferredPushConstants pc{};
+	pc.albedo_id = texture_cache.get_first_gbuffer();
+	pc.normal_id = pc.albedo_id + 1;
+	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(DeferredPushConstants), &pc);
+	vkCmdDraw(cmd, 3, 1, 0, 0);
+
+	stats.draw_count++;
+
+	vkCmdEndRendering(cmd);
+}
+
 void VulkanEngine::shadow_pass(VkCommandBuffer cmd, RenderScene::MeshPass& pass, size_t cascade_idx)
 {
 	CascadeData& cascade = cascade_data[cascade_idx];
@@ -2370,6 +2507,7 @@ void VulkanEngine::ready_mesh_draw()
 			render_scene.build_instance_buffer(pass);
 		}
 
+		// TODO: can probably use a single bit per pass object
 		if (pass.vis_buffer.info.size < pass.pass_objects.size())
 		{
 			fmt::println("visibility buffer");
@@ -2415,7 +2553,7 @@ void VulkanEngine::ready_mesh_draw()
 			);
 		}
 
-		// TODO: resize - currently 1m meshes with 300 clusters each = ~1.2GB buffer
+		// TODO: resize - if we have 1m meshes with 300 clusters each = ~1.2GB buffer
 		if (pass.cluster_indices.info.size < render_scene.total_meshlets_bits * sizeof(uint32_t))
 		{
 			fmt::println("cluster_indices");
@@ -2427,7 +2565,7 @@ void VulkanEngine::ready_mesh_draw()
 				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT
 			);
 
-			fmt::println("cluster indices size: {}", pass.cluster_indices.info.size);
+			fmt::println("cluster indices size: {}mb", static_cast<float>(pass.cluster_indices.info.size) / 1e6);
 		}
 
 		if (pass.meshtask_indirect_buffer.info.size < render_scene.max_meshtask_commands * sizeof(MeshTaskCommand))
@@ -2438,7 +2576,7 @@ void VulkanEngine::ready_mesh_draw()
 				0,
 				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT
 			);
-			fmt::println("meshtask_buffer size: {}", pass.meshtask_indirect_buffer.info.size);
+			fmt::println("meshtask_buffer size: {}mb", static_cast<float>(pass.meshtask_indirect_buffer.info.size) / 1e6);
 		}
 
 		size_t meshlet_visibility_size = (render_scene.total_meshlets_bits + 31) / 32;
@@ -2450,7 +2588,7 @@ void VulkanEngine::ready_mesh_draw()
 				0,
 				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT
 			);
-			fmt::println("meshlet visibility bits size {}", pass.meshlet_vis_buffer.info.size);
+			fmt::println("meshlet visibility bits size: {}mb", static_cast<float>(pass.meshlet_vis_buffer.info.size) / 1e6);
 
 			immediate_submit([&](VkCommandBuffer cmd) {
 				vkCmdFillBuffer(cmd, pass.meshlet_vis_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
@@ -2646,12 +2784,30 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t query)
 {
 	vkCmdBeginQuery(cmd, get_current_frame().query_pool_pipelines, query, 0);
 
-	VkClearColorValue clear_color_value{ 1.0f, 1.0f, 1.0f, 1.0f };
+	//VkClearColorValue clear_color_value{ 0.2f, 0.2f, 0.2f, 1.0f };
+	//VkClearValue clear_value{ .color = clear_color_value };
+	//VkRenderingAttachmentInfo color_attachment = late ? vkinit::attachment_info(draw_image.view, nullptr) : vkinit::attachment_info(draw_image.view, &clear_value);
+	//VkRenderingAttachmentInfo depth_attachment = vkinit::depth_attachment_info(depth_image.view);
+	//depth_attachment.loadOp = late ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_CLEAR;
+	//VkRenderingInfo render_info = vkinit::rendering_info(draw_extent, &color_attachment, &depth_attachment);
+
+	// deferred
+	VkClearColorValue clear_color_value{ 0.f, 0.f, 0.f, 1.0f };
 	VkClearValue clear_value{ .color = clear_color_value };
-	VkRenderingAttachmentInfo color_attachment = late ? vkinit::attachment_info(draw_image.view, nullptr) : vkinit::attachment_info(draw_image.view, &clear_value);
+	
+	std::vector<VkRenderingAttachmentInfo> gbuffer_info{};
+	for (int i = 0; i < GBUFFER_COUNT; i++)
+	{
+		if (late)
+			gbuffer_info.push_back(vkinit::attachment_info(gbuffers[i].view, nullptr));
+		else
+			gbuffer_info.push_back(vkinit::attachment_info(gbuffers[i].view, &clear_value));
+	}
 	VkRenderingAttachmentInfo depth_attachment = vkinit::depth_attachment_info(depth_image.view);
 	depth_attachment.loadOp = late ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_CLEAR;
-	VkRenderingInfo render_info = vkinit::rendering_info(draw_extent, &color_attachment, &depth_attachment);
+
+	VkRenderingInfo render_info = vkinit::rendering_info(draw_extent, gbuffer_info.data(), &depth_attachment);
+	render_info.colorAttachmentCount = gbuffer_info.size();
 
 	vkCmdBeginRendering(cmd, &render_info);
 

@@ -73,19 +73,22 @@ void PipelineBuilder::clear()
     shader_stages.clear();
 }
 
+void PipelineBuilder::set_blending_state(const VkPipelineColorBlendAttachmentState* states, size_t count)
+{
+    color_blend_info.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    color_blend_info.logicOpEnable = VK_FALSE;
+    color_blend_info.logicOp = VK_LOGIC_OP_COPY;
+    
+    color_blend_info.attachmentCount = static_cast<uint32_t>(count);
+    color_blend_info.pAttachments = states;
+}
+
 VkPipeline PipelineBuilder::build_pipeline(VkDevice device)
 {
     VkPipelineViewportStateCreateInfo viewport_state{};
     viewport_state.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
     viewport_state.viewportCount = 1;
     viewport_state.scissorCount = 1;
-
-    VkPipelineColorBlendStateCreateInfo color_blend_info{};
-    color_blend_info.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-    color_blend_info.logicOpEnable = VK_FALSE;
-    color_blend_info.logicOp = VK_LOGIC_OP_COPY;
-    color_blend_info.attachmentCount = 1;
-    color_blend_info.pAttachments = &color_blend_attachment;
 
     VkPipelineVertexInputStateCreateInfo vertex_input{};
     vertex_input.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
@@ -199,16 +202,31 @@ void PipelineBuilder::set_multisampling_none()
 
 void PipelineBuilder::disable_blending()
 {
+
     color_blend_attachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
     color_blend_attachment.blendEnable = VK_FALSE;
 }
 
 void PipelineBuilder::set_color_attachment_format(VkFormat format)
 {
-    color_attachment_format = format;
+    color_attachment_format.clear();
+    color_attachment_format.push_back(format);
     // connect format to render info
     render_info.colorAttachmentCount = (format == VK_FORMAT_UNDEFINED) ? 0 : 1;
-    render_info.pColorAttachmentFormats = &color_attachment_format;
+    render_info.pColorAttachmentFormats = color_attachment_format.data();
+}
+
+// TODO: support various format
+void PipelineBuilder::set_gbuffer_format(VkFormat format, int count)
+{
+    color_attachment_format.clear();
+    for (int i = 0; i < count; i++)
+    {
+        color_attachment_format.push_back(format);
+    }
+    // connect format to render info
+    render_info.colorAttachmentCount = color_attachment_format.size();
+    render_info.pColorAttachmentFormats = color_attachment_format.data();
 }
 
 void PipelineBuilder::set_depth_format(VkFormat format)

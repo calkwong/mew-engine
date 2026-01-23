@@ -147,14 +147,14 @@ void main()
 	if (id < pc.count)
 	{
 		bool late = pc.late == 1;
-		bool visibleLastFrame = pc.visBuffer.visible[id] == 1;
+		bool visibleLastFrame = pc.visBuffer.visible[id] == 1; // TODO: visBuffer using 4 bytes instead of 1 bit for visibility
 		
 		if (!late && !visibleLastFrame)
 			return;
 		
 		GPUInstance instance = pc.instanceBuffer.instances[id];
-		uint meshId = instance.meshId;
-		uint objectId = instance.objectId;
+		uint meshId = instance.meshId; // from DrawPrimitive
+		uint objectId = instance.objectId; // from renderables, info such as worldMatrix, material etc.
 		
 		MeshData mesh = pc.meshBuffer.meshes[meshId];
 		
@@ -190,7 +190,7 @@ void main()
 			float e = d * pc.lodDistanceFactor / maxScale;
 			
 			uint index = 0;
-			if (pc.lodEnabled == 1)
+			if (pc.lodEnabled == 1) // TODO: move above into this block?
 			{
 				for (uint i = 0; i < mesh.lodCount; i++)
 				{

@@ -16,7 +16,8 @@ layout (location = 3) in vec2 inUV;
 layout (location = 4) in vec4 inTangent;
 layout (location = 5) in flat uint inMaterialID;
 
-layout (location = 0) out vec4 outFragColor;
+//layout (location = 0) out vec4 outFragColor;
+layout (location = 0) out vec4 gbuffer[2];
 
 const float exposure = 4.0;
 const float gamma = 2.2;
@@ -56,19 +57,23 @@ void main()
 
 	vec3 N = normalize(inNormal); 
 	
-	//outFragColor = vec4(N, 1.0);
-	
 	if (pc.debugMeshlets == 0)
 	{
-		outFragColor = albedo;
+		//outFragColor = albedo;
 		N = N.xyz * 0.5 + 0.5;
-		outFragColor = vec4(N, 1);
+		//outFragColor = vec4(N, 1);
+		
+		gbuffer[0] = albedo;
+		gbuffer[1] = vec4(N, 1);
 	}
-	else
+	else // visualize meshlets
 	{
-		N = N.xyz * 0.5 + 0.5;
-		outFragColor = vec4(N, 1);
+		//outFragColor = vec4(N, 1); 
+		
+		gbuffer[0] = albedo;
+		gbuffer[1] = vec4(N, 1);
 	}
+	
 	
 	
 }

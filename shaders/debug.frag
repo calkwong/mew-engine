@@ -31,8 +31,8 @@ float LinearizeDepth(float depth)
 void main()
 {
 	float depth = textureLod(sampler2D(allTextures[pc.texture_id], samplers[DEPTH_PYRAMID_DEBUG_SAMPLER]), inUV, float(pc.lod)).r; 
-
+	
 	depth = LinearizeDepth(1.0 - depth);
-
+	
 	outFragColor = vec4(vec3(depth / far), 1);
 }
