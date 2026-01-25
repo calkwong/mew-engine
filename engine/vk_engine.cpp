@@ -53,7 +53,8 @@ bool RENDER_IMGUI = true;
 constexpr float LIGHT_FAR_PLANE{ 150.0f };
 constexpr uint32_t SHADOW_MAP_SIZE{ 2048 };
 constexpr int NUMBER_OF_CASCADES{ 4 };
-constexpr int GBUFFER_COUNT{ 2 };
+constexpr int GBUFFER_COUNT{ 3 };
+constexpr int LIGHT_COUNT{ 1000 };
 
 AutoCVar_Int CVAR_DRAW_DISTANCE{ "Draw distance", 1000, 1000, CVarFlags::EditSliderInt, 100, 1000, 100 };
 AutoCVar_Int CVAR_TOGGLE_MESH_SHADING{ "Mesh shading", 1, 1, CVarFlags::EditCheckbox };
@@ -494,8 +495,9 @@ void VulkanEngine::draw()
 				VK_ACCESS_2_SHADER_SAMPLED_READ_BIT
 			);
 		}
-
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 8);
 		execute_deferred_shading(cmd);
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 9);
 	}
 
 	vkutil::transition_image(
@@ -574,7 +576,7 @@ void VulkanEngine::draw()
 	FrameMark;
 	frame_number++;
 
-	std::array<uint64_t, 8> timestamp_results{};
+	std::array<uint64_t, 10> timestamp_results{}; // TODO: currently size is hardcoded
 
 	vkGetQueryPoolResults(
 		device,
@@ -600,21 +602,27 @@ void VulkanEngine::draw()
 		VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT
 	);
 
-	auto cull_begin = static_cast<double>(timestamp_results[0]) * props.limits.timestampPeriod * 1e-6f;
-	auto cull_end   = static_cast<double>(timestamp_results[1]) * props.limits.timestampPeriod * 1e-6f;
+	auto conversion = props.limits.timestampPeriod * 1e-6f; // converts a timestamp value into milliseconds 
+
+	auto cull_begin = static_cast<double>(timestamp_results[0]) * conversion;
+	auto cull_end   = static_cast<double>(timestamp_results[1]) * conversion;
 	stats.early_cull = static_cast<float>(cull_end - cull_begin);
 
-	auto indirect_begin = static_cast<double>(timestamp_results[2]) * props.limits.timestampPeriod * 1e-6f;
-	auto indirect_end   = static_cast<double>(timestamp_results[3]) * props.limits.timestampPeriod * 1e-6f;
+	auto indirect_begin = static_cast<double>(timestamp_results[2]) * conversion;
+	auto indirect_end   = static_cast<double>(timestamp_results[3]) * conversion;
 	stats.early_indirect = static_cast<float>(indirect_end - indirect_begin);
 
-	cull_begin = static_cast<double>(timestamp_results[4]) * props.limits.timestampPeriod * 1e-6f;
-	cull_end =   static_cast<double>(timestamp_results[5]) * props.limits.timestampPeriod * 1e-6f;
+	cull_begin = static_cast<double>(timestamp_results[4]) * conversion;
+	cull_end =   static_cast<double>(timestamp_results[5]) * conversion;
 	stats.late_cull = static_cast<float>(cull_end - cull_begin);
 
-	indirect_begin = static_cast<double>(timestamp_results[6]) * props.limits.timestampPeriod * 1e-6f;
-	indirect_end =   static_cast<double>(timestamp_results[7]) * props.limits.timestampPeriod * 1e-6f;
+	indirect_begin = static_cast<double>(timestamp_results[6]) * conversion;
+	indirect_end =   static_cast<double>(timestamp_results[7]) * conversion;
 	stats.late_indirect = static_cast<float>(indirect_end - indirect_begin);
+
+	auto deferred_shading_begin = static_cast<double>(timestamp_results[8]) * conversion;
+	auto deferred_shading_end = static_cast<double>(timestamp_results[9]) * conversion;
+	stats.deferred_shading = static_cast<float>(deferred_shading_end - deferred_shading_begin);
 
 	stats.triangle_count = static_cast<uint32_t>(pipeline_results[0] + pipeline_results[1]); // narrowing
 }
@@ -857,6 +865,7 @@ void VulkanEngine::run()
 			ImGui::Text("Late  cull:           %.3f ms", stats.late_cull);
 			ImGui::Text("Early render:         %.3f ms", stats.early_indirect);
 			ImGui::Text("Late render:          %.3f ms", stats.late_indirect);
+			ImGui::Text("Deferred shading:     %.3f ms", stats.deferred_shading);
 			ImGui::Text("Triangles:            %u", stats.triangle_count);
 			ImGui::Text("Clipping invocations: %.1fM", static_cast<double>(stats.triangle_count) * 1e-6);
 
@@ -1077,8 +1086,8 @@ void VulkanEngine::create_swapchain(uint32_t width, uint32_t height)
 {
 	vkb::SwapchainBuilder swapchainBuilder{ chosen_gpu, device, surface };
 
-	swapchain_image_format = VK_FORMAT_B8G8R8A8_UNORM;
-	//swapchain_image_format = VK_FORMAT_B8G8R8A8_SRGB;
+	//swapchain_image_format = VK_FORMAT_B8G8R8A8_UNORM;
+	swapchain_image_format = VK_FORMAT_B8G8R8A8_SRGB;
 
 	vkb::Swapchain vkbSwapchain = swapchainBuilder
 		//.use_default_format_selection()
@@ -1841,6 +1850,24 @@ void VulkanEngine::init_default_data()
 			vkDestroyImageView(device, pyramid_views[i], nullptr);
 		}
 	});
+
+	// global light list
+	std::mt19937 mt(42);
+	std::uniform_real_distribution<float> pos_dist(-1.0f, 1.0f);
+	std::uniform_real_distribution<float> color_dist(0.f, 1.0f);
+
+	std::array<PointLight, LIGHT_COUNT> light_data{};
+
+	float light_area = 10.f; // in radius
+	float light_radius = 1.f;
+
+	for (size_t i = 0; i < LIGHT_COUNT; i++)
+	{
+		light_data[i].pos = glm::vec4(pos_dist(mt) * light_area, std::abs(pos_dist(mt) * light_area), pos_dist(mt) * light_area, light_radius); // pos & radius
+		light_data[i].color = glm::vec4(color_dist(mt), color_dist(mt), color_dist(mt), 1.0);
+	}
+
+	light_buffer = upload_buffer(light_data.data(), LIGHT_COUNT * sizeof(PointLight));
 }
 
 void VulkanEngine::init_renderables(const std::string& file_path)
@@ -2257,9 +2284,16 @@ void VulkanEngine::execute_deferred_shading(VkCommandBuffer cmd)
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
+
 	DeferredPushConstants pc{};
+	VkBufferDeviceAddressInfo address_info{};
+	address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
+	address_info.buffer = light_buffer.buffer;
+	pc.light_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
 	pc.albedo_id = texture_cache.get_first_gbuffer();
 	pc.normal_id = pc.albedo_id + 1;
+	pc.world_pos_id = pc.albedo_id + 2; // TODO: loop based on size perhaps? remove hardcode
+
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(DeferredPushConstants), &pc);
 	vkCmdDraw(cmd, 3, 1, 0, 0);
 

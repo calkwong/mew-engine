@@ -17,7 +17,7 @@ layout (location = 4) in vec4 inTangent;
 layout (location = 5) in flat uint inMaterialID;
 
 //layout (location = 0) out vec4 outFragColor;
-layout (location = 0) out vec4 gbuffer[2];
+layout (location = 0) out vec4 gbuffer[];
 
 const float exposure = 4.0;
 const float gamma = 2.2;
@@ -65,6 +65,7 @@ void main()
 		
 		gbuffer[0] = albedo;
 		gbuffer[1] = vec4(N, 1);
+		gbuffer[2] = vec4(inWorldPos, 1.0);
 	}
 	else // visualize meshlets
 	{
@@ -72,6 +73,7 @@ void main()
 		
 		gbuffer[0] = albedo;
 		gbuffer[1] = vec4(N, 1);
+		gbuffer[2] = vec4(inWorldPos, 1);
 	}
 	
 	

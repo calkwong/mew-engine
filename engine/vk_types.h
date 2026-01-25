@@ -114,3 +114,9 @@ struct CascadeData
     glm::mat4 viewproj{};
     float split_ratio{};
 };
+
+struct PointLight
+{
+    glm::vec4 pos{}; // pos & radius
+    glm::vec4 color{};
+};

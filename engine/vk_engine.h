@@ -42,8 +42,10 @@ struct GPUPushConstants // temporarily shared by vertex and mesh shading path
 
 struct DeferredPushConstants
 {
+	VkDeviceAddress light_buffer_address{};
 	uint32_t albedo_id{};
 	uint32_t normal_id{};
+	uint32_t world_pos_id{};
 };
 
 //struct ShadowPushConstants
@@ -138,6 +140,7 @@ struct EngineStats
 	float late_cull{};
 	float early_indirect{};
 	float late_indirect{};
+	float deferred_shading{};
 };
 
 // destruction of textures handled by gltf (not internally); does not support dynamic objs
@@ -278,6 +281,7 @@ public:
 
 	AllocatedImage shadow_map{};
 
+	AllocatedBuffer light_buffer{};;
 
 	VkSampler default_linear_sampler{};
 	VkSampler default_cube_sampler{};
