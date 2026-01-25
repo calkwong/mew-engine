@@ -114,9 +114,3 @@ struct CascadeData
     glm::mat4 viewproj{};
     float split_ratio{};
 };
-
-template <typename T>
-struct Handle
-{
-    uint32_t handle{};
-};
