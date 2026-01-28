@@ -55,6 +55,8 @@ constexpr uint32_t SHADOW_MAP_SIZE{ 2048 };
 constexpr int NUMBER_OF_CASCADES{ 4 };
 constexpr int GBUFFER_COUNT{ 3 };
 constexpr int LIGHT_COUNT{ 1000 };
+constexpr int CLUSTER_DIM{ 64 };
+constexpr int CLUSTER_SLICE_COUNT{ 24 };
 
 AutoCVar_Int CVAR_DRAW_DISTANCE{ "Draw distance", 1000, 1000, CVarFlags::EditSliderInt, 100, 1000, 100 };
 AutoCVar_Int CVAR_TOGGLE_MESH_SHADING{ "Mesh shading", 1, 1, CVarFlags::EditCheckbox };
@@ -64,6 +66,8 @@ AutoCVar_Int CVAR_TOGGLE_FREEZE{ "Freeze rendering", 0, 0, CVarFlags::EditCheckb
 AutoCVar_Int CVAR_TOGGLE_VIEW_MESHLETS{ "Visualize meshlets", 0, 0, CVarFlags::EditCheckbox};
 AutoCVar_Int CVAR_TOGGLE_DEPTH_PYRAMID{ "Visualize Hi-Z", 0, 0, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_DEPTH_PYRAMID_LOD{ "Hi-Z LOD", 0, 0, CVarFlags::EditSliderInt, 0, 10, 1 };
+AutoCVar_Int CVAR_TOGGLE_LIGHT_CULLING{ "Light clustered culling", 0, 0, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_TOGGLE_DEFERRED_DEBUG{ "Deferred debug", 0, 0, CVarFlags::EditCheckbox };
 
 uint32_t nearest_pow2(uint32_t extent)
 {
@@ -151,6 +155,7 @@ void VulkanEngine::init(const std::string& file_path)
 	// TODO: refactor if window resize
 	main_camera.set_perspective_matrix(glm::radians(main_camera.fov), static_cast<float>(draw_extent.width) / draw_extent.height, main_camera.far);
 
+	build_cluster_grid();
 	//init_precomputations();
 
 	VkQueryPoolCreateInfo query_pool_info{};
@@ -348,9 +353,9 @@ void VulkanEngine::draw()
 			depth_image.image,
 			VK_IMAGE_LAYOUT_UNDEFINED,
 			VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
-			VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT, // last frame lighting pass?
+			VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, // last frame lighting pass?
 			VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
-			VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+			VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
 			VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
 			VK_IMAGE_ASPECT_DEPTH_BIT
 		);
@@ -475,10 +480,34 @@ void VulkanEngine::draw()
 		VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT
 	); // from prev frame's blit to swapchain 
 
+	// light culling
+	{
+		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_2_CLEAR_BIT,
+			VK_ACCESS_2_SHADER_READ_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT
+		); 
+
+		vkCmdFillBuffer(cmd, light_count_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
+
+		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+			VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_ACCESS_2_SHADER_WRITE_BIT
+		);
+
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 10);
+		execute_light_culling(cmd);
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 11);
+
+		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+			VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_READ_BIT
+		);
+	}
+
 	// visualize hi-z
 	if (CVAR_TOGGLE_DEPTH_PYRAMID.get())
 	{
+		// TODO: refactor timestamps - writing timestamp here is necessary, otherwise render is blocked due to the way timestamp is set up 
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 8);
 		execute_debug_pass(cmd);
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 9);
 	}
 	else // deferred shading; TODO - split this up instead of in an if block
 	{
@@ -495,6 +524,19 @@ void VulkanEngine::draw()
 				VK_ACCESS_2_SHADER_SAMPLED_READ_BIT
 			);
 		}
+
+		vkutil::transition_image(
+			cmd,
+			depth_image.image,
+			VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+			VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+			VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+			VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+			VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+			VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
+			VK_IMAGE_ASPECT_DEPTH_BIT
+		);
+
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 8);
 		execute_deferred_shading(cmd);
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 9);
@@ -576,7 +618,7 @@ void VulkanEngine::draw()
 	FrameMark;
 	frame_number++;
 
-	std::array<uint64_t, 10> timestamp_results{}; // TODO: currently size is hardcoded
+	std::array<uint64_t, 12> timestamp_results{}; // TODO: currently size is hardcoded
 
 	vkGetQueryPoolResults(
 		device,
@@ -623,6 +665,10 @@ void VulkanEngine::draw()
 	auto deferred_shading_begin = static_cast<double>(timestamp_results[8]) * conversion;
 	auto deferred_shading_end = static_cast<double>(timestamp_results[9]) * conversion;
 	stats.deferred_shading = static_cast<float>(deferred_shading_end - deferred_shading_begin);
+
+	auto light_culling_begin = static_cast<double>(timestamp_results[10]) * conversion;
+	auto light_culling_end = static_cast<double>(timestamp_results[11]) * conversion;
+	stats.light_culling = static_cast<float>(light_culling_end - light_culling_begin);
 
 	stats.triangle_count = static_cast<uint32_t>(pipeline_results[0] + pipeline_results[1]); // narrowing
 }
@@ -865,6 +911,7 @@ void VulkanEngine::run()
 			ImGui::Text("Late  cull:           %.3f ms", stats.late_cull);
 			ImGui::Text("Early render:         %.3f ms", stats.early_indirect);
 			ImGui::Text("Late render:          %.3f ms", stats.late_indirect);
+			ImGui::Text("Light culling:        %.3f ms", stats.light_culling);
 			ImGui::Text("Deferred shading:     %.3f ms", stats.deferred_shading);
 			ImGui::Text("Triangles:            %u", stats.triangle_count);
 			ImGui::Text("Clipping invocations: %.1fM", static_cast<double>(stats.triangle_count) * 1e-6);
@@ -1224,7 +1271,7 @@ void VulkanEngine::immediate_submit(std::function<void(VkCommandBuffer cmd)>&& f
 
 void VulkanEngine::init_pipelines()
 {
-	std::vector<VkDescriptorSetLayout> descriptor_layouts{ bindless_image_layout, bindless_tex_layout, bindless_sampler_layout };
+	std::vector<VkDescriptorSetLayout> descriptor_layouts{};
 	VkPushConstantRange pc{};
 
 	ComputePipelineBuilder compute_builder{};
@@ -1251,7 +1298,21 @@ void VulkanEngine::init_pipelines()
 	//compute_builder.set_shaders(module);
 	//std::unique_ptr<ShaderPass> brdf_pass = vkutil::build_shader(device, compute_builder, descriptor_layouts, &pc);
 
+	//> LIGHT-CULLING
+	descriptor_layouts.clear();
+	module = shader_cache.add_shader(device, "cluster_grid.comp.spv");
+	compute_builder.set_shaders(module);
+	pc = { VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ClusterGridPushConstants) };
+	std::unique_ptr<ShaderPass> cluster_grid_pass = vkutil::build_shader(device, compute_builder, descriptor_layouts, &pc);
+
+	module = shader_cache.add_shader(device, "light_culling.comp.spv");
+	compute_builder.set_shaders(module);
+	pc = { VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(LightCullingPushConstants) };
+	std::unique_ptr<ShaderPass> light_culling_pass = vkutil::build_shader(device, compute_builder, descriptor_layouts, &pc);
+
 	//> HI-Z
+	descriptor_layouts.clear();
+	descriptor_layouts = { bindless_image_layout, bindless_tex_layout, bindless_sampler_layout };
 	module = shader_cache.add_shader(device, "depth_pyramid.comp.spv");
 	compute_builder.set_shaders(module);
 	pc = { VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(DepthPyramidPushConstants) };
@@ -1449,6 +1510,8 @@ void VulkanEngine::init_pipelines()
 	shader_passes["task_submit"] = std::move(task_submit_pass);
 	shader_passes["meshlet_cull"] = std::move(meshlet_cull_pass);
 	shader_passes["deferred"] = std::move(deferred_pass);
+	shader_passes["cluster_grid"] = std::move(cluster_grid_pass);
+	shader_passes["light_culling"] = std::move(light_culling_pass);
 
 	for (const auto& [k, v] : shader_cache.data)
 	{
@@ -1776,6 +1839,12 @@ void VulkanEngine::init_default_data()
 	vkCreateSampler(device, &sampler_info, nullptr, &sampler);
 	sampler_cache.add_sampler(sampler); 
 
+	sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+	sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+	sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+	vkCreateSampler(device, &sampler_info, nullptr, &sampler);
+	sampler_cache.add_sampler(sampler); // nearest
+
 	//> CSM
 	float far = LIGHT_FAR_PLANE; 
 	float near = main_camera.far; 
@@ -1856,7 +1925,7 @@ void VulkanEngine::init_default_data()
 	std::uniform_real_distribution<float> pos_dist(-1.0f, 1.0f);
 	std::uniform_real_distribution<float> color_dist(0.f, 1.0f);
 
-	std::array<PointLight, LIGHT_COUNT> light_data{};
+	std::vector<PointLight> light_data(LIGHT_COUNT);
 
 	float light_area = 10.f; // in radius
 	float light_radius = 1.f;
@@ -1867,7 +1936,29 @@ void VulkanEngine::init_default_data()
 		light_data[i].color = glm::vec4(color_dist(mt), color_dist(mt), color_dist(mt), 1.0);
 	}
 
+	light_data[LIGHT_COUNT - 1].pos.w = 0.0001f;
+
 	light_buffer = upload_buffer(light_data.data(), LIGHT_COUNT * sizeof(PointLight));
+
+	const int cluster_size = 64; // TODO: hardcoded 64x64
+	const int grid_x = (window_extent.width + cluster_size - 1) / cluster_size;
+	const int grid_y = (window_extent.height + cluster_size - 1) / cluster_size;
+	const int grid_z = 24;
+	const int total_clusters = grid_x * grid_y * grid_z;
+	const int max_lights_per_cluster = 10;
+
+	light_cluster_buffer = create_buffer(total_clusters * sizeof(ClusterAABB), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
+	light_index_buffer = create_buffer(total_clusters * max_lights_per_cluster * sizeof(uint32_t), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT); // could use smaller more conservative size
+	light_grid_buffer = create_buffer(total_clusters * sizeof(LightGrid), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
+	light_count_buffer = create_buffer(sizeof(uint32_t), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+
+	main_deletion_queue.push_function([&]() {
+		destroy_buffer(light_buffer);
+		destroy_buffer(light_cluster_buffer);
+		destroy_buffer(light_index_buffer);
+		destroy_buffer(light_grid_buffer);
+		destroy_buffer(light_count_buffer);
+	});
 }
 
 void VulkanEngine::init_renderables(const std::string& file_path)
@@ -2286,13 +2377,34 @@ void VulkanEngine::execute_deferred_shading(VkCommandBuffer cmd)
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
 
 	DeferredPushConstants pc{};
+
+	int cluster_x = (window_extent.width + CLUSTER_DIM - 1) / CLUSTER_DIM;
+	int cluster_y = (window_extent.height + CLUSTER_DIM - 1) / CLUSTER_DIM;
+	int cluster_z = CLUSTER_SLICE_COUNT; // TODO: hardcoded
+	pc.cluster_size = glm::vec4(cluster_x, cluster_y, cluster_z, CLUSTER_DIM);
+	pc.screen_size = glm::vec2(window_extent.width, window_extent.height);
+
 	VkBufferDeviceAddressInfo address_info{};
 	address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
 	address_info.buffer = light_buffer.buffer;
 	pc.light_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+	address_info.buffer = light_index_buffer.buffer;
+	pc.light_index_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+	address_info.buffer = light_grid_buffer.buffer;
+	pc.light_grid_buffer_address	 = vkGetBufferDeviceAddress(device, &address_info);
+
+
+	pc.depth_id = texture_cache.get_depth_image();
 	pc.albedo_id = texture_cache.get_first_gbuffer();
 	pc.normal_id = pc.albedo_id + 1;
 	pc.world_pos_id = pc.albedo_id + 2; // TODO: loop based on size perhaps? remove hardcode
+	pc.light_culling = CVAR_TOGGLE_LIGHT_CULLING.get();
+	pc.near = main_camera.far;
+
+	const float ratio = main_camera.near / main_camera.far; 
+	pc.scale = cluster_z / std::log(ratio);
+	pc.bias = cluster_z * std::log(main_camera.far) / std::log(ratio);
+	pc.debug = CVAR_TOGGLE_DEFERRED_DEBUG.get();
 
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(DeferredPushConstants), &pc);
 	vkCmdDraw(cmd, 3, 1, 0, 0);
@@ -2847,13 +2959,6 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t query)
 {
 	vkCmdBeginQuery(cmd, get_current_frame().query_pool_pipelines, query, 0);
 
-	//VkClearColorValue clear_color_value{ 0.2f, 0.2f, 0.2f, 1.0f };
-	//VkClearValue clear_value{ .color = clear_color_value };
-	//VkRenderingAttachmentInfo color_attachment = late ? vkinit::attachment_info(draw_image.view, nullptr) : vkinit::attachment_info(draw_image.view, &clear_value);
-	//VkRenderingAttachmentInfo depth_attachment = vkinit::depth_attachment_info(depth_image.view);
-	//depth_attachment.loadOp = late ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_CLEAR;
-	//VkRenderingInfo render_info = vkinit::rendering_info(draw_extent, &color_attachment, &depth_attachment);
-
 	// deferred
 	VkClearColorValue clear_color_value{ 0.f, 0.f, 0.f, 1.0f };
 	VkClearValue clear_value{ .color = clear_color_value };
@@ -3066,4 +3171,77 @@ void VulkanEngine::build_depth_pyramid(VkCommandBuffer cmd)
 		VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
 		VK_IMAGE_ASPECT_COLOR_BIT
 	);
+}
+
+void VulkanEngine::build_cluster_grid()
+{
+	//> draw
+	VkCommandBuffer cmd = imm_command_buffer;
+	VK_CHECK(vkResetFences(device, 1, &imm_fence));
+
+	VK_CHECK(vkResetCommandBuffer(cmd, 0));
+
+	VkCommandBufferBeginInfo cmd_begin_info = vkinit::command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
+
+	VK_CHECK(vkBeginCommandBuffer(cmd, &cmd_begin_info));
+
+	ShaderPass current_pass = *shader_passes["cluster_grid"];
+	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
+
+	ClusterGridPushConstants pc{};
+	pc.inverse_proj = glm::inverse(main_camera.perspective);
+
+	int cluster_x = (window_extent.width + CLUSTER_DIM - 1) / CLUSTER_DIM;
+	int cluster_y = (window_extent.height + CLUSTER_DIM - 1) / CLUSTER_DIM;
+	int cluster_z = CLUSTER_SLICE_COUNT; 
+	pc.cluster_size = glm::vec4(cluster_x, cluster_y, cluster_z, CLUSTER_DIM);
+	pc.screen_size = glm::vec2(window_extent.width, window_extent.height);
+	pc.near = main_camera.far; // reverse-z
+	pc.far = main_camera.near;
+
+	VkBufferDeviceAddressInfo address_info{};
+	address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
+	address_info.buffer = light_cluster_buffer.buffer;
+	pc.light_cluster_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+
+	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ClusterGridPushConstants), &pc);
+	vkCmdDispatch(cmd, 1, 1, cluster_z / 2); // TODO: hardcoded to stay below maxComputeWorkGroupInvocations
+
+	VK_CHECK(vkEndCommandBuffer(cmd));
+
+	VkCommandBufferSubmitInfo cmd_info = vkinit::command_buffer_submit_info(cmd);
+	VkSubmitInfo2 submit = vkinit::submit_info(&cmd_info, nullptr, nullptr);
+
+	VK_CHECK(vkQueueSubmit2(graphics_queue, 1, &submit, imm_fence));
+	VK_CHECK(vkWaitForFences(device, 1, &imm_fence, true, 9999999999));
+}
+
+void VulkanEngine::execute_light_culling(VkCommandBuffer cmd)
+{
+	ShaderPass current_pass = *shader_passes["light_culling"];
+	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
+
+	LightCullingPushConstants pc{};
+
+	pc.view = scene_data.view;
+
+	VkBufferDeviceAddressInfo address_info{};
+	address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
+	address_info.buffer = light_cluster_buffer.buffer;
+	pc.light_cluster_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+
+	address_info.buffer = light_buffer.buffer;
+	pc.light_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+	
+	address_info.buffer = light_index_buffer.buffer;
+	pc.light_index_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+	
+	address_info.buffer = light_grid_buffer.buffer;
+	pc.light_grid_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+	
+	address_info.buffer = light_count_buffer.buffer;
+	pc.light_count_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+
+	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(LightCullingPushConstants), &pc);
+	vkCmdDispatch(cmd, 27, 15, 24); // TODO: hardcoded
 }

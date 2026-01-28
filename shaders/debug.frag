@@ -22,6 +22,7 @@ layout( push_constant ) uniform constants
 float near = 0.01; 
 float far  = 100.0; 
   
+// TODO: fix this to take into account inifinite far plane and reverse depth
 float LinearizeDepth(float depth) 
 {
     float z = depth * 2.0 - 1.0; // back to NDC 

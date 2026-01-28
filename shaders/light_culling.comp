@@ -1,0 +1,161 @@
+#version 450
+
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_nonuniform_qualifier : require
+#extension GL_EXT_buffer_reference : require
+
+// 1 cluster per workgroup
+layout (local_size_x = 128) in;
+
+struct AABB
+{
+	vec4 min;
+	vec4 max;
+};
+
+// possible refactor to pos[], color[]?
+struct PointLight
+{
+	vec4 pos;
+	vec4 color;
+};
+
+struct LightGrid
+{
+	uint offset;
+	uint count;
+};
+
+layout(buffer_reference, std430) readonly buffer ClusterBuffer
+{
+	AABB aabb[];
+};
+
+layout(buffer_reference, std430) readonly buffer LightBuffer
+{
+	PointLight lights[];
+};
+
+layout(buffer_reference, std430) buffer LightIndexBuffer
+{
+	uint indices[];
+};
+
+layout(buffer_reference, std430) buffer LightGridBuffer
+{
+	LightGrid grid[];
+};
+
+layout(buffer_reference, std430) buffer LightCountBuffer
+{
+	uint count;
+};
+
+layout( push_constant ) uniform constants
+{
+	mat4 view;
+	ClusterBuffer clusterBuffer;
+	LightBuffer lightBuffer;
+	LightIndexBuffer lightIndexBuffer;
+	LightGridBuffer lightGridBuffer;
+	LightCountBuffer lightCountBuffer;
+} pc;
+
+float distanceSquared(vec3 a, vec3 b)
+{
+	vec3 d = a - b;
+	return dot(d, d);
+}
+
+bool sphereAABBIntersect(AABB aabb, vec3 center, float radius)
+{
+	vec3 lightCenter = vec3(pc.view * vec4(center, 1.0));
+	vec3 closest = clamp(lightCenter, aabb.min.xyz, aabb.max.xyz);
+	
+	float d = distanceSquared(closest, lightCenter);
+	
+	return d <= (radius * radius);
+}
+
+const uint MAX_LIGHTS = 1000;
+
+// thread local variables
+uint localLightCount = 0;
+const uint batches = (MAX_LIGHTS + gl_WorkGroupSize.x - 1) / gl_WorkGroupSize.x;
+uint localLightList[MAX_LIGHTS]; // TODO: temporarily using max count as all lights can fall into a single cluster at far plane if our scene is far away, causing OOB device lost 
+	
+// workgroup shared
+shared uint sharedOffset; 
+shared uint sharedCount[gl_WorkGroupSize.x]; // can't use gl_NumSubgroups as its not compile time constant?
+shared uint sharedLightList[MAX_LIGHTS];
+	
+void main()
+{
+	uint clusterIndex = 
+		gl_WorkGroupID.x 
+		+ gl_NumWorkGroups.x * gl_WorkGroupID.y 
+		+ gl_NumWorkGroups.x * gl_NumWorkGroups.y * gl_WorkGroupID.z;
+		
+	AABB clusterAABB = pc.clusterBuffer.aabb[clusterIndex];
+	
+	for (uint batch = 0; batch < batches; batch++)
+	{
+		uint lightIndex = min(batch * gl_WorkGroupSize.x + gl_LocalInvocationIndex, MAX_LIGHTS - 1); // clamp to last light which will never intersect
+		
+		PointLight light = pc.lightBuffer.lights[lightIndex];
+		vec3 lightPos = light.pos.xyz;
+		float lightRadius = light.pos.w;
+		bool intersect = sphereAABBIntersect(clusterAABB, lightPos, lightRadius);
+		
+		if (intersect)
+		{	
+			localLightList[localLightCount++] = lightIndex; // record light index
+		}
+	}
+	
+	sharedOffset = 0;
+	barrier();
+	
+	uint offset;
+	if (localLightCount > 0)
+		offset = atomicAdd(sharedOffset, localLightCount);
+	
+	for (uint i = 0; i < localLightCount; i++)
+	{
+		sharedLightList[offset + i] = localLightList[i];
+	}
+	
+	sharedCount[gl_LocalInvocationIndex] = localLightCount;
+	
+	barrier(); 
+	
+	if (gl_LocalInvocationIndex == 0)
+	{
+	
+		uint clusterLightCount = 0;
+		
+		// sum up total lights affecting cluster
+		for (int i = 0; i < gl_WorkGroupSize.x; i++)
+		{
+			clusterLightCount += sharedCount[i];
+		}
+	
+		uint clusterOffset = atomicAdd(pc.lightCountBuffer.count, clusterLightCount);
+		
+		// update global light index list
+		for (int i = 0; i < clusterLightCount; i++)
+		{
+			pc.lightIndexBuffer.indices[clusterOffset + i] = sharedLightList[i];
+		}
+		
+		pc.lightGridBuffer.grid[clusterIndex].offset = clusterOffset;
+		pc.lightGridBuffer.grid[clusterIndex].count = clusterLightCount;
+	}
+}
+
+// POTENTIAL IMPROVEMENTS
+// - subgroup ops
+// - tree reduction when computing final offset/count from shared workgroup memory, this uses more thread for final computation instead of thread ID 0 only
+// - light sorting?
+// - instead of lightIndex, write out light data to prevent rand-access indirection during shading? this comes at cost of duplicated data
+// - any ideas from https://themaister.net/blog/2020/01/10/clustered-shading-evolution-in-granite/?

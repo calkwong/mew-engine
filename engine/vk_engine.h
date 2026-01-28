@@ -42,10 +42,20 @@ struct GPUPushConstants // temporarily shared by vertex and mesh shading path
 
 struct DeferredPushConstants
 {
+	glm::vec4 cluster_size{}; // xyz are cluster data structure dimensions, w is a single cluster's dimension
+	glm::vec2 screen_size{};
 	VkDeviceAddress light_buffer_address{};
+	VkDeviceAddress light_index_buffer_address{};
+	VkDeviceAddress light_grid_buffer_address{};
+	uint32_t depth_id{};
 	uint32_t albedo_id{};
 	uint32_t normal_id{};
 	uint32_t world_pos_id{};
+	uint32_t light_culling{}; // for toggling light culling between naive and proper implementation
+	float near{};
+	float scale{}; 
+	float bias{};  
+	uint32_t debug{};
 };
 
 //struct ShadowPushConstants
@@ -84,6 +94,26 @@ struct DepthPyramidPushConstants
 	uint32_t texture_id{};
 	uint32_t image_id{};
 	uint32_t lod{};
+};
+
+struct ClusterGridPushConstants
+{
+	glm::mat4 inverse_proj{};
+	glm::vec4 cluster_size{};
+	glm::vec2 screen_size{};
+	float near{};
+	float far{};
+	VkDeviceAddress light_cluster_buffer_address{};
+};
+
+struct LightCullingPushConstants
+{
+	glm::mat4 view{};
+	VkDeviceAddress light_cluster_buffer_address{};
+	VkDeviceAddress light_buffer_address{};
+	VkDeviceAddress light_index_buffer_address{};
+	VkDeviceAddress light_grid_buffer_address{};
+	VkDeviceAddress light_count_buffer_address{};
 };
 
 struct PostFXPushConstants
@@ -141,6 +171,7 @@ struct EngineStats
 	float early_indirect{};
 	float late_indirect{};
 	float deferred_shading{};
+	float light_culling{};
 };
 
 // destruction of textures handled by gltf (not internally); does not support dynamic objs
@@ -281,7 +312,11 @@ public:
 
 	AllocatedImage shadow_map{};
 
-	AllocatedBuffer light_buffer{};;
+	AllocatedBuffer light_buffer{};
+	AllocatedBuffer light_cluster_buffer{};
+	AllocatedBuffer light_index_buffer{};
+	AllocatedBuffer light_grid_buffer{};
+	AllocatedBuffer light_count_buffer{};
 
 	VkSampler default_linear_sampler{};
 	VkSampler default_cube_sampler{};
@@ -363,6 +398,7 @@ public:
 	void execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPass& pass, ClusterCullData& cull_data, VkBuffer count_buffer, uint32_t offset, bool late);
 	void render(VkCommandBuffer cmd, bool late, uint32_t query);
 	void build_depth_pyramid(VkCommandBuffer cmd);
+	void execute_light_culling(VkCommandBuffer cmd);
 
 private:
 	void init_vulkan();
@@ -376,6 +412,7 @@ private:
 	void init_bindless(); 
 	void init_precomputations();
 	void init_imgui();
+	void build_cluster_grid();
 
 	void create_swapchain(uint32_t width, uint32_t height);
 	void destroy_swapchain();

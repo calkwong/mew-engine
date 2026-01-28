@@ -3,3 +3,4 @@
 #define SHADOW_SAMPLER 2
 #define DEPTH_REDUCTION_SAMPLER 3
 #define DEPTH_PYRAMID_DEBUG_SAMPLER 4
+#define NEAREST_SAMPLER 5 // clamp to edge

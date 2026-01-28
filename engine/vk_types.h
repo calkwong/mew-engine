@@ -120,3 +120,15 @@ struct PointLight
     glm::vec4 pos{}; // pos & radius
     glm::vec4 color{};
 };
+
+struct ClusterAABB
+{
+    glm::vec4 min{};
+    glm::vec4 max{};
+};
+
+struct LightGrid
+{
+    uint32_t offset{};
+    uint32_t count{};
+};

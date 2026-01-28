@@ -65,6 +65,7 @@ void main()
 		
 		gbuffer[0] = albedo;
 		gbuffer[1] = vec4(N, 1);
+		//gbuffer[2] = vec4(inViewPos, 1.0);
 		gbuffer[2] = vec4(inWorldPos, 1.0);
 	}
 	else // visualize meshlets
@@ -73,7 +74,8 @@ void main()
 		
 		gbuffer[0] = albedo;
 		gbuffer[1] = vec4(N, 1);
-		gbuffer[2] = vec4(inWorldPos, 1);
+		//gbuffer[2] = vec4(inViewPos, 1);
+		gbuffer[2] = vec4(inWorldPos, 1.0);
 	}
 	
 	
