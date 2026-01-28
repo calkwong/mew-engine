@@ -21,6 +21,7 @@
 #include <SDL3/SDL_init.h>
 #include <SDL3/SDL_events.h>
 #include <SDL3/SDL_vulkan.h>
+#include <SDL3/SDL_timer.h>
 #include <vulkan/vulkan.h>
 
 #include <thread>
@@ -2238,6 +2239,11 @@ void VulkanEngine::update_scene()
 	//render_scene.renderables.clear();
 	//render_scene.unbatched_objects.clear();
 
+	int elapsed_ms = SDL_GetTicks();
+	int ms_per_orbit = 10000;
+	float rot_angle = static_cast<float>(elapsed_ms % ms_per_orbit) / ms_per_orbit * 360.0f;
+	scene_data.light_rot = glm::rotate(glm::mat4(1.0f), glm::radians(rot_angle), glm::vec3(0, 1, 0));
+
 	auto end = std::chrono::system_clock::now();
 	auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
 	stats.scene_update_time = elapsed.count() / 1000.0f; // milliseconds
@@ -3224,6 +3230,7 @@ void VulkanEngine::execute_light_culling(VkCommandBuffer cmd)
 	LightCullingPushConstants pc{};
 
 	pc.view = scene_data.view;
+	pc.light_rot = scene_data.light_rot;
 
 	VkBufferDeviceAddressInfo address_info{};
 	address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;

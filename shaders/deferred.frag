@@ -89,6 +89,7 @@ void main()
 		{
 			PointLight light = pc.lightBuffer.lights[i];
 			vec3 lightCenter = light.pos.xyz;
+			lightCenter = vec3(sceneData.lightRot * vec4(lightCenter, 1.0));
 			float lightRadius = light.pos.w;
 			vec3 lightColor = light.color.xyz;
 		
@@ -125,7 +126,7 @@ void main()
 		// equation (3): https://www.aortiz.me/2018/12/21/CG.html#part-2 
 		// slide 5: https://advances.realtimerendering.com/s2016/Siggraph2016_idTech6.pdf
 		uint slice = uint(floor(log(viewZ) * pc.scale - pc.bias));
-		slice = clamp(slice, 0, clusterDim.w - 1);
+		slice = clamp(slice, 0, clusterDim.z - 1);
 		
 		uint clusterIndex = clusterXY.x + clusterDim.x * clusterXY.y + slice * clusterDim.x * clusterDim.y; 
 		
@@ -136,6 +137,7 @@ void main()
 		{
 			uint index = pc.lightIndexBuffer.indices[offset + i];
 			vec3 lightPos = pc.lightBuffer.lights[index].pos.xyz;
+			lightPos = vec3(sceneData.lightRot * vec4(lightPos, 1.0));
 			float lightRadius = pc.lightBuffer.lights[index].pos.w;
 			vec3 lightColor = pc.lightBuffer.lights[index].color.xyz;
 			

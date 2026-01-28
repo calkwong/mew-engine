@@ -54,6 +54,7 @@ layout(buffer_reference, std430) buffer LightCountBuffer
 layout( push_constant ) uniform constants
 {
 	mat4 view;
+	mat4 lightRot;
 	ClusterBuffer clusterBuffer;
 	LightBuffer lightBuffer;
 	LightIndexBuffer lightIndexBuffer;
@@ -69,7 +70,7 @@ float distanceSquared(vec3 a, vec3 b)
 
 bool sphereAABBIntersect(AABB aabb, vec3 center, float radius)
 {
-	vec3 lightCenter = vec3(pc.view * vec4(center, 1.0));
+	vec3 lightCenter = vec3(pc.view * pc.lightRot * vec4(center, 1.0));
 	vec3 closest = clamp(lightCenter, aabb.min.xyz, aabb.max.xyz);
 	
 	float d = distanceSquared(closest, lightCenter);

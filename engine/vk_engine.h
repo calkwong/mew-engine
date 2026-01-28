@@ -109,6 +109,7 @@ struct ClusterGridPushConstants
 struct LightCullingPushConstants
 {
 	glm::mat4 view{};
+	glm::mat4 light_rot{};
 	VkDeviceAddress light_cluster_buffer_address{};
 	VkDeviceAddress light_buffer_address{};
 	VkDeviceAddress light_index_buffer_address{};
