@@ -21,6 +21,7 @@
 #include <SDL3/SDL_init.h>
 #include <SDL3/SDL_events.h>
 #include <SDL3/SDL_vulkan.h>
+#include <SDL3/SDL_timer.h>
 #include <vulkan/vulkan.h>
 
 #include <thread>
@@ -46,13 +47,19 @@ VulkanEngine& VulkanEngine::get() { return *loaded_engine; }
 
 //#define IBL
 //#define SHADOW // TODO: currently not working
-//#define SINGLE // uncomment if loading a proper scene
+#define SINGLE // uncomment if loading a proper scene
+
+bool RENDER_IMGUI = true;
 
 constexpr float LIGHT_FAR_PLANE{ 150.0f };
 constexpr uint32_t SHADOW_MAP_SIZE{ 2048 };
 constexpr int NUMBER_OF_CASCADES{ 4 };
+constexpr int GBUFFER_COUNT{ 3 };
+constexpr int LIGHT_COUNT{ 1000 };
+constexpr int CLUSTER_DIM{ 64 };
+constexpr int CLUSTER_SLICE_COUNT{ 24 };
 
-AutoCVar_Int CVAR_DRAW_DISTANCE{ "Draw distance", 1000, 1000, CVarFlags::EditSliderInt, 100, 1000, 100 };
+AutoCVar_Int CVAR_DRAW_DISTANCE{ "Draw distance", 100, 100, CVarFlags::EditSliderInt, 100, 1000, 100 };
 AutoCVar_Int CVAR_TOGGLE_MESH_SHADING{ "Mesh shading", 1, 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TOGGLE_OCCLUSION{ "Occlusion", 1, 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TOGGLE_LOD{ "LOD", 1, 1, CVarFlags::EditCheckbox};
@@ -60,6 +67,7 @@ AutoCVar_Int CVAR_TOGGLE_FREEZE{ "Freeze rendering", 0, 0, CVarFlags::EditCheckb
 AutoCVar_Int CVAR_TOGGLE_VIEW_MESHLETS{ "Visualize meshlets", 0, 0, CVarFlags::EditCheckbox};
 AutoCVar_Int CVAR_TOGGLE_DEPTH_PYRAMID{ "Visualize Hi-Z", 0, 0, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_DEPTH_PYRAMID_LOD{ "Hi-Z LOD", 0, 0, CVarFlags::EditSliderInt, 0, 10, 1 };
+AutoCVar_Int CVAR_TOGGLE_LIGHT_CULLING{ "Light clustered culling", 0, 0, CVarFlags::EditCheckbox };
 
 uint32_t nearest_pow2(uint32_t extent)
 {
@@ -147,6 +155,7 @@ void VulkanEngine::init(const std::string& file_path)
 	// TODO: refactor if window resize
 	main_camera.set_perspective_matrix(glm::radians(main_camera.fov), static_cast<float>(draw_extent.width) / draw_extent.height, main_camera.far);
 
+	build_cluster_grid(); // TODO: support draw distance change
 	//init_precomputations();
 
 	VkQueryPoolCreateInfo query_pool_info{};
@@ -344,23 +353,26 @@ void VulkanEngine::draw()
 			depth_image.image,
 			VK_IMAGE_LAYOUT_UNDEFINED,
 			VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
-			VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT, // last frame lighting pass?
+			VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, // TODO: do we need fragment shader bit? cc deferred.frag
 			VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
-			VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+			VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, // TODO: do we need shader sample? cc deferred.frag 
 			VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
 			VK_IMAGE_ASPECT_DEPTH_BIT
 		);
 
-		vkutil::transition_image(
-			cmd,
-			draw_image.image,
-			VK_IMAGE_LAYOUT_UNDEFINED,
-			VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-			VK_PIPELINE_STAGE_2_BLIT_BIT,
-			VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-			VK_ACCESS_2_TRANSFER_READ_BIT,
-			VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT
-		); // from blit to swapchain prev frame
+		for (int i = 0; i < GBUFFER_COUNT; i++)
+		{
+			vkutil::transition_image(
+				cmd,
+				gbuffers[i].image,
+				VK_IMAGE_LAYOUT_UNDEFINED,
+				VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+				VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+				VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+				VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
+				VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT
+			); 
+		}
 
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 2);
 		render(cmd, false, 0);
@@ -445,9 +457,80 @@ void VulkanEngine::draw()
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 7);
 	}
 	
+	// necessary barrier for either visualizing hi-z or deferred shading
+	vkutil::transition_image(
+		cmd,
+		draw_image.image,
+		VK_IMAGE_LAYOUT_UNDEFINED,
+		VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+		VK_PIPELINE_STAGE_2_BLIT_BIT,
+		VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+		VK_ACCESS_2_TRANSFER_READ_BIT,
+		VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT
+	); // from prev frame's blit to swapchain 
+
+	// light culling
+	//if (CVAR_TOGGLE_LIGHT_CULLING.get())
+	{
+		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_2_CLEAR_BIT,
+			VK_ACCESS_2_SHADER_READ_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT
+		); 
+
+		vkCmdFillBuffer(cmd, light_count_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
+
+		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+			VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_ACCESS_2_SHADER_WRITE_BIT
+		);
+
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 10);
+		if (CVAR_TOGGLE_LIGHT_CULLING.get()) // TODO: should really move this out to prevent unnecessary barriers - requires refactoring timestamps
+			execute_light_culling(cmd);
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 11);
+
+		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+			VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_READ_BIT
+		);
+	}
+
+	// visualize hi-z
 	if (CVAR_TOGGLE_DEPTH_PYRAMID.get())
 	{
+		// TODO: refactor timestamps - writing timestamp here is necessary, otherwise render is blocked due to the way timestamp is set up 
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 8);
 		execute_debug_pass(cmd);
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 9);
+	}
+	else // deferred shading; TODO - split this up instead of in an if block
+	{
+		for (int i = 0; i < GBUFFER_COUNT; i++)
+		{
+			vkutil::transition_image(
+				cmd,
+				gbuffers[i].image,
+				VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+				VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+				VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+				VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+				VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+				VK_ACCESS_2_SHADER_SAMPLED_READ_BIT
+			);
+		}
+
+		vkutil::transition_image(
+			cmd,
+			depth_image.image,
+			VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+			VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+			VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+			VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+			VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+			VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
+			VK_IMAGE_ASPECT_DEPTH_BIT
+		);
+
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 8);
+		execute_deferred_shading(cmd);
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 9);
 	}
 
 	vkutil::transition_image(
@@ -486,7 +569,8 @@ void VulkanEngine::draw()
 	);
 	
 	{
-		draw_imgui(cmd, swapchain_image_views[swapchain_image_idx]);
+		if (RENDER_IMGUI)
+			draw_imgui(cmd, swapchain_image_views[swapchain_image_idx]);
 	}
 
 	vkutil::transition_image(
@@ -525,7 +609,7 @@ void VulkanEngine::draw()
 	FrameMark;
 	frame_number++;
 
-	std::array<uint64_t, 8> timestamp_results{};
+	std::array<uint64_t, 12> timestamp_results{}; // TODO: currently size is hardcoded
 
 	vkGetQueryPoolResults(
 		device,
@@ -551,21 +635,31 @@ void VulkanEngine::draw()
 		VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT
 	);
 
-	auto cull_begin = static_cast<double>(timestamp_results[0]) * props.limits.timestampPeriod * 1e-6f;
-	auto cull_end   = static_cast<double>(timestamp_results[1]) * props.limits.timestampPeriod * 1e-6f;
+	auto conversion = props.limits.timestampPeriod * 1e-6f; // converts a timestamp value into milliseconds 
+
+	auto cull_begin = static_cast<double>(timestamp_results[0]) * conversion;
+	auto cull_end   = static_cast<double>(timestamp_results[1]) * conversion;
 	stats.early_cull = static_cast<float>(cull_end - cull_begin);
 
-	auto indirect_begin = static_cast<double>(timestamp_results[2]) * props.limits.timestampPeriod * 1e-6f;
-	auto indirect_end   = static_cast<double>(timestamp_results[3]) * props.limits.timestampPeriod * 1e-6f;
+	auto indirect_begin = static_cast<double>(timestamp_results[2]) * conversion;
+	auto indirect_end   = static_cast<double>(timestamp_results[3]) * conversion;
 	stats.early_indirect = static_cast<float>(indirect_end - indirect_begin);
 
-	cull_begin = static_cast<double>(timestamp_results[4]) * props.limits.timestampPeriod * 1e-6f;
-	cull_end =   static_cast<double>(timestamp_results[5]) * props.limits.timestampPeriod * 1e-6f;
+	cull_begin = static_cast<double>(timestamp_results[4]) * conversion;
+	cull_end =   static_cast<double>(timestamp_results[5]) * conversion;
 	stats.late_cull = static_cast<float>(cull_end - cull_begin);
 
-	indirect_begin = static_cast<double>(timestamp_results[6]) * props.limits.timestampPeriod * 1e-6f;
-	indirect_end =   static_cast<double>(timestamp_results[7]) * props.limits.timestampPeriod * 1e-6f;
+	indirect_begin = static_cast<double>(timestamp_results[6]) * conversion;
+	indirect_end =   static_cast<double>(timestamp_results[7]) * conversion;
 	stats.late_indirect = static_cast<float>(indirect_end - indirect_begin);
+
+	auto deferred_shading_begin = static_cast<double>(timestamp_results[8]) * conversion;
+	auto deferred_shading_end = static_cast<double>(timestamp_results[9]) * conversion;
+	stats.deferred_shading = static_cast<float>(deferred_shading_end - deferred_shading_begin);
+
+	auto light_culling_begin = static_cast<double>(timestamp_results[10]) * conversion;
+	auto light_culling_end = static_cast<double>(timestamp_results[11]) * conversion;
+	stats.light_culling = static_cast<float>(light_culling_end - light_culling_begin);
 
 	stats.triangle_count = static_cast<uint32_t>(pipeline_results[0] + pipeline_results[1]); // narrowing
 }
@@ -770,6 +864,12 @@ void VulkanEngine::run()
 					stop_movement = !stop_movement;
 					stop_movement ? SDL_SetWindowRelativeMouseMode(window, false) : SDL_SetWindowRelativeMouseMode(window, true);
 				}
+
+				// toggle IMGUI render
+				if (e.key.repeat == 0 && e.key.key == SDLK_R)
+				{
+					RENDER_IMGUI = !RENDER_IMGUI;
+				}
 			}
 
 			if (!stop_movement)
@@ -795,15 +895,17 @@ void VulkanEngine::run()
 
 		{
 			ImGui::Begin("Stats");
-			ImGui::Text("frametime %f ms", stats.deltatime * 1000.0f);
-			ImGui::Text("draws %i", stats.draw_count);
-			ImGui::Text("scene update time %f ms", stats.scene_update_time);
-			ImGui::Text("early cull %f ms", stats.early_cull);
-			ImGui::Text("late  cull %f ms", stats.late_cull);
-			ImGui::Text("early indirect %f ms", stats.early_indirect);
-			ImGui::Text("late  indirect %f ms", stats.late_indirect);
-			ImGui::Text("triangles %.2u", stats.triangle_count);
-			ImGui::Text("clipping invocations %.2fM", static_cast<double>(stats.triangle_count) * 1e-6);
+			ImGui::Text("Frametime:            %.3f ms", stats.deltatime * 1000.0f);
+			ImGui::Text("Draw calls:           %i", stats.draw_count);
+			//ImGui::Text("scene update time %f ms", stats.scene_update_time);
+			ImGui::Text("Early cull:           %.3f ms", stats.early_cull);
+			ImGui::Text("Late  cull:           %.3f ms", stats.late_cull);
+			ImGui::Text("Early render:         %.3f ms", stats.early_indirect);
+			ImGui::Text("Late render:          %.3f ms", stats.late_indirect);
+			ImGui::Text("Light culling:        %.3f ms", stats.light_culling);
+			ImGui::Text("Deferred shading:     %.3f ms", stats.deferred_shading);
+			ImGui::Text("Triangles:            %u", stats.triangle_count);
+			ImGui::Text("Clipping invocations: %.1fM", static_cast<double>(stats.triangle_count) * 1e-6);
 
 			ImGui::End();
 		}
@@ -914,22 +1016,34 @@ void VulkanEngine::init_swapchain()
 
 	VkExtent3D draw_image_extent{ window_extent.width, window_extent.height, 1 };
 
+	// TODO: after deferred - transfer_src & general only?
 	VkImageUsageFlags draw_image_flags{
-		VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+		VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | // this is now redundant?
 		VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
 		VK_IMAGE_USAGE_SAMPLED_BIT // for post FX sampling
 	};
 
-	// TODO: make creaton and selection of pingpong attachment cleaner
 	draw_image = create_image(draw_image_extent, VK_FORMAT_R16G16B16A16_SFLOAT, draw_image_flags, VK_IMAGE_ASPECT_COLOR_BIT);
-	draw_image2 = create_image(draw_image_extent, VK_FORMAT_R16G16B16A16_SFLOAT, draw_image_flags, VK_IMAGE_ASPECT_COLOR_BIT);
 
 	auto id = texture_cache.add_texture(draw_image.view);
 	assert(id == 0); // TODO: remove hardcoding drawimage1 to have texture id 0
 	texture_cache.set_draw_image(id);
 
-	id = texture_cache.add_texture(draw_image2.view);
-	texture_cache.set_draw_image2(id);
+	VkImageUsageFlags gbuffer_flags{
+		VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+		VK_IMAGE_USAGE_SAMPLED_BIT // for deferred shading
+	};
+
+	// TODO: correct vk format and image aspect for every gbuffer?
+	for (int i = 0; i < GBUFFER_COUNT; i++)
+	{
+		AllocatedImage gbuffer = gbuffers.emplace_back(create_image(draw_image_extent, VK_FORMAT_R16G16B16A16_SFLOAT, draw_image_flags, VK_IMAGE_ASPECT_COLOR_BIT));
+		id = texture_cache.add_texture(gbuffers[i].view);
+		if (i == 0)
+		{
+			texture_cache.set_gbuffers(id);
+		}
+	}
 
 	depth_image.format = VK_FORMAT_D32_SFLOAT;
 	depth_image.extent = draw_image_extent;
@@ -945,8 +1059,11 @@ void VulkanEngine::init_swapchain()
 		vkDestroyImageView(device, depth_image.view, nullptr);
 		vmaDestroyImage(allocator, depth_image.image, depth_image.allocation);
 
-		vkDestroyImageView(device, draw_image2.view, nullptr);
-		vmaDestroyImage(allocator, draw_image2.image, draw_image2.allocation);
+		for (int i = 0; i < GBUFFER_COUNT; i++)
+		{
+			vkDestroyImageView(device, gbuffers[i].view, nullptr);
+			vmaDestroyImage(allocator, gbuffers[i].image, gbuffers[i].allocation);
+		}
 	});
 }
 
@@ -1007,8 +1124,8 @@ void VulkanEngine::create_swapchain(uint32_t width, uint32_t height)
 {
 	vkb::SwapchainBuilder swapchainBuilder{ chosen_gpu, device, surface };
 
-	swapchain_image_format = VK_FORMAT_B8G8R8A8_UNORM;
-	//swapchain_image_format = VK_FORMAT_B8G8R8A8_SRGB;
+	//swapchain_image_format = VK_FORMAT_B8G8R8A8_UNORM;
+	swapchain_image_format = VK_FORMAT_B8G8R8A8_SRGB;
 
 	vkb::Swapchain vkbSwapchain = swapchainBuilder
 		//.use_default_format_selection()
@@ -1145,44 +1262,66 @@ void VulkanEngine::immediate_submit(std::function<void(VkCommandBuffer cmd)>&& f
 
 void VulkanEngine::init_pipelines()
 {
-	std::vector<VkDescriptorSetLayout> descriptor_layouts{ bindless_image_layout, bindless_tex_layout, bindless_sampler_layout };
-	VkPushConstantRange pc = { VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IBLPushConstants) };
+	std::vector<VkDescriptorSetLayout> descriptor_layouts{};
+	VkPushConstantRange pc{};
+
+	ComputePipelineBuilder compute_builder{};
+	PipelineBuilder builder{};
+
+	VkShaderModule module{};
+	VkShaderModule frag_module{};
 
 	//> IBL
-	ComputePipelineBuilder compute_builder{};
-	VkShaderModule module = shader_cache.add_shader(device, "equi_to_cube.comp.spv");
-	compute_builder.set_shaders(module);
-	std::unique_ptr<ShaderPass> equi_to_cube_pass = vkutil::build_shader(device, compute_builder, descriptor_layouts, &pc);
+	//module = shader_cache.add_shader(device, "equi_to_cube.comp.spv");
+	//compute_builder.set_shaders(module);
+	//pc = { VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IBLPushConstants) };
+	//std::unique_ptr<ShaderPass> equi_to_cube_pass = vkutil::build_shader(device, compute_builder, descriptor_layouts, &pc);
 
-	module = shader_cache.add_shader(device, "irradiance.comp.spv");
-	compute_builder.set_shaders(module);
-	std::unique_ptr<ShaderPass> irradiance_pass = vkutil::build_shader(device, compute_builder, descriptor_layouts, &pc);
+	//module = shader_cache.add_shader(device, "irradiance.comp.spv");
+	//compute_builder.set_shaders(module);
+	//std::unique_ptr<ShaderPass> irradiance_pass = vkutil::build_shader(device, compute_builder, descriptor_layouts, &pc);
 
-	module = shader_cache.add_shader(device, "prefiltered.comp.spv");
-	compute_builder.set_shaders(module);
-	std::unique_ptr<ShaderPass> prefiltered_pass = vkutil::build_shader(device, compute_builder, descriptor_layouts, &pc);
+	//module = shader_cache.add_shader(device, "prefiltered.comp.spv");
+	//compute_builder.set_shaders(module);
+	//std::unique_ptr<ShaderPass> prefiltered_pass = vkutil::build_shader(device, compute_builder, descriptor_layouts, &pc);
 
-	module = shader_cache.add_shader(device, "brdf.comp.spv");
-	compute_builder.set_shaders(module);
-	std::unique_ptr<ShaderPass> brdf_pass = vkutil::build_shader(device, compute_builder, descriptor_layouts, &pc);
+	//module = shader_cache.add_shader(device, "brdf.comp.spv");
+	//compute_builder.set_shaders(module);
+	//std::unique_ptr<ShaderPass> brdf_pass = vkutil::build_shader(device, compute_builder, descriptor_layouts, &pc);
 
+	//> LIGHT-CULLING
+	descriptor_layouts.clear();
+	module = shader_cache.add_shader(device, "cluster_grid.comp.spv");
+	compute_builder.set_shaders(module);
+	pc = { VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ClusterGridPushConstants) };
+	std::unique_ptr<ShaderPass> cluster_grid_pass = vkutil::build_shader(device, compute_builder, descriptor_layouts, &pc);
+
+	module = shader_cache.add_shader(device, "light_culling.comp.spv");
+	compute_builder.set_shaders(module);
+	pc = { VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(LightCullingPushConstants) };
+	std::unique_ptr<ShaderPass> light_culling_pass = vkutil::build_shader(device, compute_builder, descriptor_layouts, &pc);
+
+	//> HI-Z
+	descriptor_layouts.clear();
+	descriptor_layouts = { bindless_image_layout, bindless_tex_layout, bindless_sampler_layout };
 	module = shader_cache.add_shader(device, "depth_pyramid.comp.spv");
 	compute_builder.set_shaders(module);
 	pc = { VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(DepthPyramidPushConstants) };
 	std::unique_ptr<ShaderPass> depth_pyramid_pass = vkutil::build_shader(device, compute_builder, descriptor_layouts, &pc);
 
-	//> MESH CULL
+	//> MESH CULLING
 	module = shader_cache.add_shader(device, "mesh_cull.comp.spv");
 	compute_builder.set_shaders(module);
 	pc = { VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CullData) };
 	std::unique_ptr<ShaderPass> cull_pass = vkutil::build_shader(device, compute_builder, descriptor_layouts, &pc);
 
+	//> MESHLET CULLING
 	module = shader_cache.add_shader(device, "meshlet_cull.comp.spv");
 	compute_builder.set_shaders(module);
 	pc = { VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CullData) };
 	std::unique_ptr<ShaderPass> meshlet_cull_pass = vkutil::build_shader(device, compute_builder, descriptor_layouts, &pc);
 
-	//> TASK SUBMIT
+	//> TASK SUBMIT - TODO: REDUNDANT?
 	descriptor_layouts.clear();
 	module = shader_cache.add_shader(device, "task_submit.comp.spv");
 	compute_builder.set_shaders(module);
@@ -1192,82 +1331,138 @@ void VulkanEngine::init_pipelines()
 	//> GRAPHICS PIPELINE
 	descriptor_layouts.clear();
 	descriptor_layouts = { scene_descriptor_layout, bindless_tex_layout, bindless_sampler_layout };
-	VkShaderModule frag_module{};
 
 	//> SHADOW 
-	PipelineBuilder builder{};
 	builder.set_input_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
 	builder.set_polygon_mode(VK_POLYGON_MODE_FILL);
 	builder.set_multisampling_none();
-	builder.disable_blending();
+	//builder.disable_blending();
 
-	module = shader_cache.add_shader(device, "depth.vert.spv");
-	builder.set_shaders(module);
-	builder.set_cull_mode(VK_CULL_MODE_FRONT_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
+	//module = shader_cache.add_shader(device, "depth.vert.spv");
+	//builder.set_shaders(module);
+	//builder.set_cull_mode(VK_CULL_MODE_FRONT_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
 	builder.enable_depth(true, VK_COMPARE_OP_GREATER_OR_EQUAL);
-	builder.set_color_attachment_format(VK_FORMAT_UNDEFINED);
+	//builder.set_color_attachment_format(VK_FORMAT_UNDEFINED);
 	builder.set_depth_format(depth_image.format);
-	builder.dynamic_state.push_back(VK_DYNAMIC_STATE_DEPTH_BIAS);
-	builder.rasterization.depthBiasEnable = VK_TRUE;
-	pc = { VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(ShadowPushConstants) };
-	std::unique_ptr<ShaderPass> shadow_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
+	//builder.dynamic_state.push_back(VK_DYNAMIC_STATE_DEPTH_BIAS);
+	//builder.rasterization.depthBiasEnable = VK_TRUE;
+	//pc = { VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(ShadowPushConstants) };
+	//std::unique_ptr<ShaderPass> shadow_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
 
-	//> DOUBLE SIDED SHADOW
-	frag_module = shader_cache.add_shader(device, "depth.frag.spv");
-	builder.set_shaders(module, frag_module);
-	builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-	std::unique_ptr<ShaderPass> shadow_flat_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
+	////> DOUBLE SIDED SHADOW
+	//frag_module = shader_cache.add_shader(device, "depth.frag.spv");
+	//builder.set_shaders(module, frag_module);
+	//builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
+	//std::unique_ptr<ShaderPass> shadow_flat_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
 
 	//> GEOMETRY + LIGHTING
 	//> DOUBLE SIDED MASK
-	module = shader_cache.add_shader(device, "mesh_pbr.vert.spv");
-	frag_module = shader_cache.add_shader(device, "mesh_pbr_clip.frag.spv");
-	builder.set_shaders(module, frag_module);
-	builder.set_color_attachment_format(draw_image.format); 
-	builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-	builder.disable_blending();
-	builder.enable_depth(true, VK_COMPARE_OP_GREATER_OR_EQUAL);
-	builder.dynamic_state.pop_back(); // remove depth bias dynamic state
-	builder.rasterization.depthBiasEnable = VK_FALSE;
-	pc = { VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GPUPushConstants) }; 
-	std::unique_ptr<ShaderPass> textured_lit_clip_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
+	//module = shader_cache.add_shader(device, "mesh_pbr.vert.spv");
+	//frag_module = shader_cache.add_shader(device, "mesh_pbr_clip.frag.spv");
+	//builder.set_shaders(module, frag_module);
+	//builder.set_color_attachment_format(draw_image.format); 
+	//builder.disable_blending();
 
-	//> DOUBLE SIDED LIT
-	//frag_module = shader_cache.add_shader(device, "mesh_pbr.frag.spv");
+	//builder.set_gbuffer_format(draw_image.format, GBUFFER_COUNT); // TODO: rewrite this
+	//builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
+	//std::vector<VkPipelineColorBlendAttachmentState> gbuffer_blend_states{};
+	//for (size_t i = 0; i < GBUFFER_COUNT; i++)
+	//{
+	//	VkPipelineColorBlendAttachmentState state{};
+	//	state.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+	//	state.blendEnable = VK_FALSE;
+
+	//	gbuffer_blend_states.push_back(state);
+	//}
+	//builder.set_blending_state(gbuffer_blend_states.data(), gbuffer_blend_states.size());
+
+	//builder.enable_depth(true, VK_COMPARE_OP_GREATER_OR_EQUAL);
+	////builder.dynamic_state.pop_back(); // remove depth bias dynamic state
+	//builder.rasterization.depthBiasEnable = VK_FALSE;
+	//pc = { VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GPUPushConstants) }; 
+	//std::unique_ptr<ShaderPass> textured_lit_clip_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
+
+	////> DOUBLE SIDED LIT
+	////frag_module = shader_cache.add_shader(device, "mesh_pbr.frag.spv");
+	////module = shader_cache.add_shader(device, "mesh_pbr.vert.spv");
+	//frag_module = shader_cache.add_shader(device, "basic_mesh.frag.spv");
+	//builder.set_shaders(module, frag_module);
+	//std::unique_ptr<ShaderPass> textured_lit2_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
+
+	//> MRT GBUFFER
+
+	builder.set_gbuffer_format(draw_image.format, GBUFFER_COUNT); // TODO: rewrite this
+	builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
+	std::vector<VkPipelineColorBlendAttachmentState> gbuffer_blend_states{};
+	for (size_t i = 0; i < GBUFFER_COUNT; i++)
+	{
+		VkPipelineColorBlendAttachmentState state{};
+		state.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+		state.blendEnable = VK_FALSE;
+
+		gbuffer_blend_states.push_back(state);
+	}
+	builder.set_blending_state(gbuffer_blend_states.data(), gbuffer_blend_states.size());
+
+	builder.enable_depth(true, VK_COMPARE_OP_GREATER_OR_EQUAL);
+	//builder.dynamic_state.pop_back(); // remove depth bias dynamic state
+	//builder.rasterization.depthBiasEnable = VK_FALSE;
+	pc = { VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GPUPushConstants) };
+	//std::unique_ptr<ShaderPass> textured_lit_clip_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
+
+
+	module = shader_cache.add_shader(device, "mesh_pbr.vert.spv");
 	frag_module = shader_cache.add_shader(device, "basic_mesh.frag.spv");
 	builder.set_shaders(module, frag_module);
-	std::unique_ptr<ShaderPass> textured_lit2_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
-
-	//> NON-DOUBLE SIDED LIT
 	builder.set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
 	std::unique_ptr<ShaderPass> textured_lit_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
 
 	//> MESHLET LIT
-	descriptor_layouts = { scene_descriptor_layout };
 	module = shader_cache.add_shader(device, "meshlet.mesh.glsl.spv");
+	frag_module = shader_cache.add_shader(device, "basic_mesh.frag.spv");
 	builder.set_mesh_shaders(module, frag_module);
 	pc = { VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GPUPushConstants) };
 	std::unique_ptr<ShaderPass> meshlet_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
 
 	//> DOUBLE SIDED TRANSPARENT BACK FIRST
-	descriptor_layouts = { scene_descriptor_layout, bindless_tex_layout, bindless_sampler_layout };
-	module = shader_cache.add_shader(device, "mesh_pbr.vert.spv");
-	frag_module = shader_cache.add_shader(device, "mesh_pbr_transparent.frag.spv");
-	builder.set_shaders(module, frag_module);
-	builder.enable_blending_alphablend();
-	builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-	builder.enable_depth(false, VK_COMPARE_OP_GREATER_OR_EQUAL);
-	pc = { VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GPUPushConstants) };
-	std::unique_ptr<ShaderPass> blend_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
+	//descriptor_layouts = { scene_descriptor_layout, bindless_tex_layout, bindless_sampler_layout };
+	//module = shader_cache.add_shader(device, "mesh_pbr.vert.spv");
+	//frag_module = shader_cache.add_shader(device, "mesh_pbr_transparent.frag.spv");
+	//builder.set_shaders(module, frag_module);
+	//builder.enable_blending_alphablend();
+	//builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
+	//builder.enable_depth(false, VK_COMPARE_OP_GREATER_OR_EQUAL);
+	//pc = { VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GPUPushConstants) };
+	//std::unique_ptr<ShaderPass> blend_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
 
-	//> SKYBOX
-	module = shader_cache.add_shader(device, "skybox.vert.spv");
-	frag_module = shader_cache.add_shader(device, "skybox.frag.spv");
+	//> DEFERRED SHADING
+	descriptor_layouts = { scene_descriptor_layout, bindless_tex_layout, bindless_sampler_layout };
+	module = shader_cache.add_shader(device, "full_screen.vert.spv");
+	frag_module = shader_cache.add_shader(device, "deferred.frag.spv");
+	
+	builder.gbuffer_blend_attachment.clear(); // TODO: make it clearer - currently switches back to single blend attachment and attachment format
+	builder.set_color_attachment_format(draw_image.format);
+
+	VkPipelineColorBlendAttachmentState blend_state{};
+	blend_state.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+	blend_state.blendEnable = VK_FALSE;
+
+	builder.set_blending_state(&blend_state, 1);
 	builder.set_shaders(module, frag_module);
 	builder.disable_blending();
-	builder.enable_depth(true, VK_COMPARE_OP_GREATER_OR_EQUAL);
-	pc = { VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(SkyboxPushConstants) };
-	std::unique_ptr<ShaderPass> skybox_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
+	builder.disable_depth();
+	// cull mode?
+	pc = { VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(DeferredPushConstants) };
+	std::unique_ptr<ShaderPass> deferred_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
+
+	//> SKYBOX
+	//module = shader_cache.add_shader(device, "skybox.vert.spv");
+	//frag_module = shader_cache.add_shader(device, "skybox.frag.spv");
+	//builder.set_shaders(module, frag_module);
+	//builder.disable_blending();
+	//builder.enable_depth(true, VK_COMPARE_OP_GREATER_OR_EQUAL);
+	//pc = { VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(SkyboxPushConstants) };
+	//std::unique_ptr<ShaderPass> skybox_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
 
 	//> DEBUG
 	module = shader_cache.add_shader(device, "full_screen.vert.spv");
@@ -1279,32 +1474,35 @@ void VulkanEngine::init_pipelines()
 	std::unique_ptr<ShaderPass> debug_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
 
 	//> POST FX
-	module = shader_cache.add_shader(device, "full_screen.vert.spv");
-	frag_module = shader_cache.add_shader(device, "tonemap.frag.spv");
-	builder.set_shaders(module, frag_module);
-	builder.disable_depth();
-	builder.set_depth_format(VK_FORMAT_UNDEFINED);
-	pc = { VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PostFXPushConstants) };
-	std::unique_ptr<ShaderPass> tonemap_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
+	//module = shader_cache.add_shader(device, "full_screen.vert.spv");
+	//frag_module = shader_cache.add_shader(device, "tonemap.frag.spv");
+	//builder.set_shaders(module, frag_module);
+	//builder.disable_depth();
+	//builder.set_depth_format(VK_FORMAT_UNDEFINED);
+	//pc = { VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PostFXPushConstants) };
+	//std::unique_ptr<ShaderPass> tonemap_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
 
-	shader_passes["equi_to_cube"] = std::move(equi_to_cube_pass);
-	shader_passes["irradiance"] = std::move(irradiance_pass);
-	shader_passes["prefiltered"] = std::move(prefiltered_pass);
-	shader_passes["brdf"] = std::move(brdf_pass);
-	shader_passes["shadow"] = std::move(shadow_pass);
-	shader_passes["shadow_flat"] = std::move(shadow_flat_pass);
-	shader_passes["textured_lit_clip"] = std::move(textured_lit_clip_pass);
+	//shader_passes["equi_to_cube"] = std::move(equi_to_cube_pass);
+	//shader_passes["irradiance"] = std::move(irradiance_pass);
+	//shader_passes["prefiltered"] = std::move(prefiltered_pass);
+	//shader_passes["brdf"] = std::move(brdf_pass);
+	//shader_passes["shadow"] = std::move(shadow_pass);
+	//shader_passes["shadow_flat"] = std::move(shadow_flat_pass);
+	//shader_passes["textured_lit_clip"] = std::move(textured_lit_clip_pass);
 	shader_passes["textured_lit"] = std::move(textured_lit_pass);
-	shader_passes["textured_lit2"] = std::move(textured_lit2_pass);
-	shader_passes["skybox"] = std::move(skybox_pass);
-	shader_passes["tonemap"] = std::move(tonemap_pass);
-	shader_passes["blend"] = std::move(blend_pass);
+	//shader_passes["textured_lit2"] = std::move(textured_lit2_pass);
+	//shader_passes["skybox"] = std::move(skybox_pass);
+	//shader_passes["tonemap"] = std::move(tonemap_pass);
+	//shader_passes["blend"] = std::move(blend_pass);
 	shader_passes["cull"] = std::move(cull_pass);
 	shader_passes["debug"] = std::move(debug_pass);
 	shader_passes["depth_pyramid"] = std::move(depth_pyramid_pass);
 	shader_passes["meshlet"] = std::move(meshlet_pass);
 	shader_passes["task_submit"] = std::move(task_submit_pass);
 	shader_passes["meshlet_cull"] = std::move(meshlet_cull_pass);
+	shader_passes["deferred"] = std::move(deferred_pass);
+	shader_passes["cluster_grid"] = std::move(cluster_grid_pass);
+	shader_passes["light_culling"] = std::move(light_culling_pass);
 
 	for (const auto& [k, v] : shader_cache.data)
 	{
@@ -1632,6 +1830,12 @@ void VulkanEngine::init_default_data()
 	vkCreateSampler(device, &sampler_info, nullptr, &sampler);
 	sampler_cache.add_sampler(sampler); 
 
+	sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+	sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+	sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+	vkCreateSampler(device, &sampler_info, nullptr, &sampler);
+	sampler_cache.add_sampler(sampler); // nearest
+
 	//> CSM
 	float far = LIGHT_FAR_PLANE; 
 	float near = main_camera.far; 
@@ -1705,6 +1909,46 @@ void VulkanEngine::init_default_data()
 		{
 			vkDestroyImageView(device, pyramid_views[i], nullptr);
 		}
+	});
+
+	// global light list
+	std::mt19937 mt(42);
+	std::uniform_real_distribution<float> pos_dist(-1.0f, 1.0f);
+	std::uniform_real_distribution<float> color_dist(0.f, 1.0f);
+
+	std::vector<PointLight> light_data(LIGHT_COUNT);
+
+	float light_area = 10.f; // in radius
+	float light_radius = 1.f;
+
+	for (size_t i = 0; i < LIGHT_COUNT; i++)
+	{
+		light_data[i].pos = glm::vec4(pos_dist(mt) * light_area, std::abs(pos_dist(mt) * light_area), pos_dist(mt) * light_area, light_radius); // pos & radius
+		light_data[i].color = glm::vec4(color_dist(mt), color_dist(mt), color_dist(mt), 1.0);
+	}
+
+	light_data[LIGHT_COUNT - 1].pos.w = 0.0001f;
+
+	light_buffer = upload_buffer(light_data.data(), LIGHT_COUNT * sizeof(PointLight));
+
+	const int cluster_size = 64; // TODO: hardcoded 64x64
+	const int grid_x = (window_extent.width + cluster_size - 1) / cluster_size;
+	const int grid_y = (window_extent.height + cluster_size - 1) / cluster_size;
+	const int grid_z = 24;
+	const int total_clusters = grid_x * grid_y * grid_z;
+	const int max_lights_per_cluster = 10;
+
+	light_cluster_buffer = create_buffer(total_clusters * sizeof(ClusterAABB), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
+	light_index_buffer = create_buffer(total_clusters * max_lights_per_cluster * sizeof(uint32_t), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT); // could use smaller more conservative size
+	light_grid_buffer = create_buffer(total_clusters * sizeof(LightGrid), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
+	light_count_buffer = create_buffer(sizeof(uint32_t), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+
+	main_deletion_queue.push_function([&]() {
+		destroy_buffer(light_buffer);
+		destroy_buffer(light_cluster_buffer);
+		destroy_buffer(light_index_buffer);
+		destroy_buffer(light_grid_buffer);
+		destroy_buffer(light_count_buffer);
 	});
 }
 
@@ -1814,7 +2058,7 @@ void VulkanEngine::init_renderables(const std::string& file_path)
 	render_scene.meshlet_buffer = loaded_scenes["scene1"]->meshlets;
 	render_scene.meshlet_indices = loaded_scenes["scene1"]->meshlet_indices;
 
-	auto t = glm::translate(glm::mat4(1.0f), glm::vec3(0, 0, 2));// * glm::scale(glm::mat4(1.0f), glm::vec3(2.0));
+	auto t = glm::translate(glm::mat4(1.0f), glm::vec3(0, 0, 2));
 	for (const auto& n : loaded_scenes["scene1"]->top_nodes)
 	{
 		register_object(n.get(), t);
@@ -1985,6 +2229,11 @@ void VulkanEngine::update_scene()
 	//render_scene.renderables.clear();
 	//render_scene.unbatched_objects.clear();
 
+	int elapsed_ms = SDL_GetTicks();
+	int ms_per_orbit = 10000;
+	float rot_angle = static_cast<float>(elapsed_ms % ms_per_orbit) / ms_per_orbit * 360.0f;
+	scene_data.light_rot = glm::rotate(glm::mat4(1.0f), glm::radians(rot_angle), glm::vec3(0, 1, 0));
+
 	auto end = std::chrono::system_clock::now();
 	auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
 	stats.scene_update_time = elapsed.count() / 1000.0f; // milliseconds
@@ -2087,6 +2336,72 @@ void VulkanEngine::execute_debug_pass(VkCommandBuffer cmd)
 	pc.texture_id = texture_cache.get_depth_pyramid_image();
 	pc.lod = CVAR_DEPTH_PYRAMID_LOD.get();
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(DebugPushConstants), &pc);
+	vkCmdDraw(cmd, 3, 1, 0, 0);
+
+	stats.draw_count++;
+
+	vkCmdEndRendering(cmd);
+}
+
+void VulkanEngine::execute_deferred_shading(VkCommandBuffer cmd)
+{
+	VkViewport viewport{};
+	viewport.x = 0;
+	viewport.y = static_cast<float>(draw_extent.height);
+	viewport.width = static_cast<float>(draw_extent.width);
+	viewport.height = -static_cast<float>(draw_extent.height);
+	viewport.minDepth = 0.0f;
+	viewport.maxDepth = 1.0f;
+	vkCmdSetViewport(cmd, 0, 1, &viewport);
+
+	VkRect2D scissor{};
+	scissor.offset.x = 0;
+	scissor.offset.y = 0;
+	scissor.extent.width = draw_extent.width;
+	scissor.extent.height = draw_extent.height;
+	vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+	VkRenderingAttachmentInfo color_attachment = vkinit::attachment_info(draw_image.view, nullptr);
+	VkRenderingInfo render_info = vkinit::rendering_info(draw_extent, &color_attachment, nullptr);
+
+	vkCmdBeginRendering(cmd, &render_info);
+
+	ShaderPass current_pass = *shader_passes["deferred"];
+	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
+
+	DeferredPushConstants pc{};
+
+	int cluster_x = (window_extent.width + CLUSTER_DIM - 1) / CLUSTER_DIM;
+	int cluster_y = (window_extent.height + CLUSTER_DIM - 1) / CLUSTER_DIM;
+	int cluster_z = CLUSTER_SLICE_COUNT; // TODO: hardcoded
+	pc.cluster_size = glm::vec4(cluster_x, cluster_y, cluster_z, CLUSTER_DIM);
+	pc.screen_size = glm::vec2(window_extent.width, window_extent.height);
+
+	VkBufferDeviceAddressInfo address_info{};
+	address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
+	address_info.buffer = light_buffer.buffer;
+	pc.light_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+	address_info.buffer = light_index_buffer.buffer;
+	pc.light_index_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+	address_info.buffer = light_grid_buffer.buffer;
+	pc.light_grid_buffer_address	 = vkGetBufferDeviceAddress(device, &address_info);
+
+
+	pc.depth_id = texture_cache.get_depth_image();
+	pc.albedo_id = texture_cache.get_first_gbuffer();
+	pc.normal_id = pc.albedo_id + 1;
+	pc.world_pos_id = pc.albedo_id + 2; // TODO: loop based on size perhaps? remove hardcode
+	pc.light_culling = CVAR_TOGGLE_LIGHT_CULLING.get();
+	pc.near = main_camera.far;
+
+	const float ratio = main_camera.near / main_camera.far; 
+	pc.scale = cluster_z / std::log(ratio);
+	pc.bias = cluster_z * std::log(main_camera.far) / std::log(ratio);
+
+	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(DeferredPushConstants), &pc);
 	vkCmdDraw(cmd, 3, 1, 0, 0);
 
 	stats.draw_count++;
@@ -2362,6 +2677,7 @@ void VulkanEngine::ready_mesh_draw()
 			render_scene.build_instance_buffer(pass);
 		}
 
+		// TODO: can probably use a single bit per pass object
 		if (pass.vis_buffer.info.size < pass.pass_objects.size())
 		{
 			fmt::println("visibility buffer");
@@ -2407,7 +2723,7 @@ void VulkanEngine::ready_mesh_draw()
 			);
 		}
 
-		// TODO: resize - currently 1m meshes with 300 clusters each = ~1.2GB buffer
+		// TODO: resize - if we have 1m meshes with 300 clusters each = ~1.2GB buffer
 		if (pass.cluster_indices.info.size < render_scene.total_meshlets_bits * sizeof(uint32_t))
 		{
 			fmt::println("cluster_indices");
@@ -2419,7 +2735,7 @@ void VulkanEngine::ready_mesh_draw()
 				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT
 			);
 
-			fmt::println("cluster indices size: {}", pass.cluster_indices.info.size);
+			fmt::println("cluster indices size: {}mb", static_cast<float>(pass.cluster_indices.info.size) / 1e6);
 		}
 
 		if (pass.meshtask_indirect_buffer.info.size < render_scene.max_meshtask_commands * sizeof(MeshTaskCommand))
@@ -2430,7 +2746,7 @@ void VulkanEngine::ready_mesh_draw()
 				0,
 				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT
 			);
-			fmt::println("meshtask_buffer size: {}", pass.meshtask_indirect_buffer.info.size);
+			fmt::println("meshtask_buffer size: {}mb", static_cast<float>(pass.meshtask_indirect_buffer.info.size) / 1e6);
 		}
 
 		size_t meshlet_visibility_size = (render_scene.total_meshlets_bits + 31) / 32;
@@ -2442,7 +2758,7 @@ void VulkanEngine::ready_mesh_draw()
 				0,
 				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT
 			);
-			fmt::println("meshlet visibility bits size {}", pass.meshlet_vis_buffer.info.size);
+			fmt::println("meshlet visibility bits size: {}mb", static_cast<float>(pass.meshlet_vis_buffer.info.size) / 1e6);
 
 			immediate_submit([&](VkCommandBuffer cmd) {
 				vkCmdFillBuffer(cmd, pass.meshlet_vis_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
@@ -2638,12 +2954,23 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t query)
 {
 	vkCmdBeginQuery(cmd, get_current_frame().query_pool_pipelines, query, 0);
 
-	VkClearColorValue clear_color_value{ 1.0f, 1.0f, 1.0f, 1.0f };
+	// deferred
+	VkClearColorValue clear_color_value{ 0.f, 0.f, 0.f, 1.0f };
 	VkClearValue clear_value{ .color = clear_color_value };
-	VkRenderingAttachmentInfo color_attachment = late ? vkinit::attachment_info(draw_image.view, nullptr) : vkinit::attachment_info(draw_image.view, &clear_value);
+	
+	std::vector<VkRenderingAttachmentInfo> gbuffer_info{};
+	for (int i = 0; i < GBUFFER_COUNT; i++)
+	{
+		if (late)
+			gbuffer_info.push_back(vkinit::attachment_info(gbuffers[i].view, nullptr));
+		else
+			gbuffer_info.push_back(vkinit::attachment_info(gbuffers[i].view, &clear_value));
+	}
 	VkRenderingAttachmentInfo depth_attachment = vkinit::depth_attachment_info(depth_image.view);
 	depth_attachment.loadOp = late ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_CLEAR;
-	VkRenderingInfo render_info = vkinit::rendering_info(draw_extent, &color_attachment, &depth_attachment);
+
+	VkRenderingInfo render_info = vkinit::rendering_info(draw_extent, gbuffer_info.data(), &depth_attachment);
+	render_info.colorAttachmentCount = gbuffer_info.size();
 
 	vkCmdBeginRendering(cmd, &render_info);
 
@@ -2687,6 +3014,7 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t query)
 	pc.count_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
 	address_info.buffer = render_scene.forward_pass.cluster_indices.buffer;
 	pc.cluster_indices_address = vkGetBufferDeviceAddress(device, &address_info);
+	pc.material_buffer_address = loaded_scenes["scene1"]->material_buffer_address;
 	pc.debug_meshlets = CVAR_TOGGLE_MESH_SHADING.get() ? CVAR_TOGGLE_VIEW_MESHLETS.get() : 0;
 
 	if (!CVAR_TOGGLE_MESH_SHADING.get())
@@ -2720,6 +3048,8 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t query)
 		ShaderPass current_pass = *shader_passes["meshlet"];
 
 		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
+		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
+		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
 
 		vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GPUPushConstants), &pc);
 
@@ -2836,4 +3166,78 @@ void VulkanEngine::build_depth_pyramid(VkCommandBuffer cmd)
 		VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
 		VK_IMAGE_ASPECT_COLOR_BIT
 	);
+}
+
+void VulkanEngine::build_cluster_grid()
+{
+	//> draw
+	VkCommandBuffer cmd = imm_command_buffer;
+	VK_CHECK(vkResetFences(device, 1, &imm_fence));
+
+	VK_CHECK(vkResetCommandBuffer(cmd, 0));
+
+	VkCommandBufferBeginInfo cmd_begin_info = vkinit::command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
+
+	VK_CHECK(vkBeginCommandBuffer(cmd, &cmd_begin_info));
+
+	ShaderPass current_pass = *shader_passes["cluster_grid"];
+	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
+
+	ClusterGridPushConstants pc{};
+	pc.inverse_proj = glm::inverse(main_camera.perspective);
+
+	int cluster_x = (window_extent.width + CLUSTER_DIM - 1) / CLUSTER_DIM;
+	int cluster_y = (window_extent.height + CLUSTER_DIM - 1) / CLUSTER_DIM;
+	int cluster_z = CLUSTER_SLICE_COUNT; 
+	pc.cluster_size = glm::vec4(cluster_x, cluster_y, cluster_z, CLUSTER_DIM);
+	pc.screen_size = glm::vec2(window_extent.width, window_extent.height);
+	pc.near = main_camera.far; // reverse-z
+	pc.far = main_camera.near;
+
+	VkBufferDeviceAddressInfo address_info{};
+	address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
+	address_info.buffer = light_cluster_buffer.buffer;
+	pc.light_cluster_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+
+	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ClusterGridPushConstants), &pc);
+	vkCmdDispatch(cmd, 1, 1, cluster_z / 2); // TODO: hardcoded to stay below maxComputeWorkGroupInvocations
+
+	VK_CHECK(vkEndCommandBuffer(cmd));
+
+	VkCommandBufferSubmitInfo cmd_info = vkinit::command_buffer_submit_info(cmd);
+	VkSubmitInfo2 submit = vkinit::submit_info(&cmd_info, nullptr, nullptr);
+
+	VK_CHECK(vkQueueSubmit2(graphics_queue, 1, &submit, imm_fence));
+	VK_CHECK(vkWaitForFences(device, 1, &imm_fence, true, 9999999999));
+}
+
+void VulkanEngine::execute_light_culling(VkCommandBuffer cmd)
+{
+	ShaderPass current_pass = *shader_passes["light_culling"];
+	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
+
+	LightCullingPushConstants pc{};
+
+	pc.view = scene_data.view;
+	pc.light_rot = scene_data.light_rot;
+
+	VkBufferDeviceAddressInfo address_info{};
+	address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
+	address_info.buffer = light_cluster_buffer.buffer;
+	pc.light_cluster_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+
+	address_info.buffer = light_buffer.buffer;
+	pc.light_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+	
+	address_info.buffer = light_index_buffer.buffer;
+	pc.light_index_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+	
+	address_info.buffer = light_grid_buffer.buffer;
+	pc.light_grid_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+	
+	address_info.buffer = light_count_buffer.buffer;
+	pc.light_count_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+
+	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(LightCullingPushConstants), &pc);
+	vkCmdDispatch(cmd, 27, 15, 24); // TODO: hardcoded
 }

@@ -102,8 +102,8 @@ void optimize_mesh(
 
  		size_t max_meshlets = meshopt_buildMeshletsBound(indices.size(), max_vertices, max_triangles);
 		std::vector<meshopt_Meshlet> meshopt_meshlets(max_meshlets);
-		std::vector<uint32_t> meshlet_vertices(max_meshlets * max_vertices);
-		std::vector<uint8_t> meshlet_triangles(max_meshlets * max_triangles * 3);
+		std::vector<uint32_t> meshlet_vertices(max_meshlets * max_vertices);	  // TODO: should size be indices.size()?
+		std::vector<uint8_t> meshlet_triangles(max_meshlets * max_triangles * 3); // TODO: should size be indices.size()?
 
 		size_t meshlet_count = meshopt_buildMeshlets(meshopt_meshlets.data(), meshlet_vertices.data(), meshlet_triangles.data(), indices.data(), indices.size(),
 			&positions[0].x, vertex_count, sizeof(glm::vec3), max_vertices, max_triangles, cone_weight);
@@ -145,9 +145,10 @@ void optimize_mesh(
 
 			meshlet_indices_offset += m.vertex_count + m.triangle_count * 3;
 
+			uint32_t combined_vertices_count = static_cast<uint32_t>(combined_vertices.size());
 			for (size_t i = 0; i < m.vertex_count; i++)
 			{
-				meshlet_indices.push_back(meshlet_vertices[m.vertex_offset + i] + static_cast<uint32_t>(combined_vertices.size()));
+				meshlet_indices.push_back(meshlet_vertices[m.vertex_offset + i] + combined_vertices_count);
 			}
 
 			for (size_t i = 0; i < m.triangle_count; i++)
@@ -494,7 +495,6 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const
 	auto type = fastgltf::determineGltfFileType(gltf_file.get());
 	if (type == fastgltf::GltfType::glTF)
 	{
-		//auto load = parser.loadGLTF(&data, path.parent_path(), gltf_options);
 		auto load = parser.loadGltf(gltf_file.get(), path.parent_path(), gltf_options);
 		if (load)
 		{
@@ -570,6 +570,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const
 		);
 	}
 
+	// if not ktx2, we defer loading during material creation so we get the right image format
 	if (is_ktx2)
 	{
 		basist::basisu_transcoder_init();
@@ -640,7 +641,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const
 			using_basisu = true;
 	}
 	
-	// need to implement MaterialCache as its common for gltf to have same material under different name
+	// TODO: need to implement MaterialCache as its common for gltf to have same material under different name
 	// current implementation simply duplicates this in the material buffer
 	int material_idx{ 0 };
 	for (fastgltf::Material& mat : gltf.materials)
@@ -746,8 +747,8 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const
 	std::vector<uint32_t> combined_indices{};
 	std::vector<Vertex> combined_vertices{};
 
-	std::vector<uint32_t> v_meshlet_indices{};
-	std::vector<Meshlet> v_combined_meshlets{};
+	std::vector<uint32_t> meshlet_indices{};
+	std::vector<Meshlet> meshlets{};
 
 	fmt::println("gltf file has {} meshes", gltf.meshes.size());
 
@@ -849,7 +850,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const
 			new_surface.vertex_offset = static_cast<uint32_t>(combined_vertices.size());
 
 			// meshoptimizer step
-			optimize_mesh(vertices, indices, v_meshlet_indices, v_combined_meshlets, new_surface, combined_vertices, combined_indices);
+			optimize_mesh(vertices, indices, meshlet_indices, meshlets, new_surface, combined_vertices, combined_indices);
 			combined_vertices.insert(combined_vertices.end(), vertices.begin(), vertices.end());
 
 			if (p.materialIndex.has_value())
@@ -867,7 +868,8 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const
 					//forward = engine->shader_passes["textured_lit_clip"].get();
 					//shadow = engine->shader_passes["shadow_flat"].get();
 					forward = engine->shader_passes["textured_lit"].get();
-					shadow = engine->shader_passes["shadow"].get();
+					//shadow = engine->shader_passes["shadow"].get();
+					shadow = nullptr;
 					break;
 				case MaterialPass::Blend:
 					forward = engine->shader_passes["blend"].get();
@@ -879,7 +881,8 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const
 					//forward = m.double_sided ? engine->shader_passes["textured_lit2"].get() : engine->shader_passes["textured_lit"].get();
 					//shadow = m.double_sided ? engine->shader_passes["shadow_flat"].get() : engine->shader_passes["shadow"].get();
 					forward = engine->shader_passes["textured_lit"].get();
-					shadow = engine->shader_passes["shadow"].get();
+					//shadow = engine->shader_passes["shadow"].get();
+					shadow = nullptr;
 					break;
 				default:
 					break;
@@ -892,7 +895,8 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const
 				auto m = materials[0];
 				new_surface.material_id = 0;
 				ShaderPass* forward = engine->shader_passes["textured_lit"].get();
-				ShaderPass* shadow = engine->shader_passes["shadow"].get();
+				//ShaderPass* shadow = engine->shader_passes["shadow"].get();
+				ShaderPass* shadow = nullptr;
 				new_surface.material = engine->material_cache.add_material(forward, shadow);
 				new_surface.pass = m.pass_type;
 			}
@@ -902,8 +906,8 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const
 	}
 
 	file.combined_mesh_buffer = engine->upload_mesh(combined_indices, combined_vertices);
-	file.meshlet_indices = engine->upload_buffer(v_meshlet_indices.data(), v_meshlet_indices.size() * sizeof(uint32_t));
-	file.meshlets = engine->upload_buffer(v_combined_meshlets.data(), v_combined_meshlets.size() * sizeof(Meshlet));
+	file.meshlet_indices = engine->upload_buffer(meshlet_indices.data(), meshlet_indices.size() * sizeof(uint32_t));
+	file.meshlets = engine->upload_buffer(meshlets.data(), meshlets.size() * sizeof(Meshlet));
 
 	for (size_t i = 0; i < meshes.size(); i++)
 	{

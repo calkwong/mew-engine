@@ -36,7 +36,25 @@ struct GPUPushConstants // temporarily shared by vertex and mesh shading path
 	VkDeviceAddress meshlet_indices_buffer_address{};
 	VkDeviceAddress count_buffer_address{};
 	VkDeviceAddress cluster_indices_address{};
+	VkDeviceAddress material_buffer_address{};
 	uint32_t debug_meshlets;
+};
+
+struct DeferredPushConstants
+{
+	glm::vec4 cluster_size{}; // xyz are cluster data structure dimensions, w is a single cluster's dimension
+	glm::vec2 screen_size{};
+	VkDeviceAddress light_buffer_address{};
+	VkDeviceAddress light_index_buffer_address{};
+	VkDeviceAddress light_grid_buffer_address{};
+	uint32_t depth_id{};
+	uint32_t albedo_id{};
+	uint32_t normal_id{};
+	uint32_t world_pos_id{};
+	uint32_t light_culling{}; // for toggling light culling between naive and proper implementation
+	float near{};
+	float scale{}; 
+	float bias{};  
 };
 
 //struct ShadowPushConstants
@@ -75,6 +93,27 @@ struct DepthPyramidPushConstants
 	uint32_t texture_id{};
 	uint32_t image_id{};
 	uint32_t lod{};
+};
+
+struct ClusterGridPushConstants
+{
+	glm::mat4 inverse_proj{};
+	glm::vec4 cluster_size{};
+	glm::vec2 screen_size{};
+	float near{};
+	float far{};
+	VkDeviceAddress light_cluster_buffer_address{};
+};
+
+struct LightCullingPushConstants
+{
+	glm::mat4 view{};
+	glm::mat4 light_rot{};
+	VkDeviceAddress light_cluster_buffer_address{};
+	VkDeviceAddress light_buffer_address{};
+	VkDeviceAddress light_index_buffer_address{};
+	VkDeviceAddress light_grid_buffer_address{};
+	VkDeviceAddress light_count_buffer_address{};
 };
 
 struct PostFXPushConstants
@@ -131,6 +170,8 @@ struct EngineStats
 	float late_cull{};
 	float early_indirect{};
 	float late_indirect{};
+	float deferred_shading{};
+	float light_culling{};
 };
 
 // destruction of textures handled by gltf (not internally); does not support dynamic objs
@@ -142,17 +183,17 @@ struct TextureCache
 
 	// TODO: refactor
 	void set_draw_image(uint32_t id) { draw_id = id; };
-	void set_draw_image2(uint32_t id) { draw_id2 = id; };
+	void set_gbuffers(uint32_t id) { gbuffer_id = id; };
 	void set_depth_image(uint32_t id) { depth_id = id; };
 	void set_depth_pyramid_image(uint32_t id) { depth_pyramid_id = id; };
 	uint32_t get_draw_image() { return draw_id; };
-	uint32_t get_draw_image2() { return draw_id2; };
+	uint32_t get_first_gbuffer() { return gbuffer_id; };
 	uint32_t get_depth_image() { return depth_id; };
 	uint32_t get_depth_pyramid_image() { return depth_pyramid_id; };
 
 private:
 	uint32_t draw_id{};
-	uint32_t draw_id2{};
+	uint32_t gbuffer_id{};
 	uint32_t depth_id{};
 	uint32_t depth_pyramid_id{};
 };
@@ -249,7 +290,7 @@ public:
 	VmaAllocator allocator{};
 
 	AllocatedImage draw_image{};
-	AllocatedImage draw_image2{};
+	std::vector<AllocatedImage> gbuffers{};
 	VkExtent2D draw_extent{};
 
 	AllocatedImage depth_image{};
@@ -271,6 +312,11 @@ public:
 
 	AllocatedImage shadow_map{};
 
+	AllocatedBuffer light_buffer{};
+	AllocatedBuffer light_cluster_buffer{};
+	AllocatedBuffer light_index_buffer{};
+	AllocatedBuffer light_grid_buffer{};
+	AllocatedBuffer light_count_buffer{};
 
 	VkSampler default_linear_sampler{};
 	VkSampler default_cube_sampler{};
@@ -341,6 +387,7 @@ public:
 
 	void register_object(Node* node, const glm::mat4& top_matrix);
 	void execute_debug_pass(VkCommandBuffer cmd);
+	void execute_deferred_shading(VkCommandBuffer cmd);
 	void shadow_pass(VkCommandBuffer cmd, RenderScene::MeshPass& pass, size_t cascade_idx);
 	void update_cascade();
 	void draw_imgui(VkCommandBuffer cmd, VkImageView swapchain_view);
@@ -351,6 +398,7 @@ public:
 	void execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPass& pass, ClusterCullData& cull_data, VkBuffer count_buffer, uint32_t offset, bool late);
 	void render(VkCommandBuffer cmd, bool late, uint32_t query);
 	void build_depth_pyramid(VkCommandBuffer cmd);
+	void execute_light_culling(VkCommandBuffer cmd);
 
 private:
 	void init_vulkan();
@@ -364,6 +412,7 @@ private:
 	void init_bindless(); 
 	void init_precomputations();
 	void init_imgui();
+	void build_cluster_grid();
 
 	void create_swapchain(uint32_t width, uint32_t height);
 	void destroy_swapchain();

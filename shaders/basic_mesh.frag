@@ -16,11 +16,17 @@ layout (location = 3) in vec2 inUV;
 layout (location = 4) in vec4 inTangent;
 layout (location = 5) in flat uint inMaterialID;
 
-layout (location = 0) out vec4 outFragColor;
+//layout (location = 0) out vec4 outFragColor;
+layout (location = 0) out vec4 gbuffer[];
 
 const float exposure = 4.0;
 const float gamma = 2.2;
 const float PI = 3.14159265359;
+
+layout(buffer_reference, std430) readonly buffer MaterialBuffer
+{ 
+	MaterialData materials[];
+};
 
 layout( push_constant ) uniform constants
 {
@@ -33,6 +39,7 @@ layout( push_constant ) uniform constants
 	//CountBuffer countBuffer;
 	//ClusterIndicesBuffer clusterIndicesBuffer; 
 	uint padding[16];
+	MaterialBuffer materialBuffer;
 	uint debugMeshlets;
 } pc;
 
@@ -42,14 +49,35 @@ layout(set = 2, binding = 0) uniform sampler samplers[];
 
 void main() 
 {	
-	vec3 N = normalize(inNormal); 
+	MaterialData m = pc.materialBuffer.materials[inMaterialID];
 	
-	outFragColor = vec4(N, 1.0);
+	vec4 albedo = m.baseColorFactor;
+	if (m.diffuseID != 0)
+		albedo *= texture(sampler2D(allTextures[m.diffuseID], samplers[0]), inUV);
+
+	vec3 N = normalize(inNormal); 
 	
 	if (pc.debugMeshlets == 0)
 	{
+		//outFragColor = albedo;
 		N = N.xyz * 0.5 + 0.5;
-		outFragColor = vec4(N, 1);
+		//outFragColor = vec4(N, 1);
+		
+		gbuffer[0] = albedo;
+		gbuffer[1] = vec4(N, 1);
+		//gbuffer[2] = vec4(inViewPos, 1.0);
+		gbuffer[2] = vec4(inWorldPos, 1.0);
 	}
+	else // visualize meshlets
+	{
+		//outFragColor = vec4(N, 1); 
+		
+		gbuffer[0] = albedo;
+		gbuffer[1] = vec4(N, 1);
+		//gbuffer[2] = vec4(inViewPos, 1);
+		gbuffer[2] = vec4(inWorldPos, 1.0);
+	}
+	
+	
 	
 }

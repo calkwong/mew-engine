@@ -43,6 +43,11 @@ layout(buffer_reference, std430) readonly buffer MeshletIndicesBuffer
 	uint indices[];
 };
 
+layout(buffer_reference, std430) readonly buffer MaterialBuffer
+{ 
+	MaterialData materials[];
+};
+
 layout(buffer_reference, std430) buffer CountBuffer
 {
 	uint count;
@@ -60,12 +65,13 @@ layout( push_constant ) uniform constants
 {
 	ObjectBuffer objectBuffer;
 	VertexBuffer vertexBuffer;
-	MeshBuffer meshBuffer;
+	MeshBuffer meshBuffer; // UNUSED?
 	MeshTaskBuffer meshTaskBuffer;
 	MeshletBuffer meshletBuffer;
 	MeshletIndicesBuffer meshletIndicesBuffer;
-	CountBuffer countBuffer;
-	ClusterIndicesBuffer clusterIndicesBuffer; // new
+	CountBuffer countBuffer; // UNUSED?
+	ClusterIndicesBuffer clusterIndicesBuffer;
+	MaterialBuffer materialBuffer; // UNUSED?
 	uint debugMeshlets;
 } pc;
 

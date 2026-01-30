@@ -22,6 +22,7 @@ layout( push_constant ) uniform constants
 float near = 0.01; 
 float far  = 100.0; 
   
+// TODO: fix this to take into account inifinite far plane and reverse depth
 float LinearizeDepth(float depth) 
 {
     float z = depth * 2.0 - 1.0; // back to NDC 
@@ -31,8 +32,8 @@ float LinearizeDepth(float depth)
 void main()
 {
 	float depth = textureLod(sampler2D(allTextures[pc.texture_id], samplers[DEPTH_PYRAMID_DEBUG_SAMPLER]), inUV, float(pc.lod)).r; 
-
+	
 	depth = LinearizeDepth(1.0 - depth);
-
+	
 	outFragColor = vec4(vec3(depth / far), 1);
 }

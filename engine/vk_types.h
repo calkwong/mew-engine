@@ -100,6 +100,7 @@ struct SceneData
     glm::mat4 view{};
     glm::mat4 proj{};
     glm::mat4 viewproj{};
+    glm::mat4 light_rot{};
     std::array<glm::mat4, 4> shadow_transforms{};
     glm::vec4 cascade_splits{}; 
     glm::vec4 camera_pos{};
@@ -115,8 +116,20 @@ struct CascadeData
     float split_ratio{};
 };
 
-template <typename T>
-struct Handle
+struct PointLight
 {
-    uint32_t handle{};
+    glm::vec4 pos{}; // pos & radius
+    glm::vec4 color{};
+};
+
+struct ClusterAABB
+{
+    glm::vec4 min{};
+    glm::vec4 max{};
+};
+
+struct LightGrid
+{
+    uint32_t offset{};
+    uint32_t count{};
 };

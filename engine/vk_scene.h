@@ -24,6 +24,12 @@ struct alignas(16) DrawPrimitive {
 	uint32_t padding[2];
 };
 
+template <typename T>
+struct Handle
+{
+	uint32_t handle{};
+};
+
 template<>
 struct Handle<DrawPrimitive> {
 	uint32_t handle{};

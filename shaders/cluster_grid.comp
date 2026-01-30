@@ -1,0 +1,80 @@
+#version 450
+
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_nonuniform_qualifier : require
+#extension GL_EXT_buffer_reference : require
+
+layout (local_size_x = 27, local_size_y = 15, local_size_z = 2) in;
+
+struct AABB
+{
+	vec4 min;
+	vec4 max;
+};
+
+layout(buffer_reference, std430) buffer ClusterBuffer
+{
+	AABB aabb[];
+};
+
+layout( push_constant ) uniform constants
+{
+	mat4 inverseProj;
+	vec4 clusterSize; // xyz is cluster data struct dim, w is single cluster dim where width==height
+	vec2 screenSize;
+	float nearZ;
+	float farZ;
+	ClusterBuffer clusterBuffer;
+} pc;
+
+vec3 screen2View(vec2 screenPos)
+{
+	vec2 pos = min(screenPos, pc.screenSize); // clamp to screenSize
+	vec4 ndc = vec4(vec2(pos / pc.screenSize), 1.0, 1.0); // reverse z
+	ndc.xy = ndc.xy * 2.0 - 1.0;
+
+	vec4 viewPos = pc.inverseProj * ndc;
+	viewPos.xyz /= viewPos.w;
+	
+	return viewPos.xyz;
+}
+
+// calculates view space position of one of the cluster's corners
+vec3 lineIntersectionToZPlane(vec3 point, float z) 
+{
+	float t = z / point.z;
+	
+	return t * point;
+}
+
+void main()
+{
+	// left-bot & right-top cluster corners in screen space 
+	vec2 minScreenPos = vec2(gl_LocalInvocationID.x, gl_LocalInvocationID.y) * pc.clusterSize.w; 
+	vec2 maxScreenPos = vec2(gl_LocalInvocationID.x + 1, gl_LocalInvocationID.y + 1) * pc.clusterSize.w; 
+	
+	// left-bot & right-top cluster corners in view space
+	vec3 minViewPos = screen2View(minScreenPos);
+	vec3 maxViewPos = screen2View(maxScreenPos);
+	
+	// negation necessary as our z is negative when pointing into the screen
+	uint slice = gl_WorkGroupID.z * gl_WorkGroupSize.z + gl_LocalInvocationID.z;
+	uint numSlices = uint(pc.clusterSize.z);
+	float nearZ = -pc.nearZ * pow(pc.farZ / pc.nearZ, float(slice) / float(numSlices));
+	float farZ = -pc.nearZ * pow(pc.farZ / pc.nearZ, float(slice + 1) / float(numSlices));
+	
+	// determine min max of tile
+	vec3 minNear = lineIntersectionToZPlane(minViewPos, nearZ);
+	vec3 minFar  = lineIntersectionToZPlane(minViewPos, farZ);
+	vec3 maxNear = lineIntersectionToZPlane(maxViewPos, nearZ);
+	vec3 maxFar  = lineIntersectionToZPlane(maxViewPos, farZ);
+	
+	vec3 aabbMin = min(min(minNear, minFar), min(maxNear, maxFar));
+	vec3 aabbMax = max(max(minNear, minFar), max(maxNear, maxFar));
+	
+	uint threadCount = gl_WorkGroupSize.x * gl_WorkGroupSize.y * gl_WorkGroupSize.z;
+	uint clusterIndex = gl_WorkGroupID.z * threadCount + gl_LocalInvocationIndex; // gl_GlobalInvocationID?
+		
+	pc.clusterBuffer.aabb[clusterIndex].min = vec4(aabbMin, 1.0);
+	pc.clusterBuffer.aabb[clusterIndex].max = vec4(aabbMax, 1.0);
+}
