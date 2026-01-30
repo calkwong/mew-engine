@@ -55,7 +55,6 @@ struct DeferredPushConstants
 	float near{};
 	float scale{}; 
 	float bias{};  
-	uint32_t debug{};
 };
 
 //struct ShadowPushConstants

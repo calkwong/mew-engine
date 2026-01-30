@@ -59,7 +59,7 @@ constexpr int LIGHT_COUNT{ 1000 };
 constexpr int CLUSTER_DIM{ 64 };
 constexpr int CLUSTER_SLICE_COUNT{ 24 };
 
-AutoCVar_Int CVAR_DRAW_DISTANCE{ "Draw distance", 1000, 1000, CVarFlags::EditSliderInt, 100, 1000, 100 };
+AutoCVar_Int CVAR_DRAW_DISTANCE{ "Draw distance", 100, 100, CVarFlags::EditSliderInt, 100, 1000, 100 };
 AutoCVar_Int CVAR_TOGGLE_MESH_SHADING{ "Mesh shading", 1, 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TOGGLE_OCCLUSION{ "Occlusion", 1, 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TOGGLE_LOD{ "LOD", 1, 1, CVarFlags::EditCheckbox};
@@ -68,7 +68,6 @@ AutoCVar_Int CVAR_TOGGLE_VIEW_MESHLETS{ "Visualize meshlets", 0, 0, CVarFlags::E
 AutoCVar_Int CVAR_TOGGLE_DEPTH_PYRAMID{ "Visualize Hi-Z", 0, 0, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_DEPTH_PYRAMID_LOD{ "Hi-Z LOD", 0, 0, CVarFlags::EditSliderInt, 0, 10, 1 };
 AutoCVar_Int CVAR_TOGGLE_LIGHT_CULLING{ "Light clustered culling", 0, 0, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_TOGGLE_DEFERRED_DEBUG{ "Deferred debug", 0, 0, CVarFlags::EditCheckbox };
 
 uint32_t nearest_pow2(uint32_t extent)
 {
@@ -156,7 +155,7 @@ void VulkanEngine::init(const std::string& file_path)
 	// TODO: refactor if window resize
 	main_camera.set_perspective_matrix(glm::radians(main_camera.fov), static_cast<float>(draw_extent.width) / draw_extent.height, main_camera.far);
 
-	build_cluster_grid();
+	build_cluster_grid(); // TODO: support draw distance change
 	//init_precomputations();
 
 	VkQueryPoolCreateInfo query_pool_info{};
@@ -354,23 +353,12 @@ void VulkanEngine::draw()
 			depth_image.image,
 			VK_IMAGE_LAYOUT_UNDEFINED,
 			VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
-			VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, // last frame lighting pass?
+			VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, // TODO: do we need fragment shader bit? cc deferred.frag
 			VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
-			VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
+			VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, // TODO: do we need shader sample? cc deferred.frag 
 			VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
 			VK_IMAGE_ASPECT_DEPTH_BIT
 		);
-
-		//vkutil::transition_image(
-		//	cmd,
-		//	draw_image.image,
-		//	VK_IMAGE_LAYOUT_UNDEFINED,
-		//	VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-		//	VK_PIPELINE_STAGE_2_BLIT_BIT,
-		//	VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-		//	VK_ACCESS_2_TRANSFER_READ_BIT,
-		//	VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT
-		//); // from blit to swapchain prev frame
 
 		for (int i = 0; i < GBUFFER_COUNT; i++)
 		{
@@ -482,6 +470,7 @@ void VulkanEngine::draw()
 	); // from prev frame's blit to swapchain 
 
 	// light culling
+	//if (CVAR_TOGGLE_LIGHT_CULLING.get())
 	{
 		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_2_CLEAR_BIT,
 			VK_ACCESS_2_SHADER_READ_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT
@@ -494,7 +483,8 @@ void VulkanEngine::draw()
 		);
 
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 10);
-		execute_light_culling(cmd);
+		if (CVAR_TOGGLE_LIGHT_CULLING.get()) // TODO: should really move this out to prevent unnecessary barriers - requires refactoring timestamps
+			execute_light_culling(cmd);
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 11);
 
 		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
@@ -2410,7 +2400,6 @@ void VulkanEngine::execute_deferred_shading(VkCommandBuffer cmd)
 	const float ratio = main_camera.near / main_camera.far; 
 	pc.scale = cluster_z / std::log(ratio);
 	pc.bias = cluster_z * std::log(main_camera.far) / std::log(ratio);
-	pc.debug = CVAR_TOGGLE_DEFERRED_DEBUG.get();
 
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(DeferredPushConstants), &pc);
 	vkCmdDraw(cmd, 3, 1, 0, 0);
