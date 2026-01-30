@@ -2400,6 +2400,7 @@ void VulkanEngine::execute_deferred_shading(VkCommandBuffer cmd)
 	const float ratio = main_camera.near / main_camera.far; 
 	pc.scale = cluster_z / std::log(ratio);
 	pc.bias = cluster_z * std::log(main_camera.far) / std::log(ratio);
+	pc.debug_meshlets = CVAR_TOGGLE_MESH_SHADING.get() ? CVAR_TOGGLE_VIEW_MESHLETS.get() : 0;
 
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(DeferredPushConstants), &pc);
 	vkCmdDraw(cmd, 3, 1, 0, 0);

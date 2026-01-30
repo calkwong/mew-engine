@@ -56,6 +56,7 @@ layout( push_constant ) uniform constants
 	float near;
 	float scale;
 	float bias;
+	uint debugMeshlets;
 } pc;
 
 float distanceSquared(vec3 a, vec3 b)
@@ -76,7 +77,12 @@ int MAX_LIGHTS = 1000; // TODO: hardcoded
 
 void main()
 {
-	//vec3 normal = texture(sampler2D(allTextures[pc.normal_id], samplers[NEAREST_SAMPLER]), inUV).xyz;
+	if (pc.debugMeshlets == 1)
+	{
+		vec3 normal = texture(sampler2D(allTextures[pc.normal_id], samplers[NEAREST_SAMPLER]), inUV).xyz;
+		outFragColor = vec4(normal, 1.0);
+		return;
+	}
 	vec3 albedo = texture(sampler2D(allTextures[pc.albedo_id], samplers[NEAREST_SAMPLER]), inUV).xyz;
 	vec3 worldPos = texture(sampler2D(allTextures[pc.world_pos_id], samplers[NEAREST_SAMPLER]), inUV).xyz;
 	
