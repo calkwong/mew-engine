@@ -7,6 +7,8 @@
 
 #include <fstream>
 #include <vector>
+#include <cassert>
+#include <initializer_list>
 
 bool vkutil::load_shader_module(const char* path, VkDevice device, VkShaderModule* out_shader_module)
 {
@@ -73,14 +75,14 @@ void PipelineBuilder::clear()
     shader_stages.clear();
 }
 
-void PipelineBuilder::set_blending_state(const VkPipelineColorBlendAttachmentState* states, size_t count)
+void PipelineBuilder::set_blending_state(std::vector<VkPipelineColorBlendAttachmentState>& blend_states)
 {
     color_blend_info.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
     color_blend_info.logicOpEnable = VK_FALSE;
     color_blend_info.logicOp = VK_LOGIC_OP_COPY;
     
-    color_blend_info.attachmentCount = static_cast<uint32_t>(count);
-    color_blend_info.pAttachments = states;
+    color_blend_info.attachmentCount = static_cast<uint32_t>(blend_states.size());
+    color_blend_info.pAttachments = blend_states.data();
 }
 
 VkPipeline PipelineBuilder::build_pipeline(VkDevice device)
@@ -125,48 +127,16 @@ VkPipeline PipelineBuilder::build_pipeline(VkDevice device)
 
 }
 
-void PipelineBuilder::set_shaders(VkShaderModule vert_shader, VkShaderModule frag_shader)
+void PipelineBuilder::set_shaders(std::initializer_list<ShaderProgram*> programs)
 {
     shader_stages.clear();
 
-    shader_stages.push_back(
-        vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_VERTEX_BIT, vert_shader)
-    );
-
-    shader_stages.push_back(
-        vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, frag_shader)
-    );
-}
-
-void PipelineBuilder::set_shaders(VkShaderModule vert_shader)
-{
-    shader_stages.clear();
-
-    shader_stages.push_back(
-        vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_VERTEX_BIT, vert_shader)
-    );
-}
-
-void PipelineBuilder::set_mesh_shaders(VkShaderModule mesh_shader, VkShaderModule frag_shader)
-{
-    shader_stages.clear();
-
-    shader_stages.push_back(
-        vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_MESH_BIT_EXT, mesh_shader)
-    );
-
-    shader_stages.push_back(
-        vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, frag_shader)
-    );
-}
-
-void PipelineBuilder::set_mesh_shaders(VkShaderModule mesh_shader)
-{
-    shader_stages.clear();
-
-    shader_stages.push_back(
-        vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_MESH_BIT_EXT, mesh_shader)
-    );
+    for (const auto program : programs)
+    {
+        shader_stages.push_back(
+            vkinit::pipeline_shader_stage_create_info(program->stage, program->module)
+        );
+    }
 }
 
 void PipelineBuilder::set_input_topology(VkPrimitiveTopology topology)
@@ -200,33 +170,22 @@ void PipelineBuilder::set_multisampling_none()
 
 }
 
-void PipelineBuilder::disable_blending()
+VkPipelineColorBlendAttachmentState PipelineBuilder::disable_blending()
 {
-
+    VkPipelineColorBlendAttachmentState color_blend_attachment{};
     color_blend_attachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
     color_blend_attachment.blendEnable = VK_FALSE;
+
+    return color_blend_attachment;
 }
 
-void PipelineBuilder::set_color_attachment_format(VkFormat format)
+void PipelineBuilder::set_color_attachment_format(std::vector<VkFormat>& formats)
 {
-    color_attachment_format.clear();
-    color_attachment_format.push_back(format);
     // connect format to render info
-    render_info.colorAttachmentCount = (format == VK_FORMAT_UNDEFINED) ? 0 : 1;
-    render_info.pColorAttachmentFormats = color_attachment_format.data();
-}
-
-// TODO: support various format
-void PipelineBuilder::set_gbuffer_format(VkFormat format, int count)
-{
-    color_attachment_format.clear();
-    for (int i = 0; i < count; i++)
-    {
-        color_attachment_format.push_back(format);
-    }
-    // connect format to render info
-    render_info.colorAttachmentCount = color_attachment_format.size();
-    render_info.pColorAttachmentFormats = color_attachment_format.data();
+    uint32_t count = static_cast<uint32_t>(formats.size());
+    bool no_attachment = (count == 1) && (formats[0] == VK_FORMAT_UNDEFINED);
+    render_info.colorAttachmentCount = no_attachment ? 0 : count;
+    render_info.pColorAttachmentFormats = formats.data();
 }
 
 void PipelineBuilder::set_depth_format(VkFormat format)
@@ -260,8 +219,10 @@ void PipelineBuilder::enable_depth(bool depth_write_enable, VkCompareOp op)
     depth_stencil.maxDepthBounds = 1.0f;
 }
 
-void PipelineBuilder::enable_blending_additive()
+VkPipelineColorBlendAttachmentState PipelineBuilder::enable_blending_additive()
 {
+    VkPipelineColorBlendAttachmentState color_blend_attachment{};
+
     color_blend_attachment.blendEnable = VK_TRUE;
     color_blend_attachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
     color_blend_attachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
@@ -270,10 +231,14 @@ void PipelineBuilder::enable_blending_additive()
     color_blend_attachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
     color_blend_attachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
     color_blend_attachment.alphaBlendOp = VK_BLEND_OP_ADD;
+
+    return color_blend_attachment;
 }
 
-void PipelineBuilder::enable_blending_alphablend() // review alpha blend eq
+VkPipelineColorBlendAttachmentState PipelineBuilder::enable_blending_alphablend() // review alpha blend eq
 {
+    VkPipelineColorBlendAttachmentState color_blend_attachment{};
+
     color_blend_attachment.blendEnable = VK_TRUE;
     color_blend_attachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
     color_blend_attachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
@@ -283,26 +248,8 @@ void PipelineBuilder::enable_blending_alphablend() // review alpha blend eq
     //color_blend_attachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
     color_blend_attachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
     color_blend_attachment.alphaBlendOp = VK_BLEND_OP_ADD;
-}
 
-std::unique_ptr<ShaderPass> vkutil::build_shader(VkDevice device, PipelineBuilder& builder, std::vector<VkDescriptorSetLayout>& layouts, VkPushConstantRange* pc)
-{
-    std::unique_ptr<ShaderPass> shader = std::make_unique<ShaderPass>();
-
-    VkPipelineLayoutCreateInfo pipeline_layout_info{};
-    pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    pipeline_layout_info.setLayoutCount = static_cast<uint32_t>(layouts.size());
-    pipeline_layout_info.pSetLayouts = layouts.data();
-    pipeline_layout_info.pushConstantRangeCount = 1;
-    pipeline_layout_info.pPushConstantRanges = pc;
-
-    vkCreatePipelineLayout(device, &pipeline_layout_info, nullptr, &shader->layout);
-
-    builder.pipeline_layout = shader->layout;
-
-    shader->pipeline = builder.build_pipeline(device);
-
-    return shader;
+    return color_blend_attachment;
 }
 
 VkPipeline ComputePipelineBuilder::build_pipeline(VkDevice device)
@@ -319,21 +266,60 @@ VkPipeline ComputePipelineBuilder::build_pipeline(VkDevice device)
     return pipeline;
 }
 
-void ComputePipelineBuilder::set_shaders(VkShaderModule comp_shader)
+void ComputePipelineBuilder::set_shaders(ShaderProgram* program)
 {
-    shader_stages[0] = vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_COMPUTE_BIT, comp_shader);
+    shader_stages[0] = vkinit::pipeline_shader_stage_create_info(program->stage, program->module);
 }
 
-std::unique_ptr<ShaderPass> vkutil::build_shader(VkDevice device, ComputePipelineBuilder& builder, std::vector<VkDescriptorSetLayout>& layouts, VkPushConstantRange* pc)
+std::unique_ptr<ShaderPass> vkutil::build_shader(VkDevice device, ComputePipelineBuilder& builder, ShaderProgram* program, std::vector<VkDescriptorSetLayout>& layouts, uint32_t pc_size)
 {
     std::unique_ptr<ShaderPass> shader = std::make_unique<ShaderPass>();
+
+    builder.set_shaders(program);
 
     VkPipelineLayoutCreateInfo pipeline_layout_info{};
     pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     pipeline_layout_info.setLayoutCount = static_cast<uint32_t>(layouts.size());
     pipeline_layout_info.pSetLayouts = layouts.data();
-    pipeline_layout_info.pushConstantRangeCount = pc != nullptr ? 1 : 0;
-    pipeline_layout_info.pPushConstantRanges = pc;
+
+    VkPushConstantRange pc{};
+    pc.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    pc.size = pc_size;
+
+    pipeline_layout_info.pushConstantRangeCount = pc_size != 0 ? 1 : 0;
+    pipeline_layout_info.pPushConstantRanges = &pc;
+
+    vkCreatePipelineLayout(device, &pipeline_layout_info, nullptr, &shader->layout);
+
+    builder.pipeline_layout = shader->layout;
+
+    shader->pipeline = builder.build_pipeline(device);
+
+    return shader;
+}
+
+std::unique_ptr<ShaderPass> vkutil::build_shader(VkDevice device, PipelineBuilder& builder, std::initializer_list<ShaderProgram*> programs, std::vector<VkDescriptorSetLayout>& layouts, uint32_t pc_size)
+{
+    std::unique_ptr<ShaderPass> shader = std::make_unique<ShaderPass>();
+
+    assert(programs.size() <= 2 && programs.size() > 0);
+
+    builder.set_shaders(programs);
+
+    VkPipelineLayoutCreateInfo pipeline_layout_info{};
+    pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipeline_layout_info.setLayoutCount = static_cast<uint32_t>(layouts.size());
+    pipeline_layout_info.pSetLayouts = layouts.data();
+
+    VkPushConstantRange pc{};
+    for (size_t i = 0; i < builder.shader_stages.size(); i++)
+    {
+        pc.stageFlags |= builder.shader_stages[i].stage;
+    }
+    pc.size = pc_size;
+
+    pipeline_layout_info.pushConstantRangeCount = pc_size != 0 ? 1 : 0;
+    pipeline_layout_info.pPushConstantRanges = &pc;
 
     vkCreatePipelineLayout(device, &pipeline_layout_info, nullptr, &shader->layout);
 

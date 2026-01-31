@@ -222,9 +222,12 @@ private:
 
 struct ShaderCache
 {
-	std::unordered_map<std::string, VkShaderModule> data{};
+	//std::unordered_map<std::string, VkShaderModule> data{};
+	std::unordered_map<std::string, ShaderProgram> data{};
 
-	VkShaderModule add_shader(VkDevice device, const char* path);
+	ShaderProgram& operator[](std::string key);
+
+	void add_shader(VkDevice device, const char* path, VkShaderStageFlagBits stage);
 };
 
 struct ShaderPass;

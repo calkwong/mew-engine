@@ -867,7 +867,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const
 				case MaterialPass::Mask: // assumes double-sided 
 					//forward = engine->shader_passes["textured_lit_clip"].get();
 					//shadow = engine->shader_passes["shadow_flat"].get();
-					forward = engine->shader_passes["textured_lit"].get();
+					forward = engine->shader_passes["geometry_vert"].get();
 					//shadow = engine->shader_passes["shadow"].get();
 					shadow = nullptr;
 					break;
@@ -880,7 +880,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const
 				case MaterialPass::Opaque:
 					//forward = m.double_sided ? engine->shader_passes["textured_lit2"].get() : engine->shader_passes["textured_lit"].get();
 					//shadow = m.double_sided ? engine->shader_passes["shadow_flat"].get() : engine->shader_passes["shadow"].get();
-					forward = engine->shader_passes["textured_lit"].get();
+					forward = engine->shader_passes["geometry_vert"].get();
 					//shadow = engine->shader_passes["shadow"].get();
 					shadow = nullptr;
 					break;
@@ -894,7 +894,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const
 				// TODO: refactor - mesh has no material, assign first material
 				auto m = materials[0];
 				new_surface.material_id = 0;
-				ShaderPass* forward = engine->shader_passes["textured_lit"].get();
+				ShaderPass* forward = engine->shader_passes["geometry_vert"].get();
 				//ShaderPass* shadow = engine->shader_passes["shadow"].get();
 				ShaderPass* shadow = nullptr;
 				new_surface.material = engine->material_cache.add_material(forward, shadow);

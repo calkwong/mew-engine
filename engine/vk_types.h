@@ -133,3 +133,9 @@ struct LightGrid
     uint32_t offset{};
     uint32_t count{};
 };
+
+struct ShaderProgram
+{
+    VkShaderModule module{};
+    VkShaderStageFlagBits stage{};
+};

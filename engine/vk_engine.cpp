@@ -1262,15 +1262,6 @@ void VulkanEngine::immediate_submit(std::function<void(VkCommandBuffer cmd)>&& f
 
 void VulkanEngine::init_pipelines()
 {
-	std::vector<VkDescriptorSetLayout> descriptor_layouts{};
-	VkPushConstantRange pc{};
-
-	ComputePipelineBuilder compute_builder{};
-	PipelineBuilder builder{};
-
-	VkShaderModule module{};
-	VkShaderModule frag_module{};
-
 	//> IBL
 	//module = shader_cache.add_shader(device, "equi_to_cube.comp.spv");
 	//compute_builder.set_shaders(module);
@@ -1289,224 +1280,87 @@ void VulkanEngine::init_pipelines()
 	//compute_builder.set_shaders(module);
 	//std::unique_ptr<ShaderPass> brdf_pass = vkutil::build_shader(device, compute_builder, descriptor_layouts, &pc);
 
-	//> LIGHT-CULLING
-	descriptor_layouts.clear();
-	module = shader_cache.add_shader(device, "cluster_grid.comp.spv");
-	compute_builder.set_shaders(module);
-	pc = { VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ClusterGridPushConstants) };
-	std::unique_ptr<ShaderPass> cluster_grid_pass = vkutil::build_shader(device, compute_builder, descriptor_layouts, &pc);
+	// compute pipeline
+	shader_cache.add_shader(device, "cluster_grid.comp", VK_SHADER_STAGE_COMPUTE_BIT);
+	shader_cache.add_shader(device, "light_culling.comp", VK_SHADER_STAGE_COMPUTE_BIT);
+	shader_cache.add_shader(device, "depth_pyramid.comp", VK_SHADER_STAGE_COMPUTE_BIT);
+	shader_cache.add_shader(device, "mesh_cull.comp", VK_SHADER_STAGE_COMPUTE_BIT);
+	shader_cache.add_shader(device, "meshlet_cull.comp", VK_SHADER_STAGE_COMPUTE_BIT);
+	shader_cache.add_shader(device, "task_submit.comp", VK_SHADER_STAGE_COMPUTE_BIT);
 
-	module = shader_cache.add_shader(device, "light_culling.comp.spv");
-	compute_builder.set_shaders(module);
-	pc = { VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(LightCullingPushConstants) };
-	std::unique_ptr<ShaderPass> light_culling_pass = vkutil::build_shader(device, compute_builder, descriptor_layouts, &pc);
+	// graphics pipeline
+	shader_cache.add_shader(device, "mesh_pbr.vert", VK_SHADER_STAGE_VERTEX_BIT);
+	shader_cache.add_shader(device, "basic_mesh.frag", VK_SHADER_STAGE_FRAGMENT_BIT);
+	shader_cache.add_shader(device, "meshlet.mesh.glsl", VK_SHADER_STAGE_MESH_BIT_EXT);
+	shader_cache.add_shader(device, "full_screen.vert", VK_SHADER_STAGE_VERTEX_BIT);
+	shader_cache.add_shader(device, "deferred.frag", VK_SHADER_STAGE_FRAGMENT_BIT);
+	shader_cache.add_shader(device, "debug.frag", VK_SHADER_STAGE_FRAGMENT_BIT);
 
-	//> HI-Z
-	descriptor_layouts.clear();
+	std::vector<VkDescriptorSetLayout> descriptor_layouts{};
+	VkPushConstantRange pc{};
+
+	ComputePipelineBuilder compute_builder{};
+	PipelineBuilder builder{};
+
+	shader_passes["cluster_grid"] = vkutil::build_shader(device, compute_builder, {&shader_cache["cluster_grid.comp"]}, descriptor_layouts, sizeof(ClusterGridPushConstants));
+	shader_passes["light_culling"] = vkutil::build_shader(device, compute_builder, { &shader_cache["light_culling.comp"] }, descriptor_layouts, sizeof(LightCullingPushConstants));
+	shader_passes["task_submit"] = vkutil::build_shader(device, compute_builder, { &shader_cache["task_submit.comp"] }, descriptor_layouts, sizeof(VkDeviceAddress)); // TODO: redundant?
+
 	descriptor_layouts = { bindless_image_layout, bindless_tex_layout, bindless_sampler_layout };
-	module = shader_cache.add_shader(device, "depth_pyramid.comp.spv");
-	compute_builder.set_shaders(module);
-	pc = { VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(DepthPyramidPushConstants) };
-	std::unique_ptr<ShaderPass> depth_pyramid_pass = vkutil::build_shader(device, compute_builder, descriptor_layouts, &pc);
+	shader_passes["depth_pyramid"] = vkutil::build_shader(device, compute_builder, { &shader_cache["depth_pyramid.comp"] }, descriptor_layouts, sizeof(DepthPyramidPushConstants));
+	shader_passes["mesh_cull"] = vkutil::build_shader(device, compute_builder, { &shader_cache["mesh_cull.comp"] }, descriptor_layouts, sizeof(CullData));
+	shader_passes["meshlet_cull"] = vkutil::build_shader(device, compute_builder, { &shader_cache["meshlet_cull.comp"] }, descriptor_layouts, sizeof(CullData)); // TODO: check if this is also culldata
 
-	//> MESH CULLING
-	module = shader_cache.add_shader(device, "mesh_cull.comp.spv");
-	compute_builder.set_shaders(module);
-	pc = { VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CullData) };
-	std::unique_ptr<ShaderPass> cull_pass = vkutil::build_shader(device, compute_builder, descriptor_layouts, &pc);
-
-	//> MESHLET CULLING
-	module = shader_cache.add_shader(device, "meshlet_cull.comp.spv");
-	compute_builder.set_shaders(module);
-	pc = { VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CullData) };
-	std::unique_ptr<ShaderPass> meshlet_cull_pass = vkutil::build_shader(device, compute_builder, descriptor_layouts, &pc);
-
-	//> TASK SUBMIT - TODO: REDUNDANT?
-	descriptor_layouts.clear();
-	module = shader_cache.add_shader(device, "task_submit.comp.spv");
-	compute_builder.set_shaders(module);
-	pc = { VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(VkDeviceAddress) };
-	std::unique_ptr<ShaderPass> task_submit_pass = vkutil::build_shader(device, compute_builder, descriptor_layouts, &pc);
-
-	//> GRAPHICS PIPELINE
+	// mrt
 	descriptor_layouts.clear();
 	descriptor_layouts = { scene_descriptor_layout, bindless_tex_layout, bindless_sampler_layout };
 
-	//> SHADOW 
 	builder.set_input_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
 	builder.set_polygon_mode(VK_POLYGON_MODE_FILL);
 	builder.set_multisampling_none();
-	//builder.disable_blending();
-
-	//module = shader_cache.add_shader(device, "depth.vert.spv");
-	//builder.set_shaders(module);
-	//builder.set_cull_mode(VK_CULL_MODE_FRONT_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
 	builder.enable_depth(true, VK_COMPARE_OP_GREATER_OR_EQUAL);
-	//builder.set_color_attachment_format(VK_FORMAT_UNDEFINED);
 	builder.set_depth_format(depth_image.format);
-	//builder.dynamic_state.push_back(VK_DYNAMIC_STATE_DEPTH_BIAS);
-	//builder.rasterization.depthBiasEnable = VK_TRUE;
-	//pc = { VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(ShadowPushConstants) };
-	//std::unique_ptr<ShaderPass> shadow_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
+	builder.set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
 
-	////> DOUBLE SIDED SHADOW
-	//frag_module = shader_cache.add_shader(device, "depth.frag.spv");
-	//builder.set_shaders(module, frag_module);
-	//builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-	//std::unique_ptr<ShaderPass> shadow_flat_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
-
-	//> GEOMETRY + LIGHTING
-	//> DOUBLE SIDED MASK
-	//module = shader_cache.add_shader(device, "mesh_pbr.vert.spv");
-	//frag_module = shader_cache.add_shader(device, "mesh_pbr_clip.frag.spv");
-	//builder.set_shaders(module, frag_module);
-	//builder.set_color_attachment_format(draw_image.format); 
-	//builder.disable_blending();
-
-	//builder.set_gbuffer_format(draw_image.format, GBUFFER_COUNT); // TODO: rewrite this
-	//builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-	//std::vector<VkPipelineColorBlendAttachmentState> gbuffer_blend_states{};
-	//for (size_t i = 0; i < GBUFFER_COUNT; i++)
-	//{
-	//	VkPipelineColorBlendAttachmentState state{};
-	//	state.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-	//	state.blendEnable = VK_FALSE;
-
-	//	gbuffer_blend_states.push_back(state);
-	//}
-	//builder.set_blending_state(gbuffer_blend_states.data(), gbuffer_blend_states.size());
-
-	//builder.enable_depth(true, VK_COMPARE_OP_GREATER_OR_EQUAL);
-	////builder.dynamic_state.pop_back(); // remove depth bias dynamic state
-	//builder.rasterization.depthBiasEnable = VK_FALSE;
-	//pc = { VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GPUPushConstants) }; 
-	//std::unique_ptr<ShaderPass> textured_lit_clip_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
-
-	////> DOUBLE SIDED LIT
-	////frag_module = shader_cache.add_shader(device, "mesh_pbr.frag.spv");
-	////module = shader_cache.add_shader(device, "mesh_pbr.vert.spv");
-	//frag_module = shader_cache.add_shader(device, "basic_mesh.frag.spv");
-	//builder.set_shaders(module, frag_module);
-	//std::unique_ptr<ShaderPass> textured_lit2_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
-
-	//> MRT GBUFFER
-
-	builder.set_gbuffer_format(draw_image.format, GBUFFER_COUNT); // TODO: rewrite this
-	builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-	std::vector<VkPipelineColorBlendAttachmentState> gbuffer_blend_states{};
+	std::vector<VkFormat> color_attachment_formats{};
+	std::vector<VkPipelineColorBlendAttachmentState> color_blend_states{};
 	for (size_t i = 0; i < GBUFFER_COUNT; i++)
 	{
+		color_attachment_formats.push_back(VK_FORMAT_R16G16B16A16_SFLOAT);
+
 		VkPipelineColorBlendAttachmentState state{};
 		state.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
 		state.blendEnable = VK_FALSE;
 
-		gbuffer_blend_states.push_back(state);
+		color_blend_states.push_back(state);
 	}
-	builder.set_blending_state(gbuffer_blend_states.data(), gbuffer_blend_states.size());
-
-	builder.enable_depth(true, VK_COMPARE_OP_GREATER_OR_EQUAL);
-	//builder.dynamic_state.pop_back(); // remove depth bias dynamic state
-	//builder.rasterization.depthBiasEnable = VK_FALSE;
-	pc = { VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GPUPushConstants) };
-	//std::unique_ptr<ShaderPass> textured_lit_clip_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
-
-
-	module = shader_cache.add_shader(device, "mesh_pbr.vert.spv");
-	frag_module = shader_cache.add_shader(device, "basic_mesh.frag.spv");
-	builder.set_shaders(module, frag_module);
-	builder.set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-	std::unique_ptr<ShaderPass> textured_lit_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
-
-	//> MESHLET LIT
-	module = shader_cache.add_shader(device, "meshlet.mesh.glsl.spv");
-	frag_module = shader_cache.add_shader(device, "basic_mesh.frag.spv");
-	builder.set_mesh_shaders(module, frag_module);
-	pc = { VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GPUPushConstants) };
-	std::unique_ptr<ShaderPass> meshlet_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
-
-	//> DOUBLE SIDED TRANSPARENT BACK FIRST
-	//descriptor_layouts = { scene_descriptor_layout, bindless_tex_layout, bindless_sampler_layout };
-	//module = shader_cache.add_shader(device, "mesh_pbr.vert.spv");
-	//frag_module = shader_cache.add_shader(device, "mesh_pbr_transparent.frag.spv");
-	//builder.set_shaders(module, frag_module);
-	//builder.enable_blending_alphablend();
-	//builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-	//builder.enable_depth(false, VK_COMPARE_OP_GREATER_OR_EQUAL);
-	//pc = { VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GPUPushConstants) };
-	//std::unique_ptr<ShaderPass> blend_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
-
-	//> DEFERRED SHADING
-	descriptor_layouts = { scene_descriptor_layout, bindless_tex_layout, bindless_sampler_layout };
-	module = shader_cache.add_shader(device, "full_screen.vert.spv");
-	frag_module = shader_cache.add_shader(device, "deferred.frag.spv");
+	builder.set_color_attachment_format(color_attachment_formats);
+	builder.set_blending_state(color_blend_states);
 	
-	builder.gbuffer_blend_attachment.clear(); // TODO: make it clearer - currently switches back to single blend attachment and attachment format
-	builder.set_color_attachment_format(draw_image.format);
+	shader_passes["geometry_vert"] = vkutil::build_shader(device, builder, { &shader_cache["mesh_pbr.vert"], &shader_cache["basic_mesh.frag"] }, descriptor_layouts, sizeof(GPUPushConstants));
+	shader_passes["geometry_mesh"] = vkutil::build_shader(device, builder, { &shader_cache["meshlet.mesh.glsl"], &shader_cache["basic_mesh.frag"] }, descriptor_layouts, sizeof(GPUPushConstants));
 
-	VkPipelineColorBlendAttachmentState blend_state{};
-	blend_state.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-	blend_state.blendEnable = VK_FALSE;
+	// single render target
+	descriptor_layouts.clear();
+	descriptor_layouts = { scene_descriptor_layout, bindless_tex_layout, bindless_sampler_layout };
 
-	builder.set_blending_state(&blend_state, 1);
-	builder.set_shaders(module, frag_module);
-	builder.disable_blending();
+	color_attachment_formats.clear();
+	color_attachment_formats.push_back(VK_FORMAT_R16G16B16A16_SFLOAT);
+	builder.set_color_attachment_format(color_attachment_formats);
+
+	color_blend_states.clear();
+	color_blend_states.push_back(builder.disable_blending());
+	builder.set_blending_state(color_blend_states);
 	builder.disable_depth();
-	// cull mode?
-	pc = { VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(DeferredPushConstants) };
-	std::unique_ptr<ShaderPass> deferred_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
+	shader_passes["deferred"] = vkutil::build_shader(device, builder, { &shader_cache["full_screen.vert"], &shader_cache["deferred.frag"] }, descriptor_layouts, sizeof(DeferredPushConstants));
 
-	//> SKYBOX
-	//module = shader_cache.add_shader(device, "skybox.vert.spv");
-	//frag_module = shader_cache.add_shader(device, "skybox.frag.spv");
-	//builder.set_shaders(module, frag_module);
-	//builder.disable_blending();
-	//builder.enable_depth(true, VK_COMPARE_OP_GREATER_OR_EQUAL);
-	//pc = { VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(SkyboxPushConstants) };
-	//std::unique_ptr<ShaderPass> skybox_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
-
-	//> DEBUG
-	module = shader_cache.add_shader(device, "full_screen.vert.spv");
-	frag_module = shader_cache.add_shader(device, "debug.frag.spv");
-	builder.set_shaders(module, frag_module);
 	builder.disable_depth();
 	builder.set_depth_format(VK_FORMAT_UNDEFINED);
-	pc = { VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(DebugPushConstants) };
-	std::unique_ptr<ShaderPass> debug_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
-
-	//> POST FX
-	//module = shader_cache.add_shader(device, "full_screen.vert.spv");
-	//frag_module = shader_cache.add_shader(device, "tonemap.frag.spv");
-	//builder.set_shaders(module, frag_module);
-	//builder.disable_depth();
-	//builder.set_depth_format(VK_FORMAT_UNDEFINED);
-	//pc = { VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PostFXPushConstants) };
-	//std::unique_ptr<ShaderPass> tonemap_pass = vkutil::build_shader(device, builder, descriptor_layouts, &pc);
-
-	//shader_passes["equi_to_cube"] = std::move(equi_to_cube_pass);
-	//shader_passes["irradiance"] = std::move(irradiance_pass);
-	//shader_passes["prefiltered"] = std::move(prefiltered_pass);
-	//shader_passes["brdf"] = std::move(brdf_pass);
-	//shader_passes["shadow"] = std::move(shadow_pass);
-	//shader_passes["shadow_flat"] = std::move(shadow_flat_pass);
-	//shader_passes["textured_lit_clip"] = std::move(textured_lit_clip_pass);
-	shader_passes["textured_lit"] = std::move(textured_lit_pass);
-	//shader_passes["textured_lit2"] = std::move(textured_lit2_pass);
-	//shader_passes["skybox"] = std::move(skybox_pass);
-	//shader_passes["tonemap"] = std::move(tonemap_pass);
-	//shader_passes["blend"] = std::move(blend_pass);
-	shader_passes["cull"] = std::move(cull_pass);
-	shader_passes["debug"] = std::move(debug_pass);
-	shader_passes["depth_pyramid"] = std::move(depth_pyramid_pass);
-	shader_passes["meshlet"] = std::move(meshlet_pass);
-	shader_passes["task_submit"] = std::move(task_submit_pass);
-	shader_passes["meshlet_cull"] = std::move(meshlet_cull_pass);
-	shader_passes["deferred"] = std::move(deferred_pass);
-	shader_passes["cluster_grid"] = std::move(cluster_grid_pass);
-	shader_passes["light_culling"] = std::move(light_culling_pass);
+	shader_passes["hi_z"] = vkutil::build_shader(device, builder, { &shader_cache["full_screen.vert"], &shader_cache["debug.frag"] }, descriptor_layouts, sizeof(DebugPushConstants));
 
 	for (const auto& [k, v] : shader_cache.data)
 	{
-		vkDestroyShaderModule(device, v, nullptr);
+		vkDestroyShaderModule(device, v.module, nullptr);
 	}
 }
 
@@ -2274,20 +2128,26 @@ uint32_t ImageCache::add_texture(const VkImageView& view)
 	return id;
 }
 
-VkShaderModule ShaderCache::add_shader(VkDevice device, const char* path)
+ShaderProgram& ShaderCache::operator[](std::string key)
 {
+	return data[key];
+}
+
+void ShaderCache::add_shader(VkDevice device, const char* path, VkShaderStageFlagBits stage)
+{
+	auto it = data.find(path);
+
 	std::string shader_path{ "../../shaders/" };
 	shader_path += path;
-	auto it = data.find(shader_path);
+	shader_path += ".spv";
 
 	if (it == data.end())
 	{
 		VkShaderModule module{};
 		vkutil::load_shader_module(shader_path.c_str(), device, &module);
-		data[shader_path] = module;
-	}
 
-	return data[shader_path];
+		data[path] = ShaderProgram{module, stage};
+	}
 }
 
 uint32_t MaterialCache::add_material(ShaderPass* forward, ShaderPass* shadow)
@@ -2327,7 +2187,7 @@ void VulkanEngine::execute_debug_pass(VkCommandBuffer cmd)
 
 	vkCmdBeginRendering(cmd, &render_info);
 
-	ShaderPass current_pass = *shader_passes["debug"];
+	ShaderPass current_pass = *shader_passes["hi_z"];
 	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
@@ -2335,7 +2195,7 @@ void VulkanEngine::execute_debug_pass(VkCommandBuffer cmd)
 	DebugPushConstants pc{};
 	pc.texture_id = texture_cache.get_depth_pyramid_image();
 	pc.lod = CVAR_DEPTH_PYRAMID_LOD.get();
-	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(DebugPushConstants), &pc);
+	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(DebugPushConstants), &pc);
 	vkCmdDraw(cmd, 3, 1, 0, 0);
 
 	stats.draw_count++;
@@ -2402,7 +2262,7 @@ void VulkanEngine::execute_deferred_shading(VkCommandBuffer cmd)
 	pc.bias = cluster_z * std::log(main_camera.far) / std::log(ratio);
 	pc.debug_meshlets = CVAR_TOGGLE_MESH_SHADING.get() ? CVAR_TOGGLE_VIEW_MESHLETS.get() : 0;
 
-	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(DeferredPushConstants), &pc);
+	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(DeferredPushConstants), &pc);
 	vkCmdDraw(cmd, 3, 1, 0, 0);
 
 	stats.draw_count++;
@@ -2922,7 +2782,7 @@ void VulkanEngine::ready_cull_data(RenderScene::MeshPass& pass, ClusterCullData&
 
 void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPass& pass, CullData& cull_data, bool late)
 {
-	ShaderPass current_pass = *shader_passes["cull"];
+	ShaderPass current_pass = *shader_passes["mesh_cull"];
 	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
 
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &bindless_image_descriptor, 0, nullptr);
@@ -3020,7 +2880,7 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t query)
 
 	if (!CVAR_TOGGLE_MESH_SHADING.get())
 	{
-		ShaderPass current_pass = *shader_passes["textured_lit"];
+		ShaderPass current_pass = *shader_passes["geometry_vert"];
 
 		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
 		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
@@ -3046,7 +2906,7 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t query)
 	}
 	else // mesh shading path
 	{
-		ShaderPass current_pass = *shader_passes["meshlet"];
+		ShaderPass current_pass = *shader_passes["geometry_mesh"];
 
 		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
 		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
