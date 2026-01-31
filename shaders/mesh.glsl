@@ -3,7 +3,8 @@ struct ObjectData
 	mat4 worldMatrix;
 	uint materialID;
 	uint meshletBitOffset;
-	uint padding[2];
+	uint postPass;
+	uint padding;
 };
 
 struct Meshlet

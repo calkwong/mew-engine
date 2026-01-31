@@ -81,6 +81,7 @@ layout(push_constant) uniform constants
 	float lodDistanceFactor;
 	uint lodEnabled;
 	uint taskSubmit;
+	uint postPass;
 } pc;
 
 layout(set = 0, binding = 0, r32f) uniform image2D allImages[];
@@ -169,6 +170,8 @@ void main()
 		bool skip = false; // always false for early pass
 		if (late && visibleLastFrame) 
 			skip = true;
+		if (pc.postPass == 1) // culling masked geometry, late check should be unnecessary if we do things right
+			skip = false;
 			
 		// reprocess all meshlets of visible meshes	
 		Meshlet meshlet = pc.meshletBuffer.meshlets[meshletOffset]; 
@@ -206,7 +209,7 @@ void main()
 			pc.clusterIndicesBuffer.indices[clusterIndex] = id | (ti << 27); // no error checking yet
 		}
 		
-		if (late)
+		if (late) // can we skip this for masked geometry? 
 		{
 			// TODO: use subgroups and update from a single thread, potentially need to update 2 uints
 			if (visible)

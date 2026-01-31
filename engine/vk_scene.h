@@ -45,6 +45,7 @@ struct RenderObject
 
 	VkDeviceAddress material_buffer_address{};
 	uint32_t meshlet_bits{};
+	uint32_t post_pass{};
 };
 
 template<>
@@ -78,7 +79,8 @@ struct ObjectData
 	glm::mat4 transform{};
 	uint32_t material_id{};
 	uint32_t meshlet_bit_offset{};
-	uint32_t padding[2]{}; 
+	uint32_t post_pass{};
+	uint32_t padding{}; 
 };
 
 struct CullData
@@ -107,6 +109,7 @@ struct CullData
 	float lod_distance_factor{};
 	uint32_t lod_enabled{};
 	uint32_t task_submit{};
+	uint32_t post_pass{};
 };
 
 struct ClusterCullData
@@ -135,6 +138,7 @@ struct ClusterCullData
 	float lod_distance_factor{};
 	uint32_t lod_enabled{};
 	uint32_t task_submit{};
+	uint32_t post_pass{};
 };
 
 struct PassObject

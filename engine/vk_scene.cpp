@@ -83,6 +83,7 @@ void RenderScene::build_object_buffer()
 		object_data[i].transform = obj.transform;
 		object_data[i].material_id = obj.material_id;
 		object_data[i].meshlet_bit_offset = offset; // TODO: refactor in future, should be per-pass
+		object_data[i].post_pass = obj.post_pass;
 
 		offset += obj.meshlet_bits;
 		max_meshtask_commands += (obj.meshlet_bits + 31) / 32; // TODO: using clustercull workgroup size, remove magic number

@@ -16,8 +16,11 @@ layout (location = 3) in vec2 inUV;
 layout (location = 4) in vec4 inTangent;
 layout (location = 5) in flat uint inMaterialID;
 
-//layout (location = 0) out vec4 outFragColor;
 layout (location = 0) out vec4 gbuffer[];
+
+// 1 - OPAQUE
+// 0 - MASK
+layout (constant_id = 0) const int OPAQUE = 1;
 
 const float exposure = 4.0;
 const float gamma = 2.2;
@@ -53,8 +56,17 @@ void main()
 	
 	vec4 albedo = m.baseColorFactor;
 	if (m.diffuseID != 0)
-		albedo *= texture(sampler2D(allTextures[m.diffuseID], samplers[0]), inUV);
-
+	{
+		vec4 sampledAlbedo = texture(sampler2D(allTextures[m.diffuseID], samplers[0]), inUV);
+		
+		if (OPAQUE == 0)
+		{
+			if (sampledAlbedo.a < 0.5)
+				discard;
+		}
+		
+		albedo *= sampledAlbedo;
+	}
 	vec3 N = normalize(inNormal); 
 	
 	if (pc.debugMeshlets == 0)

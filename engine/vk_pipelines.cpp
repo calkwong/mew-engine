@@ -275,7 +275,11 @@ std::unique_ptr<ShaderPass> vkutil::build_shader(VkDevice device, ComputePipelin
 {
     std::unique_ptr<ShaderPass> shader = std::make_unique<ShaderPass>();
 
-    builder.set_shaders(program);
+    if (program != nullptr)
+    {
+        assert(builder.shader_stages.size() == 1);
+        builder.set_shaders(program);
+    }
 
     VkPipelineLayoutCreateInfo pipeline_layout_info{};
     pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -302,9 +306,15 @@ std::unique_ptr<ShaderPass> vkutil::build_shader(VkDevice device, PipelineBuilde
 {
     std::unique_ptr<ShaderPass> shader = std::make_unique<ShaderPass>();
 
-    assert(programs.size() <= 2 && programs.size() > 0);
-
-    builder.set_shaders(programs);
+    if (programs.size() == 0)
+    {
+        assert(builder.shader_stages.size() != 0);
+    }
+    else
+    {
+        assert(programs.size() <= 2 && programs.size() > 0);
+        builder.set_shaders(programs);
+    }
 
     VkPipelineLayoutCreateInfo pipeline_layout_info{};
     pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;

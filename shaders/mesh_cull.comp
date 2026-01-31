@@ -76,6 +76,7 @@ layout(push_constant) uniform constants
 	float lodDistanceFactor;
 	uint lodEnabled;
 	uint taskSubmit;
+	uint postPass;
 } pc;
 
 layout(set = 0, binding = 0, r32f) uniform image2D allImages[];
@@ -142,16 +143,14 @@ bool occlusionCulled(vec3 center, float radius)
 
 void main()
 {
+	//if (pc.postPass == 1)
+	//	return;
+
 	uint id = gl_GlobalInvocationID.x;
 	
-	if (id < pc.count)
-	{
-		bool late = pc.late == 1;
-		bool visibleLastFrame = pc.visBuffer.visible[id] == 1; // TODO: visBuffer using 4 bytes instead of 1 bit for visibility
-		
-		if (!late && !visibleLastFrame)
-			return;
-		
+	if (id >= pc.count)
+		return;
+	
 		GPUInstance instance = pc.instanceBuffer.instances[id];
 		uint meshId = instance.meshId; // from DrawPrimitive
 		uint objectId = instance.objectId; // from renderables, info such as worldMatrix, material etc.
@@ -159,6 +158,16 @@ void main()
 		MeshData mesh = pc.meshBuffer.meshes[meshId];
 		
 		ObjectData obj = pc.objectBuffer.objects[objectId];
+		
+		if (obj.postPass != pc.postPass) // late check should be unnecessary, masked geometry will behave like a third pass after 2-pass cull
+			return;
+			
+		bool late = pc.late == 1;
+		bool visibleLastFrame = pc.visBuffer.visible[id] == 1; // TODO: visBuffer using 4 bytes instead of 1 bit for visibility
+		
+		if (!late && !visibleLastFrame)
+			return;
+		
 	
 		vec3 center = vec3(pc.view * obj.worldMatrix * vec4(mesh.center, 1.0));
 		float radius = mesh.radius;
@@ -228,5 +237,5 @@ void main()
 		if (late)
 			pc.visBuffer.visible[id] = uint(visible); 
 
-	}
+	
 }

@@ -169,8 +169,10 @@ struct EngineStats
 	unsigned int triangle_count{};
 	float early_cull{};
 	float late_cull{};
+	float third_cull{};
 	float early_indirect{};
 	float late_indirect{};
+	float third_indirect{};
 	float deferred_shading{};
 	float light_culling{};
 };
@@ -398,9 +400,9 @@ public:
 	void ready_mesh_draw();
 	void ready_cull_data(RenderScene::MeshPass& pass, CullData& cull_data, glm::mat4& proj, bool orthographic = false);
 	void ready_cull_data(RenderScene::MeshPass& pass, ClusterCullData& cull_data, glm::mat4& proj, bool orthographic = false);
-	void execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPass& pass, CullData& cull_data, bool late);
-	void execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPass& pass, ClusterCullData& cull_data, VkBuffer count_buffer, uint32_t offset, bool late);
-	void render(VkCommandBuffer cmd, bool late, uint32_t query);
+	void execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPass& pass, CullData& cull_data, bool late, uint32_t post_pass);
+	void execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPass& pass, ClusterCullData& cull_data, VkBuffer count_buffer, uint32_t offset, bool late, uint32_t post_pass);
+	void render(VkCommandBuffer cmd, bool late, uint32_t post_pass, uint32_t query);
 	void build_depth_pyramid(VkCommandBuffer cmd);
 	void execute_light_culling(VkCommandBuffer cmd);
 

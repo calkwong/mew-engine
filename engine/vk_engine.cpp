@@ -47,7 +47,7 @@ VulkanEngine& VulkanEngine::get() { return *loaded_engine; }
 
 //#define IBL
 //#define SHADOW // TODO: currently not working
-#define SINGLE // uncomment if loading a proper scene
+//#define SINGLE // uncomment if loading a proper scene
 
 bool RENDER_IMGUI = true;
 
@@ -58,6 +58,7 @@ constexpr int GBUFFER_COUNT{ 3 };
 constexpr int LIGHT_COUNT{ 1000 };
 constexpr int CLUSTER_DIM{ 64 };
 constexpr int CLUSTER_SLICE_COUNT{ 24 };
+constexpr int TIMESTAMP_COUNT{ 16 };
 
 AutoCVar_Int CVAR_DRAW_DISTANCE{ "Draw distance", 100, 100, CVarFlags::EditSliderInt, 100, 1000, 100 };
 AutoCVar_Int CVAR_TOGGLE_MESH_SHADING{ "Mesh shading", 1, 1, CVarFlags::EditCheckbox };
@@ -68,6 +69,7 @@ AutoCVar_Int CVAR_TOGGLE_VIEW_MESHLETS{ "Visualize meshlets", 0, 0, CVarFlags::E
 AutoCVar_Int CVAR_TOGGLE_DEPTH_PYRAMID{ "Visualize Hi-Z", 0, 0, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_DEPTH_PYRAMID_LOD{ "Hi-Z LOD", 0, 0, CVarFlags::EditSliderInt, 0, 10, 1 };
 AutoCVar_Int CVAR_TOGGLE_LIGHT_CULLING{ "Light clustered culling", 0, 0, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_TOGGLE_MASK{ "Render masked geometry properly", 1, 1, CVarFlags::EditCheckbox };
 
 uint32_t nearest_pow2(uint32_t extent)
 {
@@ -318,7 +320,7 @@ void VulkanEngine::draw()
 		); 
 
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 0);
-		execute_compute_cull(cmd, render_scene.forward_pass, forward_mesh_cull_data, false);
+		execute_compute_cull(cmd, render_scene.forward_pass, forward_mesh_cull_data, false, 0);
 		if (CVAR_TOGGLE_MESH_SHADING.get())
 		{
 			vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
@@ -340,7 +342,7 @@ void VulkanEngine::draw()
 				VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT
 			);
 
-			execute_compute_cull(cmd, render_scene.forward_pass, forward_cluster_cull_data, render_scene.forward_pass.count_buffer.buffer, 4, 0);
+			execute_compute_cull(cmd, render_scene.forward_pass, forward_cluster_cull_data, render_scene.forward_pass.count_buffer.buffer, 4, false, 0);
 		}
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 1);
 
@@ -371,11 +373,11 @@ void VulkanEngine::draw()
 				VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
 				VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
 				VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT
-			); 
+			);
 		}
 
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 2);
-		render(cmd, false, 0);
+		render(cmd, false, 0, 0);
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 3);
 
 		if (!freeze_camera)
@@ -393,7 +395,7 @@ void VulkanEngine::draw()
 		);
 
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 4);
-		execute_compute_cull(cmd, render_scene.forward_pass, forward_mesh_cull_data, true);
+		execute_compute_cull(cmd, render_scene.forward_pass, forward_mesh_cull_data, true, 0);
 
 		if (CVAR_TOGGLE_MESH_SHADING.get())
 		{
@@ -416,7 +418,7 @@ void VulkanEngine::draw()
 				VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT
 			);
 
-			execute_compute_cull(cmd, render_scene.forward_pass, forward_cluster_cull_data, render_scene.forward_pass.count_buffer.buffer, 4, 1);
+			execute_compute_cull(cmd, render_scene.forward_pass, forward_cluster_cull_data, render_scene.forward_pass.count_buffer.buffer, 4, true, 0);
 		}
 
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 5);
@@ -427,6 +429,7 @@ void VulkanEngine::draw()
 
 		if (!freeze_camera)
 		{
+			// last use was for building hi-z, transitioning back as depth attachment
 			vkutil::transition_image(
 				cmd,
 				depth_image.image,
@@ -440,6 +443,7 @@ void VulkanEngine::draw()
 			);
 		}
 
+		// for sampling/debugging hi-z
 		vkutil::transition_image(
 			cmd,
 			depth_pyramid.image,
@@ -453,10 +457,72 @@ void VulkanEngine::draw()
 		);
 
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 6);
-		render(cmd, true, 1);
+		render(cmd, true, 0, 1);
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 7);
 	}
-	
+
+	// third pass - masked geometry
+	if (CVAR_TOGGLE_MASK.get())
+	{
+		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_PIPELINE_STAGE_2_CLEAR_BIT,
+			VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT
+		);
+
+		vkCmdFillBuffer(cmd, render_scene.forward_pass.count_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
+		vkCmdFillBuffer(cmd, render_scene.forward_pass.cluster_count_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
+
+		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+			VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT
+		);
+
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 8);
+		execute_compute_cull(cmd, render_scene.forward_pass, forward_mesh_cull_data, true, 1);
+
+		if (CVAR_TOGGLE_MESH_SHADING.get())
+		{
+			vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+				VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT
+			);
+
+			ShaderPass current_pass = *shader_passes["task_submit"];
+			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
+
+			VkBufferDeviceAddressInfo address_info{};
+			address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
+			address_info.buffer = render_scene.forward_pass.count_buffer.buffer;
+			auto addr = vkGetBufferDeviceAddress(device, &address_info);
+
+			vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(VkDeviceAddress), &addr);
+			vkCmdDispatch(cmd, 1, 1, 1); // TODO: task submit - currently redundant, but may come useful as renderer becomes more complex
+
+			vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
+				VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT
+			);
+
+			execute_compute_cull(cmd, render_scene.forward_pass, forward_cluster_cull_data, render_scene.forward_pass.count_buffer.buffer, 4, true, 1);
+
+		}
+
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 9);
+
+		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT,
+			VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT
+		);
+
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 10);
+		render(cmd, true, 1, 2);
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 11);
+	}
+	else
+	{
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 8);
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 9);
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 10);
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 11);
+		vkCmdBeginQuery(cmd, get_current_frame().query_pool_pipelines, 2, 0);
+		vkCmdEndQuery(cmd, get_current_frame().query_pool_pipelines, 2);
+	}
+
 	// necessary barrier for either visualizing hi-z or deferred shading
 	vkutil::transition_image(
 		cmd,
@@ -482,10 +548,10 @@ void VulkanEngine::draw()
 			VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_ACCESS_2_SHADER_WRITE_BIT
 		);
 
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 10);
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 12);
 		if (CVAR_TOGGLE_LIGHT_CULLING.get()) // TODO: should really move this out to prevent unnecessary barriers - requires refactoring timestamps
 			execute_light_culling(cmd);
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 11);
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 13);
 
 		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
 			VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_READ_BIT
@@ -496,9 +562,9 @@ void VulkanEngine::draw()
 	if (CVAR_TOGGLE_DEPTH_PYRAMID.get())
 	{
 		// TODO: refactor timestamps - writing timestamp here is necessary, otherwise render is blocked due to the way timestamp is set up 
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 8);
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 14);
 		execute_debug_pass(cmd);
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 9);
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 15);
 	}
 	else // deferred shading; TODO - split this up instead of in an if block
 	{
@@ -528,9 +594,9 @@ void VulkanEngine::draw()
 			VK_IMAGE_ASPECT_DEPTH_BIT
 		);
 
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 8);
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 14);
 		execute_deferred_shading(cmd);
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 9);
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 15);
 	}
 
 	vkutil::transition_image(
@@ -609,7 +675,7 @@ void VulkanEngine::draw()
 	FrameMark;
 	frame_number++;
 
-	std::array<uint64_t, 12> timestamp_results{}; // TODO: currently size is hardcoded
+	std::array<uint64_t, TIMESTAMP_COUNT> timestamp_results{}; // TODO: currently size is hardcoded
 
 	vkGetQueryPoolResults(
 		device,
@@ -622,7 +688,7 @@ void VulkanEngine::draw()
 		VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT
 	);
 
-	std::array<uint64_t, 2> pipeline_results{};
+	std::array<uint64_t, 3> pipeline_results{};
 
 	vkGetQueryPoolResults(
 		device,
@@ -653,15 +719,26 @@ void VulkanEngine::draw()
 	indirect_end =   static_cast<double>(timestamp_results[7]) * conversion;
 	stats.late_indirect = static_cast<float>(indirect_end - indirect_begin);
 
-	auto deferred_shading_begin = static_cast<double>(timestamp_results[8]) * conversion;
-	auto deferred_shading_end = static_cast<double>(timestamp_results[9]) * conversion;
-	stats.deferred_shading = static_cast<float>(deferred_shading_end - deferred_shading_begin);
+	cull_begin = static_cast<double>(timestamp_results[8]) * conversion;
+	cull_end =   static_cast<double>(timestamp_results[9]) * conversion;
+	stats.third_cull = static_cast<float>(cull_end - cull_begin);
 
-	auto light_culling_begin = static_cast<double>(timestamp_results[10]) * conversion;
-	auto light_culling_end = static_cast<double>(timestamp_results[11]) * conversion;
+	indirect_begin = static_cast<double>(timestamp_results[10]) * conversion;
+	indirect_end = static_cast<double>(timestamp_results[11]) * conversion;
+	stats.third_indirect = static_cast<float>(indirect_end - indirect_begin);
+
+	auto light_culling_begin = static_cast<double>(timestamp_results[12]) * conversion;
+	auto light_culling_end = static_cast<double>(timestamp_results[13]) * conversion;
 	stats.light_culling = static_cast<float>(light_culling_end - light_culling_begin);
 
+	auto deferred_shading_begin = static_cast<double>(timestamp_results[14]) * conversion;
+	auto deferred_shading_end = static_cast<double>(timestamp_results[15]) * conversion;
+	stats.deferred_shading = static_cast<float>(deferred_shading_end - deferred_shading_begin);
+
 	stats.triangle_count = static_cast<uint32_t>(pipeline_results[0] + pipeline_results[1]); // narrowing
+	stats.triangle_count += static_cast<uint32_t>(pipeline_results[2]); 
+	//if (CVAR_TOGGLE_MASK.get())
+	//	stats.triangle_count += static_cast<uint32_t>(pipeline_results[2]);
 }
 
 void VulkanEngine::init_precomputations()
@@ -900,8 +977,10 @@ void VulkanEngine::run()
 			//ImGui::Text("scene update time %f ms", stats.scene_update_time);
 			ImGui::Text("Early cull:           %.3f ms", stats.early_cull);
 			ImGui::Text("Late  cull:           %.3f ms", stats.late_cull);
+			ImGui::Text("Third  cull:          %.3f ms", stats.third_cull);
 			ImGui::Text("Early render:         %.3f ms", stats.early_indirect);
 			ImGui::Text("Late render:          %.3f ms", stats.late_indirect);
+			ImGui::Text("Third render:         %.3f ms", stats.third_indirect);
 			ImGui::Text("Light culling:        %.3f ms", stats.light_culling);
 			ImGui::Text("Deferred shading:     %.3f ms", stats.deferred_shading);
 			ImGui::Text("Triangles:            %u", stats.triangle_count);
@@ -1337,8 +1416,36 @@ void VulkanEngine::init_pipelines()
 	builder.set_color_attachment_format(color_attachment_formats);
 	builder.set_blending_state(color_blend_states);
 	
-	shader_passes["geometry_vert"] = vkutil::build_shader(device, builder, { &shader_cache["mesh_pbr.vert"], &shader_cache["basic_mesh.frag"] }, descriptor_layouts, sizeof(GPUPushConstants));
-	shader_passes["geometry_mesh"] = vkutil::build_shader(device, builder, { &shader_cache["meshlet.mesh.glsl"], &shader_cache["basic_mesh.frag"] }, descriptor_layouts, sizeof(GPUPushConstants));
+	struct GBufferSpecializationData
+	{
+		uint32_t opaque = 1;
+	};
+
+	GBufferSpecializationData specialization_data{};
+	std::array<VkSpecializationMapEntry, 1> specialization_entries{};
+	specialization_entries[0].constantID = 0;
+	specialization_entries[0].offset = 0;
+	specialization_entries[0].size = sizeof(specialization_data.opaque);
+
+	VkSpecializationInfo specialization_info{};
+	specialization_info.mapEntryCount = static_cast<uint32_t>(specialization_entries.size());
+	specialization_info.pMapEntries = specialization_entries.data();
+	specialization_info.dataSize = sizeof(GBufferSpecializationData);
+	specialization_info.pData = &specialization_data;
+
+	builder.set_shaders({ &shader_cache["mesh_pbr.vert"], &shader_cache["basic_mesh.frag"] });
+	builder.shader_stages[1].pSpecializationInfo = &specialization_info;
+	specialization_data.opaque = 1;
+	shader_passes["geometry_vert"] = vkutil::build_shader(device, builder, {}, descriptor_layouts, sizeof(GPUPushConstants));
+	specialization_data.opaque = 0;
+	shader_passes["geometry_vert_mask"] = vkutil::build_shader(device, builder, {}, descriptor_layouts, sizeof(GPUPushConstants));
+
+	builder.set_shaders({ &shader_cache["meshlet.mesh.glsl"], &shader_cache["basic_mesh.frag"] });
+	builder.shader_stages[1].pSpecializationInfo = &specialization_info;
+	specialization_data.opaque = 1;
+	shader_passes["geometry_mesh"] = vkutil::build_shader(device, builder, {}, descriptor_layouts, sizeof(GPUPushConstants));
+	specialization_data.opaque = 0;
+	shader_passes["geometry_mesh_mask"] = vkutil::build_shader(device, builder, {}, descriptor_layouts, sizeof(GPUPushConstants));
 
 	// single render target
 	descriptor_layouts.clear();
@@ -2030,6 +2137,10 @@ void VulkanEngine::register_object(Node* node, const glm::mat4& top_matrix)
 			obj.material_id = s.material_id;
 			obj.transform = node_matrix;
 			obj.meshlet_bits = s.meshlet_bits;
+			if (CVAR_TOGGLE_MASK.get())
+				obj.post_pass = s.pass == MaterialPass::Mask ? 1 : 0;
+			else
+				obj.post_pass = 0;
 
 			uint32_t handle = static_cast<uint32_t>(render_scene.renderables.size());
 			render_scene.renderables.push_back(obj);
@@ -2628,6 +2739,7 @@ void VulkanEngine::ready_mesh_draw()
 	}
 }
 
+// late & post_pass set in executecomputecull
 void VulkanEngine::ready_cull_data(RenderScene::MeshPass& pass, CullData& cull_data, glm::mat4& proj, bool orthographic /*= false*/)
 {
 	auto projT = glm::transpose(proj);
@@ -2704,6 +2816,7 @@ void VulkanEngine::ready_cull_data(RenderScene::MeshPass& pass, CullData& cull_d
 	cull_data.task_submit = CVAR_TOGGLE_MESH_SHADING.get();
 }
 
+// late & post_pass set in executecomputecull
 void VulkanEngine::ready_cull_data(RenderScene::MeshPass& pass, ClusterCullData& cull_data, glm::mat4& proj, bool orthographic /*= false*/)
 {
 	auto projT = glm::transpose(proj);
@@ -2780,7 +2893,7 @@ void VulkanEngine::ready_cull_data(RenderScene::MeshPass& pass, ClusterCullData&
 	cull_data.task_submit = CVAR_TOGGLE_MESH_SHADING.get();
 }
 
-void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPass& pass, CullData& cull_data, bool late)
+void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPass& pass, CullData& cull_data, bool late, uint32_t post_pass)
 {
 	ShaderPass current_pass = *shader_passes["mesh_cull"];
 	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
@@ -2790,12 +2903,13 @@ void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPa
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
 
 	cull_data.late = late ? 1 : 0;
+	cull_data.post_pass = post_pass;
 
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CullData), &cull_data);
 	vkCmdDispatch(cmd, static_cast<uint32_t>(std::ceil(pass.pass_objects.size() / 256.0)), 1, 1);
 }
 
-void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPass& pass, ClusterCullData& cull_data, VkBuffer count_buffer, uint32_t offset, bool late)
+void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPass& pass, ClusterCullData& cull_data, VkBuffer count_buffer, uint32_t offset, bool late, uint32_t post_pass)
 {
 	ShaderPass current_pass = *shader_passes["meshlet_cull"];
 	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
@@ -2805,13 +2919,14 @@ void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPa
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
 
 	cull_data.late = late ? 1 : 0;
+	cull_data.post_pass = post_pass;
 
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ClusterCullData), &cull_data);
 
 	vkCmdDispatchIndirect(cmd, count_buffer, offset);
 }
 
-void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t query)
+void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass, uint32_t query)
 {
 	vkCmdBeginQuery(cmd, get_current_frame().query_pool_pipelines, query, 0);
 
@@ -2880,7 +2995,7 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t query)
 
 	if (!CVAR_TOGGLE_MESH_SHADING.get())
 	{
-		ShaderPass current_pass = *shader_passes["geometry_vert"];
+		ShaderPass current_pass = post_pass == 0 ? *shader_passes["geometry_vert"] : *shader_passes["geometry_vert_mask"];
 
 		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
 		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
@@ -2906,7 +3021,7 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t query)
 	}
 	else // mesh shading path
 	{
-		ShaderPass current_pass = *shader_passes["geometry_mesh"];
+		ShaderPass current_pass = post_pass == 0 ? *shader_passes["geometry_mesh"] : *shader_passes["geometry_mesh_mask"];
 
 		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
 		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
