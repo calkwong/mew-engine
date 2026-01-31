@@ -2978,16 +2978,12 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass, ui
 	pc.object_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
 	address_info.buffer = render_scene.combined_mesh_buffer.vertex_buffer.buffer;
 	pc.vertex_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
-	address_info.buffer = render_scene.mesh_buffer.buffer;
-	pc.mesh_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
 	address_info.buffer = render_scene.forward_pass.meshtask_indirect_buffer.buffer;
 	pc.meshtask_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
 	address_info.buffer = render_scene.meshlet_buffer.buffer;
 	pc.meshlet_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
 	address_info.buffer = render_scene.meshlet_indices.buffer;
 	pc.meshlet_indices_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
-	address_info.buffer = render_scene.forward_pass.count_buffer.buffer;
-	pc.count_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
 	address_info.buffer = render_scene.forward_pass.cluster_indices.buffer;
 	pc.cluster_indices_address = vkGetBufferDeviceAddress(device, &address_info);
 	pc.material_buffer_address = loaded_scenes["scene1"]->material_buffer_address;

@@ -1,10 +1,10 @@
 struct ObjectData
 {
 	mat4 worldMatrix;
+	uint meshID;
 	uint materialID;
 	uint meshletBitOffset;
 	uint postPass;
-	uint padding;
 };
 
 struct Meshlet

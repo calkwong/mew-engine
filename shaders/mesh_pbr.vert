@@ -18,34 +18,22 @@ layout(buffer_reference, std430) readonly buffer VertexBuffer
 	Vertex vertices[];
 };
 
-layout(buffer_reference, std430) readonly buffer MaterialBuffer
-{ 
-	MaterialData materials[];
-};
-
 layout(buffer_reference, std430) readonly buffer ObjectBuffer
 { 
 	ObjectData objects[];
-};
-
-layout(buffer_reference, std430) readonly buffer InstanceBuffer
-{ 
-	uint instances[];
 };
 
 layout( push_constant ) uniform constants
 {
 	ObjectBuffer objectBuffer;
 	VertexBuffer vertexBuffer;
-	//MeshBuffer meshBuffer;
 	//MeshTaskBuffer meshTaskBuffer;
 	//MeshletBuffer meshletBuffer;
 	//MeshletIndicesBuffer meshletIndicesBuffer;
-	//CountBuffer countBuffer;
 	//ClusterIndicesBuffer clusterIndicesBuffer; 
 	//MaterialBuffer materialBuffer;
-	//uint debugMeshlets;
-	uint padding[16]; 
+	uint padding[5 * 2];
+	uint debugMeshlets;
 } pc;
 
 void main() 

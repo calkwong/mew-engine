@@ -81,6 +81,7 @@ void RenderScene::build_object_buffer()
 		const RenderObject& obj = renderables[i];
 
 		object_data[i].transform = obj.transform;
+		object_data[i].mesh_id = obj.primitive_id.handle;
 		object_data[i].material_id = obj.material_id;
 		object_data[i].meshlet_bit_offset = offset; // TODO: refactor in future, should be per-pass
 		object_data[i].post_pass = obj.post_pass;

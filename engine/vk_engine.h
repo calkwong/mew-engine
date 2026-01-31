@@ -30,11 +30,9 @@ struct GPUPushConstants // temporarily shared by vertex and mesh shading path
 {
 	VkDeviceAddress object_buffer_address{};
 	VkDeviceAddress vertex_buffer_address{};
-	VkDeviceAddress mesh_buffer_address{};
 	VkDeviceAddress meshtask_buffer_address{};
 	VkDeviceAddress meshlet_buffer_address{};
 	VkDeviceAddress meshlet_indices_buffer_address{};
-	VkDeviceAddress count_buffer_address{};
 	VkDeviceAddress cluster_indices_address{};
 	VkDeviceAddress material_buffer_address{};
 	uint32_t debug_meshlets;

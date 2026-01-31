@@ -35,13 +35,11 @@ layout( push_constant ) uniform constants
 {
 	//ObjectBuffer objectBuffer;
 	//VertexBuffer vertexBuffer;
-	//MeshBuffer meshBuffer;
 	//MeshTaskBuffer meshTaskBuffer;
 	//MeshletBuffer meshletBuffer;
 	//MeshletIndicesBuffer meshletIndicesBuffer;
-	//CountBuffer countBuffer;
 	//ClusterIndicesBuffer clusterIndicesBuffer; 
-	uint padding[16];
+	uint padding[6 * 2];
 	MaterialBuffer materialBuffer;
 	uint debugMeshlets;
 } pc;

@@ -77,10 +77,10 @@ struct GPUInstance
 struct ObjectData
 {
 	glm::mat4 transform{};
+	uint32_t mesh_id{};
 	uint32_t material_id{};
 	uint32_t meshlet_bit_offset{};
 	uint32_t post_pass{};
-	uint32_t padding{}; 
 };
 
 struct CullData
