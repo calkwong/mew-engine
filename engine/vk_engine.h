@@ -173,10 +173,10 @@ struct EngineStats
 	double deltatime{};
 	double early_cull{};
 	double late_cull{};
-	double third_cull{};
+	double mask_cull{};
 	double early_indirect{};
 	double late_indirect{};
-	double third_indirect{};
+	double mask_indirect{};
 	double deferred_shading{};
 	double light_culling{};
 };

@@ -73,8 +73,8 @@ AutoCVar_Int CVAR_DEPTH_PYRAMID_LOD{ "Hi-Z LOD", 0, 0, CVarFlags::EditSliderInt,
 AutoCVar_Int CVAR_TOGGLE_LIGHT_CULLING{ "Light clustered culling", 0, 0, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TOGGLE_MASK{ "Render masked geometry properly", 1, 1, CVarFlags::EditCheckbox };
 
-std::vector<QueryResult> timestamp_results(TIMESTAMP_QUERIES);
-std::vector<QueryResult> pipeline_results(PIPELINE_QUERIES);
+//std::vector<QueryResult> timestamp_results(TIMESTAMP_QUERIES);
+//std::vector<QueryResult> pipeline_results(PIPELINE_QUERIES);
 
 uint32_t nearest_pow2(uint32_t extent)
 {
@@ -298,6 +298,9 @@ void VulkanEngine::draw()
 
 	// record last frame timestamps
 	{
+		std::array<QueryResult, TIMESTAMP_QUERIES> timestamp_results{};
+		std::array<QueryResult, PIPELINE_QUERIES> pipeline_results{};
+
 		vkGetQueryPoolResults(
 			device,
 			get_last_frame().query_pool_timestamps, 
@@ -320,8 +323,8 @@ void VulkanEngine::draw()
 			VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT
 		);
 
-		// TODO: hardcoded - clean this up
-		std::vector<double*> stats_ref = { &stats.early_cull, &stats.early_indirect, &stats.late_cull, &stats.late_indirect, &stats.third_cull, &stats.third_indirect,
+		// TODO: hardcoded - clean this up. could have separate arrays for begin/end query.
+		std::vector<double*> stats_ref = { &stats.early_cull, &stats.early_indirect, &stats.late_cull, &stats.late_indirect, &stats.mask_cull, &stats.mask_indirect,
 			&stats.light_culling, &stats.deferred_shading };
 		for (size_t i = 0; i < timestamp_results.size(); i = i+2)
 		{
@@ -330,7 +333,12 @@ void VulkanEngine::draw()
 			{
 				auto time = static_cast<double>(timestamp_results[i+1].time - timestamp_results[i].time) * props.limits.timestampPeriod * 1e-6;
 				if (time > 1000 || time < -0.1)
+				{
 					fmt::println("something wrong: {}", time);
+					fmt::println("frame: {}", frame_number);
+					fmt::println("pair {}+1: {}, {}", i, timestamp_results[i + 1].time, timestamp_results[i + 1].available);
+					fmt::println("pair {}  : {}, {}", i, timestamp_results[i    ].time, timestamp_results[i    ].available);
+				}
 				*stats_ref[i / 2] = time;
 			}
 		}
@@ -339,6 +347,14 @@ void VulkanEngine::draw()
 			stats.triangle_count = pipeline_results[0].time + pipeline_results[1].time + pipeline_results[2].time;
 	}
 
+	auto& frame_query_pool_timestamps = get_current_frame().query_pool_timestamps;
+	auto& frame_query_pool_pipelines =  get_current_frame().query_pool_pipelines;
+
+	// host side reset seems to avoid rare invalid time/ticks despite non zero availability bit
+	// could be due to GPU reordering cmdresetquerypool to go after vkcmdwritetimestamp?
+	vkResetQueryPool(device, frame_query_pool_timestamps, 0, QUERY_COUNT); 
+	vkResetQueryPool(device, frame_query_pool_pipelines	, 0, QUERY_COUNT);
+
 	VkCommandBuffer cmd = get_current_frame().main_command_buffer;
 
 	VK_CHECK(vkResetCommandBuffer(cmd, 0));
@@ -346,13 +362,6 @@ void VulkanEngine::draw()
 	VkCommandBufferBeginInfo cmd_begin_info = vkinit::command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT); 
 
 	VK_CHECK(vkBeginCommandBuffer(cmd, &cmd_begin_info));
-
-	auto& frame_query_pool_timestamps = get_current_frame().query_pool_timestamps;
-	auto& frame_query_pool_pipelines =  get_current_frame().query_pool_pipelines;
-
-	// reset current query pools, not last frame's
-	vkCmdResetQueryPool(cmd, frame_query_pool_timestamps, 0, QUERY_COUNT);
-	vkCmdResetQueryPool(cmd, frame_query_pool_pipelines, 0, QUERY_COUNT);
 
 	// two-pass mesh/cluster occlusion culling
 	{
@@ -962,10 +971,10 @@ void VulkanEngine::run()
 			//ImGui::Text("scene update time %f ms", stats.scene_update_time);
 			ImGui::Text("Early cull:           %.3f ms", stats.early_cull);
 			ImGui::Text("Late  cull:           %.3f ms", stats.late_cull);
-			ImGui::Text("Third  cull:          %.3f ms", stats.third_cull);
+			ImGui::Text("Third  cull:          %.3f ms", stats.mask_cull);
 			ImGui::Text("Early render:         %.3f ms", stats.early_indirect);
 			ImGui::Text("Late render:          %.3f ms", stats.late_indirect);
-			ImGui::Text("Third render:         %.3f ms", stats.third_indirect);
+			ImGui::Text("Third render:         %.3f ms", stats.mask_indirect);
 			ImGui::Text("Light culling:        %.3f ms", stats.light_culling);
 			ImGui::Text("Deferred shading:     %.3f ms", stats.deferred_shading);
 			ImGui::Text("Triangles:            %u", stats.triangle_count);
