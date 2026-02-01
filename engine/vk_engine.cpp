@@ -47,7 +47,7 @@ VulkanEngine& VulkanEngine::get() { return *loaded_engine; }
 
 //#define IBL
 //#define SHADOW // TODO: currently not working
-//#define SINGLE // uncomment if loading a proper scene
+#define SINGLE // uncomment if loading a proper scene
 
 bool RENDER_IMGUI = true;
 
@@ -58,7 +58,9 @@ constexpr int GBUFFER_COUNT{ 3 };
 constexpr int LIGHT_COUNT{ 1000 };
 constexpr int CLUSTER_DIM{ 64 };
 constexpr int CLUSTER_SLICE_COUNT{ 24 };
-constexpr int TIMESTAMP_COUNT{ 16 };
+constexpr int QUERY_COUNT{ 50 };
+constexpr int TIMESTAMP_QUERIES{ 16 };
+constexpr int PIPELINE_QUERIES{ 3 };
 
 AutoCVar_Int CVAR_DRAW_DISTANCE{ "Draw distance", 100, 100, CVarFlags::EditSliderInt, 100, 1000, 100 };
 AutoCVar_Int CVAR_TOGGLE_MESH_SHADING{ "Mesh shading", 1, 1, CVarFlags::EditCheckbox };
@@ -70,6 +72,9 @@ AutoCVar_Int CVAR_TOGGLE_DEPTH_PYRAMID{ "Visualize Hi-Z", 0, 0, CVarFlags::EditC
 AutoCVar_Int CVAR_DEPTH_PYRAMID_LOD{ "Hi-Z LOD", 0, 0, CVarFlags::EditSliderInt, 0, 10, 1 };
 AutoCVar_Int CVAR_TOGGLE_LIGHT_CULLING{ "Light clustered culling", 0, 0, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TOGGLE_MASK{ "Render masked geometry properly", 1, 1, CVarFlags::EditCheckbox };
+
+std::vector<QueryResult> timestamp_results(TIMESTAMP_QUERIES);
+std::vector<QueryResult> pipeline_results(PIPELINE_QUERIES);
 
 uint32_t nearest_pow2(uint32_t extent)
 {
@@ -163,17 +168,19 @@ void VulkanEngine::init(const std::string& file_path)
 	VkQueryPoolCreateInfo query_pool_info{};
 	query_pool_info.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
 	query_pool_info.queryType = VK_QUERY_TYPE_TIMESTAMP;
-	query_pool_info.queryCount = static_cast<uint32_t>(100);
+	query_pool_info.queryCount = QUERY_COUNT;
 	for (size_t i = 0; i < FRAME_OVERLAP; i++)
 	{
 		VK_CHECK(vkCreateQueryPool(device, &query_pool_info, nullptr, &frames[i].query_pool_timestamps));
+		vkResetQueryPool(device, frames[i].query_pool_timestamps, 0, QUERY_COUNT);
 	}
 	query_pool_info.queryType = VK_QUERY_TYPE_PIPELINE_STATISTICS;
-	query_pool_info.queryCount = static_cast<uint32_t>(4);
+	query_pool_info.queryCount = QUERY_COUNT;
 	query_pool_info.pipelineStatistics = VK_QUERY_PIPELINE_STATISTIC_CLIPPING_INVOCATIONS_BIT;
 	for (size_t i = 0; i < FRAME_OVERLAP; i++)
 	{
 		VK_CHECK(vkCreateQueryPool(device, &query_pool_info, nullptr, &frames[i]. query_pool_pipelines));
+		vkResetQueryPool(device, frames[i].query_pool_pipelines, 0, QUERY_COUNT);
 	}
 
 	is_initialized = true;
@@ -227,7 +234,6 @@ void VulkanEngine::cleanup()
 			destroy_buffer(p.draw_indirect_buffer);
 			destroy_buffer(p.count_buffer);
 			destroy_buffer(p.vis_buffer);
-			destroy_buffer(p.instance_buffer);
 			destroy_buffer(p.meshtask_indirect_buffer);
 			destroy_buffer(p.meshlet_vis_buffer);
 			destroy_buffer(p.cluster_count_buffer);
@@ -290,6 +296,49 @@ void VulkanEngine::draw()
 		VK_CHECK(vkAcquireNextImageKHR(device, swapchain, 1000000000, get_current_frame().swapchain_semaphore, nullptr, &swapchain_image_idx));
 	}
 
+	// record last frame timestamps
+	{
+		vkGetQueryPoolResults(
+			device,
+			get_last_frame().query_pool_timestamps, 
+			0,
+			static_cast<uint32_t>(timestamp_results.size()),
+			timestamp_results.size() * sizeof(QueryResult),
+			timestamp_results.data(),
+			sizeof(QueryResult),
+			VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT
+		);
+
+		vkGetQueryPoolResults(
+			device,
+			get_last_frame().query_pool_pipelines,
+			0,
+			static_cast<uint32_t>(pipeline_results.size()),
+			pipeline_results.size() * sizeof(QueryResult),
+			pipeline_results.data(),
+			sizeof(QueryResult),
+			VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT
+		);
+
+		// TODO: hardcoded - clean this up
+		std::vector<double*> stats_ref = { &stats.early_cull, &stats.early_indirect, &stats.late_cull, &stats.late_indirect, &stats.third_cull, &stats.third_indirect,
+			&stats.light_culling, &stats.deferred_shading };
+		for (size_t i = 0; i < timestamp_results.size(); i = i+2)
+		{
+			bool available = timestamp_results[i].available && timestamp_results[i+1].available;
+			if (available)
+			{
+				auto time = static_cast<double>(timestamp_results[i+1].time - timestamp_results[i].time) * props.limits.timestampPeriod * 1e-6;
+				if (time > 1000 || time < -0.1)
+					fmt::println("something wrong: {}", time);
+				*stats_ref[i / 2] = time;
+			}
+		}
+
+		if (pipeline_results[0].available && pipeline_results[1].available && pipeline_results[2].available)
+			stats.triangle_count = pipeline_results[0].time + pipeline_results[1].time + pipeline_results[2].time;
+	}
+
 	VkCommandBuffer cmd = get_current_frame().main_command_buffer;
 
 	VK_CHECK(vkResetCommandBuffer(cmd, 0));
@@ -299,10 +348,11 @@ void VulkanEngine::draw()
 	VK_CHECK(vkBeginCommandBuffer(cmd, &cmd_begin_info));
 
 	auto& frame_query_pool_timestamps = get_current_frame().query_pool_timestamps;
-	auto& frame_query_pool_pipelines = get_current_frame().query_pool_pipelines;
+	auto& frame_query_pool_pipelines =  get_current_frame().query_pool_pipelines;
 
-	vkCmdResetQueryPool(cmd, frame_query_pool_timestamps, 0, 100);
-	vkCmdResetQueryPool(cmd, frame_query_pool_pipelines, 0, 4);
+	// reset current query pools, not last frame's
+	vkCmdResetQueryPool(cmd, frame_query_pool_timestamps, 0, QUERY_COUNT);
+	vkCmdResetQueryPool(cmd, frame_query_pool_pipelines, 0, QUERY_COUNT);
 
 	// two-pass mesh/cluster occlusion culling
 	{
@@ -674,71 +724,6 @@ void VulkanEngine::draw()
 	VK_CHECK(vkQueuePresentKHR(graphics_queue, &present_info));
 	FrameMark;
 	frame_number++;
-
-	std::array<uint64_t, TIMESTAMP_COUNT> timestamp_results{}; // TODO: currently size is hardcoded
-
-	vkGetQueryPoolResults(
-		device,
-		frame_query_pool_timestamps,
-		0,
-		static_cast<uint32_t>(timestamp_results.size()),
-		timestamp_results.size() * sizeof(uint64_t),
-		timestamp_results.data(),
-		sizeof(uint64_t),
-		VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT
-	);
-
-	std::array<uint64_t, 3> pipeline_results{};
-
-	vkGetQueryPoolResults(
-		device,
-		frame_query_pool_pipelines,
-		0,
-		static_cast<uint32_t>(pipeline_results.size()),
-		pipeline_results.size() * sizeof(uint64_t),
-		pipeline_results.data(),
-		sizeof(uint64_t),
-		VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT
-	);
-
-	auto conversion = props.limits.timestampPeriod * 1e-6f; // converts a timestamp value into milliseconds 
-
-	auto cull_begin = static_cast<double>(timestamp_results[0]) * conversion;
-	auto cull_end   = static_cast<double>(timestamp_results[1]) * conversion;
-	stats.early_cull = static_cast<float>(cull_end - cull_begin);
-
-	auto indirect_begin = static_cast<double>(timestamp_results[2]) * conversion;
-	auto indirect_end   = static_cast<double>(timestamp_results[3]) * conversion;
-	stats.early_indirect = static_cast<float>(indirect_end - indirect_begin);
-
-	cull_begin = static_cast<double>(timestamp_results[4]) * conversion;
-	cull_end =   static_cast<double>(timestamp_results[5]) * conversion;
-	stats.late_cull = static_cast<float>(cull_end - cull_begin);
-
-	indirect_begin = static_cast<double>(timestamp_results[6]) * conversion;
-	indirect_end =   static_cast<double>(timestamp_results[7]) * conversion;
-	stats.late_indirect = static_cast<float>(indirect_end - indirect_begin);
-
-	cull_begin = static_cast<double>(timestamp_results[8]) * conversion;
-	cull_end =   static_cast<double>(timestamp_results[9]) * conversion;
-	stats.third_cull = static_cast<float>(cull_end - cull_begin);
-
-	indirect_begin = static_cast<double>(timestamp_results[10]) * conversion;
-	indirect_end = static_cast<double>(timestamp_results[11]) * conversion;
-	stats.third_indirect = static_cast<float>(indirect_end - indirect_begin);
-
-	auto light_culling_begin = static_cast<double>(timestamp_results[12]) * conversion;
-	auto light_culling_end = static_cast<double>(timestamp_results[13]) * conversion;
-	stats.light_culling = static_cast<float>(light_culling_end - light_culling_begin);
-
-	auto deferred_shading_begin = static_cast<double>(timestamp_results[14]) * conversion;
-	auto deferred_shading_end = static_cast<double>(timestamp_results[15]) * conversion;
-	stats.deferred_shading = static_cast<float>(deferred_shading_end - deferred_shading_begin);
-
-	stats.triangle_count = static_cast<uint32_t>(pipeline_results[0] + pipeline_results[1]); // narrowing
-	stats.triangle_count += static_cast<uint32_t>(pipeline_results[2]); 
-	//if (CVAR_TOGGLE_MASK.get())
-	//	stats.triangle_count += static_cast<uint32_t>(pipeline_results[2]);
 }
 
 void VulkanEngine::init_precomputations()
@@ -1034,6 +1019,7 @@ void VulkanEngine::init_vulkan()
 	features12.shaderSampledImageArrayNonUniformIndexing = true;
 	features12.drawIndirectCount = true;
 	features12.samplerFilterMinmax = true;
+	features12.hostQueryReset = true;
 
 	// vulkan 1.0 features
 	VkPhysicalDeviceFeatures features10{};
@@ -2635,20 +2621,6 @@ void VulkanEngine::ready_mesh_draw()
 			render_scene.build_multi_batch(pass);
 		}
 
-		if (pass.instance_buffer.info.size < pass.pass_objects.size() * sizeof(GPUInstance))
-		{
-			fmt::println("instance buffer");
-
-			pass.instance_buffer = reallocate_buffer(
-				pass.pass_objects.size() * sizeof(GPUInstance),
-				pass.instance_buffer,
-				VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-				VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
-			);
-
-			render_scene.build_instance_buffer(pass);
-		}
-
 		// TODO: can probably use a single bit per pass object
 		if (pass.vis_buffer.info.size < pass.pass_objects.size())
 		{
@@ -2785,9 +2757,6 @@ void VulkanEngine::ready_cull_data(RenderScene::MeshPass& pass, CullData& cull_d
 	address_info.buffer = render_scene.mesh_buffer.buffer;
 	cull_data.mesh_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
 
-	address_info.buffer = pass.instance_buffer.buffer;
-	cull_data.instance_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
-
 	address_info.buffer = pass.draw_indirect_buffer.buffer;
 	cull_data.draw_indirect_address = vkGetBufferDeviceAddress(device, &address_info);
 
@@ -2867,9 +2836,6 @@ void VulkanEngine::ready_cull_data(RenderScene::MeshPass& pass, ClusterCullData&
 
 	address_info.buffer = pass.cluster_count_buffer.buffer;
 	cull_data.cluster_count_address = vkGetBufferDeviceAddress(device, &address_info);
-
-	address_info.buffer = pass.count_buffer.buffer;
-	cull_data.count_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
 
 	address_info.buffer = pass.meshlet_vis_buffer.buffer;
 	cull_data.cluster_vis_address = vkGetBufferDeviceAddress(device, &address_info);

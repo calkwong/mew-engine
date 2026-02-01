@@ -38,12 +38,6 @@ struct MeshData
 	uint padding[2];
 };
 
-struct GPUInstance
-{
-	uint meshId;
-	uint objectId;
-};
-
 struct DrawCommand
 {
 	uint indexCount;

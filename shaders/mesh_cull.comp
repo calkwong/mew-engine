@@ -43,11 +43,6 @@ layout(buffer_reference, std430) buffer VisibilityBuffer
 	uint visible[];
 };
 
-layout(buffer_reference, std430) buffer InstanceBuffer
-{
-	GPUInstance instances[];
-};
-
 layout(push_constant) uniform constants
 {
 	mat4 view;
@@ -55,7 +50,6 @@ layout(push_constant) uniform constants
 	
 	ObjectBuffer objectBuffer;
 	MeshBuffer meshBuffer;
-	InstanceBuffer instanceBuffer;
 	DrawCommandsBuffer drawBuffer;
 	CountBuffer countBuffer;
 	VisibilityBuffer visBuffer;

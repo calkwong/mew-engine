@@ -149,17 +149,3 @@ void RenderScene::build_mesh_buffer()
 		mesh_data[i].vertex_offset = mesh.vertex_offset;
 	}
 }
-
-// PREREQ: sorted Pass Objects, Object Buffer, Mesh Buffer (or DrawPrimitive)
-void RenderScene::build_instance_buffer(MeshPass& pass)
-{
-	GPUInstance* instance = static_cast<GPUInstance*>(pass.instance_buffer.info.pMappedData);
-
-	for (size_t i = 0; i < pass.pass_objects.size(); i++)
-	{
-		auto& obj = pass.pass_objects[i];
-
-		instance[i].mesh_id = obj.primitive_id.handle;
-		instance[i].object_id = obj.renderable_id.handle;
-	}
-}

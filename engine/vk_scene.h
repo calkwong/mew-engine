@@ -68,12 +68,6 @@ struct MultiBatch
 	uint32_t max_draw_count{};
 };
 
-struct GPUInstance
-{
-	uint32_t mesh_id{};
-	uint32_t object_id{};
-};
-
 struct ObjectData
 {
 	glm::mat4 transform{};
@@ -89,7 +83,6 @@ struct CullData
 	glm::vec4 frustum_planes{};
 	VkDeviceAddress object_buffer_address{};
 	VkDeviceAddress mesh_buffer_address{};
-	VkDeviceAddress instance_buffer_address{};
 	VkDeviceAddress draw_indirect_address{};
 	VkDeviceAddress count_buffer_address{};
 	VkDeviceAddress vis_buffer_address{};
@@ -120,7 +113,6 @@ struct ClusterCullData
 	VkDeviceAddress meshlet_buffer_address{};
 	VkDeviceAddress cluster_indices_address{};
 	VkDeviceAddress cluster_count_address{};
-	VkDeviceAddress count_buffer_address{};
 	VkDeviceAddress cluster_vis_address{};
 	VkDeviceAddress meshtask_buffer_address{};
 	uint32_t count{};
@@ -178,7 +170,6 @@ struct RenderScene
 		AllocatedBuffer draw_indirect_buffer{};
 		AllocatedBuffer meshtask_indirect_buffer{};
 		AllocatedBuffer count_buffer{};
-		AllocatedBuffer instance_buffer{};
 		AllocatedBuffer vis_buffer{};
 		AllocatedBuffer meshlet_vis_buffer{};
 
@@ -211,6 +202,5 @@ struct RenderScene
 	void sort_objects(MeshPass& pass); // sorts pass objects
 	void build_indirect_batch(MeshPass& pass);
 	void build_multi_batch(MeshPass& pass);
-	void build_instance_buffer(MeshPass& pass);
 };
 

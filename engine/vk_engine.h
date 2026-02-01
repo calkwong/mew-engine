@@ -140,6 +140,12 @@ struct DeletionQueue
 	}
 };
 
+struct QueryResult
+{
+	uint64_t time{};
+	uint64_t available{};
+};
+
 struct FrameData
 {
 	VkCommandPool command_pool{};
@@ -162,17 +168,17 @@ struct FrameData
 struct EngineStats
 {
 	int draw_count{};
-	float scene_update_time{};
-	float deltatime{};
 	unsigned int triangle_count{};
-	float early_cull{};
-	float late_cull{};
-	float third_cull{};
-	float early_indirect{};
-	float late_indirect{};
-	float third_indirect{};
-	float deferred_shading{};
-	float light_culling{};
+	double scene_update_time{};
+	double deltatime{};
+	double early_cull{};
+	double late_cull{};
+	double third_cull{};
+	double early_indirect{};
+	double late_indirect{};
+	double third_indirect{};
+	double deferred_shading{};
+	double light_culling{};
 };
 
 // destruction of textures handled by gltf (not internally); does not support dynamic objs
@@ -289,6 +295,7 @@ public:
 
 	FrameData frames[FRAME_OVERLAP]{};
 	FrameData& get_current_frame() { return frames[frame_number % FRAME_OVERLAP]; };
+	FrameData& get_last_frame() { return frames[(frame_number - 1) % FRAME_OVERLAP]; };
 	DeletionQueue main_deletion_queue{};
 
 	VmaAllocator allocator{};
