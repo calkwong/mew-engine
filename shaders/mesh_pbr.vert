@@ -38,7 +38,7 @@ layout( push_constant ) uniform constants
 
 void main() 
 {
-	ObjectData o = pc.objectBuffer.objects[gl_InstanceIndex];
+	ObjectData o = pc.objectBuffer.objects[gl_InstanceIndex]; // gl_InstanceIndex from drawIndirectCommand
 	Vertex v = pc.vertexBuffer.vertices[gl_VertexIndex];
 	
 	vec4 position = o.worldMatrix * vec4(v.position, 1.0);

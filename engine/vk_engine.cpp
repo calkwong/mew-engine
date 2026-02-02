@@ -230,6 +230,9 @@ void VulkanEngine::cleanup()
 		destroy_buffer(render_scene.cluster_count_buffer);
 		destroy_buffer(render_scene.cluster_indices);
 
+		destroy_buffer(render_scene.opaque_pass.indices_buffer);
+		destroy_buffer(render_scene.mask_pass.indices_buffer);
+
 		// TODO: possibly destroy loadedgltf resources here instead?
 
 		for (const auto& [k, v] : shader_passes)
@@ -286,62 +289,50 @@ void VulkanEngine::draw()
 		VK_CHECK(vkAcquireNextImageKHR(device, swapchain, 1000000000, get_current_frame().swapchain_semaphore, nullptr, &swapchain_image_idx));
 	}
 
-	// record last frame timestamps
+	// record currentFrame-2's timestamps
 	{
-		std::array<QueryResult, TIMESTAMP_QUERIES> timestamp_results{};
-		std::array<QueryResult, PIPELINE_QUERIES> pipeline_results{};
+		std::array<uint64_t, TIMESTAMP_QUERIES> timestamp_results{};
+		std::array<uint64_t, PIPELINE_QUERIES> pipeline_results{};
 
 		vkGetQueryPoolResults(
 			device,
-			get_last_frame().query_pool_timestamps, 
+			get_current_frame().query_pool_timestamps, 
 			0,
 			static_cast<uint32_t>(timestamp_results.size()),
-			timestamp_results.size() * sizeof(QueryResult),
+			timestamp_results.size() * sizeof(uint64_t),
 			timestamp_results.data(),
-			sizeof(QueryResult),
-			VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT
+			sizeof(uint64_t),
+			VK_QUERY_RESULT_64_BIT
 		);
 
 		vkGetQueryPoolResults(
 			device,
-			get_last_frame().query_pool_pipelines,
+			get_current_frame().query_pool_pipelines,
 			0,
 			static_cast<uint32_t>(pipeline_results.size()),
-			pipeline_results.size() * sizeof(QueryResult),
+			pipeline_results.size() * sizeof(uint64_t),
 			pipeline_results.data(),
-			sizeof(QueryResult),
-			VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT
+			sizeof(uint64_t),
+			VK_QUERY_RESULT_64_BIT
 		);
 
-		// TODO: hardcoded - clean this up. could have separate arrays for begin/end query.
+		// TODO: hardcoded - refactor
 		std::vector<double*> stats_ref = { &stats.early_cull, &stats.early_indirect, &stats.late_cull, &stats.late_indirect, &stats.mask_cull, &stats.mask_indirect,
 			&stats.light_culling, &stats.deferred_shading };
 		for (size_t i = 0; i < timestamp_results.size(); i = i+2)
 		{
-			bool available = timestamp_results[i].available && timestamp_results[i+1].available;
-			if (available)
 			{
-				auto time = static_cast<double>(timestamp_results[i+1].time - timestamp_results[i].time) * props.limits.timestampPeriod * 1e-6;
-				if (time > 1000 || time < -0.1)
-				{
-					fmt::println("something wrong: {}", time);
-					fmt::println("frame: {}", frame_number);
-					fmt::println("pair {}+1: {}, {}", i, timestamp_results[i + 1].time, timestamp_results[i + 1].available);
-					fmt::println("pair {}  : {}, {}", i, timestamp_results[i    ].time, timestamp_results[i    ].available);
-				}
+				auto time = static_cast<double>(timestamp_results[i+1] - timestamp_results[i]) * props.limits.timestampPeriod * 1e-6;
 				*stats_ref[i / 2] = time;
 			}
 		}
 
-		if (pipeline_results[0].available && pipeline_results[1].available && pipeline_results[2].available)
-			stats.triangle_count = pipeline_results[0].time + pipeline_results[1].time + pipeline_results[2].time;
+		stats.triangle_count = pipeline_results[0] + pipeline_results[1] + pipeline_results[2];
 	}
 
 	auto& frame_query_pool_timestamps = get_current_frame().query_pool_timestamps;
 	auto& frame_query_pool_pipelines =  get_current_frame().query_pool_pipelines;
 
-	// host side reset seems to avoid rare invalid time/ticks despite non zero availability bit
-	// could be due to GPU reordering cmdresetquerypool to go after vkcmdwritetimestamp?
 	vkResetQueryPool(device, frame_query_pool_timestamps, 0, QUERY_COUNT); 
 	vkResetQueryPool(device, frame_query_pool_pipelines	, 0, QUERY_COUNT);
 
@@ -525,8 +516,8 @@ void VulkanEngine::draw()
 		);
 
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 8);
-		execute_compute_cull(cmd, render_scene.opaque_pass, forward_mesh_cull_data, true, 1);
-		//execute_compute_cull(cmd, render_scene.mask_pass, forward_mesh_cull_data, true, 1);
+		//execute_compute_cull(cmd, render_scene.opaque_pass, forward_mesh_cull_data, true, 1);
+		execute_compute_cull(cmd, render_scene.mask_pass, forward_mesh_cull_data, true, 1);
 
 		if (CVAR_TOGGLE_MESH_SHADING.get())
 		{
@@ -549,8 +540,8 @@ void VulkanEngine::draw()
 				VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT
 			);
 
-			execute_compute_cull(cmd, render_scene.opaque_pass, forward_cluster_cull_data, render_scene.count_buffer.buffer, 4, true, 1);
-			//execute_compute_cull(cmd, render_scene.mask_pass, forward_cluster_cull_data, render_scene.count_buffer.buffer, 4, true, 1);
+			//execute_compute_cull(cmd, render_scene.opaque_pass, forward_cluster_cull_data, render_scene.count_buffer.buffer, 4, true, 1);
+			execute_compute_cull(cmd, render_scene.mask_pass, forward_cluster_cull_data, render_scene.count_buffer.buffer, 4, true, 1);
 
 		}
 
@@ -2148,15 +2139,14 @@ void VulkanEngine::register_object(Node* node, const glm::mat4& top_matrix)
 			uint32_t handle = static_cast<uint32_t>(render_scene.renderables.size());
 			render_scene.renderables.push_back(obj);
 
-			//if (s.pass == MaterialPass::Blend)
-			//{
-			//	//ctx.transparent_objects.push_back(obj);
-			//}
-			//else // OPAQUE and MASK
-			//{
-			//	render_scene.forward_pass.unbatched_objects.push_back(handle);
-			//}
-			render_scene.opaque_pass.unbatched_objects.push_back(handle);
+			if (s.pass == MaterialPass::Mask)
+			{
+				render_scene.mask_pass.unbatched_objects.push_back(handle);
+			}
+			else // OPAQUE and BLEND for now
+			{
+				render_scene.opaque_pass.unbatched_objects.push_back(handle);
+			}
 		}
 	}
 
@@ -2625,7 +2615,17 @@ void VulkanEngine::ready_mesh_draw()
 		render_scene.build_mesh_buffer();
 	}
 
-	//std::vector<RenderScene::MeshPass*> passes = { &render_scene.forward_pass };
+	std::vector<RenderScene::MeshPass*> passes = { &render_scene.opaque_pass, &render_scene.mask_pass };
+	for (size_t i = 0; i < passes.size(); i++)
+	{
+		RenderScene::MeshPass* pass = passes[i];
+		if (pass->indices_buffer.info.size < pass->unbatched_objects.size() * sizeof(uint32_t))
+			pass->indices_buffer = upload_buffer(pass->unbatched_objects.data(), pass->unbatched_objects.size() * sizeof(uint32_t));
+
+		// TODO: refactor - will never be used but we need an allocated dummy buffer for now
+		if (pass->indices_buffer.info.size == 0 && pass->unbatched_objects.size() == 0)
+			pass->indices_buffer = create_buffer(sizeof(uint32_t), 0, VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT); 
+	}
 
 	//for (size_t i = 0; i < passes.size(); i++)
 	{
@@ -2778,6 +2778,9 @@ void VulkanEngine::ready_cull_data(RenderScene::MeshPass& pass, CullData& cull_d
 	address_info.buffer = render_scene.mesh_buffer.buffer;
 	cull_data.mesh_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
 
+	address_info.buffer = pass.indices_buffer.buffer;
+	cull_data.indices_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+
 	address_info.buffer = render_scene.draw_indirect_buffer.buffer;
 	cull_data.draw_indirect_address = vkGetBufferDeviceAddress(device, &address_info);
 
@@ -2891,12 +2894,18 @@ void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPa
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
 
+	VkBufferDeviceAddressInfo address_info{};
+	address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
+	address_info.buffer = pass.indices_buffer.buffer;
+	cull_data.indices_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+
 	cull_data.count = static_cast<uint32_t>(pass.unbatched_objects.size());
+	//cull_data.count = static_cast<uint32_t>(render_scene.renderables.size());
 	cull_data.late = late ? 1 : 0;
 	cull_data.post_pass = post_pass;
 
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CullData), &cull_data);
-	//vkCmdDispatch(cmd, static_cast<uint32_t>(std::ceil(pass.pass_objects.size() / 256.0)), 1, 1);
+	//vkCmdDispatch(cmd, static_cast<uint32_t>(std::ceil(render_scene.renderables.size() / 256.0)), 1, 1);
 	vkCmdDispatch(cmd, static_cast<uint32_t>(std::ceil(pass.unbatched_objects.size() / 256.0)), 1, 1);
 }
 

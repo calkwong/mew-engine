@@ -83,6 +83,7 @@ struct CullData
 	glm::vec4 frustum_planes{};
 	VkDeviceAddress object_buffer_address{};
 	VkDeviceAddress mesh_buffer_address{};
+	VkDeviceAddress indices_buffer_address{};
 	VkDeviceAddress draw_indirect_address{};
 	VkDeviceAddress count_buffer_address{};
 	VkDeviceAddress vis_buffer_address{};
@@ -168,6 +169,7 @@ struct RenderScene
 		//std::vector<IndirectBatch> batches{}; // obsolete since introducing mesh shaders
 		std::vector<uint32_t> unbatched_objects{}; // handles for renderables
 		//std::vector<PassObject> pass_objects{}; // potentially obsolete since introducing mesh shaders
+		AllocatedBuffer indices_buffer{};
 
 		MeshPassType type{};
 	};

@@ -140,12 +140,6 @@ struct DeletionQueue
 	}
 };
 
-struct QueryResult
-{
-	uint64_t time{};
-	uint64_t available{};
-};
-
 struct FrameData
 {
 	VkCommandPool command_pool{};

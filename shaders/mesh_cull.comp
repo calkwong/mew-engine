@@ -19,6 +19,11 @@ layout(buffer_reference, std430) readonly buffer MeshBuffer
 	MeshData meshes[];
 };
 
+layout(buffer_reference, std430) readonly buffer IndicesBuffer
+{ 
+	uint indices[];
+};
+
 layout(buffer_reference, std430) buffer DrawCommandsBuffer
 { 
 	DrawCommand commands[];
@@ -50,6 +55,7 @@ layout(push_constant) uniform constants
 	
 	ObjectBuffer objectBuffer;
 	MeshBuffer meshBuffer;
+	IndicesBuffer indicesBuffer;
 	DrawCommandsBuffer drawBuffer;
 	CountBuffer countBuffer;
 	VisibilityBuffer visBuffer;
@@ -137,10 +143,12 @@ bool occlusionCulled(vec3 center, float radius)
 
 void main()
 {
-	uint id = gl_GlobalInvocationID.x;
+	uint globalId = gl_GlobalInvocationID.x;
 	
-	if (id >= pc.count)
+	if (globalId >= pc.count)
 		return;
+		
+	uint id = pc.indicesBuffer.indices[globalId];
 	
 	bool late = pc.late == 1;
 	
