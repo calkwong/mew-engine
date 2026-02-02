@@ -167,6 +167,9 @@ struct RenderScene
 		std::vector<uint32_t> unbatched_objects{}; // handles for renderables
 		//std::vector<PassObject> pass_objects{}; // potentially obsolete since introducing mesh shaders
 
+		MeshPassType type{};
+	};
+
 		AllocatedBuffer draw_indirect_buffer{};
 		AllocatedBuffer meshtask_indirect_buffer{};
 		AllocatedBuffer count_buffer{};
@@ -175,9 +178,6 @@ struct RenderScene
 
 		AllocatedBuffer cluster_count_buffer{};
 		AllocatedBuffer cluster_indices{};
-
-		MeshPassType type{};
-	};
 
 	std::vector<RenderObject> renderables{};
 	std::vector<DrawPrimitive> primitives{};
