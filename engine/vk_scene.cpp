@@ -7,14 +7,17 @@
 #include <vector>
 #include <algorithm>
 
+// POST MESH SHADERS: do we still need this?
 void RenderScene::init()
 {
-	for (size_t i = 0; i < shadow_pass.size(); i++)
-	{
-		shadow_pass[i].type = MeshPassType::Shadow;
-	}
-	forward_pass.type = MeshPassType::Forward;
-	transparent_pass.type = MeshPassType::Transparent;
+	//for (size_t i = 0; i < shadow_pass.size(); i++)
+	//{
+	//	shadow_pass[i].type = MeshPassType::Shadow;
+	//}
+	//forward_pass.type = MeshPassType::Forward;
+	//transparent_pass.type = MeshPassType::Transparent;
+	opaque_pass.type = MeshPassType::Opaque;
+	mask_pass.type = MeshPassType::Mask; 
 }
 
 ////PREREQ: pass objects
@@ -133,7 +136,6 @@ void RenderScene::build_object_buffer()
 //		});
 //}
 
-// PREREQ: sorted Pass Objects
 void RenderScene::build_mesh_buffer()
 {
 	DrawPrimitive* mesh_data = static_cast<DrawPrimitive*>(mesh_buffer.info.pMappedData);

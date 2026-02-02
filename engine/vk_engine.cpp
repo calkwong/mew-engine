@@ -222,12 +222,6 @@ void VulkanEngine::cleanup()
 		destroy_buffer(render_scene.meshlet_buffer);
 		destroy_buffer(render_scene.meshlet_indices);
 
-		std::vector<RenderScene::MeshPass*> passes = { &render_scene.forward_pass, &render_scene.transparent_pass };
-		for (size_t i = 0; i < NUMBER_OF_CASCADES; i++)
-		{
-			passes.push_back(&render_scene.shadow_pass[i]);
-		}
-
 		destroy_buffer(render_scene.draw_indirect_buffer);
 		destroy_buffer(render_scene.count_buffer);
 		destroy_buffer(render_scene.vis_buffer);
@@ -275,7 +269,7 @@ void VulkanEngine::draw()
 
 	ready_mesh_draw();
 
-	std::vector<RenderScene::MeshPass*> passes = { &render_scene.forward_pass };
+	std::vector<RenderScene::MeshPass*> passes = { &render_scene.opaque_pass };
 
 	CullData forward_mesh_cull_data{};
 	ClusterCullData forward_cluster_cull_data{};
@@ -283,8 +277,8 @@ void VulkanEngine::draw()
 	{
 		auto proj = freeze_camera ? last_proj : scene_data.proj;
 
-		ready_cull_data(render_scene.forward_pass, forward_mesh_cull_data, proj);
-		ready_cull_data(render_scene.forward_pass, forward_cluster_cull_data, proj);
+		ready_cull_data(render_scene.opaque_pass, forward_mesh_cull_data, proj);
+		ready_cull_data(render_scene.opaque_pass, forward_cluster_cull_data, proj);
 	}
 
 	uint32_t swapchain_image_idx{};
@@ -375,7 +369,7 @@ void VulkanEngine::draw()
 		); 
 
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 0);
-		execute_compute_cull(cmd, render_scene.forward_pass, forward_mesh_cull_data, false, 0);
+		execute_compute_cull(cmd, render_scene.opaque_pass, forward_mesh_cull_data, false, 0);
 		if (CVAR_TOGGLE_MESH_SHADING.get())
 		{
 			vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
@@ -397,7 +391,7 @@ void VulkanEngine::draw()
 				VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT
 			);
 
-			execute_compute_cull(cmd, render_scene.forward_pass, forward_cluster_cull_data, render_scene.count_buffer.buffer, 4, false, 0);
+			execute_compute_cull(cmd, render_scene.opaque_pass, forward_cluster_cull_data, render_scene.count_buffer.buffer, 4, false, 0);
 		}
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 1);
 
@@ -450,7 +444,7 @@ void VulkanEngine::draw()
 		);
 
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 4);
-		execute_compute_cull(cmd, render_scene.forward_pass, forward_mesh_cull_data, true, 0);
+		execute_compute_cull(cmd, render_scene.opaque_pass, forward_mesh_cull_data, true, 0);
 
 		if (CVAR_TOGGLE_MESH_SHADING.get())
 		{
@@ -473,7 +467,7 @@ void VulkanEngine::draw()
 				VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT
 			);
 
-			execute_compute_cull(cmd, render_scene.forward_pass, forward_cluster_cull_data, render_scene.count_buffer.buffer, 4, true, 0);
+			execute_compute_cull(cmd, render_scene.opaque_pass, forward_cluster_cull_data, render_scene.count_buffer.buffer, 4, true, 0);
 		}
 
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 5);
@@ -531,7 +525,8 @@ void VulkanEngine::draw()
 		);
 
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 8);
-		execute_compute_cull(cmd, render_scene.forward_pass, forward_mesh_cull_data, true, 1);
+		execute_compute_cull(cmd, render_scene.opaque_pass, forward_mesh_cull_data, true, 1);
+		//execute_compute_cull(cmd, render_scene.mask_pass, forward_mesh_cull_data, true, 1);
 
 		if (CVAR_TOGGLE_MESH_SHADING.get())
 		{
@@ -554,7 +549,8 @@ void VulkanEngine::draw()
 				VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT
 			);
 
-			execute_compute_cull(cmd, render_scene.forward_pass, forward_cluster_cull_data, render_scene.count_buffer.buffer, 4, true, 1);
+			execute_compute_cull(cmd, render_scene.opaque_pass, forward_cluster_cull_data, render_scene.count_buffer.buffer, 4, true, 1);
+			//execute_compute_cull(cmd, render_scene.mask_pass, forward_cluster_cull_data, render_scene.count_buffer.buffer, 4, true, 1);
 
 		}
 
@@ -2160,7 +2156,7 @@ void VulkanEngine::register_object(Node* node, const glm::mat4& top_matrix)
 			//{
 			//	render_scene.forward_pass.unbatched_objects.push_back(handle);
 			//}
-			render_scene.forward_pass.unbatched_objects.push_back(handle);
+			render_scene.opaque_pass.unbatched_objects.push_back(handle);
 		}
 	}
 
@@ -2795,7 +2791,7 @@ void VulkanEngine::ready_cull_data(RenderScene::MeshPass& pass, CullData& cull_d
 	cull_data.meshtask_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
 
 	//cull_data.count = static_cast<uint32_t>(pass.pass_objects.size());
-	cull_data.count = static_cast<uint32_t>(pass.unbatched_objects.size());
+	cull_data.count = static_cast<uint32_t>(pass.unbatched_objects.size()); // TODO: clean this up? we need to update this in executecomputecull
 	cull_data.texture_id = texture_cache.get_depth_pyramid_image();
 	cull_data.occlusion_enabled = CVAR_TOGGLE_OCCLUSION.get();
 	
@@ -2870,7 +2866,7 @@ void VulkanEngine::ready_cull_data(RenderScene::MeshPass& pass, ClusterCullData&
 	cull_data.meshtask_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
 
 	//cull_data.count = static_cast<uint32_t>(pass.pass_objects.size());
-	cull_data.count = static_cast<uint32_t>(pass.unbatched_objects.size());
+	cull_data.count = static_cast<uint32_t>(pass.unbatched_objects.size()); // TODO: clean this up? we need to update this in executecomputecull
 	cull_data.texture_id = texture_cache.get_depth_pyramid_image();
 	cull_data.occlusion_enabled = CVAR_TOGGLE_OCCLUSION.get();
 
@@ -2895,6 +2891,7 @@ void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPa
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
 
+	cull_data.count = static_cast<uint32_t>(pass.unbatched_objects.size());
 	cull_data.late = late ? 1 : 0;
 	cull_data.post_pass = post_pass;
 
@@ -2912,6 +2909,7 @@ void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPa
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
 
+	cull_data.count = static_cast<uint32_t>(pass.unbatched_objects.size());
 	cull_data.late = late ? 1 : 0;
 	cull_data.post_pass = post_pass;
 
@@ -2960,10 +2958,10 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass, ui
 	scissor.extent.height = draw_extent.height;
 	vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-	auto depth_bias = 0.f;
-	auto slope_scaled_depth_bias = 0.f;
+	//auto depth_bias = 0.f;
+	//auto slope_scaled_depth_bias = 0.f;
 	// TODO: refactor to account for different geometry (double-sided or back face culled)
-	vkCmdSetDepthBias(cmd, -depth_bias, 0.0f, -slope_scaled_depth_bias); 
+	//vkCmdSetDepthBias(cmd, -depth_bias, 0.0f, -slope_scaled_depth_bias); 
 
 	GPUPushConstants pc{};
 	VkBufferDeviceAddressInfo address_info{};
@@ -2997,14 +2995,11 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass, ui
 
 
 		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
-		//vkCmdDrawIndexedIndirectCount(cmd, render_scene.forward_pass.draw_indirect_buffer.buffer, multibatch.offset * sizeof(VkDrawIndexedIndirectCommand),
-		//	render_scene.forward_pass.count_buffer.buffer, i * sizeof(uint32_t),
-		//	multibatch.max_draw_count, sizeof(VkDrawIndexedIndirectCommand)
-		//); 
 
+		// TODO: use a proper maxDrawCount, currently uses renderables size without checking for hardware limits
 		vkCmdDrawIndexedIndirectCount(cmd, render_scene.draw_indirect_buffer.buffer, 0,
-			render_scene.count_buffer.buffer, 0, 1, sizeof(VkDrawIndexedIndirectCommand)
-		);
+			render_scene.count_buffer.buffer, 0, render_scene.renderables.size(), sizeof(VkDrawIndexedIndirectCommand)
+		); 
 
 		stats.draw_count++;
 	}

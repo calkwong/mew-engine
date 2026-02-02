@@ -155,9 +155,11 @@ struct RenderScene
 {
 	enum class MeshPassType
 	{
-		Shadow,
-		Forward,
-		Transparent
+		Opaque,
+		Mask,
+		//Shadow,
+		//Forward,
+		//Transparent
 	};
 
 	struct MeshPass
@@ -170,15 +172,6 @@ struct RenderScene
 		MeshPassType type{};
 	};
 
-		AllocatedBuffer draw_indirect_buffer{};
-		AllocatedBuffer meshtask_indirect_buffer{};
-		AllocatedBuffer count_buffer{};
-		AllocatedBuffer vis_buffer{};
-		AllocatedBuffer meshlet_vis_buffer{};
-
-		AllocatedBuffer cluster_count_buffer{};
-		AllocatedBuffer cluster_indices{};
-
 	std::vector<RenderObject> renderables{};
 	std::vector<DrawPrimitive> primitives{};
 	std::unordered_map<MeshAsset*, Handle<DrawPrimitive>> mesh_cache{};
@@ -189,9 +182,19 @@ struct RenderScene
 	AllocatedBuffer meshlet_buffer{};
 	AllocatedBuffer meshlet_indices{};
 
-	std::array<MeshPass, 4> shadow_pass{};
-	MeshPass forward_pass{};
-	MeshPass transparent_pass{};
+	AllocatedBuffer draw_indirect_buffer{};
+	AllocatedBuffer meshtask_indirect_buffer{};
+	AllocatedBuffer count_buffer{};
+	AllocatedBuffer vis_buffer{};
+	AllocatedBuffer meshlet_vis_buffer{};
+
+	AllocatedBuffer cluster_count_buffer{};
+	AllocatedBuffer cluster_indices{};
+
+	MeshPass opaque_pass{};
+	MeshPass mask_pass{};
+	//std::array<MeshPass, 4> shadow_pass{};
+	//MeshPass transparent_pass{};
 	uint32_t total_meshlets_bits{};	  // should be per-pass
 	uint32_t max_meshtask_commands{}; // should be per-pass
 

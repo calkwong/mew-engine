@@ -56,7 +56,7 @@ layout(push_constant) uniform constants
 	VisibilityBuffer meshletVisBuffer; // meshletVisibilityBuffer
 	MeshTaskBuffer meshTaskBuffer;
 	
-	uint count;
+	uint count; // unused?
 	uint late;
 	uint textureId;
 	uint occlusionEnabled;
