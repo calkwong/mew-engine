@@ -2137,21 +2137,34 @@ void VulkanEngine::register_object(Node* node, const glm::mat4& top_matrix)
 			obj.transform = node_matrix;
 			obj.meshlet_bits = s.meshlet_bits;
 			if (CVAR_TOGGLE_MASK.get())
-				obj.post_pass = s.pass == MaterialPass::Mask ? 1 : 0;
+			{
+				switch (s.pass)
+				{
+				case MaterialPass::Mask:
+					obj.post_pass = 1;
+					break;
+				case MaterialPass::Blend:
+					obj.post_pass = 0;
+					break;
+				default:
+					obj.post_pass = 0;
+				}
+			}
 			else
 				obj.post_pass = 0;
 
 			uint32_t handle = static_cast<uint32_t>(render_scene.renderables.size());
 			render_scene.renderables.push_back(obj);
 
-			if (s.pass == MaterialPass::Blend)
-			{
-				//ctx.transparent_objects.push_back(obj);
-			}
-			else // OPAQUE and MASK
-			{
-				render_scene.forward_pass.unbatched_objects.push_back(handle);
-			}
+			//if (s.pass == MaterialPass::Blend)
+			//{
+			//	//ctx.transparent_objects.push_back(obj);
+			//}
+			//else // OPAQUE and MASK
+			//{
+			//	render_scene.forward_pass.unbatched_objects.push_back(handle);
+			//}
+			render_scene.forward_pass.unbatched_objects.push_back(handle);
 		}
 	}
 
@@ -2380,6 +2393,7 @@ void VulkanEngine::execute_deferred_shading(VkCommandBuffer cmd)
 	vkCmdEndRendering(cmd);
 }
 
+/*
 void VulkanEngine::shadow_pass(VkCommandBuffer cmd, RenderScene::MeshPass& pass, size_t cascade_idx)
 {
 	CascadeData& cascade = cascade_data[cascade_idx];
@@ -2447,7 +2461,7 @@ void VulkanEngine::shadow_pass(VkCommandBuffer cmd, RenderScene::MeshPass& pass,
 	}
 	vkCmdEndRendering(cmd);
 };
-
+*/
 
 void VulkanEngine::update_cascade()
 {
@@ -2625,25 +2639,26 @@ void VulkanEngine::ready_mesh_draw()
 	{
 		auto& pass = *passes[i];
 
-		if (pass.pass_objects.size() != pass.unbatched_objects.size())
-		{
-			fmt::println("pass_object, indirect_batch");
-			render_scene.build_pass_objects(pass);
-			render_scene.sort_objects(pass);
-			render_scene.build_indirect_batch(pass);
-			render_scene.build_multi_batch(pass);
-		}
+		//if (pass.pass_objects.size() != pass.unbatched_objects.size())
+		//{
+		//	fmt::println("pass_object, indirect_batch");
+		//	render_scene.build_pass_objects(pass);
+		//	render_scene.sort_objects(pass);
+		//	//render_scene.build_indirect_batch(pass);
+		//	//render_scene.build_multi_batch(pass);
+		//}
 
 		// TODO: can probably use a single bit per pass object
-		if (pass.vis_buffer.info.size < pass.pass_objects.size())
+		//if (pass.vis_buffer.info.size < pass.pass_objects.size())
+		if (pass.vis_buffer.info.size < render_scene.renderables.size()) // allocate for worst case
 		{
-			fmt::println("visibility buffer");
 			pass.vis_buffer = reallocate_buffer(
-				pass.pass_objects.size() * sizeof(uint32_t),
+				render_scene.renderables.size() * sizeof(uint32_t),
 				pass.vis_buffer,
 				0,
 				VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT
 			);
+			fmt::println("visibility buffer: {}mb", pass.vis_buffer.info.size / 1e6);
 
 			// test
 			immediate_submit([&](VkCommandBuffer cmd) {
@@ -2651,40 +2666,41 @@ void VulkanEngine::ready_mesh_draw()
 				});
 		}
 
-		if (pass.count_buffer.info.size < pass.multibatches.size() * sizeof(uint32_t))
+		//if (pass.count_buffer.info.size < pass.multibatches.size() * sizeof(uint32_t))
+		if (pass.count_buffer.info.size < sizeof(uint32_t))
 		{
-			fmt::println("count_buffer");
 			pass.count_buffer = reallocate_buffer(
-				4 * sizeof(uint32_t), // TODO: refactor when reintroducing multiple pipelines - will break
+				4 * sizeof(uint32_t), // TODO: double check, 4 to account for workgroupx/y/z?
 				pass.count_buffer,
 				0,
 				VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_2_TRANSFER_DST_BIT
 			);
+			fmt::println("count_buffer, {}mb", pass.count_buffer.info.size / 1e6);
 
 			pass.cluster_count_buffer = reallocate_buffer(
-				4 * sizeof(uint32_t), // TODO: refactor when reintroducing multiple pipelines - will break
+				4 * sizeof(uint32_t), // TODO: double check, 4 to account for workgroupx/y/z?
 				pass.cluster_count_buffer,
 				0,
 				VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_2_TRANSFER_DST_BIT
 			);
 		}
 
-		if (pass.draw_indirect_buffer.info.size < pass.pass_objects.size() * sizeof(VkDrawIndexedIndirectCommand))
+		//if (pass.draw_indirect_buffer.info.size < pass.pass_objects.size() * sizeof(VkDrawIndexedIndirectCommand))
+		if (pass.draw_indirect_buffer.info.size < render_scene.renderables.size() * sizeof(VkDrawIndexedIndirectCommand))
 		{
-			fmt::println("draw_indirect_buffer");
 			pass.draw_indirect_buffer = reallocate_buffer(
-				pass.pass_objects.size() * sizeof(VkDrawIndexedIndirectCommand),
+				//pass.pass_objects.size() * sizeof(VkDrawIndexedIndirectCommand),
+				render_scene.renderables.size() * sizeof(VkDrawIndexedIndirectCommand),
 				pass.draw_indirect_buffer,
 				0,
 				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT
 			);
+			fmt::println("draw_indirect_buffer: {}mb", pass.draw_indirect_buffer.info.size / 1e6);
 		}
 
 		// TODO: resize - if we have 1m meshes with 300 clusters each = ~1.2GB buffer
 		if (pass.cluster_indices.info.size < render_scene.total_meshlets_bits * sizeof(uint32_t))
 		{
-			fmt::println("cluster_indices");
-
 			pass.cluster_indices = reallocate_buffer(
 				render_scene.total_meshlets_bits * sizeof(uint32_t),
 				pass.cluster_indices,
@@ -2782,7 +2798,8 @@ void VulkanEngine::ready_cull_data(RenderScene::MeshPass& pass, CullData& cull_d
 	address_info.buffer = pass.meshtask_indirect_buffer.buffer;
 	cull_data.meshtask_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
 
-	cull_data.count = static_cast<uint32_t>(pass.pass_objects.size());
+	//cull_data.count = static_cast<uint32_t>(pass.pass_objects.size());
+	cull_data.count = static_cast<uint32_t>(pass.unbatched_objects.size());
 	cull_data.texture_id = texture_cache.get_depth_pyramid_image();
 	cull_data.occlusion_enabled = CVAR_TOGGLE_OCCLUSION.get();
 	
@@ -2856,7 +2873,8 @@ void VulkanEngine::ready_cull_data(RenderScene::MeshPass& pass, ClusterCullData&
 	address_info.buffer = pass.meshtask_indirect_buffer.buffer;
 	cull_data.meshtask_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
 
-	cull_data.count = static_cast<uint32_t>(pass.pass_objects.size());
+	//cull_data.count = static_cast<uint32_t>(pass.pass_objects.size());
+	cull_data.count = static_cast<uint32_t>(pass.unbatched_objects.size());
 	cull_data.texture_id = texture_cache.get_depth_pyramid_image();
 	cull_data.occlusion_enabled = CVAR_TOGGLE_OCCLUSION.get();
 
@@ -2885,7 +2903,8 @@ void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPa
 	cull_data.post_pass = post_pass;
 
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CullData), &cull_data);
-	vkCmdDispatch(cmd, static_cast<uint32_t>(std::ceil(pass.pass_objects.size() / 256.0)), 1, 1);
+	//vkCmdDispatch(cmd, static_cast<uint32_t>(std::ceil(pass.pass_objects.size() / 256.0)), 1, 1);
+	vkCmdDispatch(cmd, static_cast<uint32_t>(std::ceil(pass.unbatched_objects.size() / 256.0)), 1, 1);
 }
 
 void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPass& pass, ClusterCullData& cull_data, VkBuffer count_buffer, uint32_t offset, bool late, uint32_t post_pass)
@@ -2980,19 +2999,18 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass, ui
 
 		vkCmdBindIndexBuffer(cmd, render_scene.combined_mesh_buffer.index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
 
-		for (size_t i = 0; i < render_scene.forward_pass.multibatches.size(); i++)
-		{
-			const auto& multibatch = render_scene.forward_pass.multibatches[i];
-			const auto& pipeline = multibatch.pipeline;
 
-			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
-			vkCmdDrawIndexedIndirectCount(cmd, render_scene.forward_pass.draw_indirect_buffer.buffer, multibatch.offset * sizeof(VkDrawIndexedIndirectCommand),
-				render_scene.forward_pass.count_buffer.buffer, i * sizeof(uint32_t),
-				multibatch.max_draw_count, sizeof(VkDrawIndexedIndirectCommand)
-			); // TODO: refactor when reintroducing multiple pipelines - will break
+		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
+		//vkCmdDrawIndexedIndirectCount(cmd, render_scene.forward_pass.draw_indirect_buffer.buffer, multibatch.offset * sizeof(VkDrawIndexedIndirectCommand),
+		//	render_scene.forward_pass.count_buffer.buffer, i * sizeof(uint32_t),
+		//	multibatch.max_draw_count, sizeof(VkDrawIndexedIndirectCommand)
+		//); 
 
-			stats.draw_count++;
-		}
+		vkCmdDrawIndexedIndirectCount(cmd, render_scene.forward_pass.draw_indirect_buffer.buffer, 0,
+			render_scene.forward_pass.count_buffer.buffer, 0, 1, sizeof(VkDrawIndexedIndirectCommand)
+		);
+
+		stats.draw_count++;
 	}
 	else // mesh shading path
 	{
@@ -3011,18 +3029,10 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass, ui
 			assert(0);
 		}
 
-		for (size_t i = 0; i < render_scene.forward_pass.multibatches.size(); i++)
-		{
-			const auto& multibatch = render_scene.forward_pass.multibatches[i];
-			const auto& pipeline = multibatch.pipeline;
+		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
+		vkCmdDrawMeshTasksIndirectEXT(cmd, render_scene.forward_pass.cluster_count_buffer.buffer, sizeof(uint32_t), 1, 0);
 
-			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
-			// TODO: refactor when reintroducing multiple pipelines - will break, will probably need indirectcount
-			//vkCmdDrawMeshTasksIndirectEXT(cmd, render_scene.forward_pass.count_buffer.buffer, sizeof(uint32_t), 1, 0); 
-			vkCmdDrawMeshTasksIndirectEXT(cmd, render_scene.forward_pass.cluster_count_buffer.buffer, sizeof(uint32_t), 1, 0);
-
-			stats.draw_count++;
-		}
+		stats.draw_count++;
 	}
 
 	vkCmdEndRendering(cmd);

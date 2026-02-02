@@ -53,20 +53,20 @@ struct Handle<RenderObject> {
 	uint32_t handle{};
 };
 
-struct IndirectBatch
-{
-	//Handle<DrawPrimitive> primitive_id{}; 
-	ShaderPass* material{};
-	uint32_t first{}; // refers to pass object array
-	uint32_t count{}; // refers to pass object array
-};
-
-struct MultiBatch
-{
-	ShaderPass* pipeline{};
-	uint32_t offset{}; // buffer offset for compact indirect buffer
-	uint32_t max_draw_count{};
-};
+//struct IndirectBatch
+//{
+//	//Handle<DrawPrimitive> primitive_id{}; 
+//	ShaderPass* material{};
+//	uint32_t first{}; // refers to pass object array
+//	uint32_t count{}; // refers to pass object array
+//};
+//
+//struct MultiBatch
+//{
+//	ShaderPass* pipeline{};
+//	uint32_t offset{}; // buffer offset for compact indirect buffer
+//	uint32_t max_draw_count{};
+//};
 
 struct ObjectData
 {
@@ -133,13 +133,13 @@ struct ClusterCullData
 	uint32_t post_pass{};
 };
 
-struct PassObject
-{
-	ShaderPass* material{};
-	Handle<DrawPrimitive> primitive_id{};
-	Handle<RenderObject> renderable_id{}; // handle into renderables
-	// TODO: implement hashing?
-};
+//struct PassObject
+//{
+//	ShaderPass* material{};
+//	Handle<DrawPrimitive> primitive_id{};
+//	Handle<RenderObject> renderable_id{}; // handle into renderables
+//	// TODO: implement hashing?
+//};
 
 struct MeshTaskCommand
 {
@@ -162,10 +162,10 @@ struct RenderScene
 
 	struct MeshPass
 	{
-		std::vector<MultiBatch> multibatches{}; // unused during mesh shader test 
-		std::vector<IndirectBatch> batches{}; // unused during mesh shader test 
+		//std::vector<MultiBatch> multibatches{}; // obsolete since introducing mesh shaders
+		//std::vector<IndirectBatch> batches{}; // obsolete since introducing mesh shaders
 		std::vector<uint32_t> unbatched_objects{}; // handles for renderables
-		std::vector<PassObject> pass_objects{};
+		//std::vector<PassObject> pass_objects{}; // potentially obsolete since introducing mesh shaders
 
 		AllocatedBuffer draw_indirect_buffer{};
 		AllocatedBuffer meshtask_indirect_buffer{};
@@ -198,9 +198,9 @@ struct RenderScene
 	void init();
 	void build_mesh_buffer();
 	void build_object_buffer();
-	void build_pass_objects(MeshPass& pass);
-	void sort_objects(MeshPass& pass); // sorts pass objects
-	void build_indirect_batch(MeshPass& pass);
-	void build_multi_batch(MeshPass& pass);
+	//void build_pass_objects(MeshPass& pass);
+	//void sort_objects(MeshPass& pass); // sorts pass objects
+	//void build_indirect_batch(MeshPass& pass);
+	//void build_multi_batch(MeshPass& pass);
 };
 

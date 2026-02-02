@@ -143,7 +143,10 @@ void main()
 		return;
 	
 	bool late = pc.late == 1;
-	bool visibleLastFrame = pc.visBuffer.visible[id] == 1; // TODO: visBuffer using 4 bytes instead of 1 bit for visibility
+	
+	// TODO: visBuffer using 4 bytes instead of 1 bit for visibility
+	// TODO: can potentially skip this for pc.postPass != 0 (masked, transparent?)
+	bool visibleLastFrame = pc.visBuffer.visible[id] == 1;
 	
 	if (!late && !visibleLastFrame)
 		return;
