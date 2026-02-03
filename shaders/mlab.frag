@@ -1,11 +1,14 @@
 #version 450
 
+// References
+// https://dl.acm.org/doi/epdf/10.1145/2556700.2556705
+// https://github.com/Devsh-Graphics-Programming/Nabla/blob/master/include/nbl/builtin/glsl/ext/OIT/insert_node.glsl
+// https://interplayoflight.wordpress.com/2022/07/02/order-independent-transparency-part-2/
+
 #extension GL_GOOGLE_include_directive : require
 #extension GL_EXT_buffer_reference : require
 #extension GL_EXT_nonuniform_qualifier : require
 #extension GL_ARB_fragment_shader_interlock : require
-
-// include interlock
 
 #include "scene.glsl"
 #include "samplers.glsl"
@@ -24,13 +27,21 @@ layout (location = 5) in flat uint inMaterialID;
 
 layout (location = 0) out vec4 outFragColor;
 
+layout(early_fragment_tests) in; // REQUIRED
+layout(pixel_interlock_ordered) in; // seems to work even without, not sure if spec mandates this qualifier
+
 const int MLAB_NODES = 4;
 
 struct OITData
 {
 	uvec4 colors;
-	vec4 depths;
+	uvec4 depths;
 	vec4 transmissions;
+};
+
+layout(buffer_reference, std430) coherent buffer OITBuffer // REQUIRED to prevent WAW 
+{ 
+	OITData frags[];
 };
 
 layout(buffer_reference, std430) readonly buffer MaterialBuffer
@@ -38,23 +49,24 @@ layout(buffer_reference, std430) readonly buffer MaterialBuffer
 	MaterialData materials[];
 };
 
-layout(buffer_reference, std430) readonly buffer OITBuffer
-{ 
-	OITData frags[];
-};
-
 layout( push_constant ) uniform constants
 {
+	//ObjectBuffer objectBuffer;
+	//VertexBuffer vertexBuffer;
+	//MeshTaskBuffer meshTaskBuffer;
+	//MeshletBuffer meshletBuffer;
+	//MeshletIndicesBuffer meshletIndicesBuffer;
+	//ClusterIndicesBuffer clusterIndicesBuffer; 
+	uint padding[6 * 2];
 	MaterialBuffer materialBuffer;
 	OITBuffer oitBuffer;
-	uint albedoID;
-	
+	uint debugMeshlets;
 } pc;
 
-void swapNode(inout uint colorA, inout float depthA, inout float transmissionA, inout uint colorB, inout float depthB, inout float transmissionB)
+void swapNode(inout uint colorA, inout uint depthA, inout float transmissionA, inout uint colorB, inout uint depthB, inout float transmissionB)
 {
 	uint colorT = colorA;
-	float depthT = depthA;
+	uint depthT = depthA;
 	float transmissionT = transmissionA;
 	
 	colorA = colorB;
@@ -66,18 +78,28 @@ void swapNode(inout uint colorA, inout float depthA, inout float transmissionA, 
 	transmissionB = transmissionT;
 }
 
-void insertNode(uvec2 coords, uint color, float depth, float transmission)
+uint float2UintDepth(float depth)
 {
-	uint index = coords.x + coords.y * coords.x;
+	return uint(depth * 4294967295.0);
+}
+
+float Uint2FloatDepth(uint depth)
+{
+	return float(depth) / 4294967295.0;
+}
+
+void insertNode(uvec2 coords, uint color, uint depth, float transmission)
+{
+	uint index = coords.x + coords.y * 1700;
 
 	OITData frag = pc.oitBuffer.frags[index];
 	uvec4 colors = frag.colors;
-	vec4 depths = frag.depths;
+	uvec4 depths = frag.depths;
 	vec4 transmissions = frag.transmissions;
 	
 	bvec4 notValidMask = equal(transmissions, vec4(1.0));
-	vec4 depthMask = mix(depths, vec4(0.0), notValidMask); // reverse z, selects a if false
-	bvec4 closerMask = greaterThanEqual(vec4(depth), depthMask);
+	depths = floatBitsToUint(mix(uintBitsToFloat(depths), vec4(0.0), notValidMask)); // reverse z, selects a if false
+	bvec4 closerMask = greaterThanEqual(uvec4(depth), depths); // potential precision issue?
 	
 	// swap nodes if closer
 	if (closerMask[0])
@@ -100,8 +122,6 @@ void insertNode(uvec2 coords, uint color, float depth, float transmission)
 	pc.oitBuffer.frags[index].colors = colors;
 	pc.oitBuffer.frags[index].depths = depths;
 	pc.oitBuffer.frags[index].transmissions = transmissions;
-	
-	// do we need a barrier or interlock has implicit guarantees?
 }
 
 void main()
@@ -113,13 +133,13 @@ void main()
 	if (m.diffuseID != 0)
 		albedo *= texture(sampler2D(allTextures[m.diffuseID], samplers[0]), inUV);
 	
-	// sample depth
-	vec4 premultipliedAlpha = vec4(albedo.xyz * albedo.a, albedo.a);
+	albedo.a = 0.5; // TODO: remove, just for testing
+	vec4 premultipliedAlpha = vec4(albedo.xyz * albedo.a, 1.0);
 	uint color = packUnorm4x8(premultipliedAlpha);
-	float depth = gl_FragCoord.z;
+	uint depth = floatBitsToUint(gl_FragCoord.z);
 	float transmission = 1.0 - albedo.a;
 	
-	uvec2 screenCoords = uvec2(gl_FragCoord.xy - vec2(0.5));
+	uvec2 screenCoords = uvec2(floor(gl_FragCoord.xy));
 	
 	beginInvocationInterlockARB();
 	insertNode(screenCoords, color, depth, transmission);

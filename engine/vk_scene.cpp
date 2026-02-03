@@ -17,7 +17,8 @@ void RenderScene::init()
 	//forward_pass.type = MeshPassType::Forward;
 	//transparent_pass.type = MeshPassType::Transparent;
 	opaque_pass.type = MeshPassType::Opaque;
-	mask_pass.type = MeshPassType::Mask; 
+	mask_pass.type = MeshPassType::Mask;
+	transparent_pass.type = MeshPassType::Transparent;
 }
 
 ////PREREQ: pass objects

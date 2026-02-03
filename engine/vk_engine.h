@@ -35,6 +35,7 @@ struct GPUPushConstants // temporarily shared by vertex and mesh shading path
 	VkDeviceAddress meshlet_indices_buffer_address{};
 	VkDeviceAddress cluster_indices_address{};
 	VkDeviceAddress material_buffer_address{};
+	VkDeviceAddress oit_buffer_address{};
 	uint32_t debug_meshlets;
 };
 
@@ -45,6 +46,7 @@ struct DeferredPushConstants
 	VkDeviceAddress light_buffer_address{};
 	VkDeviceAddress light_index_buffer_address{};
 	VkDeviceAddress light_grid_buffer_address{};
+	VkDeviceAddress oit_buffer_address{};
 	uint32_t depth_id{};
 	uint32_t albedo_id{};
 	uint32_t normal_id{};
@@ -54,6 +56,7 @@ struct DeferredPushConstants
 	float scale{}; 
 	float bias{};  
 	uint32_t debug_meshlets{};
+	uint32_t resolve_transparent{};
 };
 
 //struct ShadowPushConstants
@@ -173,6 +176,8 @@ struct EngineStats
 	double mask_indirect{};
 	double deferred_shading{};
 	double light_culling{};
+	double transparent_cull{};
+	double transparent_render{};
 };
 
 // destruction of textures handled by gltf (not internally); does not support dynamic objs
@@ -402,6 +407,7 @@ public:
 	void execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPass& pass, CullData& cull_data, bool late, uint32_t post_pass);
 	void execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPass& pass, ClusterCullData& cull_data, VkBuffer count_buffer, uint32_t offset, bool late, uint32_t post_pass);
 	void render(VkCommandBuffer cmd, bool late, uint32_t post_pass, uint32_t query);
+	void transparent_render(VkCommandBuffer cmd, uint32_t query);
 	void build_depth_pyramid(VkCommandBuffer cmd);
 	void execute_light_culling(VkCommandBuffer cmd);
 

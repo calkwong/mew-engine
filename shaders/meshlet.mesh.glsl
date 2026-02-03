@@ -70,7 +70,8 @@ layout( push_constant ) uniform constants
 	MeshletIndicesBuffer meshletIndicesBuffer;
 	ClusterIndicesBuffer clusterIndicesBuffer; 
 	//MaterialBuffer materialBuffer;
-	uint padding[1 * 2];
+	//OITBuffer oitBuffer;
+	uint padding[2 * 2];
 	uint debugMeshlets;
 } pc;
 

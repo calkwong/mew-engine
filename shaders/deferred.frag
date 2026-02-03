@@ -41,6 +41,20 @@ layout(buffer_reference, std430) readonly buffer LightGridBuffer
 	LightGrid grid[];
 };
 
+const int MLAB_NODES = 4;
+
+struct OITData
+{
+	uvec4 colors;
+	uvec4 depths;
+	vec4 transmissions; // could we pack this in color.a?
+};
+
+layout(buffer_reference, std430) buffer OITBuffer
+{ 
+	OITData frags[];
+};
+
 layout( push_constant ) uniform constants
 {
 	vec4 clusterSize; // xyz is cluster data struct dim, w is single cluster dim where width==height
@@ -48,6 +62,7 @@ layout( push_constant ) uniform constants
 	LightBuffer lightBuffer;
 	LightIndexBuffer lightIndexBuffer;
 	LightGridBuffer lightGridBuffer;
+	OITBuffer oitBuffer;
 	uint depth_id;
 	uint albedo_id;    // gbuffer ids
 	uint normal_id;    // gbuffer ids
@@ -57,6 +72,7 @@ layout( push_constant ) uniform constants
 	float scale;
 	float bias;
 	uint debugMeshlets;
+	uint resolveTransparent;
 } pc;
 
 float distanceSquared(vec3 a, vec3 b)
@@ -88,7 +104,9 @@ void main()
 	
 	vec3 color = vec3(0.);
 	
-	if (pc.lightCulling == 1)
+	bool renderLights = pc.lightCulling == 1 && pc.resolveTransparent == 0;
+	
+	if (renderLights)
 	{
 #ifndef CLUSTERED_SHADING
 		for (int i = 0; i < MAX_LIGHTS; i++)
@@ -149,10 +167,41 @@ void main()
 #endif
 	}
 	
-	vec3 ambient = 0.05 * albedo;
+	if (renderLights)
+	{
+		vec3 ambient = 0.05 * albedo;
+		outFragColor = vec4(color + ambient, 1.0);
+	}
 	
-	outFragColor = vec4(color + ambient, 1.0);
+	if (pc.resolveTransparent == 1)
+	{
+		uvec2 screenCoords = uvec2(floor(gl_FragCoord.xy));
+		uint index = screenCoords.x + screenCoords.y * uint(pc.screenSize.x);
+		OITData frags = pc.oitBuffer.frags[index];
+		
+		pc.oitBuffer.frags[index].transmissions = vec4(1.0); // reset so we can skip vkcmdfillbuffer
+		
+		// early return if nothing stored
+		if (frags.transmissions[0] == 1.0)
+		{
+			outFragColor = vec4(albedo, 1.0);
+			return;
+		}
+		
+		vec3 composite = vec3(0.);
+		float accumT = 1.0;
+		for (int i = 0; i < MLAB_NODES; i++)
+		{
+			float t = frags.transmissions[i];
+			composite = t != 1.0 ? unpackUnorm4x8(frags.colors[i]).xyz * accumT + composite : composite;
+			accumT *= t;
+		}
+		
+		outFragColor = vec4(albedo, 1.0);
+		outFragColor.xyz *= accumT;
+		outFragColor += vec4(composite, 1.0);
+	}
 	
-	if (pc.lightCulling == 0)
+	if (!renderLights && pc.resolveTransparent == 0) 
 		outFragColor = vec4(albedo, 1.0);
 }

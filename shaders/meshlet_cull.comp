@@ -160,7 +160,7 @@ void main()
 		bool skip = false; // always false for early pass
 		if (late && visibleLastFrame) 
 			skip = true;
-		if (pc.postPass == 1) // culling masked geometry, late check should be unnecessary if we do things right
+		if (pc.postPass != 0) // culling mask and transparent regardless of visibility last frame as its a single cull pass
 			skip = false;
 			
 		// reprocess all meshlets of visible meshes	

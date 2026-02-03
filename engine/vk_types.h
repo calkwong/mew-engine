@@ -139,3 +139,10 @@ struct ShaderProgram
     VkShaderModule module{};
     VkShaderStageFlagBits stage{};
 };
+
+struct OITData
+{
+    glm::uvec4 colors{};
+    glm::uvec4 depths{};
+    glm::vec4 transmissions{};
+};

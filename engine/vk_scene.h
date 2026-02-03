@@ -158,9 +158,9 @@ struct RenderScene
 	{
 		Opaque,
 		Mask,
+		Transparent
 		//Shadow,
 		//Forward,
-		//Transparent
 	};
 
 	struct MeshPass
@@ -192,9 +192,11 @@ struct RenderScene
 
 	AllocatedBuffer cluster_count_buffer{};
 	AllocatedBuffer cluster_indices{};
+	AllocatedBuffer oit_buffer{};
 
 	MeshPass opaque_pass{};
 	MeshPass mask_pass{};
+	MeshPass transparent_pass{};
 	//std::array<MeshPass, 4> shadow_pass{};
 	//MeshPass transparent_pass{};
 	uint32_t total_meshlets_bits{};	  // should be per-pass
