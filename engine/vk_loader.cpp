@@ -429,8 +429,22 @@ std::optional<AllocatedImage> load_image(VulkanEngine* engine, const std::string
 					auto& bufferView = asset.bufferViews[view.bufferViewIndex];
 					auto& buffer = asset.buffers[bufferView.bufferIndex];
 					std::visit(fastgltf::visitor{
-						[](auto& arg) {},
+						[](auto& arg) { fmt::println("incorrect fastgltf::sources"); },
 						[&](fastgltf::sources::Vector& vector) {
+								unsigned char* data = stbi_load_from_memory(reinterpret_cast<const stbi_uc*>(vector.bytes.data()) + bufferView.byteOffset,
+									static_cast<int>(bufferView.byteLength), &width, &height, &channels, 4
+								);
+
+								if (data)
+								{
+									VkExtent3D image_size{ static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1 };
+
+									new_image = engine->create_image(data, image_size, format, VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT, 0, mipmapped);
+
+									stbi_image_free(data);
+								}
+							},
+						[&](fastgltf::sources::Array& vector) {
 								unsigned char* data = stbi_load_from_memory(reinterpret_cast<const stbi_uc*>(vector.bytes.data()) + bufferView.byteOffset,
 									static_cast<int>(bufferView.byteLength), &width, &height, &channels, 4
 								);
@@ -462,8 +476,10 @@ std::optional<AllocatedImage> load_image(VulkanEngine* engine, const std::string
 	return new_image;
 }
 
-std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const std::string& file_path)
+std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, Loader& loader, const std::string& file_path)
 {
+	auto& materials_data = loader.materials;
+	auto initial_materials_size = materials_data.size();
 	fmt::println("Loading GLTF: {}", file_path);
 
 	std::shared_ptr<LoadedGLTF> scene = std::make_shared<LoadedGLTF>();
@@ -593,27 +609,13 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const
 	fmt::println("gltf file has {} materials", gltf.materials.size());
 	const size_t materials_size = (gltf.materials.size() > 0) ? gltf.materials.size() : 1; // default material fallback
 
-	file.material_buffer = engine->create_buffer(
-		materials_size * sizeof(MaterialData), VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-		VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
-	);
-
-	// TODO: turn this into staging upload? allowing host write likely has performance implications
-	MaterialData* scene_material_data{};
-	scene_material_data = static_cast<MaterialData*>(file.material_buffer.info.pMappedData);
-
 	if (gltf.materials.size() == 0)
 	{
 		MaterialData mat_data{};
-		scene_material_data[0] = mat_data;
+		//scene_material_data[0] = mat_data;
+		materials_data.push_back(mat_data);
 		materials.emplace_back(MaterialInfo{ MaterialPass::Opaque, 0 });
 	}
-
-	VkBufferDeviceAddressInfo address_info{};
-	address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
-	address_info.buffer = file.material_buffer.buffer;
-
-	file.material_buffer_address = vkGetBufferDeviceAddress(engine->device, &address_info);
 
 	// if !is_ktx2, image loading deferred to material creation to prevent performance overhead from image_create_mutable_bit
 	std::vector<bool> images_set(gltf.images.size());
@@ -726,7 +728,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const
 			mat_data.emissive_id = engine->texture_cache.add_texture(img.view);
 		}
 		
-		scene_material_data[material_idx] = mat_data;
+		materials_data.push_back(mat_data);
 
 		MaterialPass pass_type = MaterialPass::Opaque;
 		switch (mat.alphaMode)
@@ -747,11 +749,10 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const
 		material_idx++;
 	}
 
-	std::vector<uint32_t> combined_indices{};
-	std::vector<Vertex> combined_vertices{};
-
-	std::vector<uint32_t> meshlet_indices{};
-	std::vector<Meshlet> meshlets{};
+	auto& combined_indices = loader.combined_indices;
+	auto& combined_vertices = loader.combined_vertices;
+	auto& meshlet_indices = loader.meshlet_indices;
+	auto& meshlets = loader.meshlets;
 
 	fmt::println("gltf file has {} meshes", gltf.meshes.size());
 
@@ -764,7 +765,6 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const
 		file.meshes[std::to_string(mesh_idx).c_str()] = new_mesh;
 		mesh_idx++;
 		new_mesh->name = mesh.name;
-		new_mesh->material_buffer_address = file.material_buffer_address;
 
 		for (auto&& p : mesh.primitives)
 		{
@@ -860,66 +860,19 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const
 			{
 				size_t idx = p.materialIndex.value();
 				MaterialInfo m = materials[idx];
-				new_surface.material_id = static_cast<uint32_t>(idx);
+				new_surface.material_id = static_cast<uint32_t>(idx + initial_materials_size);
 				new_surface.pass = m.pass_type;
-
-				// CURRENTLY UNUSED
-				//ShaderPass* forward{};
-				//ShaderPass* shadow{};
-				//switch (new_surface.pass)
-				//{
-				//case MaterialPass::Mask: // assumes double-sided 
-				//	//forward = engine->shader_passes["textured_lit_clip"].get();
-				//	//shadow = engine->shader_passes["shadow_flat"].get();
-				//	forward = engine->shader_passes["geometry_vert"].get();
-				//	//shadow = engine->shader_passes["shadow"].get();
-				//	shadow = nullptr;
-				//	break;
-				//case MaterialPass::Blend:
-				//	//forward = engine->shader_passes["blend"].get();
-				//	forward = engine->shader_passes["geometry_vert"].get();
-				//	//forward = m.double_sided ? engine->shader_passes["textured_lit2"].get() : engine->shader_passes["textured_lit"].get();
-				//	shadow = nullptr; // transparent objs don't cast shadows for now
-				//	//shadow = engine->shader_passes["shadow_flat"].get();
-				//	break;
-				//case MaterialPass::Opaque:
-				//	//forward = m.double_sided ? engine->shader_passes["textured_lit2"].get() : engine->shader_passes["textured_lit"].get();
-				//	//shadow = m.double_sided ? engine->shader_passes["shadow_flat"].get() : engine->shader_passes["shadow"].get();
-				//	forward = engine->shader_passes["geometry_vert"].get();
-				//	//shadow = engine->shader_passes["shadow"].get();
-				//	shadow = nullptr;
-				//	break;
-				//default:
-				//	break;
-				//}
-				//new_surface.material = engine->material_cache.add_material(forward, shadow);
 			}
 			else
 			{
 				// TODO: refactor - mesh has no material, assign first material
 				auto m = materials[0];
 				new_surface.material_id = 0;
-				// CURRENTLY UNUSED
-				//ShaderPass* forward = engine->shader_passes["geometry_vert"].get();
-				////ShaderPass* shadow = engine->shader_passes["shadow"].get();
-				//ShaderPass* shadow = nullptr;
-				//new_surface.material = engine->material_cache.add_material(forward, shadow);
 				new_surface.pass = m.pass_type;
 			}
 
 			new_mesh->surfaces.push_back(new_surface);
 		}
-	}
-
-	file.combined_mesh_buffer = engine->upload_mesh(combined_indices, combined_vertices);
-	file.meshlet_indices = engine->upload_buffer(meshlet_indices.data(), meshlet_indices.size() * sizeof(uint32_t));
-	file.meshlets = engine->upload_buffer(meshlets.data(), meshlets.size() * sizeof(Meshlet));
-
-	// TODO: unused since we use a single large vertex/index buffer after implementing mesh shading?
-	for (size_t i = 0; i < meshes.size(); i++)
-	{
-		meshes[i]->index_buffer = file.combined_mesh_buffer.index_buffer.buffer;
-		meshes[i]->vertex_buffer_address = file.combined_mesh_buffer.vertex_buffer_address;
 	}
 
 	// load all nodes and their meshes
@@ -995,11 +948,6 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const
 void LoadedGLTF::clear()
 {
 	VkDevice device = creator->device;
-
-	creator->destroy_buffer(material_buffer);
-
-	creator->destroy_buffer(combined_mesh_buffer.vertex_buffer);
-	creator->destroy_buffer(combined_mesh_buffer.index_buffer);
 
 	for (auto& [k, v] : images)
 	{

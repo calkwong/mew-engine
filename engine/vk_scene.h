@@ -183,6 +183,7 @@ struct RenderScene
 	AllocatedBuffer mesh_buffer{};
 	AllocatedBuffer meshlet_buffer{};
 	AllocatedBuffer meshlet_indices{};
+	AllocatedBuffer material_buffer{};
 
 	AllocatedBuffer draw_indirect_buffer{};
 	AllocatedBuffer meshtask_indirect_buffer{};

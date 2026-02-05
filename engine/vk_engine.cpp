@@ -79,7 +79,7 @@ uint32_t nearest_pow2(uint32_t extent)
 	return 1 << static_cast<uint32_t>(std::floor(std::log2(extent)));
 }
 
-void VulkanEngine::init(const std::string& file_path)
+void VulkanEngine::init(std::vector<std::string> file_paths)
 {
 	assert(loaded_engine == nullptr);
 	loaded_engine = this;
@@ -112,7 +112,7 @@ void VulkanEngine::init(const std::string& file_path)
 
 	init_default_data();
 
-	init_renderables(file_path);
+	init_renderables(file_paths);
 
 	init_bindless();
 
@@ -184,6 +184,9 @@ void VulkanEngine::cleanup()
 		destroy_buffer(render_scene.mesh_buffer);
 		destroy_buffer(render_scene.meshlet_buffer);
 		destroy_buffer(render_scene.meshlet_indices);
+		destroy_buffer(render_scene.material_buffer);
+		destroy_buffer(render_scene.combined_mesh_buffer.vertex_buffer);
+		destroy_buffer(render_scene.combined_mesh_buffer.index_buffer);
 
 		destroy_buffer(render_scene.draw_indirect_buffer);
 		destroy_buffer(render_scene.count_buffer);
@@ -1969,7 +1972,7 @@ void VulkanEngine::init_default_data()
 	});
 }
 
-void VulkanEngine::init_renderables(const std::string& file_path)
+void VulkanEngine::init_renderables(std::vector<std::string>& file_paths)
 {
 #ifdef IBL
 	const char* hdr_path{ "../../assets/pisa.hdr" };
@@ -2063,24 +2066,34 @@ void VulkanEngine::init_renderables(const std::string& file_path)
 #endif
 
 	auto start = std::chrono::system_clock::now();
-	auto asset_file = load_gltf(this, file_path);
+	Loader loader{};
+	for (const std::string& file_path : file_paths)
+	{
+		auto asset_file = load_gltf(this, loader, file_path);
+		assert(asset_file.has_value());
+		loaded_scenes[file_path] = *asset_file;
+	}
 	auto end = std::chrono::system_clock::now();
 	auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
 	float ret = elapsed.count() / 1000.0f;
 	fmt::println("load gltf: {}ms", ret);
-	assert(asset_file.has_value());
-	loaded_scenes["scene1"] = *asset_file;
 
-	render_scene.combined_mesh_buffer = loaded_scenes["scene1"]->combined_mesh_buffer;
-	render_scene.meshlet_buffer = loaded_scenes["scene1"]->meshlets;
-	render_scene.meshlet_indices = loaded_scenes["scene1"]->meshlet_indices;
+	render_scene.combined_mesh_buffer = upload_mesh(loader.combined_indices, loader.combined_vertices);
+	render_scene.meshlet_indices = upload_buffer(loader.meshlet_indices.data(), loader.meshlet_indices.size() * sizeof(uint32_t));
+	render_scene.meshlet_buffer = upload_buffer(loader.meshlets.data(), loader.meshlets.size() * sizeof(Meshlet));
+	render_scene.material_buffer = upload_buffer(loader.materials.data(), loader.materials.size() * sizeof(MaterialData));
 
 	auto t = glm::translate(glm::mat4(1.0f), glm::vec3(0, 0, 2));
-	for (const auto& n : loaded_scenes["scene1"]->top_nodes)
+	//for (const auto& n : loaded_scenes["scene1"]->top_nodes)
+	for (const auto& [scene_name, scene] : loaded_scenes)
 	{
-		register_object(n.get(), t);
+		for (const auto& n : scene->top_nodes)
+		{
+			register_object(n.get(), t);
+		}
 	}
 
+#ifndef SINGLE
 	std::mt19937 mt(42);
 	auto draw_radius = 400.0f;
 	auto draw_count = 500'000;
@@ -2097,13 +2110,12 @@ void VulkanEngine::init_renderables(const std::string& file_path)
 		glm::mat4 s = glm::scale(glm::mat4(1.0f), glm::vec3(static_cast<float>(mt()) / mt.max()) + 1.0f);
 		const auto transform = t * r * s;
 
-		for (const auto& n : loaded_scenes["scene1"]->top_nodes)
+		for (const auto& n : loaded_scenes[file_paths[0]]->top_nodes)
 		{
-#ifndef SINGLE
 			register_object(n.get(), transform);
-#endif
 		}
 	}
+#endif
 }
 
 void VulkanEngine::init_bindless()
@@ -2188,8 +2200,12 @@ void VulkanEngine::register_object(Node* node, const glm::mat4& top_matrix)
 				render_scene.primitives.push_back(p);
 			}
 
-			obj.material_buffer_address = node->mesh->material_buffer_address;
-			obj.material = &material_cache.data[s.material];
+			//obj.material_buffer_address = node->mesh->material_buffer_address;
+
+			// TODO: currently unused
+			//obj.material = &material_cache.data[s.material];
+			obj.material = nullptr;
+
 			obj.material_id = s.material_id;
 			obj.transform = node_matrix;
 			obj.meshlet_bits = s.meshlet_bits;
@@ -3084,7 +3100,8 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass, ui
 	pc.meshlet_indices_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
 	address_info.buffer = render_scene.cluster_indices.buffer;
 	pc.cluster_indices_address = vkGetBufferDeviceAddress(device, &address_info);
-	pc.material_buffer_address = loaded_scenes["scene1"]->material_buffer_address;
+	address_info.buffer = render_scene.material_buffer.buffer;
+	pc.material_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
 	address_info.buffer = render_scene.oit_buffer.buffer;
 	pc.oit_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
 	pc.debug_meshlets = CVAR_TOGGLE_MESH_SHADING.get() ? CVAR_TOGGLE_VIEW_MESHLETS.get() : 0;
@@ -3180,7 +3197,8 @@ void VulkanEngine::transparent_render(VkCommandBuffer cmd, uint32_t query)
 	pc.meshlet_indices_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
 	address_info.buffer = render_scene.cluster_indices.buffer;
 	pc.cluster_indices_address = vkGetBufferDeviceAddress(device, &address_info);
-	pc.material_buffer_address = loaded_scenes["scene1"]->material_buffer_address;
+	address_info.buffer = render_scene.material_buffer.buffer;
+	pc.material_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
 	address_info.buffer = render_scene.oit_buffer.buffer;
 	pc.oit_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
 	pc.debug_meshlets = CVAR_TOGGLE_MESH_SHADING.get() ? CVAR_TOGGLE_VIEW_MESHLETS.get() : 0;

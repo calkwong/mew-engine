@@ -40,7 +40,7 @@ struct MeshAsset
 	VkDeviceAddress vertex_buffer_address{};
 
 	// TODO: refactor in the future? added for multiple scenes compatibility
-	VkDeviceAddress material_buffer_address{};
+	//VkDeviceAddress material_buffer_address{};
 };
 
 struct Node
@@ -62,6 +62,17 @@ struct Node
 
 class VulkanEngine;
 
+struct Loader
+{
+	std::vector<uint32_t> combined_indices{};
+	std::vector<Vertex> combined_vertices{};
+
+	std::vector<uint32_t> meshlet_indices{};
+	std::vector<Meshlet> meshlets{};
+
+	std::vector<MaterialData> materials{};
+};
+
 struct LoadedGLTF
 {
 	std::unordered_map<std::string, std::shared_ptr<MeshAsset>> meshes{};
@@ -71,12 +82,12 @@ struct LoadedGLTF
 	std::vector<std::shared_ptr<Node>> top_nodes{};
 	std::vector<VkSampler> samplers{};
 
-	GPUMeshBuffers combined_mesh_buffer{};
-	AllocatedBuffer material_buffer{}; // TODO: possibly move this out to vk_scene?
-	VkDeviceAddress material_buffer_address{};
+	//GPUMeshBuffers combined_mesh_buffer{};
+	//AllocatedBuffer material_buffer{}; // TODO: possibly move this out to vk_scene?
+	//VkDeviceAddress material_buffer_address{};
 
-	AllocatedBuffer meshlet_indices{};
-	AllocatedBuffer meshlets{};
+	//AllocatedBuffer meshlet_indices{};
+	//AllocatedBuffer meshlets{};
 
 	VulkanEngine* creator{};
 
@@ -86,7 +97,7 @@ private:
 	void clear();
 };
 
-std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const std::string& file_path);
+std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, Loader& loader, const std::string& file_path);
 
 struct MikkMesh
 {
