@@ -179,14 +179,14 @@ void main()
 		uint index = screenCoords.x + screenCoords.y * uint(pc.screenSize.x);
 		OITData frags = pc.oitBuffer.frags[index];
 		
-		pc.oitBuffer.frags[index].transmissions = vec4(1.0); // reset so we can skip vkcmdfillbuffer
-		
 		// early return if nothing stored
 		if (frags.transmissions[0] == 1.0)
 		{
 			outFragColor = vec4(albedo, 1.0);
 			return;
 		}
+		
+		pc.oitBuffer.frags[index].transmissions = vec4(1.0); // reset so we can skip vkcmdfillbuffer
 		
 		vec3 composite = vec3(0.);
 		float accumT = 1.0;

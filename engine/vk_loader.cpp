@@ -78,7 +78,9 @@ void optimize_mesh(
 	const float attr_weights[3] = { 1.0f, 1.0f, 1.0f }; // for normals
 	float next_error{};
 
+	// TODO: unused?
 	size_t combined_indices_size = combined_indices.size();
+
 	// meshlets
 	const size_t max_vertices = 64;
 	const size_t max_triangles = 124;
@@ -596,6 +598,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const
 		VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
 	);
 
+	// TODO: turn this into staging upload? allowing host write likely has performance implications
 	MaterialData* scene_material_data{};
 	scene_material_data = static_cast<MaterialData*>(file.material_buffer.info.pMappedData);
 
@@ -860,45 +863,47 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const
 				new_surface.material_id = static_cast<uint32_t>(idx);
 				new_surface.pass = m.pass_type;
 
-				ShaderPass* forward{};
-				ShaderPass* shadow{};
-				switch (new_surface.pass)
-				{
-				case MaterialPass::Mask: // assumes double-sided 
-					//forward = engine->shader_passes["textured_lit_clip"].get();
-					//shadow = engine->shader_passes["shadow_flat"].get();
-					forward = engine->shader_passes["geometry_vert"].get();
-					//shadow = engine->shader_passes["shadow"].get();
-					shadow = nullptr;
-					break;
-				case MaterialPass::Blend:
-					//forward = engine->shader_passes["blend"].get();
-					forward = engine->shader_passes["geometry_vert"].get();
-					//forward = m.double_sided ? engine->shader_passes["textured_lit2"].get() : engine->shader_passes["textured_lit"].get();
-					shadow = nullptr; // transparent objs don't cast shadows for now
-					//shadow = engine->shader_passes["shadow_flat"].get();
-					break;
-				case MaterialPass::Opaque:
-					//forward = m.double_sided ? engine->shader_passes["textured_lit2"].get() : engine->shader_passes["textured_lit"].get();
-					//shadow = m.double_sided ? engine->shader_passes["shadow_flat"].get() : engine->shader_passes["shadow"].get();
-					forward = engine->shader_passes["geometry_vert"].get();
-					//shadow = engine->shader_passes["shadow"].get();
-					shadow = nullptr;
-					break;
-				default:
-					break;
-				}
-				new_surface.material = engine->material_cache.add_material(forward, shadow);
+				// CURRENTLY UNUSED
+				//ShaderPass* forward{};
+				//ShaderPass* shadow{};
+				//switch (new_surface.pass)
+				//{
+				//case MaterialPass::Mask: // assumes double-sided 
+				//	//forward = engine->shader_passes["textured_lit_clip"].get();
+				//	//shadow = engine->shader_passes["shadow_flat"].get();
+				//	forward = engine->shader_passes["geometry_vert"].get();
+				//	//shadow = engine->shader_passes["shadow"].get();
+				//	shadow = nullptr;
+				//	break;
+				//case MaterialPass::Blend:
+				//	//forward = engine->shader_passes["blend"].get();
+				//	forward = engine->shader_passes["geometry_vert"].get();
+				//	//forward = m.double_sided ? engine->shader_passes["textured_lit2"].get() : engine->shader_passes["textured_lit"].get();
+				//	shadow = nullptr; // transparent objs don't cast shadows for now
+				//	//shadow = engine->shader_passes["shadow_flat"].get();
+				//	break;
+				//case MaterialPass::Opaque:
+				//	//forward = m.double_sided ? engine->shader_passes["textured_lit2"].get() : engine->shader_passes["textured_lit"].get();
+				//	//shadow = m.double_sided ? engine->shader_passes["shadow_flat"].get() : engine->shader_passes["shadow"].get();
+				//	forward = engine->shader_passes["geometry_vert"].get();
+				//	//shadow = engine->shader_passes["shadow"].get();
+				//	shadow = nullptr;
+				//	break;
+				//default:
+				//	break;
+				//}
+				//new_surface.material = engine->material_cache.add_material(forward, shadow);
 			}
 			else
 			{
 				// TODO: refactor - mesh has no material, assign first material
 				auto m = materials[0];
 				new_surface.material_id = 0;
-				ShaderPass* forward = engine->shader_passes["geometry_vert"].get();
-				//ShaderPass* shadow = engine->shader_passes["shadow"].get();
-				ShaderPass* shadow = nullptr;
-				new_surface.material = engine->material_cache.add_material(forward, shadow);
+				// CURRENTLY UNUSED
+				//ShaderPass* forward = engine->shader_passes["geometry_vert"].get();
+				////ShaderPass* shadow = engine->shader_passes["shadow"].get();
+				//ShaderPass* shadow = nullptr;
+				//new_surface.material = engine->material_cache.add_material(forward, shadow);
 				new_surface.pass = m.pass_type;
 			}
 
@@ -910,6 +915,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const
 	file.meshlet_indices = engine->upload_buffer(meshlet_indices.data(), meshlet_indices.size() * sizeof(uint32_t));
 	file.meshlets = engine->upload_buffer(meshlets.data(), meshlets.size() * sizeof(Meshlet));
 
+	// TODO: unused since we use a single large vertex/index buffer after implementing mesh shading?
 	for (size_t i = 0; i < meshes.size(); i++)
 	{
 		meshes[i]->index_buffer = file.combined_mesh_buffer.index_buffer.buffer;

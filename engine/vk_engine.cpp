@@ -2193,7 +2193,6 @@ void VulkanEngine::register_object(Node* node, const glm::mat4& top_matrix)
 			obj.material_id = s.material_id;
 			obj.transform = node_matrix;
 			obj.meshlet_bits = s.meshlet_bits;
-			//if (CVAR_TOGGLE_MASK.get())
 			{
 				switch (s.pass)
 				{
@@ -2207,8 +2206,6 @@ void VulkanEngine::register_object(Node* node, const glm::mat4& top_matrix)
 					obj.post_pass = 0;
 				}
 			}
-			//else
-			//	obj.post_pass = 0;
 
 			uint32_t handle = static_cast<uint32_t>(render_scene.renderables.size());
 			render_scene.renderables.push_back(obj);

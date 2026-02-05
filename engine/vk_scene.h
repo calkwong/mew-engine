@@ -198,8 +198,7 @@ struct RenderScene
 	MeshPass mask_pass{};
 	MeshPass transparent_pass{};
 	//std::array<MeshPass, 4> shadow_pass{};
-	//MeshPass transparent_pass{};
-	uint32_t total_meshlets_bits{};	  // should be per-pass
+	uint32_t total_meshlets_bits{};	 
 	uint32_t max_meshtask_commands{}; // should be per-pass
 
 	void init();
