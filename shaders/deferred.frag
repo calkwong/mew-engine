@@ -89,10 +89,42 @@ float linearizeDepthInfiniteReverse(float depth)
 	return pc.near / depth;
 }
 
+const float AMBIENT = 0.1;
 const int CASCADE_COUNT = 4;
 int MAX_LIGHTS = 1000; // TODO: hardcoded
 const int MLAB_NODES = 4;
 #define CLUSTERED_SHADING
+
+vec3 compositeTransparent(vec3 inputColor)
+{
+	vec3 color = inputColor;
+	
+		uvec2 screenCoords = uvec2(floor(gl_FragCoord.xy));
+		uint index = screenCoords.x + screenCoords.y * uint(pc.screenSize.x);
+		OITData frags = pc.oitBuffer.frags[index];
+		
+		// early return if nothing stored
+		if (frags.transmissions[0] == 1.0)
+		{
+			return color;
+		}
+		
+		pc.oitBuffer.frags[index].transmissions = vec4(1.0); // reset so we can skip vkcmdfillbuffer
+		
+		vec3 composite = vec3(0.);
+		float accumT = 1.0;
+		for (int i = 0; i < MLAB_NODES; i++)
+		{
+			float t = frags.transmissions[i];
+			composite = t != 1.0 ? unpackUnorm4x8(frags.colors[i]).xyz * accumT + composite : composite;
+			accumT *= t;
+		}
+		
+		color *= accumT;
+		color += composite;
+	
+	return color;
+}
 
 float calculateShadow(vec3 worldPos, inout uint cascadeIdx)
 {
@@ -145,7 +177,7 @@ float calculateShadow(vec3 worldPos, inout uint cascadeIdx)
 		
 		float bias = 0.0;
 		if (closestDepth > currentDepth + bias)
-			shadow = 0.3;
+			shadow = 0.0;
 		else
 			shadow = 1.0;
 	}
@@ -160,15 +192,39 @@ void main()
 		outFragColor = vec4(normal, 1.0);
 		return;
 	}
+	
 	vec3 albedo = texture(sampler2D(allTextures[pc.albedo_id], samplers[NEAREST_SAMPLER]), inUV).xyz;
 	vec3 worldPos = texture(sampler2D(allTextures[pc.world_pos_id], samplers[NEAREST_SAMPLER]), inUV).xyz;
 	
-	vec3 color = vec3(0.);
+	outFragColor = vec4(albedo, 1.0);
 	
-	bool renderLights = pc.lightCulling == 1 && pc.resolveTransparent == 0;
-	
-	if (renderLights)
+	uint cascadeIdx = 0;
+	if (pc.shadows == 1)
 	{
+		float occluded = calculateShadow(worldPos, cascadeIdx);
+		/*
+		switch (cascadeIdx)
+		{
+			case 0:
+				outFragColor = vec4(1, 0, 0, 1);
+				break;
+			case 1:
+				outFragColor = vec4(0, 1, 0, 1);
+				break;
+			case 2:
+				outFragColor = vec4(0, 0, 1, 1);
+				break;
+			case 3:
+				outFragColor = vec4(1, 1, 0, 1);
+				break;
+		}
+		*/
+		outFragColor.xyz *= occluded;
+	}
+	
+	if (pc.lightCulling == 1)
+	{
+		vec3 color = vec3(0.);
 #ifndef CLUSTERED_SHADING
 		for (int i = 0; i < MAX_LIGHTS; i++)
 		{
@@ -226,68 +282,15 @@ void main()
 			}
 		}
 #endif
-	}
-	
-	if (renderLights)
-	{
-		vec3 ambient = 0.05 * albedo;
-		outFragColor = vec4(color + ambient, 1.0);
+
+		// if not affected by any lights, keep outFragColor = albedo * occluded
+		if (color != vec3(0.0))
+			outFragColor = vec4(color, 1.0);
 	}
 	
 	if (pc.resolveTransparent == 1)
 	{
-		uvec2 screenCoords = uvec2(floor(gl_FragCoord.xy));
-		uint index = screenCoords.x + screenCoords.y * uint(pc.screenSize.x);
-		OITData frags = pc.oitBuffer.frags[index];
-		
-		// early return if nothing stored
-		if (frags.transmissions[0] == 1.0)
-		{
-			outFragColor = vec4(albedo, 1.0);
-			return;
-		}
-		
-		pc.oitBuffer.frags[index].transmissions = vec4(1.0); // reset so we can skip vkcmdfillbuffer
-		
-		vec3 composite = vec3(0.);
-		float accumT = 1.0;
-		for (int i = 0; i < MLAB_NODES; i++)
-		{
-			float t = frags.transmissions[i];
-			composite = t != 1.0 ? unpackUnorm4x8(frags.colors[i]).xyz * accumT + composite : composite;
-			accumT *= t;
-		}
-		
-		outFragColor = vec4(albedo, 1.0);
-		outFragColor.xyz *= accumT;
-		outFragColor += vec4(composite, 1.0);
+		outFragColor.xyz = compositeTransparent(outFragColor.xyz);
 	}
 	
-	if (!renderLights && pc.resolveTransparent == 0) 
-	{
-		outFragColor = vec4(albedo, 1.0);
-		uint cascadeIdx = 0;
-		if (pc.shadows == 1)
-		{
-			float occluded = calculateShadow(worldPos, cascadeIdx);
-			/*
-			switch (cascadeIdx)
-			{
-				case 0:
-					outFragColor = vec4(1, 0, 0, 1);
-					break;
-				case 1:
-					outFragColor = vec4(0, 1, 0, 1);
-					break;
-				case 2:
-					outFragColor = vec4(0, 0, 1, 1);
-					break;
-				case 3:
-					outFragColor = vec4(1, 1, 0, 1);
-					break;
-			}
-			*/
-			outFragColor.xyz *= occluded;
-		}
-	}
 }

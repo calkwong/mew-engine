@@ -702,7 +702,6 @@ void VulkanEngine::draw()
 	}
 	else
 	{
-
 	}
 
 	// visualize hi-z
@@ -2149,7 +2148,7 @@ void VulkanEngine::init_renderables(std::vector<std::string>& file_paths)
 
 	auto start = std::chrono::system_clock::now();
 	Loader loader{};
-	for (const std::string& file_path : file_paths)
+	for (std::string& file_path : file_paths)
 	{
 		auto asset_file = load_gltf(this, loader, file_path);
 		assert(asset_file.has_value());
@@ -2178,7 +2177,7 @@ void VulkanEngine::init_renderables(std::vector<std::string>& file_paths)
 #ifndef SINGLE
 	std::mt19937 mt(42);
 	auto draw_radius = 400.0f;
-	auto draw_count = 500'000;
+	auto draw_count = 1'000;
 
 	for (size_t i = 0; i < draw_count; i++)
 	{

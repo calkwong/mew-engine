@@ -476,10 +476,11 @@ std::optional<AllocatedImage> load_image(VulkanEngine* engine, const std::string
 	return new_image;
 }
 
-std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, Loader& loader, const std::string& file_path)
+std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, Loader& loader, std::string& file_path)
 {
 	auto& materials_data = loader.materials;
 	auto initial_materials_size = materials_data.size();
+	file_path = "../../assets/" + file_path;
 	fmt::println("Loading GLTF: {}", file_path);
 
 	std::shared_ptr<LoadedGLTF> scene = std::make_shared<LoadedGLTF>();
@@ -502,13 +503,12 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, Loade
 		fastgltf::Options::LoadExternalBuffers
 	};
 
-	auto gltf_file = fastgltf::GltfDataBuffer::FromPath(file_path);
+	std::filesystem::path path = file_path;
+	auto gltf_file = fastgltf::GltfDataBuffer::FromPath(path);
 	if (gltf_file.error() != fastgltf::Error::None)
 		return {};
 
 	fastgltf::Asset gltf{};
-
-	std::filesystem::path path = file_path;
 
 	auto type = fastgltf::determineGltfFileType(gltf_file.get());
 	if (type == fastgltf::GltfType::glTF)

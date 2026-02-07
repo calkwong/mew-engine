@@ -97,7 +97,7 @@ private:
 	void clear();
 };
 
-std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, Loader& loader, const std::string& file_path);
+std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, Loader& loader, std::string& file_path);
 
 struct MikkMesh
 {
