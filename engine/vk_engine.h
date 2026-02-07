@@ -58,7 +58,8 @@ struct DeferredPushConstants
 	float bias{};  
 	uint32_t debug_meshlets{};
 	uint32_t resolve_transparent{};
-	uint32_t shadow_debug{};
+	uint32_t shadows{};
+	uint32_t pcf{};
 };
 
 //struct ShadowPushConstants
@@ -402,17 +403,17 @@ public:
 	void register_object(Node* node, const glm::mat4& top_matrix);
 	void execute_debug_pass(VkCommandBuffer cmd);
 	void execute_deferred_shading(VkCommandBuffer cmd);
-	void shadow_pass(VkCommandBuffer cmd, RenderScene::MeshPass& pass, size_t cascade_idx);
 	void update_cascade();
 	void draw_imgui(VkCommandBuffer cmd, VkImageView swapchain_view);
 	void ready_mesh_draw();
-	void ready_cull_data(RenderScene::MeshPass& pass, CullData& cull_data, glm::mat4& proj, bool orthographic = false);
-	void ready_cull_data(RenderScene::MeshPass& pass, ClusterCullData& cull_data, glm::mat4& proj, bool orthographic = false);
+	void ready_mesh_cull(RenderScene::MeshPass& pass, CullData& cull_data, glm::mat4& proj, bool orthographic = false);
+	void ready_meshlet_cull(RenderScene::MeshPass& pass, ClusterCullData& cull_data, glm::mat4& proj, bool orthographic = false);
+	void ready_shadow_cull(RenderScene::MeshPass& pass, CullData& cull_data, glm::mat4& proj, bool orthographic = false);
 	void execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPass& pass, CullData& cull_data, bool late, uint32_t post_pass);
 	void execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPass& pass, ClusterCullData& cull_data, VkBuffer count_buffer, uint32_t offset, bool late, uint32_t post_pass);
 	void execute_shadow_cull(VkCommandBuffer cmd, CullData& cull_data);
 	void render(VkCommandBuffer cmd, bool late, uint32_t post_pass, uint32_t query);
-	void transparent_render(VkCommandBuffer cmd, uint32_t query);
+	void render_transparent(VkCommandBuffer cmd, uint32_t query);
 	void render_shadows(VkCommandBuffer cmd, uint32_t cascade_idx, uint32_t query);
 	void build_depth_pyramid(VkCommandBuffer cmd);
 	void execute_light_culling(VkCommandBuffer cmd);

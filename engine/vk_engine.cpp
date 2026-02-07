@@ -72,8 +72,8 @@ AutoCVar_Int CVAR_DEPTH_PYRAMID_LOD{ "Hi-Z LOD", 0, 0, CVarFlags::EditSliderInt,
 AutoCVar_Int CVAR_TOGGLE_LIGHT_CULLING{ "Light clustered culling", 0, 0, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TOGGLE_MASK{ "Render masked geometry", 1, 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TOGGLE_TRANSPARENT{ "Render transparent geometry", 0, 0, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_TOGGLE_SHADOW{ "Render shadows", 1, 1, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_TOGGLE_SHADOW_DEBUG{ "Shadow debug", 1, 1, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_TOGGLE_SHADOW{ "Render shadows", 0, 0, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_TOGGLE_SOFT_SHADOWS{ "Shadow debug", 1, 1, CVarFlags::EditCheckbox };
 
 
 uint32_t nearest_pow2(uint32_t extent)
@@ -112,7 +112,7 @@ void VulkanEngine::init(std::vector<std::string> file_paths)
 
 	init_pipelines();
 
-	//main_camera.position = glm::vec3(0, 0, 5);
+	main_camera.position = glm::vec3(0, 0, 5);
 	main_camera.near = static_cast<float>(CVAR_DRAW_DISTANCE.get());
 	main_camera.far = 0.5f;
 	main_camera.fov = 70.0f;
@@ -199,9 +199,7 @@ void VulkanEngine::cleanup()
 		destroy_buffer(render_scene.cluster_indices);
 
 		destroy_buffer(render_scene.oit_buffer);
-		destroy_buffer(render_scene.opaque_pass.indices_buffer);
-		destroy_buffer(render_scene.mask_pass.indices_buffer);
-		destroy_buffer(render_scene.transparent_pass.indices_buffer);
+		destroy_buffer(render_scene.indices_buffer);
 
 		// TODO: possibly destroy loadedgltf resources here instead?
 
@@ -251,8 +249,8 @@ void VulkanEngine::draw()
 	{
 		auto proj = freeze_camera ? last_proj : scene_data.proj;
 
-		ready_cull_data(render_scene.opaque_pass, forward_mesh_cull_data, proj);
-		ready_cull_data(render_scene.opaque_pass, forward_cluster_cull_data, proj);
+		ready_mesh_cull(render_scene.opaque_pass, forward_mesh_cull_data, proj);
+		ready_meshlet_cull(render_scene.opaque_pass, forward_cluster_cull_data, proj);
 		shadow_cull_data = forward_mesh_cull_data;
 	}
 
@@ -604,7 +602,7 @@ void VulkanEngine::draw()
 		); // barrier for OIT buffer from last frame?
 
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 18);
-		transparent_render(cmd, 3);
+		render_transparent(cmd, 3);
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 19);
 	}
 	else
@@ -1575,7 +1573,8 @@ void VulkanEngine::init_pipelines()
 	builder.set_shaders({ &shader_cache["depth.vert"], &shader_cache["depth.frag"] });
 	builder.shader_stages[1].pSpecializationInfo = &specialization_info;
 	specialization_data.opaque = 1;
-	builder.set_cull_mode(VK_CULL_MODE_FRONT_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
+	//builder.set_cull_mode(VK_CULL_MODE_FRONT_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
+	builder.set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
 	shader_passes["depth"] = vkutil::build_shader(device, builder, {}, descriptor_layouts, sizeof(ShadowPushConstants));
 	specialization_data.opaque = 0;
 	builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
@@ -1955,7 +1954,6 @@ void VulkanEngine::init_default_data()
 		float d = lambda * (log - uniform) + uniform; // world space
 		cascade_data[idx].split_ratio = (d - near) / range;
 		scene_data.cascade_splits[idx] = d * -1.0f;
-		fmt::println("d: {}", d);
 		cascade_data[idx].shadow_map = create_image(VkExtent3D{SHADOW_MAP_SIZE, SHADOW_MAP_SIZE, 1}, VK_FORMAT_D32_SFLOAT,
 			VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_DEPTH_BIT
 		);
@@ -2342,11 +2340,8 @@ void VulkanEngine::update_scene()
 	last_view = freeze_camera ? last_view : scene_data.view;
 	last_proj = freeze_camera ? last_proj : scene_data.proj;
 
-	auto angle = 0.f;
-	float radius = 20.0f;
-	scene_data.sunlight_dir = glm::vec4(glm::vec3(cos(angle) * radius, radius, sin(angle) * radius), 1.);
 	//scene_data.sunlight_dir = glm::vec4(7.75, 12.5, 12.5, 1.);
-	//scene_data.sunlight_dir = glm::vec4(0.001, 12.0, 0.0, 1.);
+	scene_data.sunlight_dir = glm::vec4(0.001, 12.0, 0.0, 1.);
 	//scene_data.sunlight_dir = glm::vec4(0.0, 12.0, 12.0, 1.);
 	scene_data.sunlight_color = glm::vec4(1);
 
@@ -2543,7 +2538,8 @@ void VulkanEngine::execute_deferred_shading(VkCommandBuffer cmd)
 	pc.bias = cluster_z * std::log(main_camera.far) / std::log(ratio);
 	pc.debug_meshlets = CVAR_TOGGLE_MESH_SHADING.get() ? CVAR_TOGGLE_VIEW_MESHLETS.get() : 0;
 	pc.resolve_transparent = CVAR_TOGGLE_TRANSPARENT.get();
-	pc.shadow_debug = CVAR_TOGGLE_SHADOW_DEBUG.get();
+	pc.shadows = CVAR_TOGGLE_SHADOW.get();
+	pc.pcf = CVAR_TOGGLE_SOFT_SHADOWS.get();
 
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(DeferredPushConstants), &pc);
 	vkCmdDraw(cmd, 3, 1, 0, 0);
@@ -2553,76 +2549,6 @@ void VulkanEngine::execute_deferred_shading(VkCommandBuffer cmd)
 	vkCmdEndRendering(cmd);
 }
 
-/*
-void VulkanEngine::shadow_pass(VkCommandBuffer cmd, RenderScene::MeshPass& pass, size_t cascade_idx)
-{
-	CascadeData& cascade = cascade_data[cascade_idx];
-
-	VkRenderingAttachmentInfo depth_attachment = vkinit::depth_attachment_info(cascade.shadow_map.view);
-	VkExtent2D shadow_extent = VkExtent2D{ cascade.shadow_map.extent.width, cascade.shadow_map.extent.height };
-	VkRenderingInfo render_info = vkinit::rendering_info(shadow_extent, nullptr, &depth_attachment);
-
-	vkCmdBeginRendering(cmd, &render_info);
-
-	VkViewport viewport{};
-	viewport.x = 0;
-	viewport.y = static_cast<float>(shadow_extent.height);
-	viewport.width = static_cast<float>(shadow_extent.width);
-	viewport.height = -static_cast<float>(shadow_extent.height);
-	viewport.minDepth = 0.0f;
-	viewport.maxDepth = 1.0f;
-	vkCmdSetViewport(cmd, 0, 1, &viewport);
-
-	VkRect2D scissor{};
-	scissor.offset.x = 0;
-	scissor.offset.y = 0;
-	scissor.extent.width = shadow_extent.width;
-	scissor.extent.height = shadow_extent.height;
-	vkCmdSetScissor(cmd, 0, 1, &scissor);
-
-	auto depth_bias = 0.f;
-	auto slope_scaled_depth_bias = 0.f;
-	// TODO: refactor to account for different geometry (double-sided or back face culled)
-	vkCmdSetDepthBias(cmd, -depth_bias, 0.0f, -slope_scaled_depth_bias); 
-
-	ShaderPass current_pass = *shader_passes["shadow"];
-	// TODO: refactor - clean up when reimplementing shadows
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
-
-	ShadowPushConstants pc{}; 
-	pc.viewproj = cascade.viewproj;
-
-	VkBufferDeviceAddressInfo address_info{};
-	address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
-	pc.material_buffer_address = render_scene.renderables[0].material_buffer_address; // TODO: hardcoded, refactor
-
-	address_info.buffer = render_scene.object_buffer.buffer;
-	pc.object_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
-
-	pc.vertex_buffer_address = render_scene.combined_mesh_buffer.vertex_buffer_address;
-	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(ShadowPushConstants), &pc);
-
-	vkCmdBindIndexBuffer(cmd, render_scene.combined_mesh_buffer.index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
-	for (size_t i = 0; i < pass.multibatches.size(); i++)
-	{
-		const auto& multibatch = pass.multibatches[i];
-		const auto& pipeline = multibatch.pipeline;
-
-		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->pipeline);
-
-		vkCmdDrawIndexedIndirectCount(cmd, pass.draw_indirect_buffer.buffer, multibatch.offset * sizeof(VkDrawIndexedIndirectCommand),
-			pass.count_buffer.buffer, i * sizeof(uint32_t),
-			multibatch.max_draw_count, sizeof(VkDrawIndexedIndirectCommand)
-		);
-
-		stats.draw_count++;
-	}
-	vkCmdEndRendering(cmd);
-};
-*/
-
 void VulkanEngine::update_cascade()
 {
 	auto light_dir = glm::normalize(glm::vec3(scene_data.sunlight_dir));
@@ -2630,7 +2556,7 @@ void VulkanEngine::update_cascade()
 	glm::mat4 view = main_camera.get_view_matrix();
 	// TODO: refactor when implementing window resize
 
-	// TODO: change to infinite far plane and use draw distance in culling shader
+	// TODO: change to infinite far plane and use draw distance in culling shader? or not?
 	glm::mat4 proj = glm::perspective(glm::radians(main_camera.fov), static_cast<float>(draw_extent.width) / draw_extent.height, SHADOW_DISTANCE, main_camera.far);
 	glm::mat4 inv_viewproj = glm::inverse(proj * view);
 	
@@ -2795,32 +2721,24 @@ void VulkanEngine::ready_mesh_draw()
 	}
 
 	std::vector<RenderScene::MeshPass*> passes = { &render_scene.opaque_pass, &render_scene.mask_pass, &render_scene.transparent_pass };
+
+	auto total = 0;
+	std::vector<uint32_t> staging{};
 	for (size_t i = 0; i < passes.size(); i++)
 	{
 		RenderScene::MeshPass* pass = passes[i];
-		if (pass->indices_buffer.info.size < pass->unbatched_objects.size() * sizeof(uint32_t))
-			pass->indices_buffer = upload_buffer(pass->unbatched_objects.data(), pass->unbatched_objects.size() * sizeof(uint32_t));
+		pass->indices_offset = total;
+		total += pass->unbatched_objects.size();
 
-		// TODO: refactor - will never be used but we need an allocated dummy buffer for now
-		if (pass->indices_buffer.info.size == 0 && pass->unbatched_objects.size() == 0)
-			pass->indices_buffer = create_buffer(sizeof(uint32_t), 0, VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT); 
+		for (size_t i = 0; i < pass->unbatched_objects.size(); i++)
+		{
+			staging.push_back(pass->unbatched_objects[i]);
+		}
 	}
+	if (render_scene.indices_buffer.info.size < total * sizeof(uint32_t))
+		render_scene.indices_buffer = upload_buffer(staging.data(), total * sizeof(uint32_t));
 
-	//for (size_t i = 0; i < passes.size(); i++)
 	{
-		//auto& pass = *passes[i];
-
-		//if (pass.pass_objects.size() != pass.unbatched_objects.size())
-		//{
-		//	fmt::println("pass_object, indirect_batch");
-		//	render_scene.build_pass_objects(pass);
-		//	render_scene.sort_objects(pass);
-		//	//render_scene.build_indirect_batch(pass);
-		//	//render_scene.build_multi_batch(pass);
-		//}
-
-		// TODO: can probably use a single bit per pass object
-		//if (pass.vis_buffer.info.size < pass.pass_objects.size())
 		if (render_scene.vis_buffer.info.size < render_scene.renderables.size()) // allocate for worst case
 		{
 			render_scene.vis_buffer = reallocate_buffer(
@@ -2837,7 +2755,6 @@ void VulkanEngine::ready_mesh_draw()
 				});
 		}
 
-		//if (pass.count_buffer.info.size < pass.multibatches.size() * sizeof(uint32_t))
 		if (render_scene.count_buffer.info.size < sizeof(uint32_t))
 		{
 			render_scene.count_buffer = reallocate_buffer(
@@ -2856,7 +2773,6 @@ void VulkanEngine::ready_mesh_draw()
 			);
 		}
 
-		//if (pass.draw_indirect_buffer.info.size < pass.pass_objects.size() * sizeof(VkDrawIndexedIndirectCommand))
 		if (render_scene.draw_indirect_buffer.info.size < render_scene.renderables.size() * sizeof(VkDrawIndexedIndirectCommand))
 		{
 			render_scene.draw_indirect_buffer = reallocate_buffer(
@@ -2931,7 +2847,7 @@ void VulkanEngine::ready_mesh_draw()
 }
 
 // late & post_pass set in executecomputecull
-void VulkanEngine::ready_cull_data(RenderScene::MeshPass& pass, CullData& cull_data, glm::mat4& proj, bool orthographic /*= false*/)
+void VulkanEngine::ready_mesh_cull(RenderScene::MeshPass& pass, CullData& cull_data, glm::mat4& proj, bool orthographic /*= false*/)
 {
 	auto projT = glm::transpose(proj);
 
@@ -2976,8 +2892,7 @@ void VulkanEngine::ready_cull_data(RenderScene::MeshPass& pass, CullData& cull_d
 	address_info.buffer = render_scene.mesh_buffer.buffer;
 	cull_data.mesh_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
 
-	address_info.buffer = pass.indices_buffer.buffer;
-	cull_data.indices_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+	//address_info.buffer = render_scene.indices_buffer.buffer; // set during execute
 
 	address_info.buffer = render_scene.draw_indirect_buffer.buffer;
 	cull_data.draw_indirect_address = vkGetBufferDeviceAddress(device, &address_info);
@@ -2991,8 +2906,7 @@ void VulkanEngine::ready_cull_data(RenderScene::MeshPass& pass, CullData& cull_d
 	address_info.buffer = render_scene.meshtask_indirect_buffer.buffer;
 	cull_data.meshtask_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
 
-	//cull_data.count = static_cast<uint32_t>(pass.pass_objects.size());
-	cull_data.count = static_cast<uint32_t>(pass.unbatched_objects.size()); // TODO: clean this up? we need to update this in executecomputecull
+	//cull_data.count = static_cast<uint32_t>(pass.unbatched_objects.size()); // set during execute
 	cull_data.texture_id = texture_cache.get_depth_pyramid_image();
 	cull_data.occlusion_enabled = CVAR_TOGGLE_OCCLUSION.get();
 	
@@ -3009,7 +2923,7 @@ void VulkanEngine::ready_cull_data(RenderScene::MeshPass& pass, CullData& cull_d
 }
 
 // late & post_pass set in executecomputecull
-void VulkanEngine::ready_cull_data(RenderScene::MeshPass& pass, ClusterCullData& cull_data, glm::mat4& proj, bool orthographic /*= false*/)
+void VulkanEngine::ready_meshlet_cull(RenderScene::MeshPass& pass, ClusterCullData& cull_data, glm::mat4& proj, bool orthographic /*= false*/)
 {
 	auto projT = glm::transpose(proj);
 
@@ -3066,8 +2980,7 @@ void VulkanEngine::ready_cull_data(RenderScene::MeshPass& pass, ClusterCullData&
 	address_info.buffer = render_scene.meshtask_indirect_buffer.buffer;
 	cull_data.meshtask_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
 
-	//cull_data.count = static_cast<uint32_t>(pass.pass_objects.size());
-	cull_data.count = static_cast<uint32_t>(pass.unbatched_objects.size()); // TODO: clean this up? we need to update this in executecomputecull
+	//cull_data.count = static_cast<uint32_t>(pass.unbatched_objects.size()); // unused
 	cull_data.texture_id = texture_cache.get_depth_pyramid_image();
 	cull_data.occlusion_enabled = CVAR_TOGGLE_OCCLUSION.get();
 
@@ -3094,16 +3007,15 @@ void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPa
 
 	VkBufferDeviceAddressInfo address_info{};
 	address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
-	address_info.buffer = pass.indices_buffer.buffer;
+	address_info.buffer = render_scene.indices_buffer.buffer;
 	cull_data.indices_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+	cull_data.indices_buffer_address += pass.indices_offset * sizeof(uint32_t);
 
 	cull_data.count = static_cast<uint32_t>(pass.unbatched_objects.size());
-	//cull_data.count = static_cast<uint32_t>(render_scene.renderables.size());
 	cull_data.late = late ? 1 : 0;
 	cull_data.post_pass = post_pass;
 
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CullData), &cull_data);
-	//vkCmdDispatch(cmd, static_cast<uint32_t>(std::ceil(render_scene.renderables.size() / 256.0)), 1, 1);
 	vkCmdDispatch(cmd, static_cast<uint32_t>(std::ceil(pass.unbatched_objects.size() / 256.0)), 1, 1);
 }
 
@@ -3116,7 +3028,7 @@ void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPa
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
 
-	cull_data.count = static_cast<uint32_t>(pass.unbatched_objects.size());
+	//cull_data.count; // unused
 	cull_data.late = late ? 1 : 0;
 	cull_data.post_pass = post_pass;
 
@@ -3138,8 +3050,9 @@ void VulkanEngine::execute_shadow_cull(VkCommandBuffer cmd, CullData& cull_data)
 	{
 		VkBufferDeviceAddressInfo address_info{};
 		address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
-		address_info.buffer = pass->indices_buffer.buffer;
+		address_info.buffer = render_scene.indices_buffer.buffer;
 		cull_data.indices_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+		cull_data.indices_buffer_address += pass->indices_offset * sizeof(uint32_t);
 		cull_data.count = static_cast<uint32_t>(pass->unbatched_objects.size());
 
 		vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CullData), &cull_data);
@@ -3262,7 +3175,7 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass, ui
 	vkCmdEndQuery(cmd, get_current_frame().query_pool_pipelines, query);
 }
 
-void VulkanEngine::transparent_render(VkCommandBuffer cmd, uint32_t query)
+void VulkanEngine::render_transparent(VkCommandBuffer cmd, uint32_t query)
 {
 	vkCmdBeginQuery(cmd, get_current_frame().query_pool_pipelines, query, 0);
 
@@ -3400,6 +3313,7 @@ void VulkanEngine::render_shadows(VkCommandBuffer cmd, uint32_t cascade_idx, uin
 	pc.vertex_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
 
 	{
+		// TODO: fix this
 		ShaderPass current_pass = *shader_passes["depth_mask"];
 		//ShaderPass current_pass = *shader_passes["depth"];
 

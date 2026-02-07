@@ -72,7 +72,8 @@ layout( push_constant ) uniform constants
 	float bias;
 	uint debugMeshlets;
 	uint resolveTransparent;
-	uint shadowDebug;
+	uint shadows;
+	uint pcf;
 } pc;
 
 float distanceSquared(vec3 a, vec3 b)
@@ -115,12 +116,12 @@ float calculateShadow(vec3 worldPos, inout uint cascadeIdx)
 	uv = uv * 0.5 + 0.5;
 	uv.y = 1.0 - uv.y;
 	
-	vec2 offset = 1.0 / textureSize(sampler2D(allTextures[pc.shadowmap_id + cascadeIdx], samplers[NEAREST_SAMPLER]), 0); // FIX 
+	vec2 offset = 1.0 / textureSize(sampler2D(allTextures[pc.shadowmap_id + cascadeIdx], samplers[NEAREST_SAMPLER]), 0);
 	
 	float shadow = 0.0;
 	float closestDepth = 0.0;
 
-	if (pc.shadowDebug == 1)
+	if (pc.pcf == 1)
 	{
 		for (int y = -1; y <= 1; y++)
 		{
@@ -130,7 +131,7 @@ float calculateShadow(vec3 worldPos, inout uint cascadeIdx)
 				closestDepth = texture(sampler2D(allTextures[pc.shadowmap_id + cascadeIdx], samplers[NEAREST_SAMPLER]), sample_uv).r;
 				
 				if (closestDepth > currentDepth)
-					shadow += 0.0;
+					shadow += 0.3;
 				else
 					shadow += 1.0;
 			}
@@ -144,7 +145,7 @@ float calculateShadow(vec3 worldPos, inout uint cascadeIdx)
 		
 		float bias = 0.0;
 		if (closestDepth > currentDepth + bias)
-			shadow = 0.0;
+			shadow = 0.3;
 		else
 			shadow = 1.0;
 	}
@@ -266,24 +267,27 @@ void main()
 	{
 		outFragColor = vec4(albedo, 1.0);
 		uint cascadeIdx = 0;
-		float occluded = calculateShadow(worldPos, cascadeIdx);
-		/*
-		switch (cascadeIdx)
+		if (pc.shadows == 1)
 		{
-			case 0:
-				outFragColor = vec4(1, 0, 0, 1);
-				break;
-			case 1:
-				outFragColor = vec4(0, 1, 0, 1);
-				break;
-			case 2:
-				outFragColor = vec4(0, 0, 1, 1);
-				break;
-			case 3:
-				outFragColor = vec4(1, 1, 0, 1);
-				break;
+			float occluded = calculateShadow(worldPos, cascadeIdx);
+			/*
+			switch (cascadeIdx)
+			{
+				case 0:
+					outFragColor = vec4(1, 0, 0, 1);
+					break;
+				case 1:
+					outFragColor = vec4(0, 1, 0, 1);
+					break;
+				case 2:
+					outFragColor = vec4(0, 0, 1, 1);
+					break;
+				case 3:
+					outFragColor = vec4(1, 1, 0, 1);
+					break;
+			}
+			*/
+			outFragColor.xyz *= occluded;
 		}
-		*/
-		outFragColor.xyz *= occluded;
 	}
 }

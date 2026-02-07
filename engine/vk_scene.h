@@ -169,8 +169,7 @@ struct RenderScene
 		//std::vector<IndirectBatch> batches{}; // obsolete since introducing mesh shaders
 		std::vector<uint32_t> unbatched_objects{}; // handles for renderables
 		//std::vector<PassObject> pass_objects{}; // potentially obsolete since introducing mesh shaders
-		AllocatedBuffer indices_buffer{};
-
+		uint32_t indices_offset{};
 		MeshPassType type{};
 	};
 
@@ -179,6 +178,7 @@ struct RenderScene
 	std::unordered_map<MeshAsset*, Handle<DrawPrimitive>> mesh_cache{};
 
 	GPUMeshBuffers combined_mesh_buffer{};
+	AllocatedBuffer indices_buffer{}; // an indirection buffer - for indexing into the right RenderObject
 	AllocatedBuffer object_buffer{};
 	AllocatedBuffer mesh_buffer{};
 	AllocatedBuffer meshlet_buffer{};
