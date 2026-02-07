@@ -51,12 +51,14 @@ struct DeferredPushConstants
 	uint32_t albedo_id{};
 	uint32_t normal_id{};
 	uint32_t world_pos_id{};
+	uint32_t shadow_id{};
 	uint32_t light_culling{}; // for toggling light culling between naive and proper implementation
 	float near{};
 	float scale{}; 
 	float bias{};  
 	uint32_t debug_meshlets{};
 	uint32_t resolve_transparent{};
+	uint32_t shadow_debug{};
 };
 
 //struct ShadowPushConstants
@@ -73,7 +75,6 @@ struct ShadowPushConstants
 	glm::mat4 viewproj{};
 	VkDeviceAddress material_buffer_address{};
 	VkDeviceAddress object_buffer_address{};
-	//VkDeviceAddress instance_buffer_address{};
 	VkDeviceAddress vertex_buffer_address{};
 };
 
@@ -192,16 +193,19 @@ struct TextureCache
 	void set_gbuffers(uint32_t id) { gbuffer_id = id; };
 	void set_depth_image(uint32_t id) { depth_id = id; };
 	void set_depth_pyramid_image(uint32_t id) { depth_pyramid_id = id; };
+	void set_shadowmap(uint32_t id) { shadowmap_id = id; };
 	uint32_t get_draw_image() { return draw_id; };
 	uint32_t get_first_gbuffer() { return gbuffer_id; };
 	uint32_t get_depth_image() { return depth_id; };
 	uint32_t get_depth_pyramid_image() { return depth_pyramid_id; };
+	uint32_t get_shadowmap() { return shadowmap_id; };
 
 private:
 	uint32_t draw_id{};
 	uint32_t gbuffer_id{};
 	uint32_t depth_id{};
 	uint32_t depth_pyramid_id{};
+	uint32_t shadowmap_id{};
 };
 
 struct SamplerCache
@@ -406,8 +410,10 @@ public:
 	void ready_cull_data(RenderScene::MeshPass& pass, ClusterCullData& cull_data, glm::mat4& proj, bool orthographic = false);
 	void execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPass& pass, CullData& cull_data, bool late, uint32_t post_pass);
 	void execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPass& pass, ClusterCullData& cull_data, VkBuffer count_buffer, uint32_t offset, bool late, uint32_t post_pass);
+	void execute_shadow_cull(VkCommandBuffer cmd, CullData& cull_data);
 	void render(VkCommandBuffer cmd, bool late, uint32_t post_pass, uint32_t query);
 	void transparent_render(VkCommandBuffer cmd, uint32_t query);
+	void render_shadows(VkCommandBuffer cmd, uint32_t cascade_idx, uint32_t query);
 	void build_depth_pyramid(VkCommandBuffer cmd);
 	void execute_light_culling(VkCommandBuffer cmd);
 

@@ -41,8 +41,6 @@ layout(buffer_reference, std430) readonly buffer LightGridBuffer
 	LightGrid grid[];
 };
 
-const int MLAB_NODES = 4;
-
 struct OITData
 {
 	uvec4 colors;
@@ -67,12 +65,14 @@ layout( push_constant ) uniform constants
 	uint albedo_id;    // gbuffer ids
 	uint normal_id;    // gbuffer ids
 	uint world_pos_id; // gbuffer ids
+	uint shadowmap_id;
 	uint lightCulling;
 	float near;
 	float scale;
 	float bias;
 	uint debugMeshlets;
 	uint resolveTransparent;
+	uint shadowDebug;
 } pc;
 
 float distanceSquared(vec3 a, vec3 b)
@@ -88,8 +88,68 @@ float linearizeDepthInfiniteReverse(float depth)
 	return pc.near / depth;
 }
 
+const int CASCADE_COUNT = 4;
 int MAX_LIGHTS = 1000; // TODO: hardcoded
+const int MLAB_NODES = 4;
 #define CLUSTERED_SHADING
+
+float calculateShadow(vec3 worldPos, inout uint cascadeIdx)
+{
+	float d = (sceneData.view * vec4(worldPos, 1.0)).z; // view space z
+	for (uint i = 0; i < CASCADE_COUNT; i++)
+	{
+		if (d > sceneData.cascadeSplits[i])
+		{	
+			cascadeIdx = i;
+			break;
+		}
+	}
+	vec3 lightFragPos = vec3(sceneData.shadowTransforms[cascadeIdx] * vec4(worldPos, 1.0)); // ortho, no division by w needed 
+	
+	float currentDepth = lightFragPos.z;
+	
+	if (currentDepth < 0.0) // this is possible
+		return 1.0;
+	
+	vec2 uv = vec2(lightFragPos.x, lightFragPos.y);
+	uv = uv * 0.5 + 0.5;
+	uv.y = 1.0 - uv.y;
+	
+	vec2 offset = 1.0 / textureSize(sampler2D(allTextures[pc.shadowmap_id + cascadeIdx], samplers[NEAREST_SAMPLER]), 0); // FIX 
+	
+	float shadow = 0.0;
+	float closestDepth = 0.0;
+
+	if (pc.shadowDebug == 1)
+	{
+		for (int y = -1; y <= 1; y++)
+		{
+			for (int x = -1; x <= 1; x++)
+			{
+				vec2 sample_uv = vec2(uv.x + x * offset.x, uv.y + y * offset.y);
+				closestDepth = texture(sampler2D(allTextures[pc.shadowmap_id + cascadeIdx], samplers[NEAREST_SAMPLER]), sample_uv).r;
+				
+				if (closestDepth > currentDepth)
+					shadow += 0.0;
+				else
+					shadow += 1.0;
+			}
+		}
+		
+		shadow /= 9.0;
+	}
+	else
+	{
+		closestDepth = texture(sampler2D(allTextures[pc.shadowmap_id + cascadeIdx], samplers[LINEAR_SAMPLER]), uv).r;
+		
+		float bias = 0.0;
+		if (closestDepth > currentDepth + bias)
+			shadow = 0.0;
+		else
+			shadow = 1.0;
+	}
+	return shadow;
+}
 
 void main()
 {
@@ -203,5 +263,27 @@ void main()
 	}
 	
 	if (!renderLights && pc.resolveTransparent == 0) 
+	{
 		outFragColor = vec4(albedo, 1.0);
+		uint cascadeIdx = 0;
+		float occluded = calculateShadow(worldPos, cascadeIdx);
+		/*
+		switch (cascadeIdx)
+		{
+			case 0:
+				outFragColor = vec4(1, 0, 0, 1);
+				break;
+			case 1:
+				outFragColor = vec4(0, 1, 0, 1);
+				break;
+			case 2:
+				outFragColor = vec4(0, 0, 1, 1);
+				break;
+			case 3:
+				outFragColor = vec4(1, 1, 0, 1);
+				break;
+		}
+		*/
+		outFragColor.xyz *= occluded;
+	}
 }

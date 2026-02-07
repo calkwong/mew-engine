@@ -1,0 +1,165 @@
+#version 450
+
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_nonuniform_qualifier : require
+#extension GL_EXT_buffer_reference : require
+
+#include "mesh.glsl"
+#include "samplers.glsl"
+
+layout (local_size_x = 256) in;
+
+layout(buffer_reference, std430) readonly buffer ObjectBuffer
+{ 
+	ObjectData objects[];
+};
+
+layout(buffer_reference, std430) readonly buffer MeshBuffer
+{ 
+	MeshData meshes[];
+};
+
+layout(buffer_reference, std430) readonly buffer IndicesBuffer
+{ 
+	uint indices[];
+};
+
+layout(buffer_reference, std430) buffer DrawCommandsBuffer
+{ 
+	DrawCommand commands[];
+};
+
+
+layout(buffer_reference, std430) buffer CountBuffer
+{
+	uint count;
+	uint workgroupX;
+	uint workgroupY;
+	uint workgroupZ;
+};
+
+layout(buffer_reference, std430) buffer MeshTaskBuffer
+{ 
+	MeshTaskCommand commands[];
+};
+	
+layout(buffer_reference, std430) buffer VisibilityBuffer
+{
+	uint visible[];
+};
+
+layout(push_constant) uniform constants
+{
+	mat4 view;
+	vec4 frustumPlanes;
+	
+	ObjectBuffer objectBuffer;
+	MeshBuffer meshBuffer;
+	IndicesBuffer indicesBuffer;
+	DrawCommandsBuffer drawBuffer;
+	CountBuffer countBuffer;
+	VisibilityBuffer visBuffer;
+	MeshTaskBuffer meshTaskBuffer;
+	
+	uint count;
+	uint late;
+	uint textureId;
+	uint occlusionEnabled;
+	
+	float p00;
+	float p11;
+	float znear;
+	float zfar; // this is draw distance
+	
+	vec2 resolution;
+	float textureLod;
+	float lodDistanceFactor;
+	uint lodEnabled;
+	uint taskSubmit;
+	uint postPass;
+} pc;
+
+layout(set = 0, binding = 0, r32f) uniform image2D allImages[];
+layout(set = 1, binding = 0) uniform texture2D allTextures[];
+layout(set = 2, binding = 0) uniform sampler samplers[];
+
+// 2D Polyhedral Bounds of a Clipped, Perspective-Projected 3D Sphere. Michael Mara, Morgan McGuire. 2013
+// https://zeux.io/2023/01/12/approximate-projected-bounds/
+bool projectSphere(vec3 c, float r, float znear, float P00, float P11, out vec4 aabb)
+{
+	if (c.z < r + znear)
+		return false;
+
+    vec3 cr = c * r;
+    float czr2 = c.z * c.z - r * r;
+
+    float vx = sqrt(c.x * c.x + czr2);
+    float minx = (vx * c.x - cr.z) / (vx * c.z + cr.x);
+    float maxx = (vx * c.x + cr.z) / (vx * c.z - cr.x);
+
+    float vy = sqrt(c.y * c.y + czr2);
+    float miny = (vy * c.y - cr.z) / (vy * c.z + cr.y);
+    float maxy = (vy * c.y + cr.z) / (vy * c.z - cr.y);
+
+    aabb = vec4(minx * P00, miny * P11, maxx * P00, maxy * P11);
+    // clip space -> uv space
+    aabb = aabb.xwzy * vec4(0.5f, -0.5f, 0.5f, -0.5f) + vec4(0.5f);
+
+    return true;
+}
+
+bool frustumCulled(vec3 center, float radius)
+{
+	bool visible = true;
+	
+	// symmetrical sphere-plane distance test
+	visible = visible && (center.z * pc.frustumPlanes.y - abs(center.x) * pc.frustumPlanes.x) >= -radius;
+	visible = visible && (center.z * pc.frustumPlanes.w - abs(center.y) * pc.frustumPlanes.z) >= -radius;
+	visible = visible && (center.z - radius <= -pc.znear) && (center.z + radius >= -pc.zfar);	
+		
+	return !visible;
+}
+
+bool occlusionCulled(vec3 center, float radius)
+{
+	vec4 aabb;
+	
+	if (projectSphere(vec3(center.x, center.y, -center.z), radius, pc.znear, pc.p00, pc.p11, aabb))
+	{
+		vec2 pixelSize = (aabb.zw - aabb.xy) * pc.resolution; 
+		
+		float max_dim = max(pixelSize.x, pixelSize.y);
+		
+		float mip = ceil(log2(max_dim));
+		mip = min(mip, pc.textureLod); // TODO: PC
+		
+		float depth = textureLod(sampler2D(allTextures[pc.textureId], samplers[DEPTH_REDUCTION_SAMPLER]), (aabb.zw + aabb.xy) * 0.5, mip).r;
+		
+		float depthSphere = pc.znear / (-center.z - radius); 
+		
+		return depthSphere < depth; // reverse depth
+	}
+}
+
+// CURRENTLY NO CULL, JUST WRITE TO INDIRECT DRAW BUFFER
+
+void main()
+{
+	uint globalId = gl_GlobalInvocationID.x;
+	
+	if (globalId >= pc.count)
+		return;
+		
+	uint id = pc.indicesBuffer.indices[globalId];
+	
+	ObjectData obj = pc.objectBuffer.objects[id];
+	uint meshID = obj.meshID;
+	MeshData mesh = pc.meshBuffer.meshes[meshID];
+	
+	uint count = atomicAdd(pc.countBuffer.count, 1);
+	pc.drawBuffer.commands[count].indexCount = mesh.lods[0].count;
+	pc.drawBuffer.commands[count].instanceCount = 1;
+	pc.drawBuffer.commands[count].firstIndex = mesh.lods[0].firstIndex;
+	pc.drawBuffer.commands[count].vertexOffset = mesh.vertexOffset;
+	pc.drawBuffer.commands[count].firstInstance = id;
+}
