@@ -21,7 +21,6 @@ layout(buffer_reference, std430) buffer ClusterIndicesBuffer
 
 layout(buffer_reference, std430) buffer ClusterCountBuffer
 {
-	uint count;
 	uint workgroupX;
 	uint workgroupY;
 	uint workgroupZ;

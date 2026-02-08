@@ -8,9 +8,8 @@
 
 layout (local_size_x = 1) in;
 
-layout(buffer_reference, std430) buffer CountBuffer
+layout(buffer_reference, std430) buffer DispatchBuffer
 {
-	uint count;
 	uint workgroupX;
 	uint workgroupY;
 	uint workgroupZ;
@@ -18,14 +17,11 @@ layout(buffer_reference, std430) buffer CountBuffer
 
 layout( push_constant ) uniform constants
 {
-	CountBuffer countBuffer;
+	DispatchBuffer dispatchBuffer;
 } pc;
 
 void main()
 {
-	uint count = pc.countBuffer.count;
-	
-	pc.countBuffer.workgroupX = count;
-	pc.countBuffer.workgroupY = 1;
-	pc.countBuffer.workgroupZ = 1;
+	pc.dispatchBuffer.workgroupY = 1;
+	pc.dispatchBuffer.workgroupZ = 1;
 }

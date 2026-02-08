@@ -24,15 +24,20 @@ layout(buffer_reference, std430) readonly buffer IndicesBuffer
 	uint indices[];
 };
 
-layout(buffer_reference, std430) buffer DrawCommandsBuffer
-{ 
-	DrawCommand commands[];
+struct DrawCommands
+{
+	uint opaqueCount;
+	uint alphaClipCount;
+	DrawCommand commands[200000];
 };
 
+layout(buffer_reference, std430) buffer DrawCommandsBuffer
+{ 
+	DrawCommands draws[4];
+};
 
-layout(buffer_reference, std430) buffer CountBuffer
+layout(buffer_reference, std430) buffer DispatchBuffer
 {
-	uint count;
 	uint workgroupX;
 	uint workgroupY;
 	uint workgroupZ;
@@ -57,7 +62,7 @@ layout(push_constant) uniform constants
 	MeshBuffer meshBuffer;
 	IndicesBuffer indicesBuffer;
 	DrawCommandsBuffer drawBuffer;
-	CountBuffer countBuffer;
+	DispatchBuffer dispatchBuffer;
 	VisibilityBuffer visBuffer;
 	MeshTaskBuffer meshTaskBuffer;
 	
@@ -160,9 +165,11 @@ void main()
 		return;
 		
 	ObjectData obj = pc.objectBuffer.objects[id];
-	
-	if (obj.postPass != pc.postPass) // late check should be unnecessary, masked geometry will behave like a third pass after 2-pass cull
-		return;
+
+	// should no longer be necessary as we render by mask/opaque/transparent now
+	// late check should be unnecessary, masked geometry will behave like a third pass after 2-pass cull
+	//if (obj.postPass != pc.postPass) 
+		//return;
 		
 	uint meshID = obj.meshID;
 	MeshData mesh = pc.meshBuffer.meshes[meshID];
@@ -212,7 +219,7 @@ void main()
 
 			// experiment 32 meshlets per workgroup, each workgroup limited to meshlets from a single mesh
 			uint tasks = (meshletCount + 31) / 32;
-			uint count = atomicAdd(pc.countBuffer.count, tasks); // could technically modify workgroupX here, making tasksubmit redundant?
+			uint count = atomicAdd(pc.dispatchBuffer.workgroupX, tasks); 
 			for (uint i = 0; i < tasks; i++)
 			{
 				pc.meshTaskBuffer.commands[count + i].meshletOffset = meshletOffset + i * 32;
@@ -223,12 +230,12 @@ void main()
 		}
 		else
 		{
-			uint count = atomicAdd(pc.countBuffer.count, 1);
-			pc.drawBuffer.commands[count].indexCount = mesh.lods[index].count;
-			pc.drawBuffer.commands[count].instanceCount = 1;
-			pc.drawBuffer.commands[count].firstIndex = mesh.lods[index].firstIndex;
-			pc.drawBuffer.commands[count].vertexOffset = mesh.vertexOffset;
-			pc.drawBuffer.commands[count].firstInstance = id;
+			uint count = atomicAdd(pc.drawBuffer.draws[0].opaqueCount, 1);
+			pc.drawBuffer.draws[0].commands[count].indexCount = mesh.lods[index].count;
+			pc.drawBuffer.draws[0].commands[count].instanceCount = 1;
+			pc.drawBuffer.draws[0].commands[count].firstIndex = mesh.lods[index].firstIndex;
+			pc.drawBuffer.draws[0].commands[count].vertexOffset = mesh.vertexOffset;
+			pc.drawBuffer.draws[0].commands[count].firstInstance = id;
 		}
 	}
 	

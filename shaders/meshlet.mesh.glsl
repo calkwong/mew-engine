@@ -48,14 +48,6 @@ layout(buffer_reference, std430) readonly buffer MaterialBuffer
 	MaterialData materials[];
 };
 
-layout(buffer_reference, std430) buffer CountBuffer
-{
-	uint count;
-	uint workgroupX;
-	uint workgroupY;
-	uint workgroupZ;
-};
-
 layout(buffer_reference, std430) buffer ClusterIndicesBuffer
 { 
 	uint indices[];

@@ -187,7 +187,7 @@ struct RenderScene
 
 	AllocatedBuffer draw_indirect_buffer{};
 	AllocatedBuffer meshtask_indirect_buffer{};
-	AllocatedBuffer count_buffer{};
+	AllocatedBuffer dispatch_buffer{};
 	AllocatedBuffer vis_buffer{};
 	AllocatedBuffer meshlet_vis_buffer{};
 

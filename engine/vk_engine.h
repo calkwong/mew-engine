@@ -60,6 +60,7 @@ struct DeferredPushConstants
 	uint32_t resolve_transparent{};
 	uint32_t shadows{};
 	uint32_t pcf{};
+	uint32_t debug_cascades{};
 };
 
 //struct ShadowPushConstants
@@ -168,6 +169,7 @@ struct EngineStats
 {
 	int draw_count{};
 	unsigned int triangle_count{};
+	unsigned int shadow_triangle_count{};
 	double scene_update_time{};
 	double deltatime{};
 	double early_cull{};

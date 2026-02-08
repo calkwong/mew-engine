@@ -74,6 +74,7 @@ layout( push_constant ) uniform constants
 	uint resolveTransparent;
 	uint shadows;
 	uint pcf;
+	uint debugCascades;
 } pc;
 
 float distanceSquared(vec3 a, vec3 b)
@@ -293,4 +294,11 @@ void main()
 		outFragColor.xyz = compositeTransparent(outFragColor.xyz);
 	}
 	
+	if (pc.debugCascades != 0)
+	{
+		vec2 uv = gl_FragCoord.xy / pc.screenSize;
+		uint idx = pc.debugCascades - 1;
+		vec3 depth = vec3(texture(sampler2D(allTextures[pc.shadowmap_id + idx], samplers[NEAREST_SAMPLER]), uv).r);
+		outFragColor.xyz = depth;
+	}
 }
