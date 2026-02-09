@@ -58,12 +58,12 @@ constexpr int LIGHT_COUNT{ 1000 };
 constexpr int CLUSTER_DIM{ 64 };
 constexpr int CLUSTER_SLICE_COUNT{ 24 };
 constexpr int QUERY_COUNT{ 50 };
-constexpr int TIMESTAMP_QUERIES{ 20 };
-constexpr int PIPELINE_QUERIES{ 5 };
+constexpr int TIMESTAMP_QUERIES{ 24 };
+constexpr int PIPELINE_QUERIES{ 8 };
 constexpr int MAX_OPAQUE_DRAWS{ 200000 };
 constexpr int MAX_ALPHACLIP_DRAWS{ 200000 };
 
-AutoCVar_Int CVAR_DRAW_DISTANCE{ "Draw distance", 200, 200, CVarFlags::EditSliderInt, 100, 1000, 100 };
+AutoCVar_Int CVAR_DRAW_DISTANCE{ "Draw distance", 100, 100, CVarFlags::EditSliderInt, 100, 1000, 100 };
 AutoCVar_Int CVAR_TOGGLE_MESH_SHADING{ "Mesh shading", 1, 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TOGGLE_OCCLUSION{ "Occlusion", 1, 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TOGGLE_LOD{ "LOD", 1, 1, CVarFlags::EditCheckbox};
@@ -76,7 +76,8 @@ AutoCVar_Int CVAR_TOGGLE_MASK{ "Render masked geometry", 1, 1, CVarFlags::EditCh
 AutoCVar_Int CVAR_TOGGLE_TRANSPARENT{ "Render transparent geometry", 0, 0, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TOGGLE_SHADOW{ "Render shadows", 0, 0, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TOGGLE_SOFT_SHADOWS{ "PCF", 1, 1, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_TOGGLE_DEBUG_CASCADES{ "Debug cascades", 0, 0, CVarFlags::EditSliderInt, 0, 4, 1 };
+AutoCVar_Int CVAR_TOGGLE_DEBUG_SHADOWMAP{ "Debug shadows", 0, 0, CVarFlags::EditSliderInt, 0, 4, 1 };
+AutoCVar_Int CVAR_TOGGLE_DEBUG_CASCADES{ "Debug cascades", 0, 0, CVarFlags::EditCheckbox };
 
 uint32_t nearest_pow2(uint32_t extent)
 {
@@ -291,7 +292,7 @@ void VulkanEngine::draw()
 
 		// TODO: hardcoded - refactor
 		std::vector<double*> stats_ref = { &stats.early_cull, &stats.early_indirect, &stats.late_cull, &stats.late_indirect, &stats.mask_cull, &stats.mask_indirect,
-			&stats.light_culling, &stats.deferred_shading, &stats.transparent_cull, &stats.transparent_render };
+			&stats.light_culling, &stats.deferred_shading, &stats.transparent_cull, &stats.transparent_render, &stats.shadow_cull, &stats.shadow_render };
 		for (size_t i = 0; i < timestamp_results.size(); i = i+2)
 		{
 			{
@@ -301,12 +302,15 @@ void VulkanEngine::draw()
 		}
 
 		stats.triangle_count = 0;
-		stats.shadow_triangle_count = 0;
-		for (size_t i = 0; i < pipeline_results.size() - 1; i++)
+		//for (size_t i = 0; i < pipeline_results.size() - 1; i++)
+		for (size_t i = 0; i < 4 - 1; i++)
 		{
 			stats.triangle_count += pipeline_results[i];
 		}
-		stats.shadow_triangle_count += pipeline_results[4];
+		stats.cascade0 = pipeline_results[4];
+		stats.cascade1 = pipeline_results[5];
+		stats.cascade2 = pipeline_results[6];
+		stats.cascade3 = pipeline_results[7];
 	}
 
 	auto& frame_query_pool_timestamps = get_current_frame().query_pool_timestamps;
@@ -680,8 +684,10 @@ void VulkanEngine::draw()
 			VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT
 		);
 
-		//vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 0);
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 20);
 		execute_shadow_cull(cmd, shadow_cull_data);
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 21);
+
 
 		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, // | VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT,
 			VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT
@@ -696,13 +702,14 @@ void VulkanEngine::draw()
 			);
 		}
 
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 22);
 		auto q = 4;
-		vkCmdBeginQuery(cmd, get_current_frame().query_pool_pipelines, q, 0);
 		for (size_t i = 0; i < cascade_data.size(); i++)
 		{
 			render_shadows(cmd, i, q);
+			q++;
 		}
-		vkCmdEndQuery(cmd, get_current_frame().query_pool_pipelines, q);
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 23);
 
 		for (size_t i = 0; i < cascade_data.size(); i++)
 		{
@@ -715,6 +722,10 @@ void VulkanEngine::draw()
 	}
 	else
 	{
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 20);
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 21);
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 22);
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 23);
 		vkCmdBeginQuery(cmd, get_current_frame().query_pool_pipelines, 4, 0);
 		vkCmdEndQuery(cmd, get_current_frame().query_pool_pipelines, 4);
 	}
@@ -1088,8 +1099,13 @@ void VulkanEngine::run()
 			ImGui::Text("Mask render:          %.3f ms", stats.mask_indirect);
 			ImGui::Text("Transparent cull:     %.3f ms", stats.transparent_cull);
 			ImGui::Text("Transparent render:   %.3f ms", stats.transparent_render);
+			ImGui::Text("Shadow cull:          %.3f ms", stats.shadow_cull);
+			ImGui::Text("Shadow render:        %.3f ms", stats.shadow_render);
 			ImGui::Text("Triangles:            %u", stats.triangle_count);
-			ImGui::Text("Shadow triangles:     %u", stats.shadow_triangle_count);
+			ImGui::Text("Cascade 0:            %u", stats.cascade0);
+			ImGui::Text("Cascade 1:            %u", stats.cascade1);
+			ImGui::Text("Cascade 2:            %u", stats.cascade2);
+			ImGui::Text("Cascade 3:            %u", stats.cascade3);
 			ImGui::Text("Clipping invocations: %.1fM", static_cast<double>(stats.triangle_count) * 1e-6);
 
 			ImGui::End();
@@ -1147,7 +1163,7 @@ void VulkanEngine::init_vulkan()
 	features10.multiDrawIndirect = true;
 	features10.pipelineStatisticsQuery = true;
 	//features10.samplerAnisotropy = true;
-	//features10.depthClamp = true;
+	features10.depthClamp = true;
 
 	VkPhysicalDeviceMeshShaderFeaturesEXT mesh_shader_features{}; 
 	mesh_shader_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT;
@@ -1588,17 +1604,19 @@ void VulkanEngine::init_pipelines()
 	color_blend_states.push_back(builder.disable_blending());
 	builder.set_blending_state(color_blend_states);
 	builder.enable_depth(true, VK_COMPARE_OP_GREATER_OR_EQUAL);
+	builder.rasterization.depthClampEnable = VK_TRUE;
 	builder.dynamic_state.push_back(VK_DYNAMIC_STATE_DEPTH_BIAS);
 	builder.set_shaders({ &shader_cache["depth.vert"], &shader_cache["depth.frag"] });
 	builder.shader_stages[1].pSpecializationInfo = &specialization_info;
 	specialization_data.opaque = 1;
-	//builder.set_cull_mode(VK_CULL_MODE_FRONT_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-	builder.set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
+	builder.set_cull_mode(VK_CULL_MODE_FRONT_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
+	//builder.set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
 	shader_passes["depth"] = vkutil::build_shader(device, builder, {}, descriptor_layouts, sizeof(ShadowPushConstants));
 	specialization_data.opaque = 0;
 	builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
 	shader_passes["depth_mask"] = vkutil::build_shader(device, builder, {}, descriptor_layouts, sizeof(ShadowPushConstants));
-	builder.dynamic_state.pop_back();
+	builder.dynamic_state.pop_back();                      // reset
+	builder.rasterization.depthClampEnable = VK_FALSE;	   // reset
 
 	color_attachment_formats.clear();
 	color_attachment_formats.push_back(VK_FORMAT_R16G16B16A16_SFLOAT);
@@ -1976,7 +1994,7 @@ void VulkanEngine::init_default_data()
 		cascade_data[idx].shadow_map = create_image(VkExtent3D{SHADOW_MAP_SIZE, SHADOW_MAP_SIZE, 1}, VK_FORMAT_D32_SFLOAT,
 			VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_DEPTH_BIT
 		);
-
+		fmt::println("distance: {}", d);
 		auto id = texture_cache.add_texture(cascade_data[idx].shadow_map.view);
 		if (idx == 0)
 			texture_cache.set_shadowmap(id);
@@ -2559,6 +2577,7 @@ void VulkanEngine::execute_deferred_shading(VkCommandBuffer cmd)
 	pc.resolve_transparent = CVAR_TOGGLE_TRANSPARENT.get();
 	pc.shadows = CVAR_TOGGLE_SHADOW.get();
 	pc.pcf = CVAR_TOGGLE_SOFT_SHADOWS.get();
+	pc.debug_shadowmap = CVAR_TOGGLE_DEBUG_SHADOWMAP.get();
 	pc.debug_cascades = CVAR_TOGGLE_DEBUG_CASCADES.get();
 
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(DeferredPushConstants), &pc);
@@ -2573,6 +2592,7 @@ void VulkanEngine::update_cascade()
 {
 	auto light_dir = glm::normalize(glm::vec3(scene_data.sunlight_dir));
 
+	// TODO: currently does not work with frozen camera
 	glm::mat4 view = main_camera.get_view_matrix();
 	// TODO: refactor when implementing window resize
 
@@ -2599,26 +2619,6 @@ void VulkanEngine::update_cascade()
 		frustum_corners[i] = glm::vec3(corner / corner.w);
 	}
 	
-	// for shadow cull
-	{
-		glm::vec3 center{};
-		for (size_t i = 0; i < frustum_corners.size(); i++)
-		{
-			center += frustum_corners[i];
-		}
-		center /= 8.0f;
-
-		float radius{};
-		for (size_t i = 0; i < frustum_corners.size(); i++)
-		{
-			float dist = glm::length(frustum_corners[i] - center);
-			radius = std::max(dist, radius);
-		}
-
-		scene_data.shadow_view = glm::lookAt(center + radius * light_dir, center, glm::vec3(0, 1, 0));
-		scene_data.shadow_width = radius;
-	}
-
 	float last_split = 0.0;
 	for (size_t i = 0; i < cascade_data.size(); i++)
 	{
@@ -2649,11 +2649,11 @@ void VulkanEngine::update_cascade()
 			radius = std::max(dist, radius);
 		}
 
-		//if (i == 0)
-		//{
-		//	scene_data.shadow_view = glm::lookAt(center + radius * light_dir, center, glm::vec3(0, 1, 0));
-		//	scene_data.shadow_width = radius;
-		//}
+		// for shadow culling
+		{
+			scene_data.shadow_views[i] = glm::lookAt(center + radius * light_dir, center, glm::vec3(0, 1, 0));
+			scene_data.shadow_widths[i] = radius;
+		}
 
 		// stable csm via snapping projection matrix - https://github.com/TheRealMJP/Shadows/blob/master/Shadows/SetupShadows.hlsl
 		// stable csm via snapping frustum center, less robust - https://alextardif.com/shadowmapping.html
@@ -2820,10 +2820,10 @@ void VulkanEngine::ready_mesh_draw()
 		}
 
 		//if (render_scene.draw_indirect_buffer.info.size < render_scene.renderables.size() * sizeof(VkDrawIndexedIndirectCommand) + sizeof(uint32_t))
-		if (render_scene.draw_indirect_buffer.info.size < (MAX_OPAQUE_DRAWS * 2 * sizeof(VkDrawIndexedIndirectCommand) + 2 * sizeof(uint32_t)) * 4)
+		if (render_scene.draw_indirect_buffer.info.size < ((MAX_OPAQUE_DRAWS + MAX_ALPHACLIP_DRAWS) * sizeof(VkDrawIndexedIndirectCommand) + 2 * sizeof(uint32_t)) * 4)
 		{
 			render_scene.draw_indirect_buffer = reallocate_buffer(
-				(MAX_OPAQUE_DRAWS * 2 * sizeof(VkDrawIndexedIndirectCommand) + 2 * sizeof(uint32_t)) * 4,
+				((MAX_OPAQUE_DRAWS + MAX_ALPHACLIP_DRAWS) * sizeof(VkDrawIndexedIndirectCommand) + 2 * sizeof(uint32_t)) * 4,
 				render_scene.draw_indirect_buffer,
 				0,
 				VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT
@@ -3002,7 +3002,7 @@ void VulkanEngine::ready_shadow_cull(RenderScene::MeshPass& pass, CullData& cull
 	cull_data.p00 = proj[0][0];
 	cull_data.p11 = proj[1][1];
 	cull_data.near = 0.f;    // use shadow's?
-	cull_data.far = scene_data.shadow_width * 2.0f;	 // use shadow's?
+	cull_data.far; // = scene_data.shadow_width * 2.0f;	 // use shadow's?
 
 	cull_data.resolution = glm::vec2(depth_pyramid.extent.width, depth_pyramid.extent.height);
 	cull_data.texture_lod = static_cast<float>(std::floor(std::log2(std::max(depth_pyramid.extent.width, depth_pyramid.extent.height))) + 1);
@@ -3363,7 +3363,7 @@ void VulkanEngine::render_transparent(VkCommandBuffer cmd, uint32_t query)
 
 void VulkanEngine::render_shadows(VkCommandBuffer cmd, uint32_t cascade_idx, uint32_t query)
 {
-	//vkCmdBeginQuery(cmd, get_current_frame().query_pool_pipelines, query, 0);
+	vkCmdBeginQuery(cmd, get_current_frame().query_pool_pipelines, query, 0);
 	VkRenderingAttachmentInfo depth_attachment = vkinit::depth_attachment_info(cascade_data[cascade_idx].shadow_map.view);
 
 	VkExtent2D shadow_extent = VkExtent2D{ SHADOW_MAP_SIZE, SHADOW_MAP_SIZE };
@@ -3412,23 +3412,29 @@ void VulkanEngine::render_shadows(VkCommandBuffer cmd, uint32_t cascade_idx, uin
 
 		vkCmdBindIndexBuffer(cmd, render_scene.combined_mesh_buffer.index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
 
+		auto cascade_offset = cascade_idx * (2 * sizeof(uint32_t) + (MAX_OPAQUE_DRAWS + MAX_ALPHACLIP_DRAWS) * sizeof(VkDrawIndexedIndirectCommand));
+
 		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
-		vkCmdDrawIndexedIndirectCount(cmd, render_scene.draw_indirect_buffer.buffer, 2 * sizeof(uint32_t),
-			render_scene.draw_indirect_buffer.buffer, 0, MAX_OPAQUE_DRAWS, sizeof(VkDrawIndexedIndirectCommand)
+		vkCmdDrawIndexedIndirectCount(cmd, render_scene.draw_indirect_buffer.buffer, 2 * sizeof(uint32_t) + cascade_offset,
+			render_scene.draw_indirect_buffer.buffer, 0 + cascade_offset, MAX_OPAQUE_DRAWS, sizeof(VkDrawIndexedIndirectCommand)
 		);
 		stats.draw_count++;
 
-		current_pass = *shader_passes["depth_mask"];
-		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
-		vkCmdDrawIndexedIndirectCount(cmd, render_scene.draw_indirect_buffer.buffer, 2 * sizeof(uint32_t) + MAX_OPAQUE_DRAWS * sizeof(VkDrawIndexedIndirectCommand),
-			render_scene.draw_indirect_buffer.buffer, sizeof(uint32_t), MAX_ALPHACLIP_DRAWS, sizeof(VkDrawIndexedIndirectCommand)
-		);
+		if (CVAR_TOGGLE_MASK.get())
+		{
+			current_pass = *shader_passes["depth_mask"];
+			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
+			vkCmdDrawIndexedIndirectCount(cmd, render_scene.draw_indirect_buffer.buffer,
+				2 * sizeof(uint32_t) + MAX_OPAQUE_DRAWS * sizeof(VkDrawIndexedIndirectCommand) + cascade_offset,
+				render_scene.draw_indirect_buffer.buffer, sizeof(uint32_t) + cascade_offset, MAX_ALPHACLIP_DRAWS, sizeof(VkDrawIndexedIndirectCommand)
+			);
+			stats.draw_count++;
+		}
 
-		stats.draw_count++;
 	}
 
-	//vkCmdEndQuery(cmd, get_current_frame().query_pool_pipelines, query);
 	vkCmdEndRendering(cmd);
+	vkCmdEndQuery(cmd, get_current_frame().query_pool_pipelines, query);
 }
 
 void VulkanEngine::build_depth_pyramid(VkCommandBuffer cmd)

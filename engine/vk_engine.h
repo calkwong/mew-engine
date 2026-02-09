@@ -60,6 +60,7 @@ struct DeferredPushConstants
 	uint32_t resolve_transparent{};
 	uint32_t shadows{};
 	uint32_t pcf{};
+	uint32_t debug_shadowmap{};
 	uint32_t debug_cascades{};
 };
 
@@ -169,7 +170,6 @@ struct EngineStats
 {
 	int draw_count{};
 	unsigned int triangle_count{};
-	unsigned int shadow_triangle_count{};
 	double scene_update_time{};
 	double deltatime{};
 	double early_cull{};
@@ -182,6 +182,12 @@ struct EngineStats
 	double light_culling{};
 	double transparent_cull{};
 	double transparent_render{};
+	double shadow_cull{};
+	double shadow_render{};
+	unsigned int cascade0{};
+	unsigned int cascade1{};
+	unsigned int cascade2{};
+	unsigned int cascade3{};
 };
 
 // destruction of textures handled by gltf (not internally); does not support dynamic objs

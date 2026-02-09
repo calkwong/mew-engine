@@ -74,6 +74,7 @@ layout( push_constant ) uniform constants
 	uint resolveTransparent;
 	uint shadows;
 	uint pcf;
+	uint debugShadowmap;
 	uint debugCascades;
 } pc;
 
@@ -203,24 +204,27 @@ void main()
 	if (pc.shadows == 1)
 	{
 		float occluded = calculateShadow(worldPos, cascadeIdx);
-		/*
-		switch (cascadeIdx)
-		{
-			case 0:
-				outFragColor = vec4(1, 0, 0, 1);
-				break;
-			case 1:
-				outFragColor = vec4(0, 1, 0, 1);
-				break;
-			case 2:
-				outFragColor = vec4(0, 0, 1, 1);
-				break;
-			case 3:
-				outFragColor = vec4(1, 1, 0, 1);
-				break;
-		}
-		*/
+		
 		outFragColor.xyz *= occluded;
+		
+		if (pc.debugCascades == 1)
+		{
+			switch (cascadeIdx)
+			{
+				case 0:
+					outFragColor.xyz *= vec3(1, 0, 0);
+					break;
+				case 1:
+					outFragColor.xyz *= vec3(0, 1, 0);
+					break;
+				case 2:
+					outFragColor.xyz *= vec3(0, 0, 1);
+					break;
+				case 3:
+					outFragColor.xyz *= vec3(1, 1, 0);
+					break;
+			}
+		}
 	}
 	
 	if (pc.lightCulling == 1)
@@ -294,10 +298,10 @@ void main()
 		outFragColor.xyz = compositeTransparent(outFragColor.xyz);
 	}
 	
-	if (pc.debugCascades != 0)
+	if (pc.debugShadowmap != 0)
 	{
 		vec2 uv = gl_FragCoord.xy / pc.screenSize;
-		uint idx = pc.debugCascades - 1;
+		uint idx = pc.debugShadowmap - 1;
 		vec3 depth = vec3(texture(sampler2D(allTextures[pc.shadowmap_id + idx], samplers[NEAREST_SAMPLER]), uv).r);
 		outFragColor.xyz = depth;
 	}

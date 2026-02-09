@@ -107,8 +107,8 @@ struct SceneData
     glm::vec4 sunlight_color{};
     glm::vec4 sunlight_dir{};
     glm::vec4 textures{}; // irradiance, prefiltered, brdf, shadow
-    glm::mat4 shadow_view{}; // for shadow_cull
-    float shadow_width{};
+    std::array<glm::mat4, 4> shadow_views{}; // for shadow_cull
+    std::array<float, 4> shadow_widths{};
 };
 
 struct CascadeData
