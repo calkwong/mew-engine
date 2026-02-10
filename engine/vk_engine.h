@@ -389,7 +389,7 @@ public:
 
 	static VulkanEngine& get();
 
-	void init(std::vector<std::string> file_paths);
+	void init(std::vector<std::string>& file_paths);
 	void cleanup();
 	void draw();
 	void run();

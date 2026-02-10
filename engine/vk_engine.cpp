@@ -50,7 +50,6 @@ VulkanEngine& VulkanEngine::get() { return *loaded_engine; }
 
 bool RENDER_IMGUI = true;
 
-constexpr float SHADOW_DISTANCE{ 48.0f };
 constexpr uint32_t SHADOW_MAP_SIZE{ 4096 };
 constexpr int NUMBER_OF_CASCADES{ 4 };
 constexpr int GBUFFER_COUNT{ 3 };
@@ -78,13 +77,15 @@ AutoCVar_Int CVAR_TOGGLE_SHADOW{ "Render shadows", 0, 0, CVarFlags::EditCheckbox
 AutoCVar_Int CVAR_TOGGLE_SOFT_SHADOWS{ "PCF", 1, 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TOGGLE_DEBUG_SHADOWMAP{ "Debug shadows", 0, 0, CVarFlags::EditSliderInt, 0, 4, 1 };
 AutoCVar_Int CVAR_TOGGLE_DEBUG_CASCADES{ "Debug cascades", 0, 0, CVarFlags::EditCheckbox };
+AutoCVar_Float CVAR_CSM_LAMBDA{ "CSM log factor", 0.95f, 0.95f, CVarFlags::EditSliderFloat, 0.f, 1.f, 0.05f };
+AutoCVar_Int CVAR_SHADOW_DISTANCE{ "Shadow distance", 48, 48, CVarFlags::EditSliderInt, 20, 200, 5 };
 
 uint32_t nearest_pow2(uint32_t extent)
 {
 	return 1 << static_cast<uint32_t>(std::floor(std::log2(extent)));
 }
 
-void VulkanEngine::init(std::vector<std::string> file_paths)
+void VulkanEngine::init(std::vector<std::string>& file_paths)
 {
 	assert(loaded_engine == nullptr);
 	loaded_engine = this;
@@ -305,12 +306,12 @@ void VulkanEngine::draw()
 		//for (size_t i = 0; i < pipeline_results.size() - 1; i++)
 		for (size_t i = 0; i < 4 - 1; i++)
 		{
-			stats.triangle_count += pipeline_results[i];
+			stats.triangle_count += static_cast<unsigned int>(pipeline_results[i]);
 		}
-		stats.cascade0 = pipeline_results[4];
-		stats.cascade1 = pipeline_results[5];
-		stats.cascade2 = pipeline_results[6];
-		stats.cascade3 = pipeline_results[7];
+		stats.cascade0 = static_cast<unsigned int>(pipeline_results[4]);
+		stats.cascade1 = static_cast<unsigned int>(pipeline_results[5]);
+		stats.cascade2 = static_cast<unsigned int>(pipeline_results[6]);
+		stats.cascade3 = static_cast<unsigned int>(pipeline_results[7]);
 	}
 
 	auto& frame_query_pool_timestamps = get_current_frame().query_pool_timestamps;
@@ -703,10 +704,10 @@ void VulkanEngine::draw()
 		}
 
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 22);
-		auto q = 4;
+		uint32_t q = 4;
 		for (size_t i = 0; i < cascade_data.size(); i++)
 		{
-			render_shadows(cmd, i, q);
+			render_shadows(cmd, static_cast<uint32_t>(i), q);
 			q++;
 		}
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 23);
@@ -1974,27 +1975,12 @@ void VulkanEngine::init_default_data()
 
 	sampler_info.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK; // reverse depth
 
-	//> CSM
-	// https://developer.nvidia.com/gpugems/gpugems3/part-ii-light-and-shadows/chapter-10-parallel-split-shadow-maps-programmable-gpus
-	float far = SHADOW_DISTANCE; 
-	float near = main_camera.far;
-	size_t m = cascade_data.size();
-	float range = far - near;
-	float ratio = far / near;
-	float lambda = 0.95f;
-
-	for (size_t idx = 0; idx < m; idx++)
+	// shadowmaps
+	for (size_t idx = 0; idx < cascade_data.size(); idx++)
 	{
-		float i = static_cast<float>(idx + 1); // i is cascade layer, in range [1, m]
-		float log = near * std::powf(ratio, i / m);
-		float uniform = near + range * i / m;
-		float d = lambda * (log - uniform) + uniform; // world space
-		cascade_data[idx].split_ratio = (d - near) / range;
-		scene_data.cascade_splits[idx] = d * -1.0f;
-		cascade_data[idx].shadow_map = create_image(VkExtent3D{SHADOW_MAP_SIZE, SHADOW_MAP_SIZE, 1}, VK_FORMAT_D32_SFLOAT,
+		cascade_data[idx].shadow_map = create_image(VkExtent3D{ SHADOW_MAP_SIZE, SHADOW_MAP_SIZE, 1 }, VK_FORMAT_D32_SFLOAT,
 			VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_DEPTH_BIT
 		);
-		fmt::println("distance: {}", d);
 		auto id = texture_cache.add_texture(cascade_data[idx].shadow_map.view);
 		if (idx == 0)
 			texture_cache.set_shadowmap(id);
@@ -2368,7 +2354,7 @@ void VulkanEngine::update_scene()
 	auto start = std::chrono::system_clock::now();
 
 	main_camera.near = static_cast<float>(CVAR_DRAW_DISTANCE.get());
-	main_camera.update(stats.deltatime);
+	main_camera.update(static_cast<float>(stats.deltatime));
 
 	scene_data.view = main_camera.get_view_matrix();
 	scene_data.proj = main_camera.perspective;
@@ -2393,8 +2379,8 @@ void VulkanEngine::update_scene()
 
 	scene_data.camera_pos = glm::vec4(main_camera.position, 1.0);
 
-	int elapsed_ms = SDL_GetTicks();
-	int ms_per_orbit = 10000;
+	auto elapsed_ms = SDL_GetTicks();
+	auto ms_per_orbit = 10000;
 	float rot_angle = static_cast<float>(elapsed_ms % ms_per_orbit) / ms_per_orbit * 360.0f;
 	scene_data.light_rot = glm::rotate(glm::mat4(1.0f), glm::radians(rot_angle), glm::vec3(0, 1, 0));
 
@@ -2590,14 +2576,33 @@ void VulkanEngine::execute_deferred_shading(VkCommandBuffer cmd)
 
 void VulkanEngine::update_cascade()
 {
+	// https://developer.nvidia.com/gpugems/gpugems3/part-ii-light-and-shadows/chapter-10-parallel-split-shadow-maps-programmable-gpus
+	float far = static_cast<float>(CVAR_SHADOW_DISTANCE.get());
+	float near = main_camera.far;
+	size_t m = cascade_data.size();
+	float range = far - near;
+	float ratio = far / near;
+	float lambda = CVAR_CSM_LAMBDA.get();
+
+	for (int idx = 0; idx < m; idx++)
+	{
+		float i = static_cast<float>(idx + 1); // i is cascade layer, in range [1, m]
+		float log = near * std::powf(ratio, i / m);
+		float uniform = near + range * i / m;
+		float d = lambda * (log - uniform) + uniform; // world space
+		cascade_data[idx].split_ratio = (d - near) / range;
+		scene_data.cascade_splits[idx] = d * -1.0f;
+	}
+
 	auto light_dir = glm::normalize(glm::vec3(scene_data.sunlight_dir));
 
 	// TODO: currently does not work with frozen camera
-	glm::mat4 view = main_camera.get_view_matrix();
 	// TODO: refactor when implementing window resize
+	glm::mat4 view = main_camera.get_view_matrix();
 
-	// TODO: change to infinite far plane and use draw distance in culling shader? or not?
-	glm::mat4 proj = glm::perspective(glm::radians(main_camera.fov), static_cast<float>(draw_extent.width) / draw_extent.height, SHADOW_DISTANCE, main_camera.far);
+	glm::mat4 proj = glm::perspective(glm::radians(main_camera.fov), static_cast<float>(draw_extent.width) / draw_extent.height, 
+		static_cast<float>(CVAR_SHADOW_DISTANCE.get()), main_camera.far
+	);
 	glm::mat4 inv_viewproj = glm::inverse(proj * view);
 	
 	glm::mat4 light_view = glm::lookAt(glm::vec3(0.0), -light_dir, glm::vec3(0.0, 1.0, 0.0));
@@ -2768,13 +2773,13 @@ void VulkanEngine::ready_mesh_draw()
 
 	std::vector<RenderScene::MeshPass*> passes = { &render_scene.opaque_pass, &render_scene.mask_pass, &render_scene.transparent_pass };
 
-	auto total = 0;
+	unsigned int total = 0;
 	std::vector<uint32_t> staging{};
 	for (size_t i = 0; i < passes.size(); i++)
 	{
 		RenderScene::MeshPass* pass = passes[i];
 		pass->indices_offset = total;
-		total += pass->unbatched_objects.size();
+		total += static_cast<unsigned int>(pass->unbatched_objects.size());
 
 		for (size_t i = 0; i < pass->unbatched_objects.size(); i++)
 		{
@@ -2970,6 +2975,7 @@ void VulkanEngine::ready_mesh_cull(RenderScene::MeshPass& pass, CullData& cull_d
 
 void VulkanEngine::ready_shadow_cull(RenderScene::MeshPass& pass, CullData& cull_data, glm::mat4& proj, bool orthographic /*= false*/)
 {
+	// TODO: this needs massive cleaning up
 	cull_data.view = freeze_camera ? last_view : scene_data.view; // currently not supported
 	cull_data.frustum_planes; // currently unused
 
@@ -3170,7 +3176,7 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass, ui
 	depth_attachment.loadOp = late ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_CLEAR;
 
 	VkRenderingInfo render_info = vkinit::rendering_info(draw_extent, gbuffer_info.data(), &depth_attachment);
-	render_info.colorAttachmentCount = gbuffer_info.size();
+	render_info.colorAttachmentCount = static_cast<uint32_t>(gbuffer_info.size());
 
 	vkCmdBeginRendering(cmd, &render_info);
 
