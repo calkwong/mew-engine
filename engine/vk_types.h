@@ -5,8 +5,7 @@
 #include <fmt/core.h>
 #include <vk_mem_alloc.h>
 #include <vulkan/vk_enum_string_helper.h> // string_VkResult
-#include <vulkan/vulkan.h>
-
+#include <volk.h>
 #include <array>
 
 #define VK_CHECK(x) \

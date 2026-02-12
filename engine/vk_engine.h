@@ -9,8 +9,7 @@
 
 #include <VkBootstrap.h>
 #include <ranges>
-#include <tracy/TracyVulkan.hpp>
-#include <vulkan/vulkan.h>
+// #include <tracy/TracyVulkan.hpp>
 
 #include <array>
 #include <deque>
@@ -382,7 +381,7 @@ public:
 	SceneData scene_data{};
 	std::array<CascadeData, 4> cascade_data{};
 
-	tracy::VkCtx* tracy_ctx{};
+	// tracy::VkCtx* tracy_ctx{};
 	RenderScene render_scene{};
 
 	VkPhysicalDeviceProperties props{};

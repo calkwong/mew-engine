@@ -14,8 +14,7 @@
 #include <meshoptimizer.h>
 #include <mikktspace.h>
 #include <stb_image.h>
-#include <vulkan/vulkan.h>
-
+#include <volk.h>
 #include <filesystem>
 #include <fstream>
 #include <optional>

@@ -9,9 +9,8 @@
 #include "vk_scene.h"
 #include "vk_types.h"
 
-#include <tracy/Tracy.hpp>
-#include <tracy/TracyVulkan.hpp>
-#define VMA_IMPLEMENTATION
+// #include <tracy/Tracy.hpp>
+// #include <tracy/TracyVulkan.hpp>
 #include <SDL3/SDL_events.h>
 #include <SDL3/SDL_init.h>
 #include <SDL3/SDL_timer.h>
@@ -21,8 +20,11 @@
 #include <imgui_impl_sdl3.h>
 #include <imgui_impl_vulkan.h>
 #include <stb_image.h>
+#define VMA_IMPLEMENTATION
 #include <vk_mem_alloc.h>
-#include <vulkan/vulkan.h>
+
+#define VOLK_IMPLEMENTATION
+#include "volk.h"
 
 #include <algorithm>
 #include <chrono>
@@ -44,11 +46,11 @@ VulkanEngine& VulkanEngine::get() { return *loaded_engine; }
 #ifdef NDEBUG
 constexpr bool USE_VALIDATION_LAYERS = false;
 #else
-constexpr bool USE_VALIDATION_LAYERS = false;
+constexpr bool USE_VALIDATION_LAYERS = true;
 #endif
 
 // #define IBL
-#define SINGLE // uncomment if loading a proper scene
+// #define SINGLE // uncomment if loading a proper scene
 
 bool RENDER_IMGUI = true;
 
@@ -91,6 +93,9 @@ void VulkanEngine::init(std::vector<std::string>& file_paths)
 {
 	assert(loaded_engine == nullptr);
 	loaded_engine = this;
+
+	VK_CHECK(volkInitialize());
+
 	SDL_Init(SDL_INIT_VIDEO);
 
 	auto window_flags = (SDL_WindowFlags)(SDL_WINDOW_VULKAN);
@@ -164,7 +169,7 @@ void VulkanEngine::cleanup()
 
 		vkDeviceWaitIdle(device);
 
-		TracyVkDestroy(tracy_ctx);
+		// TracyVkDestroy(tracy_ctx);
 
 		loaded_scenes.clear();
 
@@ -227,6 +232,8 @@ void VulkanEngine::cleanup()
 		vkDestroyInstance(instance, nullptr);
 
 		SDL_DestroyWindow(window);
+
+		volkFinalize();
 	}
 
 	loaded_engine = nullptr;
@@ -761,7 +768,7 @@ void VulkanEngine::draw()
 	    VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
 	    0
 	);
-	TracyVkCollect(tracy_ctx, get_current_frame().main_command_buffer);
+	// TracyVkCollect(tracy_ctx, get_current_frame().main_command_buffer);
 	VK_CHECK(vkEndCommandBuffer(cmd));
 
 	VkCommandBufferSubmitInfo cmd_info = vkinit::command_buffer_submit_info(cmd);
@@ -784,7 +791,7 @@ void VulkanEngine::draw()
 	present_info.pImageIndices = &swapchain_image_idx;
 
 	VK_CHECK(vkQueuePresentKHR(graphics_queue, &present_info));
-	FrameMark;
+	// FrameMark;
 	frame_number++;
 }
 
@@ -1069,6 +1076,8 @@ void VulkanEngine::init_vulkan()
 	instance = vkb_inst.instance;
 	debug_messenger = vkb_inst.debug_messenger;
 
+	volkLoadInstanceOnly(instance);
+
 	SDL_Vulkan_CreateSurface(window, instance, nullptr, &surface);
 
 	// vulkan 1.3 features
@@ -1132,6 +1141,8 @@ void VulkanEngine::init_vulkan()
 	device = vkbDevice.device;
 	chosen_gpu = physicalDevice.physical_device;
 
+	volkLoadDevice(device);
+
 	// use vkbootstrap to get a Graphics queue
 	graphics_queue = vkbDevice.get_queue(vkb::QueueType::graphics).value();
 	graphics_queue_family = vkbDevice.get_queue_index(vkb::QueueType::graphics).value();
@@ -1140,11 +1151,17 @@ void VulkanEngine::init_vulkan()
 	allocator_info.physicalDevice = chosen_gpu;
 	allocator_info.device = device;
 	allocator_info.instance = instance;
+	allocator_info.vulkanApiVersion = VK_API_VERSION_1_3;
 	allocator_info.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT; // allows usage of GPU pointers
+
+	VmaVulkanFunctions vulkan_functions{};
+	VkResult result = vmaImportVulkanFunctionsFromVolk(&allocator_info, &vulkan_functions);
+	allocator_info.pVulkanFunctions = &vulkan_functions;
 	vmaCreateAllocator(&allocator_info, &allocator);
 
-	main_deletion_queue.push_function([&]()
-	                                  { vmaDestroyAllocator(allocator); });
+	main_deletion_queue.push_function([&]() {
+		vmaDestroyAllocator(allocator);
+	});
 
 	vkGetPhysicalDeviceProperties(chosen_gpu, &props);
 	assert(props.limits.timestampComputeAndGraphics);
@@ -1229,9 +1246,7 @@ void VulkanEngine::init_commands()
 		VK_CHECK(vkAllocateCommandBuffers(device, &cmd_alloc_info, &frame.main_command_buffer));
 	}
 
-	auto p_timedomain = (PFN_vkGetPhysicalDeviceCalibrateableTimeDomainsEXT)vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceCalibrateableTimeDomainsKHR");
-	auto p_timestamp = (PFN_vkGetCalibratedTimestampsEXT)vkGetInstanceProcAddr(instance, "vkGetCalibratedTimestampsKHR");
-	tracy_ctx = TracyVkContextCalibrated(chosen_gpu, device, graphics_queue, frames[0].main_command_buffer, p_timedomain, p_timestamp);
+	// tracy_ctx = TracyVkContextCalibrated(chosen_gpu, device, graphics_queue, frames[0].main_command_buffer, vkGetPhysicalDeviceCalibrateableTimeDomainsKHR, vkGetCalibratedTimestampsKHR);
 
 	VK_CHECK(vkCreateCommandPool(device, &command_pool_info, nullptr, &imm_command_pool));
 	VkCommandBufferAllocateInfo cmd_alloc_info = vkinit::command_buffer_allocate_info(
@@ -1668,8 +1683,7 @@ AllocatedBuffer VulkanEngine::upload_buffer(const void* data, size_t data_size)
 		                 copy.srcOffset = 0;
 		                 copy.size = data_size;
 
-		                 vkCmdCopyBuffer(cmd, staging.buffer, buffer.buffer, 1, &copy);
-	                 });
+		                 vkCmdCopyBuffer(cmd, staging.buffer, buffer.buffer, 1, &copy); });
 
 	destroy_buffer(staging);
 
@@ -2610,6 +2624,11 @@ void VulkanEngine::init_imgui()
 	render_info.pColorAttachmentFormats = &swapchain_image_format;
 	init_info.PipelineInfoMain.PipelineRenderingCreateInfo = render_info;
 
+	// https://github.com/ocornut/imgui/issues/4854#issuecomment-1362380609 FOR VOLK COMPATIBILITY
+	ImGui_ImplVulkan_LoadFunctions(0, [](const char* function_name, void* vulkan_instance) {
+		return vkGetInstanceProcAddr(*(static_cast<VkInstance*>(vulkan_instance)), function_name);
+	}, &instance);
+
 	ImGui_ImplVulkan_Init(&init_info);
 
 	main_deletion_queue.push_function([&, imgui_pool]()
@@ -3139,13 +3158,6 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass, ui
 
 		vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GPUPushConstants), &pc);
 
-		PFN_vkCmdDrawMeshTasksIndirectEXT vkCmdDrawMeshTasksIndirectEXT = (PFN_vkCmdDrawMeshTasksIndirectEXT)vkGetDeviceProcAddr(device, "vkCmdDrawMeshTasksIndirectEXT");
-
-		if (!vkCmdDrawMeshTasksIndirectEXT)
-		{
-			assert(0);
-		}
-
 		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
 		vkCmdDrawMeshTasksIndirectEXT(cmd, render_scene.cluster_count_buffer.buffer, 0, 1, 0);
 
@@ -3232,13 +3244,6 @@ void VulkanEngine::render_transparent(VkCommandBuffer cmd, uint32_t query)
 		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
 
 		vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GPUPushConstants), &pc);
-
-		PFN_vkCmdDrawMeshTasksIndirectEXT vkCmdDrawMeshTasksIndirectEXT = (PFN_vkCmdDrawMeshTasksIndirectEXT)vkGetDeviceProcAddr(device, "vkCmdDrawMeshTasksIndirectEXT");
-
-		if (!vkCmdDrawMeshTasksIndirectEXT)
-		{
-			assert(0);
-		}
 
 		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
 		vkCmdDrawMeshTasksIndirectEXT(cmd, render_scene.cluster_count_buffer.buffer, 0, 1, 0);

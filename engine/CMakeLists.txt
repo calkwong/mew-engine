@@ -44,7 +44,7 @@ target_sources(engine PRIVATE
 )
 
 set_property(TARGET engine PROPERTY CXX_STANDARD 20)
-target_compile_definitions(engine PUBLIC GLM_FORCE_DEPTH_ZERO_TO_ONE)
+target_compile_definitions(engine PUBLIC GLM_FORCE_DEPTH_ZERO_TO_ONE VK_NO_PROTOTYPES IMGUI_IMPL_VULKAN_NO_PROTOTYPE)
 
 target_include_directories(engine PUBLIC 
 	"${CMAKE_CURRENT_SOURCE_DIR}"
@@ -54,21 +54,40 @@ target_include_directories(engine PUBLIC
 
 target_link_libraries(engine PUBLIC 
 	vma 
-	glm 
-	Vulkan::Vulkan
+	glm
+	# Vulkan::Vulkan
 	fmt::fmt 
 	stb
 	SDL3::SDL3
 	vk-bootstrap::vk-bootstrap
 	fastgltf::fastgltf
 	mikktspace
-	Tracy::TracyClient
+	#Tracy::TracyClient
 	basis_universal
 	meshoptimizer
+	volk_headers
 )
 
-target_precompile_headers(engine PUBLIC <optional> <vector> <memory> <string> <vector> <unordered_map> <glm/mat4x4.hpp>  <glm/vec4.hpp> <vulkan/vulkan.h>)
-	
+target_precompile_headers(engine PUBLIC
+		<volk.h>
+		<optional>
+		<vector>
+		<array>
+		<memory>
+		<string>
+		<vector>
+		<unordered_map>
+		<glm/mat4x4.hpp>
+		<glm/vec4.hpp>
+		<glm/vec2.hpp>
+		<glm/vec3.hpp>
+		<glm/vec4.hpp>
+		<glm/mat4x4.hpp>
+		<glm/ext/matrix_transform.hpp>
+		<glm/ext/matrix_clip_space.hpp>
+		# <glm/gtx/quaternion.hpp> # does not work
+)
+
 add_custom_command(TARGET engine POST_BUILD
 	COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_RUNTIME_DLLS:engine> $<TARGET_FILE_DIR:engine>
 	COMMAND_EXPAND_LISTS

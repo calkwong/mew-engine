@@ -3,8 +3,7 @@
 #include "vk_types.h"
 
 #include <mikktspace.h>
-#include <vulkan/vulkan.h>
-
+#include <volk.h>
 #include <memory>
 #include <optional>
 #include <string>

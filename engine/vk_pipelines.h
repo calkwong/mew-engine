@@ -3,7 +3,7 @@
 #include "vk_types.h"
 
 #include <initializer_list>
-#include <vulkan/vulkan.h>
+#include <volk.h>
 
 // TODO: rename?
 struct ShaderPass

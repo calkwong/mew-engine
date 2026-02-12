@@ -1,5 +1,3 @@
-# find_package(Vulkan REQUIRED) 
-
 add_library(glm INTERFACE)
 add_library(vma INTERFACE)
 add_library(stb INTERFACE)
@@ -13,14 +11,6 @@ add_subdirectory(SDL EXCLUDE_FROM_ALL)
 
 add_subdirectory(vk-bootstrap)
 target_include_directories(vk-bootstrap PUBLIC vk-bootstrap)
-
-#target_sources(vkbootstrap PRIVATE 
-#  vkbootstrap/VkBootstrap.h
-#  vkbootstrap/VkBootstrap.cpp
-#  )
-#target_include_directories(vkbootstrap PUBLIC vkbootstrap)
-#target_link_libraries(vkbootstrap PUBLIC Vulkan::Vulkan $<$<BOOL:UNIX>:${CMAKE_DL_LIBS}>)
-#set_property(TARGET vkbootstrap PROPERTY CXX_STANDARD 20)
 
 target_include_directories(vma INTERFACE VulkanMemoryAllocator/include)
 
@@ -36,9 +26,9 @@ target_sources(mikktspace PRIVATE
 	)
 
 # tracy
-option(TRACY_ENABLE "" ON) 
-option(TRACY_ON_DEMAND "" ON)
-add_subdirectory(tracy) 
+#option(TRACY_ENABLE "" ON)
+#option(TRACY_ON_DEMAND "" ON)
+#add_subdirectory(tracy)
 
 # basis_universal
 target_include_directories(basis_universal PUBLIC basis_universal/transcoder basis_universal/zstd)
@@ -79,4 +69,7 @@ target_sources(meshoptimizer PRIVATE
   #meshoptimizer/src/vertexfilter.cpp
   meshoptimizer/src/vfetchoptimizer.cpp
   )
-  
+
+# volk
+add_subdirectory(volk)
+
