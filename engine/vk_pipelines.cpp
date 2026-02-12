@@ -10,50 +10,23 @@
 #include <cassert>
 #include <initializer_list>
 
-bool vkutil::load_shader_module(const char* path, VkDevice device, VkShaderModule* out_shader_module)
+VkPipeline ComputePipelineBuilder::build_pipeline(VkDevice device) const
 {
-    // cursor at the end
-    std::ifstream file(path, std::ios::ate | std::ios::binary);
+	VkPipeline pipeline{};
 
-    if (!file.is_open()) {
-        return false;
-    }
+	VkComputePipelineCreateInfo compute_info{};
+	compute_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+	compute_info.stage = shader_stages[0];
+	compute_info.layout = pipeline_layout;
 
-    // find what the size of the file is by looking up the location of the cursor
-    // because the cursor is at the end, it gives the size directly in bytes
-    size_t file_size = static_cast<size_t>(file.tellg());
+	vkCreateComputePipelines(device, 0, 1, &compute_info, nullptr, &pipeline);
 
-    // spirv expects the buffer to be on uint32, so make sure to reserve a int
-    // vector big enough for the entire file
-    std::vector<uint32_t> buffer(file_size / sizeof(uint32_t)); 
+	return pipeline;
+}
 
-    // put file cursor at beginning
-    file.seekg(0);
-
-    // load the entire file into the buffer
-    file.read((char*)buffer.data(), file_size);
-
-    // now that the file is loaded into the buffer, we can close it
-    file.close();
-
-    // create a new shader module, using the buffer we loaded
-    VkShaderModuleCreateInfo create_info{};
-    create_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-
-    // codeSize has to be in bytes, so multply the ints in the buffer by size of
-    // int to know the real size of the buffer
-    create_info.codeSize = buffer.size() * sizeof(uint32_t);
-    create_info.pCode = buffer.data();
-
-    // check that the creation goes well.
-    VkShaderModule shader_module{};
-    if (vkCreateShaderModule(device, &create_info, nullptr, &shader_module) != VK_SUCCESS) 
-    {
-        fmt::println("loading shader failed: {}", path);
-        return false;
-    }
-    *out_shader_module = shader_module;
-    return true;
+void ComputePipelineBuilder::set_shaders(const ShaderProgram* program)
+{
+	shader_stages[0] = vkinit::pipeline_shader_stage_create_info(program->stage, program->module);
 }
 
 void PipelineBuilder::clear()
@@ -75,17 +48,17 @@ void PipelineBuilder::clear()
     shader_stages.clear();
 }
 
-void PipelineBuilder::set_blending_state(std::vector<VkPipelineColorBlendAttachmentState>& blend_states)
+void PipelineBuilder::set_blending_state(const std::vector<VkPipelineColorBlendAttachmentState>& blends)
 {
     color_blend_info.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
     color_blend_info.logicOpEnable = VK_FALSE;
     color_blend_info.logicOp = VK_LOGIC_OP_COPY;
     
-    color_blend_info.attachmentCount = static_cast<uint32_t>(blend_states.size());
-    color_blend_info.pAttachments = blend_states.data();
+    color_blend_info.attachmentCount = static_cast<uint32_t>(blends.size());
+    color_blend_info.pAttachments = blends.data();
 }
 
-VkPipeline PipelineBuilder::build_pipeline(VkDevice device)
+VkPipeline PipelineBuilder::build_pipeline(VkDevice device) const
 {
     VkPipelineViewportStateCreateInfo viewport_state{};
     viewport_state.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
@@ -170,20 +143,11 @@ void PipelineBuilder::set_multisampling_none()
 
 }
 
-VkPipelineColorBlendAttachmentState PipelineBuilder::disable_blending()
-{
-    VkPipelineColorBlendAttachmentState color_blend_attachment{};
-    color_blend_attachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-    color_blend_attachment.blendEnable = VK_FALSE;
-
-    return color_blend_attachment;
-}
-
-void PipelineBuilder::set_color_attachment_format(std::vector<VkFormat>& formats)
+void PipelineBuilder::set_color_attachment_format(const std::vector<VkFormat>& formats)
 {
     // connect format to render info
-    uint32_t count = static_cast<uint32_t>(formats.size());
-    bool no_attachment = (count == 1) && (formats[0] == VK_FORMAT_UNDEFINED);
+	const uint32_t count = static_cast<uint32_t>(formats.size());
+	const bool no_attachment = (count == 1) && (formats[0] == VK_FORMAT_UNDEFINED);
     render_info.colorAttachmentCount = no_attachment ? 0 : count;
     render_info.pColorAttachmentFormats = formats.data();
 }
@@ -219,59 +183,52 @@ void PipelineBuilder::enable_depth(bool depth_write_enable, VkCompareOp op)
     depth_stencil.maxDepthBounds = 1.0f;
 }
 
+// TODO: refactor to free function
 VkPipelineColorBlendAttachmentState PipelineBuilder::enable_blending_additive()
 {
-    VkPipelineColorBlendAttachmentState color_blend_attachment{};
+    VkPipelineColorBlendAttachmentState attachment_state{};
 
-    color_blend_attachment.blendEnable = VK_TRUE;
-    color_blend_attachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-    color_blend_attachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-    color_blend_attachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
-    color_blend_attachment.colorBlendOp = VK_BLEND_OP_ADD;
-    color_blend_attachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-    color_blend_attachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
-    color_blend_attachment.alphaBlendOp = VK_BLEND_OP_ADD;
+    attachment_state.blendEnable = VK_TRUE;
+    attachment_state.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+    attachment_state.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+    attachment_state.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
+    attachment_state.colorBlendOp = VK_BLEND_OP_ADD;
+    attachment_state.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    attachment_state.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+    attachment_state.alphaBlendOp = VK_BLEND_OP_ADD;
 
-    return color_blend_attachment;
+    return attachment_state;
 }
 
+// TODO: refactor to free function
 VkPipelineColorBlendAttachmentState PipelineBuilder::enable_blending_alphablend() // review alpha blend eq
 {
-    VkPipelineColorBlendAttachmentState color_blend_attachment{};
+    VkPipelineColorBlendAttachmentState attachment_state{};
 
-    color_blend_attachment.blendEnable = VK_TRUE;
-    color_blend_attachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-    color_blend_attachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
-    color_blend_attachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-    color_blend_attachment.colorBlendOp = VK_BLEND_OP_ADD;
-    color_blend_attachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    attachment_state.blendEnable = VK_TRUE;
+    attachment_state.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+    attachment_state.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+    attachment_state.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    attachment_state.colorBlendOp = VK_BLEND_OP_ADD;
+    attachment_state.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
     //color_blend_attachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
-    color_blend_attachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-    color_blend_attachment.alphaBlendOp = VK_BLEND_OP_ADD;
+    attachment_state.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    attachment_state.alphaBlendOp = VK_BLEND_OP_ADD;
 
-    return color_blend_attachment;
+    return attachment_state;
 }
 
-VkPipeline ComputePipelineBuilder::build_pipeline(VkDevice device)
+// TODO: refactor to free function
+VkPipelineColorBlendAttachmentState PipelineBuilder::disable_blending()
 {
-    VkPipeline pipeline{};
-    
-    VkComputePipelineCreateInfo compute_info{};
-    compute_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-    compute_info.stage = shader_stages[0];
-    compute_info.layout = pipeline_layout;
+	VkPipelineColorBlendAttachmentState attachment_state{};
+	attachment_state.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+	attachment_state.blendEnable = VK_FALSE;
 
-    vkCreateComputePipelines(device, 0, 1, &compute_info, nullptr, &pipeline);
-
-    return pipeline;
+	return attachment_state;
 }
 
-void ComputePipelineBuilder::set_shaders(ShaderProgram* program)
-{
-    shader_stages[0] = vkinit::pipeline_shader_stage_create_info(program->stage, program->module);
-}
-
-std::unique_ptr<ShaderPass> vkutil::build_shader(VkDevice device, ComputePipelineBuilder& builder, ShaderProgram* program, std::vector<VkDescriptorSetLayout>& layouts, uint32_t pc_size)
+std::unique_ptr<ShaderPass> vkutil::build_shader(VkDevice device, ComputePipelineBuilder& builder, const ShaderProgram* program, const std::vector<VkDescriptorSetLayout>& layouts, uint32_t pc_size)
 {
     std::unique_ptr<ShaderPass> shader = std::make_unique<ShaderPass>();
 
@@ -302,13 +259,13 @@ std::unique_ptr<ShaderPass> vkutil::build_shader(VkDevice device, ComputePipelin
     return shader;
 }
 
-std::unique_ptr<ShaderPass> vkutil::build_shader(VkDevice device, PipelineBuilder& builder, std::initializer_list<ShaderProgram*> programs, std::vector<VkDescriptorSetLayout>& layouts, uint32_t pc_size)
+std::unique_ptr<ShaderPass> vkutil::build_shader(VkDevice device, PipelineBuilder& builder, std::initializer_list<ShaderProgram*> programs, const std::vector<VkDescriptorSetLayout>& layouts, uint32_t pc_size)
 {
     std::unique_ptr<ShaderPass> shader = std::make_unique<ShaderPass>();
 
     if (programs.size() == 0)
     {
-        assert(builder.shader_stages.size() != 0);
+        assert(!builder.shader_stages.empty());
     }
     else
     {
@@ -322,9 +279,9 @@ std::unique_ptr<ShaderPass> vkutil::build_shader(VkDevice device, PipelineBuilde
     pipeline_layout_info.pSetLayouts = layouts.data();
 
     VkPushConstantRange pc{};
-    for (size_t i = 0; i < builder.shader_stages.size(); i++)
+    for (const auto& shader_stage : builder.shader_stages)
     {
-        pc.stageFlags |= builder.shader_stages[i].stage;
+        pc.stageFlags |= shader_stage.stage;
     }
     pc.size = pc_size;
 
@@ -338,4 +295,50 @@ std::unique_ptr<ShaderPass> vkutil::build_shader(VkDevice device, PipelineBuilde
     shader->pipeline = builder.build_pipeline(device);
 
     return shader;
+}
+
+bool vkutil::load_shader_module(const char* path, VkDevice device, VkShaderModule* out_shader_module)
+{
+	// cursor at the end
+	std::ifstream file(path, std::ios::ate | std::ios::binary);
+
+	if (!file.is_open()) {
+		return false;
+	}
+
+	// find what the size of the file is by looking up the location of the cursor
+	// because the cursor is at the end, it gives the size directly in bytes
+	const size_t file_size = file.tellg();
+
+	// spirv expects the buffer to be on uint32, so make sure to reserve a int
+	// vector big enough for the entire file
+	std::vector<uint32_t> buffer(file_size / sizeof(uint32_t));
+
+	// put file cursor at beginning
+	file.seekg(0);
+
+	// load the entire file into the buffer
+	file.read(reinterpret_cast<char*>(buffer.data()), static_cast<std::streamsize>(file_size));
+
+	// now that the file is loaded into the buffer, we can close it
+	file.close();
+
+	// create a new shader module, using the buffer we loaded
+	VkShaderModuleCreateInfo create_info{};
+	create_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+
+	// codeSize has to be in bytes, so multply the ints in the buffer by size of
+	// int to know the real size of the buffer
+	create_info.codeSize = buffer.size() * sizeof(uint32_t);
+	create_info.pCode = buffer.data();
+
+	// check that the creation goes well.
+	VkShaderModule shader_module{};
+	if (vkCreateShaderModule(device, &create_info, nullptr, &shader_module) != VK_SUCCESS)
+	{
+		fmt::println("loading shader failed: {}", path);
+		return false;
+	}
+	*out_shader_module = shader_module;
+	return true;
 }

@@ -2,15 +2,15 @@
 #include "vk_initializers.h"
 
 void vkutil::transition_image(
-	VkCommandBuffer cmd,
-	VkImage image,
-	VkImageLayout old_layout,
-	VkImageLayout new_layout,
-	VkPipelineStageFlags2 src_stage_mask,
-	VkPipelineStageFlags2 dst_stage_mask,
-	VkAccessFlags2 src_access_mask,
-	VkAccessFlags2 dst_access_mask,
-	VkImageAspectFlags aspect /*= VK_IMAGE_ASPECT_COLOR_BIT*/
+    VkCommandBuffer cmd,
+    VkImage image,
+    VkImageLayout old_layout,
+    VkImageLayout new_layout,
+    VkPipelineStageFlags2 src_stage_mask,
+    VkPipelineStageFlags2 dst_stage_mask,
+    VkAccessFlags2 src_access_mask,
+    VkAccessFlags2 dst_access_mask,
+    VkImageAspectFlags aspect /*= VK_IMAGE_ASPECT_COLOR_BIT*/
 )
 {
 	VkImageMemoryBarrier2 barrier{};
@@ -68,12 +68,12 @@ void vkutil::copy_image(VkCommandBuffer cmd, VkImage src, VkImage dst, VkExtent2
 	vkCmdBlitImage2(cmd, &blit_info);
 }
 
-void vkutil::generate_mipmaps(VkCommandBuffer cmd, VkImage image, VkExtent2D image_size, uint32_t layers /*= 1*/)
+void vkutil::generate_mipmaps(VkCommandBuffer cmd, VkImage image, VkExtent2D extent, uint32_t layers /*= 1*/)
 {
-	int mip_levels = int(std::floor(std::log2(std::max(image_size.width, image_size.height)))) + 1;
+	int mip_levels = static_cast<int>(std::floor(std::log2(std::max(extent.width, extent.height)))) + 1;
 	int current_layer = layers - 1;
 
-	VkExtent2D image_size_copy = image_size;
+	VkExtent2D image_size_copy = extent;
 
 	while (current_layer >= 0)
 	{
@@ -122,12 +122,12 @@ void vkutil::generate_mipmaps(VkCommandBuffer cmd, VkImage image, VkExtent2D ima
 				blit_region.dstOffsets[1].z = 1;
 
 				blit_region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-				blit_region.srcSubresource.baseArrayLayer = current_layer; 
+				blit_region.srcSubresource.baseArrayLayer = current_layer;
 				blit_region.srcSubresource.layerCount = 1;
 				blit_region.srcSubresource.mipLevel = mip;
 
 				blit_region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-				blit_region.dstSubresource.baseArrayLayer = current_layer; 
+				blit_region.dstSubresource.baseArrayLayer = current_layer;
 				blit_region.dstSubresource.layerCount = 1;
 				blit_region.dstSubresource.mipLevel = mip + 1;
 
@@ -147,16 +147,16 @@ void vkutil::generate_mipmaps(VkCommandBuffer cmd, VkImage image, VkExtent2D ima
 			}
 		}
 		current_layer--;
-		image_size_copy = image_size;
+		image_size_copy = extent;
 	}
 }
 
 void vkutil::transition_buffer(
-	VkCommandBuffer cmd,
-	VkPipelineStageFlags2 src_stage_mask,
-	VkPipelineStageFlags2 dst_stage_mask,
-	VkAccessFlags2 src_access_mask,
-	VkAccessFlags2 dst_access_mask
+    VkCommandBuffer cmd,
+    VkPipelineStageFlags2 src_stage_mask,
+    VkPipelineStageFlags2 dst_stage_mask,
+    VkAccessFlags2 src_access_mask,
+    VkAccessFlags2 dst_access_mask
 )
 {
 	VkMemoryBarrier2 barrier{};

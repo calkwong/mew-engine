@@ -1,16 +1,15 @@
 #pragma once
 
 #include "vk_types.h"
-#include "vk_pipelines.h"
 
 #include <mikktspace.h>
 #include <vulkan/vulkan.h>
 
-#include <unordered_map>
-#include <optional>
-#include <vector>
 #include <memory>
+#include <optional>
 #include <string>
+#include <unordered_map>
+#include <vector>
 
 struct GeoSurface // rename this
 {
@@ -20,7 +19,7 @@ struct GeoSurface // rename this
 
 	uint32_t material{}; // master material handle
 	uint32_t material_id{}; // for bindless material buffer
-	
+
 	MaterialPass pass{};
 	Bounds bounds{}; // 28 bytes
 	uint32_t meshlet_bits{};
@@ -40,7 +39,7 @@ struct MeshAsset
 	VkDeviceAddress vertex_buffer_address{};
 
 	// TODO: refactor in the future? added for multiple scenes compatibility
-	//VkDeviceAddress material_buffer_address{};
+	// VkDeviceAddress material_buffer_address{};
 };
 
 struct Node
@@ -62,6 +61,7 @@ struct Node
 
 class VulkanEngine;
 
+// handles each LoadedGLTF
 struct Loader
 {
 	std::vector<uint32_t> combined_indices{};
@@ -82,16 +82,9 @@ struct LoadedGLTF
 	std::vector<std::shared_ptr<Node>> top_nodes{};
 	std::vector<VkSampler> samplers{};
 
-	//GPUMeshBuffers combined_mesh_buffer{};
-	//AllocatedBuffer material_buffer{}; // TODO: possibly move this out to vk_scene?
-	//VkDeviceAddress material_buffer_address{};
-
-	//AllocatedBuffer meshlet_indices{};
-	//AllocatedBuffer meshlets{};
-
 	VulkanEngine* creator{};
 
-	~LoadedGLTF() { clear(); };
+	~LoadedGLTF() { clear(); }
 
 private:
 	void clear();

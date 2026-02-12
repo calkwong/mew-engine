@@ -1,32 +1,31 @@
 #include "vk_loader.h"
-#include "vk_math.h"
 #include "vk_engine.h"
-#include "vk_types.h"
 #include "vk_images.h"
+#include "vk_math.h"
+#include "vk_types.h"
 
 #define STB_IMAGE_IMPLEMENTATION
-#include <stb_image.h>
-#include <mikktspace.h>
 #include <basisu_transcoder.h>
-#include <meshoptimizer.h>
-#include <vulkan/vulkan.h>
 #include <fastgltf/core.hpp>
-#include <fastgltf/types.hpp>
-#include <fastgltf/tools.hpp>
 #include <fastgltf/glm_element_traits.hpp>
+#include <fastgltf/tools.hpp>
+#include <fastgltf/types.hpp>
 #include <fmt/core.h>
+#include <meshoptimizer.h>
+#include <mikktspace.h>
+#include <stb_image.h>
+#include <vulkan/vulkan.h>
 
-#include <limits>
-#include <optional>
-#include <vector>
-#include <fstream>
 #include <filesystem>
+#include <fstream>
+#include <optional>
 #include <variant>
+#include <vector>
 
 // meshlet_indices stores meshlet vertices & triangles, meshlet stores offset into meshlet_indices, and triangle/vertices count
 void optimize_mesh(
-	std::vector<Vertex>& vertices, std::vector<uint32_t>& indices, std::vector<uint32_t>& meshlet_indices, std::vector<Meshlet>& meshlets, 
-	GeoSurface& surface, std::vector<Vertex>& combined_vertices, std::vector<uint32_t>& combined_indices
+    std::vector<Vertex>& vertices, std::vector<uint32_t>& indices, std::vector<uint32_t>& meshlet_indices, std::vector<Meshlet>& meshlets,
+    GeoSurface& surface, std::vector<Vertex>& combined_vertices, std::vector<uint32_t>& combined_indices
 )
 {
 	// indexing
@@ -74,41 +73,37 @@ void optimize_mesh(
 	float lod_error_scale = meshopt_simplifyScale(&positions[0].x, vertex_count, sizeof(glm::vec3));
 	float target_error = 1e-1f;
 	float lod_error = 0.f;
-	
-	const float attr_weights[3] = { 1.0f, 1.0f, 1.0f }; // for normals
+
+	constexpr float attr_weights[3] = { 1.0f, 1.0f, 1.0f }; // for normals
 	float next_error{};
 
-	// TODO: unused?
-	size_t combined_indices_size = combined_indices.size();
-
 	// meshlets
-	const size_t max_vertices = 64;
-	const size_t max_triangles = 124;
-	const float cone_weight = 0.f;
+	constexpr size_t max_vertices = 64;
+	constexpr size_t max_triangles = 124;
+	constexpr float cone_weight = 0.f;
+	constexpr uint32_t MAX_LOD = 8;
 	float simplify_threshold = 0.6f;
-	const uint32_t MAX_LOD = 8;
 	while (surface.lod_count < MAX_LOD)
 	{
 		uint32_t first_index = static_cast<uint32_t>(combined_indices.size());
 		uint32_t count = static_cast<uint32_t>(indices.size());
 
 		// appending mesh indices
-		combined_indices.insert(combined_indices.end(), indices.begin(), indices.end());  
+		combined_indices.insert(combined_indices.end(), indices.begin(), indices.end());
 
 		MeshLod lod_info{};
 		lod_info.first_index = first_index;
 		lod_info.count = count;
 		lod_info.error = lod_error * lod_error_scale;
 
-		size_t target_index_count = static_cast<size_t>(indices.size() * simplify_threshold) / 3 * 3;
+		size_t target_index_count = static_cast<size_t>(static_cast<float>(indices.size()) * simplify_threshold) / 3 * 3;
 
- 		size_t max_meshlets = meshopt_buildMeshletsBound(indices.size(), max_vertices, max_triangles);
+		size_t max_meshlets = meshopt_buildMeshletsBound(indices.size(), max_vertices, max_triangles);
 		std::vector<meshopt_Meshlet> meshopt_meshlets(max_meshlets);
-		std::vector<uint32_t> meshlet_vertices(max_meshlets * max_vertices);	  // TODO: should size be indices.size()?
+		std::vector<uint32_t> meshlet_vertices(max_meshlets * max_vertices); // TODO: should size be indices.size()?
 		std::vector<uint8_t> meshlet_triangles(max_meshlets * max_triangles * 3); // TODO: should size be indices.size()?
 
-		size_t meshlet_count = meshopt_buildMeshlets(meshopt_meshlets.data(), meshlet_vertices.data(), meshlet_triangles.data(), indices.data(), indices.size(),
-			&positions[0].x, vertex_count, sizeof(glm::vec3), max_vertices, max_triangles, cone_weight);
+		size_t meshlet_count = meshopt_buildMeshlets(meshopt_meshlets.data(), meshlet_vertices.data(), meshlet_triangles.data(), indices.data(), indices.size(), &positions[0].x, vertex_count, sizeof(glm::vec3), max_vertices, max_triangles, cone_weight);
 
 		// trim arrays
 		// meshopt_Meshlet's triangle_offset already accounts for alignment padding
@@ -118,7 +113,7 @@ void optimize_mesh(
 		meshopt_meshlets.resize(meshlet_count);
 
 		uint32_t meshlet_offset = static_cast<uint32_t>(meshlets.size());
-		lod_info.meshlet_offset = meshlet_offset; 
+		lod_info.meshlet_offset = meshlet_offset;
 		lod_info.meshlet_count = static_cast<uint32_t>(meshlet_count);
 
 		if (surface.lod_count == 0)
@@ -128,13 +123,11 @@ void optimize_mesh(
 
 		surface.mesh_lods[surface.lod_count++] = lod_info;
 		uint32_t meshlet_indices_offset = static_cast<uint32_t>(meshlet_indices.size());
-		for (size_t i = 0; i < meshopt_meshlets.size(); i++)
+		for (auto& m : meshopt_meshlets)
 		{
-			auto& m = meshopt_meshlets[i];
 			meshopt_optimizeMeshlet(&meshlet_vertices[m.vertex_offset], &meshlet_triangles[m.triangle_offset], m.triangle_count, m.vertex_count);
 
-			meshopt_Bounds bounds = meshopt_computeMeshletBounds(&meshlet_vertices[m.vertex_offset], &meshlet_triangles[m.triangle_offset],
-				m.triangle_count, &positions[0].x, vertex_count, sizeof(glm::vec3));
+			meshopt_Bounds bounds = meshopt_computeMeshletBounds(&meshlet_vertices[m.vertex_offset], &meshlet_triangles[m.triangle_offset], m.triangle_count, &positions[0].x, vertex_count, sizeof(glm::vec3));
 
 			Meshlet new_meshlet{};
 			new_meshlet.center = glm::vec3(bounds.center[0], bounds.center[1], bounds.center[2]);
@@ -148,23 +141,22 @@ void optimize_mesh(
 			meshlet_indices_offset += m.vertex_count + m.triangle_count * 3;
 
 			uint32_t combined_vertices_count = static_cast<uint32_t>(combined_vertices.size());
-			for (size_t i = 0; i < m.vertex_count; i++)
+			for (size_t idx = 0; idx < m.vertex_count; idx++)
 			{
-				meshlet_indices.push_back(meshlet_vertices[m.vertex_offset + i] + combined_vertices_count);
+				meshlet_indices.push_back(meshlet_vertices[m.vertex_offset + idx] + combined_vertices_count);
 			}
 
-			for (size_t i = 0; i < m.triangle_count; i++)
+			for (size_t idx = 0; idx < m.triangle_count; idx++)
 			{
-				meshlet_indices.push_back(meshlet_triangles[m.triangle_offset + i * 3 + 0]);
-				meshlet_indices.push_back(meshlet_triangles[m.triangle_offset + i * 3 + 1]);
-				meshlet_indices.push_back(meshlet_triangles[m.triangle_offset + i * 3 + 2]);
+				meshlet_indices.push_back(meshlet_triangles[m.triangle_offset + idx * 3 + 0]);
+				meshlet_indices.push_back(meshlet_triangles[m.triangle_offset + idx * 3 + 1]);
+				meshlet_indices.push_back(meshlet_triangles[m.triangle_offset + idx * 3 + 2]);
 			}
 		}
 
 		if (surface.lod_count < MAX_LOD)
 		{
-			size_t new_size = meshopt_simplifyWithAttributes(indices.data(), indices.data(), indices.size(), &positions[0].x, vertex_count, sizeof(glm::vec3),
-				&normals[0].x, sizeof(glm::vec3), &attr_weights[0], 3, nullptr, target_index_count, target_error, 0, &next_error);
+			size_t new_size = meshopt_simplifyWithAttributes(indices.data(), indices.data(), indices.size(), &positions[0].x, vertex_count, sizeof(glm::vec3), &normals[0].x, sizeof(glm::vec3), &attr_weights[0], 3, nullptr, target_index_count, target_error, 0, &next_error);
 
 			assert(new_size <= indices.size());
 
@@ -172,7 +164,7 @@ void optimize_mesh(
 				break;
 
 			// discard LOD if too similar to previous LOD, saves memory
-			if (new_size >= static_cast<size_t>(indices.size() * 0.85))
+			if (new_size >= static_cast<size_t>(static_cast<float>(indices.size()) * 0.85))
 				break;
 
 			indices.resize(new_size);
@@ -189,13 +181,14 @@ bool read_ktx2_file(const char* filename, std::vector<uint8_t>& ktx_data)
 	// cursor at the end
 	std::ifstream file(filename, std::ios::ate | std::ios::binary);
 
-	if (!file.is_open()) {
+	if (!file.is_open())
+	{
 		return false;
 	}
 
 	// find what the size of the file is by looking up the location of the cursor
 	// because the cursor is at the end, it gives the size directly in bytes
-	size_t file_size = static_cast<size_t>(file.tellg());
+	const size_t file_size = file.tellg();
 
 	// spirv expects the buffer to be on uint32, so make sure to reserve a int
 	// vector big enough for the entire file
@@ -205,7 +198,7 @@ bool read_ktx2_file(const char* filename, std::vector<uint8_t>& ktx_data)
 	file.seekg(0);
 
 	// load the entire file into the buffer
-	file.read((char*)buffer.data(), file_size);
+	file.read(reinterpret_cast<char*>(buffer.data()), static_cast<std::streamsize>(file_size));
 
 	// now that the file is loaded into the buffer, we can close it
 	file.close();
@@ -219,7 +212,7 @@ AllocatedImage basisu_load(VulkanEngine* engine, const char* filepath)
 {
 	AllocatedImage new_image{};
 
-	unsigned char* data{};
+	// unsigned char* data{};
 
 	std::vector<uint8_t> buffer{};
 
@@ -249,6 +242,8 @@ AllocatedImage basisu_load(VulkanEngine* engine, const char* filepath)
 	case basist::KTX2_KHR_DF_TRANSFER_LINEAR:
 		vk_format = VK_FORMAT_BC7_UNORM_BLOCK;
 		break;
+	default:
+		assert(0);
 	}
 
 	std::vector<basist::ktx2_image_level_info> level_infos(transcoder.get_levels());
@@ -259,8 +254,8 @@ AllocatedImage basisu_load(VulkanEngine* engine, const char* filepath)
 		transcoder.get_image_level_info(level_infos[i], i, 0, 0);
 	}
 
-	const uint32_t width = level_infos[0].m_orig_width;
-	const uint32_t height = level_infos[0].m_orig_height;
+	// const uint32_t width = level_infos[0].m_orig_width;
+	// const uint32_t height = level_infos[0].m_orig_height;
 
 	const uint32_t bytes_per_block_or_pixel = basist::basis_get_bytes_per_block_or_pixel(target_format);
 	uint32_t num_blocks_or_pixels = 0;
@@ -299,11 +294,11 @@ AllocatedImage basisu_load(VulkanEngine* engine, const char* filepath)
 
 	std::vector<VkBufferImageCopy> copy_regions{};
 
-	auto buffer_offset = 0;
+	uint32_t buffer_offset = 0;
 	for (uint32_t i = 0; i < mip_level; i++)
 	{
 		num_blocks_or_pixels = level_infos[i].m_total_blocks;
-		auto offset = bytes_per_block_or_pixel * num_blocks_or_pixels;
+		uint32_t offset = bytes_per_block_or_pixel * num_blocks_or_pixels;
 
 		VkBufferImageCopy copy_region{};
 		copy_region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -317,10 +312,11 @@ AllocatedImage basisu_load(VulkanEngine* engine, const char* filepath)
 		buffer_offset += offset;
 	}
 
-	VkExtent3D vk_extent = VkExtent3D{ level_infos[0].m_orig_width, level_infos[0].m_orig_height, 1};
+	VkExtent3D vk_extent = VkExtent3D{ level_infos[0].m_orig_width, level_infos[0].m_orig_height, 1 };
 	new_image = engine->create_image(vk_extent, vk_format, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT, 0, true);
 
-	engine->immediate_submit([&](VkCommandBuffer cmd) {
+	engine->immediate_submit([&](VkCommandBuffer cmd)
+	                         {
 		vkutil::transition_image(
 			cmd, new_image.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 			0,
@@ -337,8 +333,7 @@ AllocatedImage basisu_load(VulkanEngine* engine, const char* filepath)
 			VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
 			VK_ACCESS_2_TRANSFER_WRITE_BIT,
 			VK_ACCESS_2_SHADER_READ_BIT
-		);
-	});
+		); });
 
 	engine->destroy_buffer(upload_buffer);
 
@@ -364,7 +359,8 @@ VkFilter extract_filter(fastgltf::Filter filter)
 
 VkSamplerMipmapMode extract_mipmap(fastgltf::Filter filter)
 {
-	switch (filter) {
+	switch (filter)
+	{
 	case fastgltf::Filter::NearestMipMapNearest:
 	case fastgltf::Filter::LinearMipMapNearest:
 		return VK_SAMPLER_MIPMAP_MODE_NEAREST;
@@ -385,85 +381,84 @@ std::optional<AllocatedImage> load_image(VulkanEngine* engine, const std::string
 	int channels{};
 
 	std::visit(
-		fastgltf::visitor{
-			[](auto& arg) {},
-			[&](fastgltf::sources::URI& filePath) {
-					assert(filePath.fileByteOffset == 0); // we don't support offsets with stbi
-					assert(filePath.uri.isLocalPath()); // only capable of loading local files
+	    fastgltf::visitor{
+	        [](auto& arg) {},
+	        [&](fastgltf::sources::URI& filePath)
+	        {
+		        assert(filePath.fileByteOffset == 0); // we don't support offsets with stbi
+		        assert(filePath.uri.isLocalPath()); // only capable of loading local files
 
-					const std::string path(filePath.uri.path().begin(), filePath.uri.path().end());
+		        const std::string path(filePath.uri.path().begin(), filePath.uri.path().end());
 
-					std::filesystem::path parent = parent_path;
-					std::string current_path = parent.parent_path().string() + '/' + path; // TODO: make this cleaner
+		        std::filesystem::path parent = parent_path;
+		        std::string current_path = parent.parent_path().string() + '/' + path; // TODO: make this cleaner
 
-					std::filesystem::path p = path;
-					if (p.extension() == ".ktx2")
-					{
-						new_image = basisu_load(engine, current_path.c_str());
-					}
-					else
-					{
-						unsigned char* data = stbi_load(current_path.c_str(), &width, &height, &channels, 4);
-						if (data)
-						{
-							VkExtent3D image_size{ static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1 };
-							new_image = engine->create_image(data, image_size, format, VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT, 0, mipmapped);
-							stbi_image_free(data);
-						}
-					}
+		        std::filesystem::path p = path;
+		        if (p.extension() == ".ktx2")
+		        {
+			        new_image = basisu_load(engine, current_path.c_str());
+		        }
+		        else
+		        {
+			        unsigned char* data = stbi_load(current_path.c_str(), &width, &height, &channels, 4);
+			        if (data)
+			        {
+				        VkExtent3D image_size{ static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1 };
+				        new_image = engine->create_image(data, image_size, format, VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT, 0, mipmapped);
+				        stbi_image_free(data);
+			        }
+		        }
+	        },
+	        // TODO: handle KTX2; also verify reinterpret cast works after fastgltf 0.9 upgrade
+	        [&](fastgltf::sources::Vector& vector)
+	        {
+		        unsigned char* data = stbi_load_from_memory(reinterpret_cast<const stbi_uc*>(vector.bytes.data()), static_cast<int>(vector.bytes.size()), &width, &height, &channels, 4);
+		        if (data)
+		        {
+			        VkExtent3D image_size{ static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1 };
+			        new_image = engine->create_image(data, image_size, format, VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT, 0, mipmapped);
 
-				},
-		// TODO: handle KTX2; also verify reinterpret cast works after fastgltf 0.9 upgrade
-			[&](fastgltf::sources::Vector& vector) {
-					unsigned char* data = stbi_load_from_memory(reinterpret_cast<const stbi_uc*>(vector.bytes.data()), static_cast<int>(vector.bytes.size()), &width, &height, &channels, 4);
-					if (data)
-					{
-						VkExtent3D image_size{ static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1 };
-						new_image = engine->create_image(data, image_size, format, VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT, 0, mipmapped);
+			        stbi_image_free(data);
+		        }
+	        },
+	        // TODO: handle KTX2; also verify reinterpret cast works after fastgltf 0.9 upgrade
+	        [&](fastgltf::sources::BufferView& view)
+	        {
+		        auto& bufferView = asset.bufferViews[view.bufferViewIndex];
+		        auto& buffer = asset.buffers[bufferView.bufferIndex];
+		        std::visit(fastgltf::visitor{
+		                       [](auto& arg)
+		                       { fmt::println("incorrect fastgltf::sources"); },
+		                       [&](fastgltf::sources::Vector& vector)
+		                       {
+			                       unsigned char* data = stbi_load_from_memory(reinterpret_cast<const stbi_uc*>(vector.bytes.data()) + bufferView.byteOffset, static_cast<int>(bufferView.byteLength), &width, &height, &channels, 4);
 
-						stbi_image_free(data);
-					}
-				},
-		// TODO: handle KTX2; also verify reinterpret cast works after fastgltf 0.9 upgrade
-			[&](fastgltf::sources::BufferView& view) {
-					auto& bufferView = asset.bufferViews[view.bufferViewIndex];
-					auto& buffer = asset.buffers[bufferView.bufferIndex];
-					std::visit(fastgltf::visitor{
-						[](auto& arg) { fmt::println("incorrect fastgltf::sources"); },
-						[&](fastgltf::sources::Vector& vector) {
-								unsigned char* data = stbi_load_from_memory(reinterpret_cast<const stbi_uc*>(vector.bytes.data()) + bufferView.byteOffset,
-									static_cast<int>(bufferView.byteLength), &width, &height, &channels, 4
-								);
+			                       if (data)
+			                       {
+				                       VkExtent3D image_size{ static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1 };
 
-								if (data)
-								{
-									VkExtent3D image_size{ static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1 };
+				                       new_image = engine->create_image(data, image_size, format, VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT, 0, mipmapped);
 
-									new_image = engine->create_image(data, image_size, format, VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT, 0, mipmapped);
+				                       stbi_image_free(data);
+			                       }
+		                       },
+		                       [&](fastgltf::sources::Array& vector)
+		                       {
+			                       unsigned char* data = stbi_load_from_memory(reinterpret_cast<const stbi_uc*>(vector.bytes.data()) + bufferView.byteOffset, static_cast<int>(bufferView.byteLength), &width, &height, &channels, 4);
 
-									stbi_image_free(data);
-								}
-							},
-						[&](fastgltf::sources::Array& vector) {
-								unsigned char* data = stbi_load_from_memory(reinterpret_cast<const stbi_uc*>(vector.bytes.data()) + bufferView.byteOffset,
-									static_cast<int>(bufferView.byteLength), &width, &height, &channels, 4
-								);
+			                       if (data)
+			                       {
+				                       const VkExtent3D image_size{ static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1 };
 
-								if (data)
-								{
-									VkExtent3D image_size{ static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1 };
+				                       new_image = engine->create_image(data, image_size, format, VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT, 0, mipmapped);
 
-									new_image = engine->create_image(data, image_size, format, VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT, 0, mipmapped);
-
-									stbi_image_free(data);
-								}
-							},
-						},
-						buffer.data
-					);
-				}
-		},
-		image.data
+				                       stbi_image_free(data);
+			                       }
+		                       },
+		                   },
+		                   buffer.data);
+	        } },
+	    image.data
 	);
 
 	// if any attempts of the above to load image data failed, we haven't written the image
@@ -480,7 +475,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, Loade
 {
 	auto& materials_data = loader.materials;
 	auto initial_materials_size = materials_data.size();
-	file_path = "../../assets/" + file_path;
+	file_path = "../assets/" + file_path;
 	fmt::println("Loading GLTF: {}", file_path);
 
 	std::shared_ptr<LoadedGLTF> scene = std::make_shared<LoadedGLTF>();
@@ -489,16 +484,16 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, Loade
 
 	// testing extensions
 	constexpr auto enabled_extensions =
-		fastgltf::Extensions::KHR_lights_punctual |
-		fastgltf::Extensions::KHR_texture_basisu;
-	//fastgltf::Extensions::KHR_materials_transmission;
+	    fastgltf::Extensions::KHR_lights_punctual |
+	    fastgltf::Extensions::KHR_texture_basisu;
+	// fastgltf::Extensions::KHR_materials_transmission;
 
 	fastgltf::Parser parser(enabled_extensions);
-	//fastgltf::Parser parser{};
+	// fastgltf::Parser parser{};
 
 	constexpr auto gltf_options{
 		fastgltf::Options::DontRequireValidAssetMember |
-		//fastgltf::Options::LoadGLBBuffers | // now default behaviour
+		// fastgltf::Options::LoadGLBBuffers | // now default behaviour
 		fastgltf::Options::AllowDouble |
 		fastgltf::Options::LoadExternalBuffers
 	};
@@ -526,7 +521,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, Loade
 	}
 	else if (type == fastgltf::GltfType::GLB)
 	{
-		auto load{ parser.loadGltfBinary(gltf_file.get(), path.parent_path(), gltf_options)};
+		auto load{ parser.loadGltfBinary(gltf_file.get(), path.parent_path(), gltf_options) };
 		if (load)
 		{
 			gltf = std::move(load.get());
@@ -556,10 +551,10 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, Loade
 		info.minFilter = extract_filter(sampler.minFilter.value_or(fastgltf::Filter::Nearest));
 		info.mipmapMode = extract_mipmap(sampler.minFilter.value_or(fastgltf::Filter::Nearest));
 
-		VkSampler sampler{};
-		vkCreateSampler(engine->device, &info, nullptr, &sampler);
+		VkSampler new_sampler{};
+		vkCreateSampler(engine->device, &info, nullptr, &new_sampler);
 
-		file.samplers.push_back(sampler);
+		file.samplers.push_back(new_sampler);
 	}
 
 	std::vector<std::shared_ptr<MeshAsset>> meshes{};
@@ -571,20 +566,20 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, Loade
 
 	// TODO: currently supports ktx2 in URI only
 	bool is_ktx2{};
-	if (gltf.images.size() > 0) // TODO: hack, refactor
+	if (!gltf.images.empty()) // TODO: hack, refactor
 	{
 		std::visit(
-			fastgltf::visitor{
-				[](auto& arg) {},
-				[&](fastgltf::sources::URI& filePath) {
-					assert(filePath.uri.isLocalPath()); // only capable of loading local files
-					const std::string filename(filePath.uri.path().begin(), filePath.uri.path().end());
-					std::filesystem::path path = filename;
-					if (path.extension() == ".ktx2")
-						is_ktx2 = true;
-					}
-			},
-			gltf.images[0].data
+		    fastgltf::visitor{
+		        [](auto& arg) {},
+		        [&](const fastgltf::sources::URI& filePath)
+		        {
+			        assert(filePath.uri.isLocalPath()); // only capable of loading local files
+			        const std::string filename(filePath.uri.path().begin(), filePath.uri.path().end());
+			        const std::filesystem::path mypath = filename;
+			        if (mypath.extension() == ".ktx2")
+				        is_ktx2 = true;
+		        } },
+		    gltf.images[0].data
 		);
 	}
 
@@ -596,7 +591,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, Loade
 		for (size_t idx = 0; idx < gltf.images.size(); idx++)
 		{
 			fastgltf::Image& image = gltf.images[idx];
-			//fmt::println("image: {}", image.name.c_str()); // debug
+			// fmt::println("image: {}", image.name.c_str()); // debug
 			std::optional<AllocatedImage> img = load_image(engine, file_path, gltf, image, VK_FORMAT_R8G8B8A8_SRGB, true);
 			if (img.has_value())
 			{
@@ -607,12 +602,12 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, Loade
 	}
 
 	fmt::println("gltf file has {} materials", gltf.materials.size());
-	const size_t materials_size = (gltf.materials.size() > 0) ? gltf.materials.size() : 1; // default material fallback
+	// const size_t materials_size = (gltf.materials.size() > 0) ? gltf.materials.size() : 1; // default material fallback
 
-	if (gltf.materials.size() == 0)
+	if (gltf.materials.empty())
 	{
 		MaterialData mat_data{};
-		//scene_material_data[0] = mat_data;
+		// scene_material_data[0] = mat_data;
 		materials_data.push_back(mat_data);
 		materials.emplace_back(MaterialInfo{ MaterialPass::Opaque, 0 });
 	}
@@ -620,7 +615,8 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, Loade
 	// if !is_ktx2, image loading deferred to material creation to prevent performance overhead from image_create_mutable_bit
 	std::vector<bool> images_set(gltf.images.size());
 
-	auto deferred_load = [&](size_t idx, VkFormat format) {
+	auto deferred_load = [&](size_t idx, VkFormat format)
+	{
 		std::optional<AllocatedImage> img{};
 		if (!images_set[idx])
 		{
@@ -634,7 +630,6 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, Loade
 			else
 			{
 				images[idx] = engine->error_image;
-				img = engine->error_image;
 			}
 		}
 	};
@@ -645,13 +640,13 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, Loade
 		if (e == "KHR_texture_basisu")
 			using_basisu = true;
 	}
-	
+
 	// TODO: need to implement MaterialCache as its common for gltf to have same material under different name
 	// current implementation simply duplicates this in the material buffer
 	int material_idx{ 0 };
 	for (fastgltf::Material& mat : gltf.materials)
 	{
-		//fmt::println("material: {}", mat.name.c_str()); // debug
+		// fmt::println("material: {}", mat.name.c_str()); // debug
 
 		MaterialData mat_data{};
 		mat_data.base_color_factor.x = mat.pbrData.baseColorFactor[0];
@@ -660,14 +655,14 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, Loade
 		mat_data.base_color_factor.w = mat.pbrData.baseColorFactor[3];
 		mat_data.metallic_factor = mat.pbrData.metallicFactor;
 		mat_data.roughness_factor = mat.pbrData.roughnessFactor;
-		
+
 		if (mat.pbrData.baseColorTexture.has_value())
 		{
 			size_t idx = is_ktx2 && using_basisu
-				? gltf.textures[mat.pbrData.baseColorTexture.value().textureIndex].basisuImageIndex.value() 
-				: gltf.textures[mat.pbrData.baseColorTexture.value().textureIndex].imageIndex.value();
-			//size_t sampler = gltf.textures[mat.pbrData.baseColorTexture.value().textureIndex].samplerIndex.value();
-			
+			                 ? gltf.textures[mat.pbrData.baseColorTexture.value().textureIndex].basisuImageIndex.value()
+			                 : gltf.textures[mat.pbrData.baseColorTexture.value().textureIndex].imageIndex.value();
+			// size_t sampler = gltf.textures[mat.pbrData.baseColorTexture.value().textureIndex].samplerIndex.value();
+
 			if (!is_ktx2)
 				deferred_load(idx, VK_FORMAT_R8G8B8A8_SRGB);
 			AllocatedImage img = images[idx];
@@ -678,10 +673,10 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, Loade
 		if (mat.pbrData.metallicRoughnessTexture.has_value())
 		{
 			size_t idx = is_ktx2 && using_basisu
-				? gltf.textures[mat.pbrData.metallicRoughnessTexture.value().textureIndex].basisuImageIndex.value()
-				: gltf.textures[mat.pbrData.metallicRoughnessTexture.value().textureIndex].imageIndex.value();
-			//size_t sampler{ gltf.textures[mat.pbrData.metallicRoughnessTexture.value().textureIndex].samplerIndex.value() };
-			
+			                 ? gltf.textures[mat.pbrData.metallicRoughnessTexture.value().textureIndex].basisuImageIndex.value()
+			                 : gltf.textures[mat.pbrData.metallicRoughnessTexture.value().textureIndex].imageIndex.value();
+			// size_t sampler{ gltf.textures[mat.pbrData.metallicRoughnessTexture.value().textureIndex].samplerIndex.value() };
+
 			if (!is_ktx2)
 				deferred_load(idx, VK_FORMAT_R8G8B8A8_UNORM);
 			AllocatedImage img = images[idx];
@@ -692,9 +687,9 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, Loade
 		if (mat.normalTexture.has_value())
 		{
 			size_t idx = is_ktx2 && using_basisu
-				? gltf.textures[mat.normalTexture.value().textureIndex].basisuImageIndex.value()
-				: gltf.textures[mat.normalTexture.value().textureIndex].imageIndex.value();
-			
+			                 ? gltf.textures[mat.normalTexture.value().textureIndex].basisuImageIndex.value()
+			                 : gltf.textures[mat.normalTexture.value().textureIndex].imageIndex.value();
+
 			if (!is_ktx2)
 				deferred_load(idx, VK_FORMAT_R8G8B8A8_UNORM);
 			AllocatedImage img = images[idx];
@@ -705,9 +700,9 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, Loade
 		if (mat.occlusionTexture.has_value())
 		{
 			size_t idx = is_ktx2 && using_basisu
-				? gltf.textures[mat.occlusionTexture.value().textureIndex].basisuImageIndex.value()
-				: gltf.textures[mat.occlusionTexture.value().textureIndex].imageIndex.value();
-			
+			                 ? gltf.textures[mat.occlusionTexture.value().textureIndex].basisuImageIndex.value()
+			                 : gltf.textures[mat.occlusionTexture.value().textureIndex].imageIndex.value();
+
 			if (!is_ktx2)
 				deferred_load(idx, VK_FORMAT_R8G8B8A8_UNORM);
 			AllocatedImage img = images[idx];
@@ -718,16 +713,16 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, Loade
 		if (mat.emissiveTexture.has_value())
 		{
 			size_t idx = is_ktx2 && using_basisu
-				? gltf.textures[mat.emissiveTexture.value().textureIndex].basisuImageIndex.value()
-				: gltf.textures[mat.emissiveTexture.value().textureIndex].imageIndex.value();
-			
+			                 ? gltf.textures[mat.emissiveTexture.value().textureIndex].basisuImageIndex.value()
+			                 : gltf.textures[mat.emissiveTexture.value().textureIndex].imageIndex.value();
+
 			if (!is_ktx2)
 				deferred_load(idx, VK_FORMAT_R8G8B8A8_SRGB);
 			AllocatedImage img = images[idx];
 
 			mat_data.emissive_id = engine->texture_cache.add_texture(img.view);
 		}
-		
+
 		materials_data.push_back(mat_data);
 
 		MaterialPass pass_type = MaterialPass::Opaque;
@@ -739,11 +734,11 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, Loade
 		case fastgltf::AlphaMode::Blend:
 			pass_type = MaterialPass::Blend;
 			break;
-		default: 
+		default:
 			break;
 		}
 
-		uint32_t double_sided = static_cast<uint32_t>(mat.doubleSided);
+		uint32_t double_sided = mat.doubleSided;
 
 		materials.emplace_back(MaterialInfo{ pass_type, double_sided });
 		material_idx++;
@@ -761,7 +756,6 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, Loade
 	{
 		std::shared_ptr<MeshAsset> new_mesh{ std::make_shared<MeshAsset>() };
 		meshes.push_back(new_mesh);
-		//file.meshes[mesh.name.c_str()] = new_mesh;
 		file.meshes[std::to_string(mesh_idx).c_str()] = new_mesh;
 		mesh_idx++;
 		new_mesh->name = mesh.name;
@@ -773,18 +767,15 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, Loade
 
 			GeoSurface new_surface{};
 
-			size_t initial_vtx = combined_vertices.size();
-
 			// load indexes
 			{
 				fastgltf::Accessor& index_accessor = gltf.accessors[p.indicesAccessor.value()];
 				indices.reserve(index_accessor.count);
-				auto k = index_accessor.count;
 
-				fastgltf::iterateAccessor<std::uint32_t>(gltf, index_accessor,
-					[&](std::uint32_t idx) {
-						indices.push_back(idx);// +static_cast<uint32_t>(initial_vtx));
-					});
+				fastgltf::iterateAccessor<std::uint32_t>(gltf, index_accessor, [&](std::uint32_t idx)
+				                                         {
+					                                         indices.push_back(idx); // +static_cast<uint32_t>(initial_vtx));
+				                                         });
 			}
 
 			// load vertex positions
@@ -792,12 +783,11 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, Loade
 				fastgltf::Accessor& pos_accessor = gltf.accessors[p.findAttribute("POSITION")->accessorIndex];
 				vertices.resize(pos_accessor.count);
 
-				fastgltf::iterateAccessorWithIndex<glm::vec3>(gltf, pos_accessor,
-					[&](glm::vec3 v, size_t index) {
+				fastgltf::iterateAccessorWithIndex<glm::vec3>(gltf, pos_accessor, [&](glm::vec3 v, size_t index)
+				                                              {
 						Vertex new_vtx{};
 						new_vtx.position = v;
-						vertices[index] = new_vtx;
-					});
+						vertices[index] = new_vtx; });
 			}
 
 			// load vertex normals
@@ -805,10 +795,8 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, Loade
 				auto normals = p.findAttribute("NORMAL");
 				if (normals != p.attributes.end())
 				{
-					fastgltf::iterateAccessorWithIndex<glm::vec3>(gltf, gltf.accessors[(*normals).accessorIndex],
-						[&](glm::vec3 v, size_t index) {
-							vertices[index].normal = v;
-						});
+					fastgltf::iterateAccessorWithIndex<glm::vec3>(gltf, gltf.accessors[normals->accessorIndex], [&](glm::vec3 v, size_t index)
+					                                              { vertices[index].normal = v; });
 				}
 			}
 
@@ -818,10 +806,8 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, Loade
 				auto tangents = p.findAttribute("TANGENT");
 				if (tangents != p.attributes.end())
 				{
-					fastgltf::iterateAccessorWithIndex<glm::vec4>(gltf, gltf.accessors[(*tangents).accessorIndex],
-						[&](glm::vec4 v, size_t index) {
-							vertices[index].tangent = v;
-						});
+					fastgltf::iterateAccessorWithIndex<glm::vec4>(gltf, gltf.accessors[tangents->accessorIndex], [&](glm::vec4 v, size_t index)
+					                                              { vertices[index].tangent = v; });
 				}
 				else
 				{
@@ -833,8 +819,8 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, Loade
 			if (generate_tangents)
 			{
 				fmt::println("generating tangents manually");
-				MikkMesh mesh{ &vertices, &indices };
-				calculateTangents(mesh);
+				MikkMesh mikk_mesh{ &vertices, &indices };
+				calculateTangents(mikk_mesh);
 			}
 
 			// load uvs
@@ -842,11 +828,10 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, Loade
 				auto uv = p.findAttribute("TEXCOORD_0");
 				if (uv != p.attributes.end())
 				{
-					fastgltf::iterateAccessorWithIndex<glm::vec2>(gltf, gltf.accessors[(*uv).accessorIndex],
-						[&](glm::vec2 v, size_t index) {
+					fastgltf::iterateAccessorWithIndex<glm::vec2>(gltf, gltf.accessors[uv->accessorIndex], [&](glm::vec2 v, size_t index)
+					                                              {
 							vertices[index].uv_x = v.x;
-							vertices[index].uv_y = v.y;
-						});
+							vertices[index].uv_y = v.y; });
 				}
 			}
 
@@ -859,16 +844,16 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, Loade
 			if (p.materialIndex.has_value())
 			{
 				size_t idx = p.materialIndex.value();
-				MaterialInfo m = materials[idx];
+				auto [pass_type, double_sided] = materials[idx];
 				new_surface.material_id = static_cast<uint32_t>(idx + initial_materials_size);
-				new_surface.pass = m.pass_type;
+				new_surface.pass = pass_type;
 			}
 			else
 			{
 				// TODO: refactor - mesh has no material, assign first material
-				auto m = materials[0];
+				auto [pass_type, double_sided] = materials[0];
 				new_surface.material_id = 0;
-				new_surface.pass = m.pass_type;
+				new_surface.pass = pass_type;
 			}
 
 			new_mesh->surfaces.push_back(new_surface);
@@ -896,25 +881,23 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, Loade
 		file.nodes[std::to_string(node_idx).c_str()] = new_node;
 		node_idx++;
 
-		std::visit(fastgltf::visitor{
-				[&](fastgltf::math::fmat4x4 matrix) {
-					memcpy(&new_node->local_transform, matrix.data(), sizeof(matrix));
-				},
-				[&](fastgltf::TRS transform) {
-					glm::vec3 tl(transform.translation[0], transform.translation[1],
-						transform.translation[2]);
-					glm::quat rot(transform.rotation[3], transform.rotation[0], transform.rotation[1],
-						transform.rotation[2]);
-					glm::vec3 sc(transform.scale[0], transform.scale[1], transform.scale[2]);
+		std::visit(fastgltf::visitor{ [&](fastgltf::math::fmat4x4 matrix)
+		                              {
+			                              memcpy(&new_node->local_transform, matrix.data(), sizeof(matrix));
+		                              },
+		                              [&](fastgltf::TRS transform)
+		                              {
+			                              const glm::vec3 tl(transform.translation[0], transform.translation[1], transform.translation[2]);
+			                              const glm::quat rot(transform.rotation[3], transform.rotation[0], transform.rotation[1], transform.rotation[2]);
+			                              const glm::vec3 sc(transform.scale[0], transform.scale[1], transform.scale[2]);
 
-					glm::mat4 tm = glm::translate(glm::mat4(1.f), tl);
-					glm::mat4 rm = glm::toMat4(rot);
-					glm::mat4 sm = glm::scale(glm::mat4(1.f), sc);
+			                              const glm::mat4 tm = glm::translate(glm::mat4(1.f), tl);
+			                              const glm::mat4 rm = glm::toMat4(rot);
+			                              const glm::mat4 sm = glm::scale(glm::mat4(1.f), sc);
 
-					new_node->local_transform = tm * rm * sm;
-				}
-			},
-			node.transform);
+			                              new_node->local_transform = tm * rm * sm;
+		                              } },
+		           node.transform);
 	}
 
 	for (int i = 0; i < gltf.nodes.size(); i++)
@@ -947,14 +930,14 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, Loade
 
 void LoadedGLTF::clear()
 {
-	VkDevice device = creator->device;
+	const VkDevice device = creator->device;
 
-	for (auto& [k, v] : images)
+	for (auto& img : images | std::views::values)
 	{
-		creator->destroy_image(v); 
+		creator->destroy_image(img);
 	}
 
-	for (auto& s : samplers)
+	for (const auto s : samplers)
 	{
 		vkDestroySampler(device, s, nullptr);
 	}
@@ -982,7 +965,6 @@ int mikk_getNumFaces(const SMikkTSpaceContext* context)
 {
 	MikkMesh mesh = *(static_cast<MikkMesh*>(context->m_pUserData));
 	return static_cast<int>((mesh.indices)->size()) / 3;
-
 }
 
 int mikk_getNumVerticesOfFace(const SMikkTSpaceContext* context, int faceIndex)

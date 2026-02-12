@@ -2,9 +2,9 @@
 
 #include <vulkan/vulkan.h>
 
-#include <vector>
+#include <deque>
 #include <span>
-#include <deque> 
+#include <vector>
 
 struct DescriptorLayoutBuilder
 {
@@ -13,7 +13,7 @@ struct DescriptorLayoutBuilder
 	void add_binding(uint32_t binding, VkDescriptorType type, VkShaderStageFlags shader_stage);
 	void clear();
 
-	VkDescriptorSetLayout build(VkDevice device, void* pNext = nullptr, VkDescriptorSetLayoutCreateFlags flags = 0);
+	VkDescriptorSetLayout build(VkDevice device, const void* pNext = nullptr, VkDescriptorSetLayoutCreateFlags flags = 0) const;
 };
 
 // TODO: refactor for bindless?
@@ -30,17 +30,16 @@ public:
 	void clear_pools(VkDevice device);
 	void destroy_pools(VkDevice device);
 
-	VkDescriptorSet allocate(VkDevice device, VkDescriptorSetLayout layout, void* pNext = nullptr);
+	VkDescriptorSet allocate(VkDevice device, VkDescriptorSetLayout layout, const void* pNext = nullptr);
 
 private:
-	VkDescriptorPool get_pool(VkDevice device); 
+	VkDescriptorPool get_pool(VkDevice device);
 	VkDescriptorPool create_pool(VkDevice device, uint32_t max_sets, std::span<PoolSizeRatio> pool_ratios);
 
 	std::vector<PoolSizeRatio> ratios{};
 	std::vector<VkDescriptorPool> full_pools{};
 	std::vector<VkDescriptorPool> ready_pools{};
 	uint32_t sets_per_pool{};
-
 };
 
 // TODO: refactor for bindless?

@@ -1,19 +1,19 @@
 #pragma once
 
-#include "vk_types.h"
 #include "vk_math.h"
+#include "vk_types.h"
 
 #include <vulkan/vulkan.h>
 
-#include <memory>
-#include <vector>
 #include <array>
+#include <vector>
 
 struct Material;
 struct ShaderPass;
 struct MeshLod;
 
-struct alignas(16) DrawPrimitive {
+struct alignas(16) DrawPrimitive
+{
 	glm::vec3 center{};
 	float radius{};
 
@@ -30,8 +30,9 @@ struct Handle
 	uint32_t handle{};
 };
 
-template<>
-struct Handle<DrawPrimitive> {
+template <>
+struct Handle<DrawPrimitive>
+{
 	uint32_t handle{};
 };
 
@@ -48,25 +49,11 @@ struct RenderObject
 	uint32_t post_pass{};
 };
 
-template<>
-struct Handle<RenderObject> {
+template <>
+struct Handle<RenderObject>
+{
 	uint32_t handle{};
 };
-
-//struct IndirectBatch
-//{
-//	//Handle<DrawPrimitive> primitive_id{}; 
-//	ShaderPass* material{};
-//	uint32_t first{}; // refers to pass object array
-//	uint32_t count{}; // refers to pass object array
-//};
-//
-//struct MultiBatch
-//{
-//	ShaderPass* pipeline{};
-//	uint32_t offset{}; // buffer offset for compact indirect buffer
-//	uint32_t max_draw_count{};
-//};
 
 struct ObjectData
 {
@@ -134,14 +121,6 @@ struct ClusterCullData
 	uint32_t post_pass{};
 };
 
-//struct PassObject
-//{
-//	ShaderPass* material{};
-//	Handle<DrawPrimitive> primitive_id{};
-//	Handle<RenderObject> renderable_id{}; // handle into renderables
-//	// TODO: implement hashing?
-//};
-
 struct MeshTaskCommand
 {
 	uint32_t meshlet_offset{};
@@ -159,16 +138,11 @@ struct RenderScene
 		Opaque,
 		Mask,
 		Transparent
-		//Shadow,
-		//Forward,
 	};
 
 	struct MeshPass
 	{
-		//std::vector<MultiBatch> multibatches{}; // obsolete since introducing mesh shaders
-		//std::vector<IndirectBatch> batches{}; // obsolete since introducing mesh shaders
 		std::vector<uint32_t> unbatched_objects{}; // handles for renderables
-		//std::vector<PassObject> pass_objects{}; // potentially obsolete since introducing mesh shaders
 		uint32_t indices_offset{};
 		MeshPassType type{};
 	};
@@ -198,16 +172,11 @@ struct RenderScene
 	MeshPass opaque_pass{};
 	MeshPass mask_pass{};
 	MeshPass transparent_pass{};
-	//std::array<MeshPass, 4> shadow_pass{};
-	uint32_t total_meshlets_bits{};	 
-	uint32_t max_meshtask_commands{}; // should be per-pass
+	// std::array<MeshPass, 4> shadow_pass{};
+	uint32_t total_meshlets_bits{};
+	uint32_t max_meshtask_commands{}; // should be per-pass?
 
 	void init();
 	void build_mesh_buffer();
 	void build_object_buffer();
-	//void build_pass_objects(MeshPass& pass);
-	//void sort_objects(MeshPass& pass); // sorts pass objects
-	//void build_indirect_batch(MeshPass& pass);
-	//void build_multi_batch(MeshPass& pass);
 };
-

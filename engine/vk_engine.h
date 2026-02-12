@@ -1,21 +1,23 @@
 #pragma once
 
-#include "vk_types.h"
+#include "camera.h"
 #include "vk_descriptors.h"
 #include "vk_loader.h"
+#include "vk_pipelines.h"
 #include "vk_scene.h"
-#include "camera.h"
+#include "vk_types.h"
 
 #include <VkBootstrap.h>
+#include <ranges>
 #include <tracy/TracyVulkan.hpp>
 #include <vulkan/vulkan.h>
 
-#include <span>
-#include <functional>
-#include <vector>
 #include <array>
 #include <deque>
+#include <functional>
+#include <span>
 #include <string>
+#include <vector>
 
 constexpr unsigned int FRAME_OVERLAP = 2;
 
@@ -36,7 +38,7 @@ struct GPUPushConstants // temporarily shared by vertex and mesh shading path
 	VkDeviceAddress cluster_indices_address{};
 	VkDeviceAddress material_buffer_address{};
 	VkDeviceAddress oit_buffer_address{};
-	uint32_t debug_meshlets;
+	uint32_t debug_meshlets{};
 };
 
 struct DeferredPushConstants
@@ -54,8 +56,8 @@ struct DeferredPushConstants
 	uint32_t shadow_id{};
 	uint32_t light_culling{}; // for toggling light culling between naive and proper implementation
 	float near{};
-	float scale{}; 
-	float bias{};  
+	float scale{};
+	float bias{};
 	uint32_t debug_meshlets{};
 	uint32_t resolve_transparent{};
 	uint32_t shadows{};
@@ -64,14 +66,14 @@ struct DeferredPushConstants
 	uint32_t debug_cascades{};
 };
 
-//struct ShadowPushConstants
+// struct ShadowPushConstants
 //{
 //	glm::mat4 model{};
 //	glm::mat4 viewproj{};
 //	VkDeviceAddress vertex_buffer_address{};
 //	VkDeviceAddress material_buffer_address{};
 //	uint32_t material_id;
-//};
+// };
 
 struct ShadowPushConstants
 {
@@ -131,16 +133,16 @@ struct DeletionQueue
 {
 	std::deque<std::function<void()>> deletors{};
 
-	void push_function(std::function<void()>&& function) 
-	{ 
-		deletors.push_back(function); 
+	void push_function(std::function<void()>&& function)
+	{
+		deletors.push_back(function);
 	}
-	
+
 	void flush()
 	{
-		for (auto it = deletors.rbegin(); it != deletors.rend(); it++)
+		for (auto& deletor : std::ranges::reverse_view(deletors))
 		{
-			(*it)();
+			deletor();
 		}
 
 		deletors.clear();
@@ -198,16 +200,16 @@ struct TextureCache
 	uint32_t add_texture(const VkImageView& view);
 
 	// TODO: refactor
-	void set_draw_image(uint32_t id) { draw_id = id; };
-	void set_gbuffers(uint32_t id) { gbuffer_id = id; };
-	void set_depth_image(uint32_t id) { depth_id = id; };
-	void set_depth_pyramid_image(uint32_t id) { depth_pyramid_id = id; };
-	void set_shadowmap(uint32_t id) { shadowmap_id = id; };
-	uint32_t get_draw_image() { return draw_id; };
-	uint32_t get_first_gbuffer() { return gbuffer_id; };
-	uint32_t get_depth_image() { return depth_id; };
-	uint32_t get_depth_pyramid_image() { return depth_pyramid_id; };
-	uint32_t get_shadowmap() { return shadowmap_id; };
+	void set_draw_image(uint32_t id) { draw_id = id; }
+	void set_gbuffers(uint32_t id) { gbuffer_id = id; }
+	void set_depth_image(uint32_t id) { depth_id = id; }
+	void set_depth_pyramid_image(uint32_t id) { depth_pyramid_id = id; }
+	void set_shadowmap(uint32_t id) { shadowmap_id = id; }
+	uint32_t get_draw_image() const { return draw_id; }
+	uint32_t get_first_gbuffer() const { return gbuffer_id; }
+	uint32_t get_depth_image() const { return depth_id; }
+	uint32_t get_depth_pyramid_image() const { return depth_pyramid_id; }
+	uint32_t get_shadowmap() const { return shadowmap_id; }
 
 private:
 	uint32_t draw_id{};
@@ -231,8 +233,8 @@ struct ImageCache
 
 	uint32_t add_texture(const VkImageView& view);
 
-	void set_depth_pyramid_image(uint32_t id) { depth_pyramid_id = id; };
-	uint32_t get_depth_pyramid_image() { return depth_pyramid_id; };
+	void set_depth_pyramid_image(uint32_t id) { depth_pyramid_id = id; }
+	uint32_t get_depth_pyramid_image() const { return depth_pyramid_id; }
 
 private:
 	uint32_t depth_pyramid_id{};
@@ -240,15 +242,13 @@ private:
 
 struct ShaderCache
 {
-	//std::unordered_map<std::string, VkShaderModule> data{};
+	// std::unordered_map<std::string, VkShaderModule> data{};
 	std::unordered_map<std::string, ShaderProgram> data{};
 
-	ShaderProgram& operator[](std::string key);
+	ShaderProgram& operator[](const std::string& key);
 
 	void add_shader(VkDevice device, const char* path, VkShaderStageFlagBits stage);
 };
-
-struct ShaderPass;
 
 struct MaterialCache
 {
@@ -296,7 +296,7 @@ public:
 	VkDevice device{};
 	VkSurfaceKHR surface{}; // vulkan window surface
 
-	struct SDL_Window* window{};
+	SDL_Window* window{};
 
 	VkSwapchainKHR swapchain{};
 	VkFormat swapchain_image_format{};
@@ -306,8 +306,8 @@ public:
 	VkExtent2D swapchain_extent{};
 
 	FrameData frames[FRAME_OVERLAP]{};
-	FrameData& get_current_frame() { return frames[frame_number % FRAME_OVERLAP]; };
-	FrameData& get_last_frame() { return frames[(frame_number - 1) % FRAME_OVERLAP]; };
+	FrameData& get_current_frame() { return frames[frame_number % FRAME_OVERLAP]; }
+	FrameData& get_last_frame() { return frames[(frame_number - 1) % FRAME_OVERLAP]; }
 	DeletionQueue main_deletion_queue{};
 
 	VmaAllocator allocator{};
@@ -357,7 +357,7 @@ public:
 	Camera main_camera{};
 	EngineStats stats{};
 
-	SamplerCache sampler_cache{}; 
+	SamplerCache sampler_cache{};
 	TextureCache texture_cache{};
 	ImageCache image_cache{};
 	ShaderCache shader_cache{};
@@ -395,20 +395,20 @@ public:
 	void run();
 	void immediate_submit(std::function<void(VkCommandBuffer cmd)>&& func);
 	AllocatedBuffer create_buffer(size_t alloc_size, VmaAllocationCreateFlags flags, VkBufferUsageFlags usage);
-	AllocatedBuffer reallocate_buffer(size_t alloc_size, AllocatedBuffer old_buffer, VmaAllocationCreateFlags flags, VkBufferUsageFlags usage);
+	AllocatedBuffer reallocate_buffer(size_t alloc_size, const AllocatedBuffer& old_buffer, VmaAllocationCreateFlags flags, VkBufferUsageFlags usage);
 	void destroy_buffer(const AllocatedBuffer& buffer);
 	GPUMeshBuffers upload_mesh(std::span<uint32_t> indices, std::span<Vertex> vertices);
-	AllocatedBuffer upload_buffer(void* data, size_t data_size);
+	AllocatedBuffer upload_buffer(const void* data, size_t data_size);
 
 	// view has access to all mip and layers
 	AllocatedImage create_image(VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspect, VmaAllocationCreateFlags flags = 0, bool mipmapped = false); // does not currently handle priority
-	AllocatedImage create_image(void* data, VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspect, VmaAllocationCreateFlags flags = 0, bool mipmapped = false);
-	AllocatedImage create_cubemap(VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspect, VmaAllocationCreateFlags flags = 0, bool mipmapped = false); 
+	AllocatedImage create_image(const void* data, VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspect, VmaAllocationCreateFlags flags = 0, bool mipmapped = false);
+	AllocatedImage create_cubemap(VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspect, VmaAllocationCreateFlags flags = 0, bool mipmapped = false);
 	void destroy_image(const AllocatedImage& image);
 
 	void update_scene();
 
-	void register_object(Node* node, const glm::mat4& top_matrix);
+	void register_object(const Node* node, const glm::mat4& top_matrix);
 	void execute_debug_pass(VkCommandBuffer cmd);
 	void execute_deferred_shading(VkCommandBuffer cmd);
 	void update_cascade();
@@ -417,7 +417,7 @@ public:
 	void ready_mesh_cull(RenderScene::MeshPass& pass, CullData& cull_data, glm::mat4& proj, bool orthographic = false);
 	void ready_meshlet_cull(RenderScene::MeshPass& pass, ClusterCullData& cull_data, glm::mat4& proj, bool orthographic = false);
 	void ready_shadow_cull(RenderScene::MeshPass& pass, CullData& cull_data, glm::mat4& proj, bool orthographic = false);
-	void execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPass& pass, CullData& cull_data, bool late, uint32_t post_pass);
+	void execute_compute_cull(VkCommandBuffer cmd, const RenderScene::MeshPass& pass, CullData& cull_data, bool late, uint32_t post_pass);
 	void execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPass& pass, ClusterCullData& cull_data, VkBuffer count_buffer, uint32_t offset, bool late, uint32_t post_pass);
 	void execute_shadow_cull(VkCommandBuffer cmd, CullData& cull_data);
 	void render(VkCommandBuffer cmd, bool late, uint32_t post_pass, uint32_t query);
@@ -435,7 +435,7 @@ private:
 	void init_pipelines();
 	void init_default_data();
 	void init_renderables(std::vector<std::string>& file_paths);
-	void init_bindless(); 
+	void init_bindless();
 	void init_precomputations();
 	void init_imgui();
 	void build_cluster_grid();

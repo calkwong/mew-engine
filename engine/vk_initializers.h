@@ -20,17 +20,17 @@ namespace vkinit
 
 	VkCommandBufferSubmitInfo command_buffer_submit_info(VkCommandBuffer cmd);
 
-	VkSubmitInfo2 submit_info(VkCommandBufferSubmitInfo* submit_cmd_info, VkSemaphoreSubmitInfo* signal_semaphore_info, VkSemaphoreSubmitInfo* wait_semaphore_info);
+	VkSubmitInfo2 submit_info(const VkCommandBufferSubmitInfo* submit_cmd_info, const VkSemaphoreSubmitInfo* signal_semaphore_info, const VkSemaphoreSubmitInfo* wait_semaphore_info);
 
 	VkImageCreateInfo image_create_info(VkFormat format, VkImageUsageFlags flags, VkExtent3D extent);
 
 	VkImageViewCreateInfo imageview_create_info(VkFormat format, VkImage image, VkImageAspectFlags aspect_mask);
 
-	VkRenderingAttachmentInfo attachment_info(VkImageView view, VkClearValue* clear, VkImageLayout layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+	VkRenderingAttachmentInfo attachment_info(VkImageView view, const VkClearValue* clear, VkImageLayout layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
 	VkRenderingAttachmentInfo depth_attachment_info(VkImageView view, VkImageLayout layout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
 
 	VkPipelineShaderStageCreateInfo pipeline_shader_stage_create_info(VkShaderStageFlagBits stage, VkShaderModule shader_module, const char* entry = "main");
 
-	VkRenderingInfo rendering_info(VkExtent2D extent, VkRenderingAttachmentInfo* color_attachment, VkRenderingAttachmentInfo* depth_attachment);
-}
+	VkRenderingInfo rendering_info(VkExtent2D extent, const VkRenderingAttachmentInfo* color_attachment, const VkRenderingAttachmentInfo* depth_attachment);
+} // namespace vkinit

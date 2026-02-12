@@ -3,39 +3,65 @@
 
 #include <SDL3/SDL_events.h>
 
+#include <cmath>
+
 glm::mat4 Camera::get_view_matrix() const
 {
 	// can be optimized
-	glm::mat4 camera_translation = glm::translate(glm::mat4(1.0f), position);
-	glm::mat4 camera_rotation = get_rotation_matrix();
+	const glm::mat4 camera_translation = glm::translate(glm::mat4(1.0f), position);
+	const glm::mat4 camera_rotation = get_rotation_matrix();
 	return glm::inverse(camera_translation * camera_rotation);
 }
 
-// how expensive is this?
+// TODO: optimize
 glm::mat4 Camera::get_rotation_matrix() const
 {
-	glm::quat pitch_rotation{ glm::angleAxis(pitch, glm::vec3(1.0f, 0.0f, 0.0f)) };
-	glm::quat yaw_rotation{ glm::angleAxis(yaw, glm::vec3(0.0f, -1.0f, 0.0f)) };
+	const glm::quat pitch_rotation{ glm::angleAxis(pitch, glm::vec3(1.0f, 0.0f, 0.0f)) };
+	const glm::quat yaw_rotation{ glm::angleAxis(yaw, glm::vec3(0.0f, -1.0f, 0.0f)) };
 
 	return glm::toMat4(yaw_rotation) * glm::toMat4(pitch_rotation);
 }
 
-void Camera::process_sdl_event(SDL_Event& e)
+void Camera::process_sdl_event(const SDL_Event& e)
 {
 	if (e.type == SDL_EVENT_KEY_DOWN)
 	{
-		if (e.key.repeat == 0 && e.key.key == SDLK_W) { velocity.z -= 1; }
-		if (e.key.repeat == 0 && e.key.key == SDLK_S) { velocity.z += 1; }
-		if (e.key.repeat == 0 && e.key.key == SDLK_A) { velocity.x -= 1; }
-		if (e.key.repeat == 0 && e.key.key == SDLK_D) { velocity.x += 1; }
+		if (e.key.repeat == 0 && e.key.key == SDLK_W)
+		{
+			velocity.z -= 1;
+		}
+		if (e.key.repeat == 0 && e.key.key == SDLK_S)
+		{
+			velocity.z += 1;
+		}
+		if (e.key.repeat == 0 && e.key.key == SDLK_A)
+		{
+			velocity.x -= 1;
+		}
+		if (e.key.repeat == 0 && e.key.key == SDLK_D)
+		{
+			velocity.x += 1;
+		}
 	}
 
 	if (e.type == SDL_EVENT_KEY_UP)
 	{
-		if (e.key.key == SDLK_W) { velocity.z += 1; }
-		if (e.key.key == SDLK_S) { velocity.z -= 1; }
-		if (e.key.key == SDLK_A) { velocity.x += 1; }
-		if (e.key.key == SDLK_D) { velocity.x -= 1; }
+		if (e.key.key == SDLK_W)
+		{
+			velocity.z += 1;
+		}
+		if (e.key.key == SDLK_S)
+		{
+			velocity.z -= 1;
+		}
+		if (e.key.key == SDLK_A)
+		{
+			velocity.x += 1;
+		}
+		if (e.key.key == SDLK_D)
+		{
+			velocity.x -= 1;
+		}
 	}
 
 	if (e.type == SDL_EVENT_MOUSE_MOTION)
@@ -43,26 +69,28 @@ void Camera::process_sdl_event(SDL_Event& e)
 		yaw += static_cast<float>(e.motion.xrel) * sensitivity;
 		pitch -= static_cast<float>(e.motion.yrel) * sensitivity;
 
-		//if (pitch > 45.0f)
+		// TODO: limit vertical camera rotation
+		// if (pitch > 45.0f)
 		//	pitch = 45.0f;
-		//if (pitch < -45.0f)
+		// if (pitch < -45.0f)
 		//	pitch = -45.0f; // ????
 	}
 }
 
 void Camera::update(float deltatime)
 {
-	glm::mat4 camera_rotation = get_rotation_matrix();
+	const glm::mat4 camera_rotation = get_rotation_matrix();
 	position += glm::vec3(camera_rotation * glm::vec4(velocity * speed * deltatime, 0.0f));
 }
 
 void Camera::set_perspective_matrix(float fovy, float aspect, float znear)
 {
-	float f = 1.0f / std::tanf(fovy / 2.0f);
+	const float f = 1.0f / std::tan(fovy / 2.0f);
 
 	perspective = glm::mat4(
-		f / aspect, 0.0f, 0.0f, 0.0f,
-		0.0f, f, 0.0f, 0.0f,
-		0.0f, 0.0f, 0.0f, -1.0f,
-		0.0f, 0.0f, znear, 0.0f);
+	    f / aspect, 0.0f, 0.0f, 0.0f,
+	    0.0f, f, 0.0f, 0.0f,
+	    0.0f, 0.0f, 0.0f, -1.0f,
+	    0.0f, 0.0f, znear, 0.0f
+	);
 }

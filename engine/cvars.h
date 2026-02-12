@@ -7,6 +7,7 @@ class CVarParameter;
 class CVarSystem
 {
 public:
+	virtual ~CVarSystem() = default;
 	static CVarSystem* get();
 
 	virtual CVarParameter* get_cvar(const std::string& str) = 0;
@@ -30,7 +31,7 @@ enum class CVarFlags : uint32_t
 	EditSliderFloat = 1 << 2
 };
 
-template<typename T>
+template <typename T>
 struct AutoCVar
 {
 protected:

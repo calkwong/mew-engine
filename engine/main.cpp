@@ -1,15 +1,16 @@
 #include "vk_engine.h"
-#include <vector>
 #include <string>
+#include <vector>
 
 int main(int argc, char** argv)
 {
 	VulkanEngine engine{};
 
-	// only support single gltf file for now
 	if (argc < 2)
-		return 1; 
-	
+	{
+		return 1;
+	}
+
 	std::vector<std::string> file_paths{};
 	for (int i = 1; i < argc; i++)
 	{
