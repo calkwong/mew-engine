@@ -1,4 +1,7 @@
-add_executable(engine ${SOURCES})
+add_executable(engine
+		cache.h
+		cache.cpp
+		extern.cpp)
 
 set(imgui_sources 
 	"${PROJECT_SOURCE_DIR}/external/imgui/imconfig.h"
@@ -26,8 +29,8 @@ target_sources(engine PRIVATE
 	vk_descriptors.h
 	vk_engine.cpp
 	vk_engine.h
-	vk_images.cpp
-	vk_images.h
+	resources.cpp
+	resources.h
 	vk_initializers.cpp
 	vk_initializers.h
 	vk_loader.cpp
@@ -36,10 +39,13 @@ target_sources(engine PRIVATE
 	vk_pipelines.h
 	vk_scene.cpp
 	vk_scene.h
-	vk_types.h
+	common.h
 	cvars.h
 	cvars.cpp
-	vk_math.h
+	math.h
+	cache.h
+	cache.cpp
+	extern.cpp
 	${imgui_sources}
 )
 
@@ -77,6 +83,7 @@ target_precompile_headers(engine PUBLIC
 		<string>
 		<vector>
 		<unordered_map>
+		<functional>
 		<glm/mat4x4.hpp>
 		<glm/vec4.hpp>
 		<glm/vec2.hpp>

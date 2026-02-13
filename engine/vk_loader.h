@@ -1,9 +1,9 @@
 #pragma once
 
-#include "vk_types.h"
+#include "vk_scene.h"
 
 #include <mikktspace.h>
-#include <volk.h>
+
 #include <memory>
 #include <optional>
 #include <string>

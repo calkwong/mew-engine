@@ -1,9 +1,109 @@
 #pragma once
 
-#include "vk_types.h"
+#include "math.h"
 
 #include <initializer_list>
-#include <volk.h>
+#include <vector>
+#include <array>
+
+struct IBLPushConstants
+{
+	uint32_t texture_id{};
+	uint32_t image_id{};
+	float roughness{};
+};
+
+struct GPUPushConstants // temporarily shared by vertex and mesh shading path
+{
+	VkDeviceAddress object_buffer_address{};
+	VkDeviceAddress vertex_buffer_address{};
+	VkDeviceAddress meshtask_buffer_address{};
+	VkDeviceAddress meshlet_buffer_address{};
+	VkDeviceAddress meshlet_indices_buffer_address{};
+	VkDeviceAddress cluster_indices_address{};
+	VkDeviceAddress material_buffer_address{};
+	VkDeviceAddress oit_buffer_address{};
+	uint32_t debug_meshlets{};
+};
+
+struct DeferredPushConstants
+{
+	glm::vec4 cluster_size{}; // xyz are cluster data structure dimensions, w is a single cluster's dimension
+	glm::vec2 screen_size{};
+	VkDeviceAddress light_buffer_address{};
+	VkDeviceAddress light_index_buffer_address{};
+	VkDeviceAddress light_grid_buffer_address{};
+	VkDeviceAddress oit_buffer_address{};
+	uint32_t depth_id{};
+	uint32_t albedo_id{};
+	uint32_t normal_id{};
+	uint32_t world_pos_id{};
+	uint32_t shadow_id{};
+	uint32_t light_culling{}; // for toggling light culling between naive and proper implementation
+	float near{};
+	float scale{};
+	float bias{};
+	uint32_t debug_meshlets{};
+	uint32_t resolve_transparent{};
+	uint32_t shadows{};
+	uint32_t pcf{};
+	uint32_t debug_shadowmap{};
+	uint32_t debug_cascades{};
+};
+
+struct ShadowPushConstants
+{
+	glm::mat4 viewproj{};
+	VkDeviceAddress material_buffer_address{};
+	VkDeviceAddress object_buffer_address{};
+	VkDeviceAddress vertex_buffer_address{};
+};
+
+struct SkyboxPushConstants
+{
+	glm::mat4 inverse_viewproj{};
+	uint32_t texture_id{};
+};
+
+struct DebugPushConstants
+{
+	uint32_t texture_id{};
+	uint32_t lod{}; // depth pyramid lod
+};
+
+struct DepthPyramidPushConstants
+{
+	std::array<int32_t, 2> image_size{};
+	uint32_t texture_id{};
+	uint32_t image_id{};
+	uint32_t lod{};
+};
+
+struct ClusterGridPushConstants
+{
+	glm::mat4 inverse_proj{};
+	glm::vec4 cluster_size{};
+	glm::vec2 screen_size{};
+	float near{};
+	float far{};
+	VkDeviceAddress light_cluster_buffer_address{};
+};
+
+struct LightCullingPushConstants
+{
+	glm::mat4 view{};
+	glm::mat4 light_rot{};
+	VkDeviceAddress light_cluster_buffer_address{};
+	VkDeviceAddress light_buffer_address{};
+	VkDeviceAddress light_index_buffer_address{};
+	VkDeviceAddress light_grid_buffer_address{};
+	VkDeviceAddress light_count_buffer_address{};
+};
+
+struct PostFXPushConstants
+{
+	uint32_t texture_id{};
+};
 
 // TODO: rename?
 struct ShaderPass
@@ -12,11 +112,10 @@ struct ShaderPass
 	VkPipelineLayout layout{};
 };
 
-// TODO: remove?
-struct Material
+struct ShaderProgram
 {
-	ShaderPass* forward_pass{};
-	ShaderPass* shadow_pass{};
+	VkShaderModule module{};
+	VkShaderStageFlagBits stage{};
 };
 
 struct PipelineBuilder

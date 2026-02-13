@@ -1,15 +1,114 @@
 #pragma once
 
-#include "vk_math.h"
-#include "vk_types.h"
+#include "math.h"
+#include "resources.h"
 
-#include <volk.h>
 #include <array>
 #include <vector>
 
-struct Material;
+struct Material; // TODO: not declared/anywhere
 struct ShaderPass;
-struct MeshLod;
+
+struct Vertex
+{
+	glm::vec3 position{};
+	float uv_x{};
+	glm::vec3 normal{};
+	float uv_y{};
+	glm::vec4 tangent{};
+};
+
+enum class MaterialPass : uint32_t
+{
+	Opaque,
+	Mask,
+	Blend
+};
+
+struct Bounds
+{
+	glm::vec3 origin{};
+	float radius{};
+};
+
+struct MeshLod
+{
+	uint32_t first_index{};
+	uint32_t count{};
+	float error{};
+	uint32_t meshlet_offset{};
+	uint32_t meshlet_count{};
+};
+
+struct alignas(16) Meshlet
+{
+	glm::vec3 center{};
+	float radius{};
+	uint32_t data_offset{}; // aka index first count
+	uint32_t vertex_count{};
+	uint32_t triangle_count{};
+};
+
+struct MaterialData
+{
+	glm::vec4 base_color_factor{ glm::vec4(1.0f) };
+	float metallic_factor{ 1.0f };
+	float roughness_factor{ 1.0f };
+	uint32_t diffuse_id{};
+	uint32_t metal_roughness_id{};
+	uint32_t normal_id{};
+	uint32_t occlusion_id{};
+	uint32_t emissive_id{};
+	uint32_t padding{};
+};
+
+struct SceneData
+{
+	glm::mat4 view{};
+	glm::mat4 proj{};
+	glm::mat4 viewproj{};
+	glm::mat4 light_rot{};
+	std::array<glm::mat4, 4> shadow_transforms{};
+	glm::vec4 cascade_splits{};
+	glm::vec4 camera_pos{};
+	glm::vec4 sunlight_color{};
+	glm::vec4 sunlight_dir{};
+	glm::vec4 textures{}; // irradiance, prefiltered, brdf, shadow
+	std::array<glm::mat4, 4> shadow_views{}; // for shadow_cull
+	std::array<float, 4> shadow_widths{};
+};
+
+struct CascadeData
+{
+	AllocatedImage shadow_map{};
+	glm::mat4 viewproj{};
+	float split_ratio{};
+};
+
+struct PointLight
+{
+	glm::vec4 pos{}; // pos & radius
+	glm::vec4 color{};
+};
+
+struct ClusterAABB
+{
+	glm::vec4 min{};
+	glm::vec4 max{};
+};
+
+struct LightGrid
+{
+	uint32_t offset{};
+	uint32_t count{};
+};
+
+struct OITData
+{
+	glm::uvec4 colors{};
+	glm::uvec4 depths{};
+	glm::vec4 transmissions{};
+};
 
 struct alignas(16) DrawPrimitive
 {
@@ -150,7 +249,8 @@ struct RenderScene
 	std::vector<DrawPrimitive> primitives{};
 	std::unordered_map<MeshAsset*, Handle<DrawPrimitive>> mesh_cache{};
 
-	GPUMeshBuffers combined_mesh_buffer{};
+	AllocatedBuffer vertex_buffer{};
+	AllocatedBuffer index_buffer{};
 	AllocatedBuffer indices_buffer{}; // an indirection buffer - for indexing into the right RenderObject
 	AllocatedBuffer object_buffer{};
 	AllocatedBuffer mesh_buffer{};

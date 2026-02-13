@@ -1,13 +1,15 @@
+#include "common.h"
 #include "vk_pipelines.h"
 #include "vk_initializers.h"
-#include "vk_types.h"
+#include "math.h"
 
 #include <fmt/core.h>
-#include <volk.h>
-#include <fstream>
-#include <vector>
-#include <cassert>
+
 #include <initializer_list>
+#include <vector>
+#include <array>
+#include <fstream>
+#include <cassert>
 
 VkPipeline ComputePipelineBuilder::build_pipeline(VkDevice device) const
 {
@@ -52,7 +54,7 @@ void PipelineBuilder::set_blending_state(const std::vector<VkPipelineColorBlendA
     color_blend_info.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
     color_blend_info.logicOpEnable = VK_FALSE;
     color_blend_info.logicOp = VK_LOGIC_OP_COPY;
-    
+
     color_blend_info.attachmentCount = static_cast<uint32_t>(blends.size());
     color_blend_info.pAttachments = blends.data();
 }

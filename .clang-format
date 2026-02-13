@@ -17,4 +17,6 @@ TabWidth: 4
 UseTab: ForIndentation
 DerivePointerAlignment: false
 Cpp11BracedListStyle: false
+SortIncludes:
+  Enabled: false
 ...

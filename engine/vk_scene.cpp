@@ -1,6 +1,9 @@
-#include <vk_scene.h>
-#include <vk_types.h>
+#include "common.h"
+#include "vk_scene.h"
+#include "math.h"
+#include "resources.h"
 
+#include <array>
 #include <vector>
 
 // POST MESH SHADERS: do we still need this?

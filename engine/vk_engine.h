@@ -1,11 +1,11 @@
 #pragma once
 
+#include "cache.h"
 #include "camera.h"
 #include "vk_descriptors.h"
 #include "vk_loader.h"
 #include "vk_pipelines.h"
 #include "vk_scene.h"
-#include "vk_types.h"
 
 #include <VkBootstrap.h>
 #include <ranges>
@@ -14,119 +14,11 @@
 #include <array>
 #include <deque>
 #include <functional>
-#include <span>
 #include <string>
 #include <vector>
+#include <memory>
 
 constexpr unsigned int FRAME_OVERLAP = 2;
-
-struct IBLPushConstants
-{
-	uint32_t texture_id{};
-	uint32_t image_id{};
-	float roughness{};
-};
-
-struct GPUPushConstants // temporarily shared by vertex and mesh shading path
-{
-	VkDeviceAddress object_buffer_address{};
-	VkDeviceAddress vertex_buffer_address{};
-	VkDeviceAddress meshtask_buffer_address{};
-	VkDeviceAddress meshlet_buffer_address{};
-	VkDeviceAddress meshlet_indices_buffer_address{};
-	VkDeviceAddress cluster_indices_address{};
-	VkDeviceAddress material_buffer_address{};
-	VkDeviceAddress oit_buffer_address{};
-	uint32_t debug_meshlets{};
-};
-
-struct DeferredPushConstants
-{
-	glm::vec4 cluster_size{}; // xyz are cluster data structure dimensions, w is a single cluster's dimension
-	glm::vec2 screen_size{};
-	VkDeviceAddress light_buffer_address{};
-	VkDeviceAddress light_index_buffer_address{};
-	VkDeviceAddress light_grid_buffer_address{};
-	VkDeviceAddress oit_buffer_address{};
-	uint32_t depth_id{};
-	uint32_t albedo_id{};
-	uint32_t normal_id{};
-	uint32_t world_pos_id{};
-	uint32_t shadow_id{};
-	uint32_t light_culling{}; // for toggling light culling between naive and proper implementation
-	float near{};
-	float scale{};
-	float bias{};
-	uint32_t debug_meshlets{};
-	uint32_t resolve_transparent{};
-	uint32_t shadows{};
-	uint32_t pcf{};
-	uint32_t debug_shadowmap{};
-	uint32_t debug_cascades{};
-};
-
-// struct ShadowPushConstants
-//{
-//	glm::mat4 model{};
-//	glm::mat4 viewproj{};
-//	VkDeviceAddress vertex_buffer_address{};
-//	VkDeviceAddress material_buffer_address{};
-//	uint32_t material_id;
-// };
-
-struct ShadowPushConstants
-{
-	glm::mat4 viewproj{};
-	VkDeviceAddress material_buffer_address{};
-	VkDeviceAddress object_buffer_address{};
-	VkDeviceAddress vertex_buffer_address{};
-};
-
-struct SkyboxPushConstants
-{
-	glm::mat4 inverse_viewproj{};
-	uint32_t texture_id{};
-};
-
-struct DebugPushConstants
-{
-	uint32_t texture_id{};
-	uint32_t lod{}; // depth pyramid lod
-};
-
-struct DepthPyramidPushConstants
-{
-	std::array<int32_t, 2> image_size{};
-	uint32_t texture_id{};
-	uint32_t image_id{};
-	uint32_t lod{};
-};
-
-struct ClusterGridPushConstants
-{
-	glm::mat4 inverse_proj{};
-	glm::vec4 cluster_size{};
-	glm::vec2 screen_size{};
-	float near{};
-	float far{};
-	VkDeviceAddress light_cluster_buffer_address{};
-};
-
-struct LightCullingPushConstants
-{
-	glm::mat4 view{};
-	glm::mat4 light_rot{};
-	VkDeviceAddress light_cluster_buffer_address{};
-	VkDeviceAddress light_buffer_address{};
-	VkDeviceAddress light_index_buffer_address{};
-	VkDeviceAddress light_grid_buffer_address{};
-	VkDeviceAddress light_count_buffer_address{};
-};
-
-struct PostFXPushConstants
-{
-	uint32_t texture_id{};
-};
 
 struct DeletionQueue
 {
@@ -191,90 +83,7 @@ struct EngineStats
 	unsigned int cascade3{};
 };
 
-// destruction of textures handled by gltf (not internally); does not support dynamic objs
-struct TextureCache
-{
-	std::vector<VkDescriptorImageInfo> image_infos{};
-
-	uint32_t add_texture(const VkImageView& view);
-
-	// TODO: refactor
-	void set_draw_image(uint32_t id) { draw_id = id; }
-	void set_gbuffers(uint32_t id) { gbuffer_id = id; }
-	void set_depth_image(uint32_t id) { depth_id = id; }
-	void set_depth_pyramid_image(uint32_t id) { depth_pyramid_id = id; }
-	void set_shadowmap(uint32_t id) { shadowmap_id = id; }
-	uint32_t get_draw_image() const { return draw_id; }
-	uint32_t get_first_gbuffer() const { return gbuffer_id; }
-	uint32_t get_depth_image() const { return depth_id; }
-	uint32_t get_depth_pyramid_image() const { return depth_pyramid_id; }
-	uint32_t get_shadowmap() const { return shadowmap_id; }
-
-private:
-	uint32_t draw_id{};
-	uint32_t gbuffer_id{};
-	uint32_t depth_id{};
-	uint32_t depth_pyramid_id{};
-	uint32_t shadowmap_id{};
-};
-
-struct SamplerCache
-{
-	std::vector<VkDescriptorImageInfo> image_infos{};
-
-	// TODO: perform cache checking
-	void add_sampler(const VkSampler& sampler);
-};
-
-struct ImageCache
-{
-	std::vector<VkDescriptorImageInfo> image_infos{};
-
-	uint32_t add_texture(const VkImageView& view);
-
-	void set_depth_pyramid_image(uint32_t id) { depth_pyramid_id = id; }
-	uint32_t get_depth_pyramid_image() const { return depth_pyramid_id; }
-
-private:
-	uint32_t depth_pyramid_id{};
-};
-
-struct ShaderCache
-{
-	// std::unordered_map<std::string, VkShaderModule> data{};
-	std::unordered_map<std::string, ShaderProgram> data{};
-
-	ShaderProgram& operator[](const std::string& key);
-
-	void add_shader(VkDevice device, const char* path, VkShaderStageFlagBits stage);
-};
-
-struct MaterialCache
-{
-	std::vector<Material> data{};
-
-	uint32_t add_material(ShaderPass* forward, ShaderPass* shadow);
-};
-
-// to refactor
-struct BindlessTexture
-{
-	uint8_t checkerboard{};
-	uint8_t equi{};
-	uint8_t skybox{};
-	uint8_t irradiance{};
-	uint8_t prefiltered{};
-	uint8_t brdf{};
-	uint8_t shadow{};
-};
-
-struct BindlessImage
-{
-	uint8_t skybox{};
-	uint8_t irradiance{};
-	uint8_t prefiltered{};
-	uint8_t brdf{};
-};
+struct SDL_Window;
 
 class VulkanEngine
 {
@@ -360,7 +169,6 @@ public:
 	TextureCache texture_cache{};
 	ImageCache image_cache{};
 	ShaderCache shader_cache{};
-	MaterialCache material_cache{};
 
 	std::unordered_map<std::string, std::shared_ptr<LoadedGLTF>> loaded_scenes{};
 
@@ -374,9 +182,6 @@ public:
 	VkDescriptorSet bindless_image_descriptor{};
 
 	std::unordered_map<std::string, std::unique_ptr<ShaderPass>> shader_passes{};
-
-	BindlessTexture bindless_texture{};
-	BindlessImage bindless_image{};
 
 	SceneData scene_data{};
 	std::array<CascadeData, 4> cascade_data{};
@@ -392,18 +197,8 @@ public:
 	void cleanup();
 	void draw();
 	void run();
-	void immediate_submit(std::function<void(VkCommandBuffer cmd)>&& func);
-	AllocatedBuffer create_buffer(size_t alloc_size, VmaAllocationCreateFlags flags, VkBufferUsageFlags usage);
-	AllocatedBuffer reallocate_buffer(size_t alloc_size, const AllocatedBuffer& old_buffer, VmaAllocationCreateFlags flags, VkBufferUsageFlags usage);
-	void destroy_buffer(const AllocatedBuffer& buffer);
-	GPUMeshBuffers upload_mesh(std::span<uint32_t> indices, std::span<Vertex> vertices);
-	AllocatedBuffer upload_buffer(const void* data, size_t data_size);
 
-	// view has access to all mip and layers
-	AllocatedImage create_image(VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspect, VmaAllocationCreateFlags flags = 0, bool mipmapped = false); // does not currently handle priority
-	AllocatedImage create_image(const void* data, VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspect, VmaAllocationCreateFlags flags = 0, bool mipmapped = false);
 	AllocatedImage create_cubemap(VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspect, VmaAllocationCreateFlags flags = 0, bool mipmapped = false);
-	void destroy_image(const AllocatedImage& image);
 
 	void update_scene();
 
@@ -435,7 +230,7 @@ private:
 	void init_default_data();
 	void init_renderables(std::vector<std::string>& file_paths);
 	void init_bindless();
-	void init_precomputations();
+	// void init_precomputations();
 	void init_imgui();
 	void build_cluster_grid();
 
