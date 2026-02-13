@@ -582,7 +582,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, Loade
 		std::visit(
 		    fastgltf::visitor{
 		        [](auto& arg) {},
-		        [&](const fastgltf::sources::URI& filePath)
+		        [&](fastgltf::sources::URI& filePath)
 		        {
 			        assert(filePath.uri.isLocalPath()); // only capable of loading local files
 			        const std::string filename(filePath.uri.path().begin(), filePath.uri.path().end());

@@ -60,15 +60,15 @@ layout(push_constant) uniform constants
 	mat4 view;
 	vec4 frustumPlanes;
 	
-	ObjectBuffer objectBuffer;
-	MeshBuffer meshBuffer;
-	IndicesBuffer indicesBuffer;
-	DrawCommandsBuffer drawBuffer;
+	ObjectBuffer objectBuffer; //
+	MeshBuffer meshBuffer; //
+	IndicesBuffer indicesBuffer; //
+	DrawCommandsBuffer drawBuffer; //
 	DispatchBuffer dispatchBuffer;
 	VisibilityBuffer visBuffer;
 	MeshTaskBuffer meshTaskBuffer;
 	
-	uint count;
+	uint count; //
 	uint late;
 	uint textureId;
 	uint occlusionEnabled;
@@ -80,10 +80,10 @@ layout(push_constant) uniform constants
 	
 	vec2 resolution;
 	float textureLod;
-	float lodDistanceFactor;
-	uint lodEnabled;
+	float lodDistanceFactor; //
+	uint lodEnabled; // 
 	uint taskSubmit;
-	uint postPass;
+	uint postPass; 
 } pc;
 
 //layout(set = 0, binding = 0, r32f) uniform image2D allImages[];
@@ -91,11 +91,9 @@ layout(push_constant) uniform constants
 //layout(set = 2, binding = 0) uniform sampler samplers[];
 
 
-bool partiallyInsideCascade(vec3 center, uint cascade, float radius)
+bool partiallyInsideCascade(vec3 center, uint cascade, float radius, float shadowRadius)
 {
 	bool visible = true;
-	
-	float shadowRadius = sceneData.shadowWidths[cascade];
 	
 	visible = visible && (-abs(center.x) + shadowRadius) >= -radius; 
 	visible = visible && (-abs(center.y) + shadowRadius) >= -radius; 
@@ -104,11 +102,9 @@ bool partiallyInsideCascade(vec3 center, uint cascade, float radius)
 	return visible;
 }
 
-bool completelyInsideCascade(vec3 center, uint cascade, float radius)
+bool completelyInsideCascade(vec3 center, uint cascade, float radius, float shadowRadius)
 {
 	bool visible = true;
-	
-	float shadowRadius = sceneData.shadowWidths[cascade];
 	
 	visible = visible && (-abs(center.x) + shadowRadius) >= radius; 
 	visible = visible && (-abs(center.y) + shadowRadius) >= radius; 
@@ -147,21 +143,39 @@ void main()
 	
 	for (int cascadeIdx = 0; cascadeIdx < CASCADE_COUNT; cascadeIdx++) 
 	{
+		float shadowRadius = sceneData.shadowWidths[cascadeIdx];
 		vec3 center = vec3(sceneData.shadowViews[cascadeIdx] * obj.worldMatrix * vec4(mesh.center, 1.0));
-		if (!partiallyInsideCascade(center, cascadeIdx, radius))
+		if (!partiallyInsideCascade(center, cascadeIdx, radius, shadowRadius))
 			continue;
-			
+		
 		// https://learn.microsoft.com/en-us/windows/win32/dxtecharts/cascaded-shadow-maps
 		// this optimization complements map-based selection and is incompatible with interval-based map selection
 		// disable to use interval-based map selection
-		//if (cascadeIdx != 0 && completelyInsideCascade(center, cascadeIdx - 1, radius))
+		//if (cascadeIdx != 0 && completelyInsideCascade(center, cascadeIdx - 1, radius, shadowRadius))
 		//	break;
+		
+		// TODO: verify that below is ok to go after completelyInsideCascade check
+		// TODO: profile shadow LODs 
+		uint index = 0;
+		if (pc.lodEnabled == 1) 
+		{
+			// automatic LOD selection - at distance d, how many world space units does each pixel cover? 
+			// is the absolute error computed (simplifyscale * result_error) less visible than error above? if so, move onto higher LOD
+			float d = max(0.0, length(center) - radius);
+			float lodDistanceFactor = shadowRadius / 4096.0; // TODO: seems to work ok - remove hardcoded value
+			float e = lodDistanceFactor / maxScale;
+
+			for (uint i = 0; i < mesh.lodCount; i++)
+			{
+				index = e >= mesh.lods[i].error ? i : index;
+			}
+		}
 		
 		uint count = alphaClip ? atomicAdd(pc.drawBuffer.draws[cascadeIdx].alphaClipCount, 1) : atomicAdd(pc.drawBuffer.draws[cascadeIdx].opaqueCount, 1);
 		count = alphaClip ? count + 200000 : count;
-		pc.drawBuffer.draws[cascadeIdx].commands[count].indexCount = mesh.lods[0].count; // TODO: LODS still unaccounted for
+		pc.drawBuffer.draws[cascadeIdx].commands[count].indexCount = mesh.lods[index].count; // TODO: LODS still unaccounted for
 		pc.drawBuffer.draws[cascadeIdx].commands[count].instanceCount = 1;
-		pc.drawBuffer.draws[cascadeIdx].commands[count].firstIndex = mesh.lods[0].firstIndex;
+		pc.drawBuffer.draws[cascadeIdx].commands[count].firstIndex = mesh.lods[index].firstIndex;
 		pc.drawBuffer.draws[cascadeIdx].commands[count].vertexOffset = mesh.vertexOffset;
 		pc.drawBuffer.draws[cascadeIdx].commands[count].firstInstance = id;
 	}
