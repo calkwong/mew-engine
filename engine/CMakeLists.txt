@@ -1,7 +1,4 @@
-add_executable(engine
-		cache.h
-		cache.cpp
-		extern.cpp)
+add_executable(engine)
 
 set(imgui_sources 
 	"${PROJECT_SOURCE_DIR}/external/imgui/imconfig.h"
@@ -42,7 +39,7 @@ target_sources(engine PRIVATE
 	common.h
 	cvars.h
 	cvars.cpp
-	math.h
+	vk_math.h
 	cache.h
 	cache.cpp
 	extern.cpp
@@ -74,18 +71,15 @@ target_link_libraries(engine PUBLIC
 	volk_headers
 )
 
-target_precompile_headers(engine PUBLIC
-		<volk.h>
+target_precompile_headers(engine PRIVATE
 		<optional>
 		<vector>
 		<array>
 		<memory>
 		<string>
-		<vector>
 		<unordered_map>
 		<functional>
-		<glm/mat4x4.hpp>
-		<glm/vec4.hpp>
+		<volk.h>
 		<glm/vec2.hpp>
 		<glm/vec3.hpp>
 		<glm/vec4.hpp>

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "math.h"
+#include "vk_math.h"
 #include "resources.h"
 
 #include <array>

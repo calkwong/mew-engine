@@ -1,6 +1,6 @@
 #include "common.h"
 #include "vk_scene.h"
-#include "math.h"
+#include "vk_math.h"
 #include "resources.h"
 
 #include <array>

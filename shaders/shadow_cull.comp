@@ -54,36 +54,14 @@ layout(buffer_reference, std430) buffer VisibilityBuffer
 	uint visible[];
 };
 
-// TODO: a lot of this is unused, to clean up when implementing meshlet culling for shadows
 layout(push_constant) uniform constants
 {
-	mat4 view;
-	vec4 frustumPlanes;
-	
-	ObjectBuffer objectBuffer; //
-	MeshBuffer meshBuffer; //
-	IndicesBuffer indicesBuffer; //
-	DrawCommandsBuffer drawBuffer; //
-	DispatchBuffer dispatchBuffer;
-	VisibilityBuffer visBuffer;
-	MeshTaskBuffer meshTaskBuffer;
-	
-	uint count; //
-	uint late;
-	uint textureId;
-	uint occlusionEnabled;
-	
-	float p00;
-	float p11;
-	float znear;
-	float zfar; 
-	
-	vec2 resolution;
-	float textureLod;
-	float lodDistanceFactor; //
-	uint lodEnabled; // 
-	uint taskSubmit;
-	uint postPass; 
+	ObjectBuffer objectBuffer; 
+	MeshBuffer meshBuffer; 
+	IndicesBuffer indicesBuffer; 
+	DrawCommandsBuffer drawBuffer; 
+	uint count; 
+	uint lodEnabled;
 } pc;
 
 //layout(set = 0, binding = 0, r32f) uniform image2D allImages[];
