@@ -51,12 +51,23 @@ struct DeferredPushConstants
 	uint32_t debug_cascades{};
 };
 
+// rasteroze shadows
 struct ShadowPushConstants
 {
 	glm::mat4 viewproj{};
 	VkDeviceAddress material_buffer_address{};
 	VkDeviceAddress object_buffer_address{};
 	VkDeviceAddress vertex_buffer_address{};
+};
+
+struct ShadowCullPushConstants
+{
+	VkDeviceAddress object_buffer_address{};
+	VkDeviceAddress mesh_buffer_address{};
+	VkDeviceAddress indices_buffer_address{};
+	VkDeviceAddress draw_buffer_address{};
+	uint32_t count{};
+	uint32_t lod_enabled{};
 };
 
 struct SkyboxPushConstants
@@ -121,7 +132,7 @@ struct ShaderProgram
 struct PipelineBuilder
 {
 	std::vector<VkPipelineShaderStageCreateInfo> shader_stages{};
-	std::vector<VkDynamicState> dynamic_state{VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+	std::vector<VkDynamicState> dynamic_state{ VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
 
 	VkPipelineInputAssemblyStateCreateInfo input_assembly{};
 	VkPipelineRasterizationStateCreateInfo rasterization{};
@@ -169,4 +180,4 @@ namespace vkutil
 
 	std::unique_ptr<ShaderPass> build_shader(VkDevice device, PipelineBuilder& builder, std::initializer_list<ShaderProgram*> programs, const std::vector<VkDescriptorSetLayout>& layouts, uint32_t pc_size);
 	std::unique_ptr<ShaderPass> build_shader(VkDevice device, ComputePipelineBuilder& builder, const ShaderProgram* program, const std::vector<VkDescriptorSetLayout>& layouts, uint32_t pc_size);
-}
+} // namespace vkutil

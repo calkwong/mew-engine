@@ -253,14 +253,12 @@ void VulkanEngine::draw()
 
 	CullData forward_mesh_cull_data{};
 	ClusterCullData forward_cluster_cull_data{};
-	CullData shadow_cull_data{};
 
 	{
 		auto proj = freeze_camera ? last_proj : scene_data.proj;
 
 		ready_mesh_cull(render_scene.opaque_pass, forward_mesh_cull_data, proj);
 		ready_meshlet_cull(render_scene.opaque_pass, forward_cluster_cull_data, proj);
-		ready_shadow_cull(render_scene.opaque_pass, shadow_cull_data, proj);
 	}
 
 	uint32_t swapchain_image_idx{};
@@ -351,10 +349,7 @@ void VulkanEngine::draw()
 			ShaderPass current_pass = *shader_passes["task_submit"];
 			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
 
-			VkBufferDeviceAddressInfo address_info{};
-			address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
-			address_info.buffer = render_scene.dispatch_buffer.buffer;
-			auto addr = vkGetBufferDeviceAddress(device, &address_info);
+			auto addr = get_buffer_address(device, render_scene.dispatch_buffer.buffer);
 
 			vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(VkDeviceAddress), &addr);
 			vkCmdDispatch(cmd, 1, 1, 1); // TODO: task submit - currently redundant, but may come useful as renderer becomes more complex
@@ -418,10 +413,7 @@ void VulkanEngine::draw()
 			ShaderPass current_pass = *shader_passes["task_submit"];
 			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
 
-			VkBufferDeviceAddressInfo address_info{};
-			address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
-			address_info.buffer = render_scene.dispatch_buffer.buffer;
-			auto addr = vkGetBufferDeviceAddress(device, &address_info);
+			auto addr = get_buffer_address(device, render_scene.dispatch_buffer.buffer);
 
 			vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(VkDeviceAddress), &addr);
 			vkCmdDispatch(cmd, 1, 1, 1); // TODO: task submit - currently redundant, but may come useful as renderer becomes more complex
@@ -490,10 +482,7 @@ void VulkanEngine::draw()
 			ShaderPass current_pass = *shader_passes["task_submit"];
 			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
 
-			VkBufferDeviceAddressInfo address_info{};
-			address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
-			address_info.buffer = render_scene.dispatch_buffer.buffer;
-			auto addr = vkGetBufferDeviceAddress(device, &address_info);
+			auto addr = get_buffer_address(device, render_scene.dispatch_buffer.buffer);
 
 			vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(VkDeviceAddress), &addr);
 			vkCmdDispatch(cmd, 1, 1, 1); // TODO: task submit - currently redundant, but may come useful as renderer becomes more complex
@@ -542,10 +531,7 @@ void VulkanEngine::draw()
 			ShaderPass current_pass = *shader_passes["task_submit"];
 			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
 
-			VkBufferDeviceAddressInfo address_info{};
-			address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
-			address_info.buffer = render_scene.dispatch_buffer.buffer;
-			auto addr = vkGetBufferDeviceAddress(device, &address_info);
+			auto addr = get_buffer_address(device, render_scene.dispatch_buffer.buffer);
 
 			vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(VkDeviceAddress), &addr);
 			vkCmdDispatch(cmd, 1, 1, 1); // TODO: task submit - currently redundant, but may come useful as renderer becomes more complex
@@ -575,6 +561,8 @@ void VulkanEngine::draw()
 		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT); // barrier for OIT buffer from last frame?
 
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 18);
+		// note: this reuses hi-z from first pass. we could technically update and rebuild hi-z after second pass.
+		// TODO: perform some sort of sorting or compaction to guarantee insertion order, which is what i suspect to be causing flickering only for overflowed pixels at the moment
 		render_transparent(cmd, 3);
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 19);
 	}
@@ -633,7 +621,7 @@ void VulkanEngine::draw()
 		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
 
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 20);
-		execute_shadow_cull(cmd, shadow_cull_data);
+		execute_shadow_cull(cmd);
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 21);
 
 		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, // | VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT,
@@ -1417,7 +1405,7 @@ void VulkanEngine::init_pipelines()
 
 	// graphics pipeline
 	shader_cache.add_shader(device, "mesh_pbr.vert", VK_SHADER_STAGE_VERTEX_BIT);
-	shader_cache.add_shader(device, "basic_mesh.frag", VK_SHADER_STAGE_FRAGMENT_BIT);
+	shader_cache.add_shader(device, "geometry.frag", VK_SHADER_STAGE_FRAGMENT_BIT);
 	shader_cache.add_shader(device, "meshlet.mesh.glsl", VK_SHADER_STAGE_MESH_BIT_EXT);
 	shader_cache.add_shader(device, "full_screen.vert", VK_SHADER_STAGE_VERTEX_BIT);
 	shader_cache.add_shader(device, "deferred.frag", VK_SHADER_STAGE_FRAGMENT_BIT);
@@ -1442,7 +1430,7 @@ void VulkanEngine::init_pipelines()
 
 	descriptor_layouts.clear();
 	descriptor_layouts = { scene_descriptor_layout };
-	shader_passes["shadow_cull"] = vkutil::build_shader(device, compute_builder, shader_cache["shadow_cull.comp"], descriptor_layouts, sizeof(CullData));
+	shader_passes["shadow_cull"] = vkutil::build_shader(device, compute_builder, shader_cache["shadow_cull.comp"], descriptor_layouts, sizeof(ShadowCullPushConstants));
 
 	// mrt
 	descriptor_layouts.clear();
@@ -1487,7 +1475,7 @@ void VulkanEngine::init_pipelines()
 	specialization_info.dataSize = sizeof(GBufferSpecializationData);
 	specialization_info.pData = &specialization_data;
 
-	builder.set_shaders({ shader_cache["mesh_pbr.vert"], shader_cache["basic_mesh.frag"] });
+	builder.set_shaders({ shader_cache["mesh_pbr.vert"], shader_cache["geometry.frag"] });
 	builder.shader_stages[1].pSpecializationInfo = &specialization_info;
 	specialization_data.opaque = 1;
 	builder.set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
@@ -1496,7 +1484,7 @@ void VulkanEngine::init_pipelines()
 	builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
 	shader_passes["geometry_vert_mask"] = vkutil::build_shader(device, builder, {}, descriptor_layouts, sizeof(GPUPushConstants));
 
-	builder.set_shaders({ shader_cache["meshlet.mesh.glsl"], shader_cache["basic_mesh.frag"] });
+	builder.set_shaders({ shader_cache["meshlet.mesh.glsl"], shader_cache["geometry.frag"] });
 	builder.shader_stages[1].pSpecializationInfo = &specialization_info;
 	specialization_data.opaque = 1;
 	builder.set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
@@ -2156,16 +2144,10 @@ void VulkanEngine::execute_deferred_shading(VkCommandBuffer cmd)
 	pc.cluster_size = glm::vec4(cluster_x, cluster_y, cluster_z, CLUSTER_DIM);
 	pc.screen_size = glm::vec2(window_extent.width, window_extent.height);
 
-	VkBufferDeviceAddressInfo address_info{};
-	address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
-	address_info.buffer = light_buffer.buffer;
-	pc.light_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
-	address_info.buffer = light_index_buffer.buffer;
-	pc.light_index_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
-	address_info.buffer = light_grid_buffer.buffer;
-	pc.light_grid_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
-	address_info.buffer = render_scene.oit_buffer.buffer;
-	pc.oit_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+	pc.light_buffer_address = get_buffer_address(device, light_buffer.buffer);
+	pc.light_index_buffer_address = get_buffer_address(device, light_index_buffer.buffer);
+	pc.light_grid_buffer_address = get_buffer_address(device, light_grid_buffer.buffer);
+	pc.oit_buffer_address = get_buffer_address(device, render_scene.oit_buffer.buffer);
 
 	pc.depth_id = texture_cache.get_depth_image();
 	pc.albedo_id = texture_cache.get_first_gbuffer();
@@ -2563,27 +2545,13 @@ void VulkanEngine::ready_mesh_cull(RenderScene::MeshPass& pass, CullData& cull_d
 	cull_data.view = freeze_camera ? last_view : scene_data.view;
 	cull_data.frustum_planes = glm::vec4(left_plane.x, left_plane.z, bottom_plane.y, bottom_plane.z);
 
-	VkBufferDeviceAddressInfo address_info{};
-	address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
-	address_info.buffer = render_scene.object_buffer.buffer;
-	cull_data.object_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
-
-	address_info.buffer = render_scene.mesh_buffer.buffer;
-	cull_data.mesh_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
-
-	// address_info.buffer = render_scene.indices_buffer.buffer; // set during execute
-
-	address_info.buffer = render_scene.draw_indirect_buffer.buffer;
-	cull_data.draw_indirect_address = vkGetBufferDeviceAddress(device, &address_info);
-
-	address_info.buffer = render_scene.dispatch_buffer.buffer;
-	cull_data.count_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
-
-	address_info.buffer = render_scene.vis_buffer.buffer;
-	cull_data.vis_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
-
-	address_info.buffer = render_scene.meshtask_indirect_buffer.buffer;
-	cull_data.meshtask_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+	// cull_data.indices_buffer_address; // set during execute
+	cull_data.object_buffer_address = get_buffer_address(device, render_scene.object_buffer.buffer);
+	cull_data.mesh_buffer_address = get_buffer_address(device, render_scene.mesh_buffer.buffer);
+	cull_data.draw_indirect_address = get_buffer_address(device, render_scene.draw_indirect_buffer.buffer);
+	cull_data.count_buffer_address = get_buffer_address(device, render_scene.dispatch_buffer.buffer);;
+	cull_data.vis_buffer_address = get_buffer_address(device, render_scene.vis_buffer.buffer);
+	cull_data.meshtask_buffer_address = get_buffer_address(device, render_scene.meshtask_indirect_buffer.buffer);
 
 	// cull_data.count = static_cast<uint32_t>(pass.unbatched_objects.size()); // set during execute
 	cull_data.texture_id = texture_cache.get_depth_pyramid_image();
@@ -2599,52 +2567,6 @@ void VulkanEngine::ready_mesh_cull(RenderScene::MeshPass& pass, CullData& cull_d
 	cull_data.lod_distance_factor = 2.0f / (cull_data.p11 * static_cast<float>(draw_extent.height));
 	cull_data.lod_enabled = CVAR_TOGGLE_LOD.get();
 	cull_data.task_submit = CVAR_TOGGLE_MESH_SHADING.get();
-}
-
-void VulkanEngine::ready_shadow_cull(RenderScene::MeshPass& pass, CullData& cull_data, glm::mat4& proj, bool orthographic /*= false*/)
-{
-	// ReSharper disable CppExpressionWithoutSideEffects
-	// TODO: this needs massive cleaning up
-	cull_data.view = freeze_camera ? last_view : scene_data.view; // currently not supported
-	cull_data.frustum_planes; // currently unused
-
-	VkBufferDeviceAddressInfo address_info{};
-	address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
-	address_info.buffer = render_scene.object_buffer.buffer;
-	cull_data.object_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
-
-	address_info.buffer = render_scene.mesh_buffer.buffer;
-	cull_data.mesh_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
-
-	// address_info.buffer = render_scene.indices_buffer.buffer; // set during execute
-
-	address_info.buffer = render_scene.draw_indirect_buffer.buffer;
-	cull_data.draw_indirect_address = vkGetBufferDeviceAddress(device, &address_info);
-
-	address_info.buffer = render_scene.dispatch_buffer.buffer;
-	cull_data.count_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
-
-	address_info.buffer = render_scene.vis_buffer.buffer;
-	cull_data.vis_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
-
-	address_info.buffer = render_scene.meshtask_indirect_buffer.buffer;
-	cull_data.meshtask_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
-
-	// cull_data.count = static_cast<uint32_t>(pass.unbatched_objects.size()); // set during execute
-	cull_data.texture_id = texture_cache.get_depth_pyramid_image();
-	cull_data.occlusion_enabled = CVAR_TOGGLE_OCCLUSION.get();
-
-	cull_data.p00 = proj[0][0];
-	cull_data.p11 = proj[1][1];
-	cull_data.near = 0.f; // use shadow's?
-	cull_data.far; // = scene_data.shadow_width * 2.0f;	 // use shadow's?
-
-	cull_data.resolution = glm::vec2(depth_pyramid.extent.width, depth_pyramid.extent.height);
-	cull_data.texture_lod = static_cast<float>(std::floor(std::log2(static_cast<float>(std::max(depth_pyramid.extent.width, depth_pyramid.extent.height)))) + 1);
-	cull_data.lod_distance_factor = 2.0f / (cull_data.p11 * static_cast<float>(draw_extent.height));
-	cull_data.lod_enabled = CVAR_TOGGLE_LOD.get();
-	cull_data.task_submit = CVAR_TOGGLE_MESH_SHADING.get();
-	// ReSharper restore CppExpressionWithoutSideEffects
 }
 
 // late & post_pass set in executecomputecull
@@ -2686,25 +2608,12 @@ void VulkanEngine::ready_meshlet_cull(RenderScene::MeshPass& pass, ClusterCullDa
 	cull_data.view = freeze_camera ? last_view : scene_data.view;
 	cull_data.frustum_planes = glm::vec4(left_plane.x, left_plane.z, bottom_plane.y, bottom_plane.z);
 
-	VkBufferDeviceAddressInfo address_info{};
-	address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
-	address_info.buffer = render_scene.object_buffer.buffer;
-	cull_data.object_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
-
-	address_info.buffer = render_scene.meshlet_buffer.buffer;
-	cull_data.meshlet_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
-
-	address_info.buffer = render_scene.cluster_indices.buffer;
-	cull_data.cluster_indices_address = vkGetBufferDeviceAddress(device, &address_info);
-
-	address_info.buffer = render_scene.cluster_count_buffer.buffer;
-	cull_data.cluster_count_address = vkGetBufferDeviceAddress(device, &address_info);
-
-	address_info.buffer = render_scene.meshlet_vis_buffer.buffer;
-	cull_data.cluster_vis_address = vkGetBufferDeviceAddress(device, &address_info);
-
-	address_info.buffer = render_scene.meshtask_indirect_buffer.buffer;
-	cull_data.meshtask_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+	cull_data.object_buffer_address = get_buffer_address(device, render_scene.object_buffer.buffer);
+	cull_data.meshlet_buffer_address = get_buffer_address(device, render_scene.meshlet_buffer.buffer);
+	cull_data.cluster_indices_address = get_buffer_address(device, render_scene.cluster_indices.buffer);
+	cull_data.cluster_count_address = get_buffer_address(device, render_scene.cluster_count_buffer.buffer);
+	cull_data.cluster_vis_address = get_buffer_address(device, render_scene.meshlet_vis_buffer.buffer);
+	cull_data.meshtask_buffer_address = get_buffer_address(device, render_scene.meshtask_indirect_buffer.buffer);
 
 	// cull_data.count = static_cast<uint32_t>(pass.unbatched_objects.size()); // unused
 	cull_data.texture_id = texture_cache.get_depth_pyramid_image();
@@ -2731,10 +2640,7 @@ void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, const RenderScene::
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
 
-	VkBufferDeviceAddressInfo address_info{};
-	address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
-	address_info.buffer = render_scene.indices_buffer.buffer;
-	cull_data.indices_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+	cull_data.indices_buffer_address = get_buffer_address(device, render_scene.indices_buffer.buffer);
 	cull_data.indices_buffer_address += pass.indices_offset * sizeof(uint32_t);
 
 	cull_data.count = static_cast<uint32_t>(pass.unbatched_objects.size());
@@ -2763,28 +2669,28 @@ void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPa
 	vkCmdDispatchIndirect(cmd, count_buffer, offset);
 }
 
-void VulkanEngine::execute_shadow_cull(VkCommandBuffer cmd, CullData& cull_data)
+void VulkanEngine::execute_shadow_cull(VkCommandBuffer cmd)
 {
 	ShaderPass current_pass = *shader_passes["shadow_cull"];
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
 
 	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
 
-	VkBufferDeviceAddressInfo address_info{};
-	address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
-	address_info.buffer = render_scene.indices_buffer.buffer;
-	cull_data.indices_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+	ShadowCullPushConstants pc{};
+	pc.object_buffer_address = get_buffer_address(device, render_scene.object_buffer.buffer);
+	pc.mesh_buffer_address = get_buffer_address(device, render_scene.mesh_buffer.buffer);
+	pc.indices_buffer_address = get_buffer_address(device, render_scene.indices_buffer.buffer);
+	pc.draw_buffer_address = get_buffer_address(device, render_scene.draw_indirect_buffer.buffer);
 
-	cull_data.count = 0;
 	std::vector<RenderScene::MeshPass*> passes = { &render_scene.opaque_pass, &render_scene.mask_pass };
 	for (const auto& pass : passes)
 	{
-		// cull_data.indices_buffer_address += pass->indices_offset * sizeof(uint32_t);
-		cull_data.count += static_cast<uint32_t>(pass->unbatched_objects.size());
+		pc.count += static_cast<uint32_t>(pass->unbatched_objects.size());
 	}
+	pc.lod_enabled = CVAR_TOGGLE_LOD.get();
 
-	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CullData), &cull_data);
-	vkCmdDispatch(cmd, static_cast<uint32_t>(std::ceil(cull_data.count / 256.0f)), 1, 1);
+	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ShadowCullPushConstants), &pc);
+	vkCmdDispatch(cmd, static_cast<uint32_t>(std::ceil(pc.count / 256.0f)), 1, 1);
 }
 
 void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass, uint32_t query)
@@ -2833,24 +2739,14 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass, ui
 	// vkCmdSetDepthBias(cmd, -depth_bias, 0.0f, -slope_scaled_depth_bias);
 
 	GPUPushConstants pc{};
-	VkBufferDeviceAddressInfo address_info{};
-	address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
-	address_info.buffer = render_scene.object_buffer.buffer;
-	pc.object_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
-	address_info.buffer = render_scene.vertex_buffer.buffer;
-	pc.vertex_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
-	address_info.buffer = render_scene.meshtask_indirect_buffer.buffer;
-	pc.meshtask_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
-	address_info.buffer = render_scene.meshlet_buffer.buffer;
-	pc.meshlet_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
-	address_info.buffer = render_scene.meshlet_indices.buffer;
-	pc.meshlet_indices_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
-	address_info.buffer = render_scene.cluster_indices.buffer;
-	pc.cluster_indices_address = vkGetBufferDeviceAddress(device, &address_info);
-	address_info.buffer = render_scene.material_buffer.buffer;
-	pc.material_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
-	address_info.buffer = render_scene.oit_buffer.buffer;
-	pc.oit_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+	pc.object_buffer_address = get_buffer_address(device, render_scene.object_buffer.buffer);
+	pc.vertex_buffer_address = get_buffer_address(device, render_scene.vertex_buffer.buffer);
+	pc.meshtask_buffer_address = get_buffer_address(device, render_scene.meshtask_indirect_buffer.buffer);
+	pc.meshlet_buffer_address = get_buffer_address(device, render_scene.meshlet_buffer.buffer);
+	pc.meshlet_indices_buffer_address = get_buffer_address(device, render_scene.meshlet_indices.buffer);
+	pc.cluster_indices_address = get_buffer_address(device, render_scene.cluster_indices.buffer);
+	pc.material_buffer_address = get_buffer_address(device, render_scene.material_buffer.buffer);
+	pc.oit_buffer_address = get_buffer_address(device, render_scene.oit_buffer.buffer);
 	pc.debug_meshlets = CVAR_TOGGLE_MESH_SHADING.get() ? CVAR_TOGGLE_VIEW_MESHLETS.get() : 0;
 
 	if (!CVAR_TOGGLE_MESH_SHADING.get())
@@ -2920,24 +2816,14 @@ void VulkanEngine::render_transparent(VkCommandBuffer cmd, uint32_t query)
 	vkCmdSetScissor(cmd, 0, 1, &scissor);
 
 	GPUPushConstants pc{};
-	VkBufferDeviceAddressInfo address_info{};
-	address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
-	address_info.buffer = render_scene.object_buffer.buffer;
-	pc.object_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
-	address_info.buffer = render_scene.vertex_buffer.buffer;
-	pc.vertex_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
-	address_info.buffer = render_scene.meshtask_indirect_buffer.buffer;
-	pc.meshtask_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
-	address_info.buffer = render_scene.meshlet_buffer.buffer;
-	pc.meshlet_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
-	address_info.buffer = render_scene.meshlet_indices.buffer;
-	pc.meshlet_indices_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
-	address_info.buffer = render_scene.cluster_indices.buffer;
-	pc.cluster_indices_address = vkGetBufferDeviceAddress(device, &address_info);
-	address_info.buffer = render_scene.material_buffer.buffer;
-	pc.material_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
-	address_info.buffer = render_scene.oit_buffer.buffer;
-	pc.oit_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+	pc.object_buffer_address = get_buffer_address(device, render_scene.object_buffer.buffer);
+	pc.vertex_buffer_address = get_buffer_address(device, render_scene.vertex_buffer.buffer);
+	pc.meshtask_buffer_address = get_buffer_address(device, render_scene.meshtask_indirect_buffer.buffer);
+	pc.meshlet_buffer_address = get_buffer_address(device, render_scene.meshlet_buffer.buffer);
+	pc.meshlet_indices_buffer_address = get_buffer_address(device, render_scene.meshlet_indices.buffer);
+	pc.cluster_indices_address = get_buffer_address(device, render_scene.cluster_indices.buffer);
+	pc.material_buffer_address = get_buffer_address(device, render_scene.material_buffer.buffer);
+	pc.oit_buffer_address = get_buffer_address(device, render_scene.oit_buffer.buffer);
 	pc.debug_meshlets = CVAR_TOGGLE_MESH_SHADING.get() ? CVAR_TOGGLE_VIEW_MESHLETS.get() : 0;
 
 	if (!CVAR_TOGGLE_MESH_SHADING.get())
@@ -3011,14 +2897,9 @@ void VulkanEngine::render_shadows(VkCommandBuffer cmd, uint32_t cascade_idx, uin
 
 	ShadowPushConstants pc{};
 	pc.viewproj = cascade_data[cascade_idx].viewproj;
-	VkBufferDeviceAddressInfo address_info{};
-	address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
-	address_info.buffer = render_scene.material_buffer.buffer;
-	pc.material_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
-	address_info.buffer = render_scene.object_buffer.buffer;
-	pc.object_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
-	address_info.buffer = render_scene.vertex_buffer.buffer;
-	pc.vertex_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+	pc.material_buffer_address = get_buffer_address(device, render_scene.material_buffer.buffer);
+	pc.object_buffer_address = get_buffer_address(device, render_scene.object_buffer.buffer);
+	pc.vertex_buffer_address = get_buffer_address(device, render_scene.vertex_buffer.buffer);
 
 	{
 		ShaderPass current_pass = *shader_passes["depth"];
@@ -3165,10 +3046,7 @@ void VulkanEngine::build_cluster_grid()
 	pc.near = main_camera.far; // reverse-z
 	pc.far = main_camera.near;
 
-	VkBufferDeviceAddressInfo address_info{};
-	address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
-	address_info.buffer = light_cluster_buffer.buffer;
-	pc.light_cluster_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+	pc.light_cluster_buffer_address = get_buffer_address(device, light_cluster_buffer.buffer);
 
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ClusterGridPushConstants), &pc);
 	vkCmdDispatch(cmd, 1, 1, cluster_z / 2); // TODO: hardcoded to stay below maxComputeWorkGroupInvocations
@@ -3192,22 +3070,11 @@ void VulkanEngine::execute_light_culling(VkCommandBuffer cmd)
 	pc.view = scene_data.view;
 	pc.light_rot = scene_data.light_rot;
 
-	VkBufferDeviceAddressInfo address_info{};
-	address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
-	address_info.buffer = light_cluster_buffer.buffer;
-	pc.light_cluster_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
-
-	address_info.buffer = light_buffer.buffer;
-	pc.light_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
-
-	address_info.buffer = light_index_buffer.buffer;
-	pc.light_index_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
-
-	address_info.buffer = light_grid_buffer.buffer;
-	pc.light_grid_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
-
-	address_info.buffer = light_count_buffer.buffer;
-	pc.light_count_buffer_address = vkGetBufferDeviceAddress(device, &address_info);
+	pc.light_cluster_buffer_address = get_buffer_address(device, light_cluster_buffer.buffer);
+	pc.light_buffer_address = get_buffer_address(device, light_buffer.buffer);
+	pc.light_index_buffer_address = get_buffer_address(device, light_index_buffer.buffer);
+	pc.light_grid_buffer_address = get_buffer_address(device, light_grid_buffer.buffer);
+	pc.light_count_buffer_address = get_buffer_address(device, light_count_buffer.buffer);
 
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(LightCullingPushConstants), &pc);
 	vkCmdDispatch(cmd, 27, 15, 24); // TODO: hardcoded

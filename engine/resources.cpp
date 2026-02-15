@@ -170,6 +170,14 @@ void destroy_image(VkDevice device, VmaAllocator allocator, const AllocatedImage
 	vmaDestroyImage(allocator, image.image, image.allocation);
 }
 
+VkDeviceAddress get_buffer_address(VkDevice device, VkBuffer buffer)
+{
+	VkBufferDeviceAddressInfo address_info{};
+	address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
+	address_info.buffer = buffer;
+	return vkGetBufferDeviceAddress(device, &address_info);
+}
+
 void vkutil::transition_image(
     VkCommandBuffer cmd,
     VkImage image,
