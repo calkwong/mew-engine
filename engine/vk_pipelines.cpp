@@ -1,7 +1,7 @@
 #include "common.h"
 #include "vk_pipelines.h"
 #include "vk_initializers.h"
-#include "math.h"
+#include "vk_math.h"
 
 #include <fmt/core.h>
 

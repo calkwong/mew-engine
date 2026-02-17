@@ -1,5 +1,5 @@
 #include "common.h"
-#include "math.h"
+#include "vk_math.h"
 #include "vk_engine.h"
 #include "cvars.h"
 #include "vk_descriptors.h"

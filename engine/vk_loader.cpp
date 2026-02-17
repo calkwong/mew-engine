@@ -1,5 +1,5 @@
 #include "common.h"
-#include "math.h"
+#include "vk_math.h"
 #include "vk_loader.h"
 #include "cache.h"
 #include "resources.h"

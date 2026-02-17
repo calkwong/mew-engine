@@ -1,6 +1,6 @@
 #pragma once
 
-#include "math.h"
+#include "vk_math.h"
 
 #include <initializer_list>
 #include <vector>
