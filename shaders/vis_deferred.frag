@@ -6,8 +6,11 @@
 
 #include "scene.glsl"
 #include "samplers.glsl"
+#include "mesh.glsl"
+#include "vbuffer.glsl"
 
 layout(set = 1, binding = 0) uniform texture2D allTextures[];
+layout(set = 1, binding = 0) uniform utexture2D allUTextures[];
 layout(set = 2, binding = 0) uniform sampler samplers[];
 
 layout (location = 0) in vec2 inUV;
@@ -53,6 +56,31 @@ layout(buffer_reference, std430) buffer OITBuffer
 	OITData frags[];
 };
 
+layout(buffer_reference, std430) readonly buffer MeshletIndicesBuffer
+{ 
+	uint indices[];
+};
+
+layout(buffer_reference, std430) readonly buffer MeshletBuffer
+{ 
+	Meshlet meshlets[];
+};
+
+layout(buffer_reference, std430) readonly buffer VertexBuffer
+{ 
+	Vertex vertices[];
+};
+
+layout(buffer_reference, std430) readonly buffer ObjectBuffer
+{ 
+	ObjectData objects[];
+};
+
+layout(buffer_reference, std430) readonly buffer MaterialBuffer
+{ 
+	MaterialData materials[];
+};
+
 layout( push_constant ) uniform constants
 {
 	vec4 clusterSize; // xyz is cluster data struct dim, w is single cluster dim where width==height
@@ -61,7 +89,11 @@ layout( push_constant ) uniform constants
 	LightIndexBuffer lightIndexBuffer;
 	LightGridBuffer lightGridBuffer;
 	OITBuffer oitBuffer;
-	uint padding[10]; // padding for visibility buffer variant
+	MeshletIndicesBuffer meshletIndicesBuffer;
+	MeshletBuffer meshletBuffer;
+	VertexBuffer vertexBuffer;
+	ObjectBuffer objectBuffer;
+	MaterialBuffer materialBuffer;
 	uint depth_id;
 	uint albedo_id;    // gbuffer ids
 	uint normal_id;    // gbuffer ids
@@ -191,16 +223,75 @@ void main()
 {
 	if (pc.debugMeshlets == 1)
 	{
-		vec3 normal = texture(sampler2D(allTextures[pc.normal_id], samplers[NEAREST_SAMPLER]), inUV).xyz;
-		outFragColor = vec4(normal, 1.0);
-		return;
+		// HANDLE LATER
+		//vec3 normal = texture(sampler2D(allTextures[pc.normal_id], samplers[NEAREST_SAMPLER]), inUV).xyz;
+		//outFragColor = vec4(normal, 1.0);
+		//return; 
 	}
 	
-	vec3 albedo = texture(sampler2D(allTextures[pc.albedo_id], samplers[NEAREST_SAMPLER]), inUV).xyz;
-	vec3 worldPos = texture(sampler2D(allTextures[pc.world_pos_id], samplers[NEAREST_SAMPLER]), inUV).xyz;
+	uvec2 data = texture(usampler2D(allUTextures[pc.albedo_id - 1], samplers[NEAREST_SAMPLER]), inUV).rg; // TODO: vis_buffer_id currently == albedo_id - 1, hardcoded to fix
 	
-	outFragColor = vec4(albedo, 1.0);
+	uint drawID = data.x; 
+	uint packedID = data.y;
+	uint triangleID = bitfieldExtract(packedID, 25, 7);
+	uint meshletID = bitfieldExtract(packedID, 0, 25);
 	
+	Meshlet meshlet = pc.meshletBuffer.meshlets[meshletID];
+	uint triangleOffset = meshlet.dataOffset + meshlet.vertexCount;
+	
+	uint idx0 = pc.meshletIndicesBuffer.indices[triangleOffset + triangleID * 3 + 0];
+	uint idx1 = pc.meshletIndicesBuffer.indices[triangleOffset + triangleID * 3 + 1];
+	uint idx2 = pc.meshletIndicesBuffer.indices[triangleOffset + triangleID * 3 + 2];
+	
+	uint vertexIndex0 = pc.meshletIndicesBuffer.indices[meshlet.dataOffset + idx0]; 
+	uint vertexIndex1 = pc.meshletIndicesBuffer.indices[meshlet.dataOffset + idx1]; 
+	uint vertexIndex2 = pc.meshletIndicesBuffer.indices[meshlet.dataOffset + idx2]; 
+	
+	Vertex v0 = pc.vertexBuffer.vertices[vertexIndex0];
+	Vertex v1 = pc.vertexBuffer.vertices[vertexIndex1];
+	Vertex v2 = pc.vertexBuffer.vertices[vertexIndex2];
+	
+	mat4 worldMatrix = pc.objectBuffer.objects[drawID].worldMatrix;
+	
+	vec4 wp0 = worldMatrix * vec4(v0.position, 1.0); 
+	vec4 wp1 = worldMatrix * vec4(v1.position, 1.0); 
+	vec4 wp2 = worldMatrix * vec4(v2.position, 1.0); 
+	
+	vec4 p0 = sceneData.viewproj * wp0;
+	vec4 p1 = sceneData.viewproj * wp1;
+	vec4 p2 = sceneData.viewproj * wp2;
+	
+	// vulkan top left origin, hence flipping y is necessary
+	vec2 pNdc = gl_FragCoord.xy / pc.screenSize; 
+	pNdc = pNdc * 2.0 - 1.0;
+	pNdc.y = -pNdc.y; 
+	
+	BarycentricDeriv bary = calculateBarycentric(p0, p1, p2, pNdc, pc.screenSize);
+	vec3 worldPos = interpolate(bary, wp0.xyz, wp1.xyz, wp2.xyz);
+	
+	vec3 n0 = mat3(worldMatrix) * v0.normal;  // no transpose(inverse), no normalization
+	vec3 n1 = mat3(worldMatrix) * v1.normal;
+	vec3 n2 = mat3(worldMatrix) * v2.normal;
+	
+	vec3 normal = normalize(interpolate(bary, n0, n1, n2));
+	
+	vec2 uv;
+	vec2 uvDdx;
+	vec2 uvDdy;
+	interpolateWithDeriv(bary, vec2(v0.uv_x, v0.uv_y), vec2(v1.uv_x, v1.uv_y), vec2(v2.uv_x, v2.uv_y), uv, uvDdx, uvDdy);
+	
+	uint materialID = pc.objectBuffer.objects[drawID].materialID;
+	MaterialData m = pc.materialBuffer.materials[materialID];
+	vec4 albedo = m.baseColorFactor;
+	
+	if (m.diffuseID != 0)
+	{
+		albedo.xyz *= textureGrad(sampler2D(allTextures[m.diffuseID], samplers[LINEAR_SAMPLER]), uv, uvDdx, uvDdy).xyz;
+	}
+	outFragColor = vec4(albedo);
+	
+	// end of vis buffer
+
 	uint cascadeIdx = 0;
 	if (pc.shadows == 1)
 	{
@@ -244,10 +335,12 @@ void main()
 			
 			if (distance < lightRadius)
 			{
-				color += albedo * lightColor;
+				color += albedo.xyz * lightColor;
 			}
 		}
 #else
+
+		// is this fragcoord?
 		vec4 clipPos = sceneData.viewproj * vec4(worldPos, 1.0);
 		vec3 ndc = clipPos.xyz / clipPos.w;
 		vec2 screenPos = ndc.xy * 0.5 + 0.5;
@@ -284,14 +377,20 @@ void main()
 	
 			if (d <= lightRadius * lightRadius)
 			{
-				color += (albedo * lightColor);
+				color += (albedo.xyz * lightColor);
 			}
 		}
 #endif
 
-		// if not affected by any lights, keep outFragColor = albedo * occluded
+		// if not affected by any lights, keep outFragColor = albedo.xyz * occluded
 		if (color != vec3(0.0))
 			outFragColor = vec4(color, 1.0);
+	}
+	
+	// can we handle this elegantly?
+	if (drawID == 0 && packedID == 0)
+	{
+		outFragColor = vec4(0,0,0,1);
 	}
 	
 	if (pc.resolveTransparent == 1)
@@ -306,4 +405,5 @@ void main()
 		vec3 depth = vec3(texture(sampler2D(allTextures[pc.shadowmap_id + idx], samplers[NEAREST_SAMPLER]), uv).r);
 		outFragColor.xyz = depth;
 	}
+	
 }

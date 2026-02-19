@@ -121,6 +121,7 @@ public:
 	VmaAllocator allocator{};
 
 	AllocatedImage draw_image{};
+	AllocatedImage visibility_buffer{};
 	std::vector<AllocatedImage> gbuffers{};
 	VkExtent2D draw_extent{};
 
