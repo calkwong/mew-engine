@@ -203,6 +203,7 @@ vec3 reconstructWorldPos(float depth, mat4 viewproj)
 void main()
 {
 	vec3 N = texture(sampler2D(allTextures[pc.normal_id], samplers[NEAREST_SAMPLER]), inUV).xyz;
+	N = normalize(N); // necessary to remove banding, RGB32 does not need this
 
 	if (pc.debugMeshlets == 1)
 	{
@@ -210,7 +211,6 @@ void main()
 		return;
 	}
 	
-	//vec3 worldPos = texture(sampler2D(allTextures[pc.world_pos_id], samplers[NEAREST_SAMPLER]), inUV).xyz;
 	vec3 albedo = texture(sampler2D(allTextures[pc.albedo_id], samplers[NEAREST_SAMPLER]), inUV).xyz;
 	float depth = texture(sampler2D(allTextures[pc.depth_id], samplers[NEAREST_SAMPLER]), inUV).r;
 	vec3 worldPos = reconstructWorldPos(depth, sceneData.viewproj);
@@ -223,7 +223,7 @@ void main()
 	
 	vec3 Fr = vec3(0.0);
 	
-	vec3 L = normalize(sceneData.sunlightDir.xyz); // problematic
+	vec3 L = normalize(sceneData.sunlightDir.xyz); 
 	vec3 V = normalize(sceneData.cameraPos.xyz - worldPos);
 	vec3 H = normalize(L + V);
 	

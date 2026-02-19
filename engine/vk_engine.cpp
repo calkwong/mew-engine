@@ -2057,8 +2057,8 @@ void VulkanEngine::update_scene()
 	last_view = freeze_camera ? last_view : scene_data.view;
 	last_proj = freeze_camera ? last_proj : scene_data.proj;
 
-	// scene_data.sunlight_dir = glm::vec4(7.75, 12.5, 12.5, 1.);
-	scene_data.sunlight_dir = glm::vec4(0.001, 12.0, 0.0, 1.);
+	scene_data.sunlight_dir = glm::vec4(7.75, 12.5, 12.5, 1.);
+	// scene_data.sunlight_dir = glm::vec4(0.001, 12.0, 0.0, 1.);
 	// scene_data.sunlight_dir = glm::vec4(0.0, 12.0, 12.0, 1.);
 	scene_data.sunlight_color = glm::vec4(1);
 

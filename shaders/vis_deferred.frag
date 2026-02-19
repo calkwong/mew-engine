@@ -303,13 +303,11 @@ void main()
 	
 		float sign = T.w; // sign is flipped during tangent generation so mikktspace is consistent with glTF handedness
 		vec3 B = sign * cross(N, T.xyz);
-	
-	
 		vec3 shadingNormal = textureGrad(sampler2D(allTextures[m.normalID], samplers[LINEAR_SAMPLER]), uv, uvDdx, uvDdy).xyz;
 		shadingNormal = shadingNormal * 2.0 - 1.0;
 		N = normalize(shadingNormal.x * T.xyz + shadingNormal.y * B + shadingNormal.z * N);
 	}
-
+	
 	float metallic = m.metallicFactor;
 	float perceptualRoughness = m.roughnessFactor;
 	vec2 metalRoughness = vec2(0.0);
@@ -324,7 +322,7 @@ void main()
 	
 	vec3 Fr = vec3(0.0);
 	
-	vec3 L = normalize(sceneData.sunlightDir.xyz); // problematic
+	vec3 L = normalize(sceneData.sunlightDir.xyz); 
 	vec3 V = normalize(sceneData.cameraPos.xyz - worldPos);
 	vec3 H = normalize(L + V);
 	

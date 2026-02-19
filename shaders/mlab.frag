@@ -130,7 +130,7 @@ void main()
 	if (m.diffuseID != 0)
 		albedo *= texture(sampler2D(allTextures[m.diffuseID], samplers[0]), inUV);
 	
-	albedo.a = 0.5; // TODO: remove, just for testing
+	//albedo.a = 0.5; // TODO: remove, just for testing
 	vec4 premultipliedAlpha = vec4(albedo.xyz * albedo.a, 1.0);
 	uint color = packUnorm4x8(premultipliedAlpha);
 	uint depth = floatBitsToUint(gl_FragCoord.z);

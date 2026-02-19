@@ -68,13 +68,15 @@ void main()
 	float metallic;
 	float roughness;
 #ifdef PBR
-	N = normalize(inNormal); // mikktspace convention is NOT to normalize? but khronos sponza breaks	
+	//N = inNormal; 
+	N = normalize(inNormal); // mikktspace convention is NOT to normalize? but khronos sponza breaks
 	if (m.normalID != 0)
 	{
 		vec3 T = normalize(inTangent.xyz); // mikktspace convention is NOT to normalize? but khronos sponza breaks	
+		//vec3 T = inTangent.xyz;
 		float sign = inTangent.w; // sign is flipped during tangent generation so mikktspace is consistent with glTF handedness
 		vec3 B = sign * cross(N, T);
-	
+		
 		vec3 shadingNormal = texture(sampler2D(allTextures[m.normalID], samplers[LINEAR_SAMPLER]), inUV).xyz;
 		shadingNormal = shadingNormal * 2.0 - 1.0;
 		N = normalize(shadingNormal.x * T.xyz + shadingNormal.y * B + shadingNormal.z * N);
@@ -98,8 +100,6 @@ void main()
 	
 	if (pc.debugMeshlets == 0)
 	{
-		//N = N.xyz * 0.5 + 0.5;
-		
 		gbuffer[0] = albedo;
 		gbuffer[1] = vec4(N, 1);
 		gbuffer[2] = vec4(metallic, roughness, 0.0, 1.0);
