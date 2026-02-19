@@ -11,8 +11,6 @@
 layout(local_size_x = 32) in;
 layout(triangles, max_vertices = 64, max_primitives = 124) out;
 
-//out uvec3 gl_PrimitiveTriangleIndicesEXT[];
-
 layout(buffer_reference, std430) readonly buffer VertexBuffer
 { 
 	Vertex vertices[];
@@ -68,11 +66,9 @@ layout( push_constant ) uniform constants
 } pc;
 
 layout (location = 0) out vec3 outNormal[];
-layout (location = 1) out vec3 outWorldPos[];
-layout (location = 2) out vec3 outViewPos[];
-layout (location = 3) out vec2 outUV[];
-layout (location = 4) out vec4 outTangent[];
-layout (location = 5) flat out uint outMaterialID[];
+layout (location = 1) out vec2 outUV[];
+layout (location = 2) out vec4 outTangent[];
+layout (location = 3) out flat uint outMaterialID[];
 
 uint hash(uint a)
 {
@@ -118,7 +114,8 @@ void main()
 		Vertex v = pc.vertexBuffer.vertices[vertexIndex];
 
 		vec4 position = o.worldMatrix * vec4(v.position, 1.0);
-		outNormal[i] = mat3(transpose(inverse(o.worldMatrix))) * v.normal;
+		outNormal[i] = mat3(o.worldMatrix) * v.normal;
+		//outNormal[i] = mat3(transpose(inverse(o.worldMatrix))) * v.normal;
 		
 		if (pc.debugMeshlets == 1)
 		{
@@ -126,9 +123,8 @@ void main()
 			outNormal[i] = vec3(float(mhash & 255), float((mhash >> 8) & 255), float((mhash >> 16) & 255)) / 255.0;
 		}
 		
-		outViewPos[i] = vec3(sceneData.view * position);
-		outTangent[i] = vec4(mat3(transpose(inverse(o.worldMatrix))) * v.tangent.xyz, v.tangent.w);
-		outWorldPos[i] = position.xyz;
+		//outTangent[i] = vec4(mat3(transpose(inverse(o.worldMatrix))) * v.tangent.xyz, v.tangent.w);
+		outTangent[i] = vec4(mat3(o.worldMatrix) * v.tangent.xyz, v.tangent.w);
 		outUV[i] = vec2(v.uv_x, v.uv_y);
 		outMaterialID[i] = o.materialID;
 	

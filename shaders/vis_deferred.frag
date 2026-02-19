@@ -8,6 +8,7 @@
 #include "samplers.glsl"
 #include "mesh.glsl"
 #include "vbuffer.glsl"
+#include "pbr.glsl"
 
 layout(set = 1, binding = 0) uniform texture2D allTextures[];
 layout(set = 1, binding = 0) uniform utexture2D allUTextures[];
@@ -97,7 +98,7 @@ layout( push_constant ) uniform constants
 	uint depth_id;
 	uint albedo_id;    // gbuffer ids
 	uint normal_id;    // gbuffer ids
-	uint world_pos_id; // gbuffer ids
+	uint metalroughness_id; // gbuffer ids
 	uint shadowmap_id;
 	uint lightCulling;
 	float near;
@@ -219,15 +220,17 @@ float calculateShadow(vec3 worldPos, inout uint cascadeIdx)
 	return shadow;
 }
 
+#define PBR
+
 void main()
 {
-	if (pc.debugMeshlets == 1)
-	{
-		// HANDLE LATER
-		//vec3 normal = texture(sampler2D(allTextures[pc.normal_id], samplers[NEAREST_SAMPLER]), inUV).xyz;
-		//outFragColor = vec4(normal, 1.0);
-		//return; 
-	}
+	//// HANDLE LATER, NOT SUPPORTED FOR NOW
+	//if (pc.debugMeshlets == 1)
+	//{
+	//	vec3 normal = texture(sampler2D(allTextures[pc.normal_id], samplers[NEAREST_SAMPLER]), inUV).xyz;
+	//	outFragColor = vec4(normal, 1.0);
+	//	return; 
+	//}
 	
 	uvec2 data = texture(usampler2D(allUTextures[pc.albedo_id - 1], samplers[NEAREST_SAMPLER]), inUV).rg; // TODO: vis_buffer_id currently == albedo_id - 1, hardcoded to fix
 	
@@ -267,28 +270,90 @@ void main()
 	pNdc.y = -pNdc.y; 
 	
 	BarycentricDeriv bary = calculateBarycentric(p0, p1, p2, pNdc, pc.screenSize);
-	vec3 worldPos = interpolate(bary, wp0.xyz, wp1.xyz, wp2.xyz);
-	
-	vec3 n0 = mat3(worldMatrix) * v0.normal;  // no transpose(inverse), no normalization
-	vec3 n1 = mat3(worldMatrix) * v1.normal;
-	vec3 n2 = mat3(worldMatrix) * v2.normal;
-	
-	vec3 normal = normalize(interpolate(bary, n0, n1, n2));
-	
 	vec2 uv;
 	vec2 uvDdx;
 	vec2 uvDdy;
 	interpolateWithDeriv(bary, vec2(v0.uv_x, v0.uv_y), vec2(v1.uv_x, v1.uv_y), vec2(v2.uv_x, v2.uv_y), uv, uvDdx, uvDdy);
 	
+	vec3 worldPos = interpolate(bary, wp0.xyz, wp1.xyz, wp2.xyz);
+	
+	vec3 n0 = mat3(worldMatrix) * v0.normal;  // no transpose(inverse), no normalization
+	vec3 n1 = mat3(worldMatrix) * v1.normal;
+	vec3 n2 = mat3(worldMatrix) * v2.normal;
+	vec3 N = normalize(interpolate(bary, n0, n1, n2)); // mikktspace convention is NOT to normalize? but khronos sponza breaks
+	
 	uint materialID = pc.objectBuffer.objects[drawID].materialID;
 	MaterialData m = pc.materialBuffer.materials[materialID];
+	
 	vec4 albedo = m.baseColorFactor;
 	
 	if (m.diffuseID != 0)
 	{
 		albedo.xyz *= textureGrad(sampler2D(allTextures[m.diffuseID], samplers[LINEAR_SAMPLER]), uv, uvDdx, uvDdy).xyz;
 	}
+	
+#ifdef PBR
+	if (m.normalID != 0)
+	{
+		vec4 t0 = vec4(mat3(worldMatrix) * v0.tangent.xyz, v0.tangent.w);
+		vec4 t1 = vec4(mat3(worldMatrix) * v1.tangent.xyz, v1.tangent.w);
+		vec4 t2 = vec4(mat3(worldMatrix) * v2.tangent.xyz, v2.tangent.w);
+		vec4 T = interpolate(bary, t0, t1, t2); 
+		T.xyz = normalize(T.xyz); // mikktspace convention is NOT to normalize? but khronos sponza breaks	
+	
+		float sign = T.w; // sign is flipped during tangent generation so mikktspace is consistent with glTF handedness
+		vec3 B = sign * cross(N, T.xyz);
+	
+	
+		vec3 shadingNormal = textureGrad(sampler2D(allTextures[m.normalID], samplers[LINEAR_SAMPLER]), uv, uvDdx, uvDdy).xyz;
+		shadingNormal = shadingNormal * 2.0 - 1.0;
+		N = normalize(shadingNormal.x * T.xyz + shadingNormal.y * B + shadingNormal.z * N);
+	}
+
+	float metallic = m.metallicFactor;
+	float perceptualRoughness = m.roughnessFactor;
+	vec2 metalRoughness = vec2(0.0);
+	if (m.metalRoughnessID != 0)
+	{
+		metalRoughness = textureGrad(sampler2D(allTextures[m.metalRoughnessID], samplers[LINEAR_SAMPLER]), uv, uvDdx, uvDdy).bg;
+		metallic *= metalRoughness.x;
+		perceptualRoughness *= metalRoughness.y;
+	}
+	perceptualRoughness = max(perceptualRoughness, 0.045); // frostbite engine clamp value for analytical lights (fp32)
+	float roughness = perceptualRoughness * perceptualRoughness;
+	
+	vec3 Fr = vec3(0.0);
+	
+	vec3 L = normalize(sceneData.sunlightDir.xyz); // problematic
+	vec3 V = normalize(sceneData.cameraPos.xyz - worldPos);
+	vec3 H = normalize(L + V);
+	
+	float NdotL = max(dot(N, L), 0.0);
+	float NdotH = max(dot(N, H), 0.0);
+	float NdotV = max(dot(N, V), 0.001);
+	
+	vec3 f0 = vec3(0.04);
+	f0 = mix(f0, albedo.xyz, metallic);
+	
+	vec3 F = F_Schlick(NdotV, f0);
+		
+	vec3 kS = F;
+	vec3 kD = vec3(1.0) - kS;
+	
+	kD *= 1.0 - metallic;
+	vec3 Fd = kD * albedo.xyz / PI;
+	
+	float D = D_GGX(NdotH, roughness);
+	float G = V_SmithGGXCorrelated(NdotV, NdotL, roughness);
+	Fr = D * G * F;
+	
+	vec3 lightColor = vec3(1.0); // HARDCODED SUNLIGHT VALUE
+	vec3 Lo = (Fd + Fr) * lightColor * NdotL; 
+	outFragColor = vec4(Lo, 1.0);
+	outFragColor.xyz += albedo.xyz * AMBIENT; // for debugging without IBL 
+#else	
 	outFragColor = vec4(albedo);
+#endif
 	
 	// end of vis buffer
 
@@ -351,9 +416,9 @@ void main()
 		clusterXY.x = clamp(clusterXY.x, 0, clusterDim.x - 1);
 		clusterXY.y = clamp(clusterXY.y, 0, clusterDim.y - 1);
 		
-		float viewZ = -(sceneData.view * vec4(worldPos, 1.0)).z; // possible precision tradeoff
-		//float depth = texture(sampler2D(allTextures[pc.depth_id], samplers[NEAREST_SAMPLER]), inUV).r;
-		//float viewZ = linearizeDepthInfiniteReverse(depth);
+		//float viewZ = -(sceneData.view * vec4(worldPos, 1.0)).z; // possible precision tradeoff
+		float depth = texture(sampler2D(allTextures[pc.depth_id], samplers[NEAREST_SAMPLER]), inUV).r;
+		float viewZ = linearizeDepthInfiniteReverse(depth); // implicitly flipped, is this cheaper than matrix multiply?
 		
 		// equation (3): https://www.aortiz.me/2018/12/21/CG.html#part-2 
 		// slide 5: https://advances.realtimerendering.com/s2016/Siggraph2016_idTech6.pdf

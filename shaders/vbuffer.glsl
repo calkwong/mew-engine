@@ -55,6 +55,11 @@ BarycentricDeriv calculateBarycentric(vec4 p0, vec4 p1, vec4 p2, vec2 pNdc, vec2
 	return ret;
 }
 
+vec4 interpolate(BarycentricDeriv bary, vec4 v0, vec4 v1, vec4 v2)
+{
+	return bary.lambda.x * v0 + bary.lambda.y * v1 + bary.lambda.z * v2;
+}
+
 vec3 interpolate(BarycentricDeriv bary, vec3 v0, vec3 v1, vec3 v2)
 {
 	return bary.lambda.x * v0 + bary.lambda.y * v1 + bary.lambda.z * v2;

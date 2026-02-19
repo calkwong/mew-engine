@@ -42,7 +42,7 @@ struct DeferredPushConstants
 	uint32_t depth_id{};
 	uint32_t albedo_id{};
 	uint32_t normal_id{};
-	uint32_t world_pos_id{};
+	uint32_t metalroughness_id{};
 	uint32_t shadow_id{};
 	uint32_t light_culling{}; // for toggling light culling between naive and proper implementation
 	float near{};

@@ -1167,7 +1167,6 @@ void VulkanEngine::init_swapchain()
 	};
 
 	draw_image = create_image(device, allocator, draw_image_extent, VK_FORMAT_R16G16B16A16_SFLOAT, draw_image_flags, VK_IMAGE_ASPECT_COLOR_BIT);
-	// draw_image = create_image(device, allocator, draw_image_extent, VK_FORMAT_R32G32B32A32_UINT, draw_image_flags, VK_IMAGE_ASPECT_COLOR_BIT);
 
 	auto id = texture_cache.add_texture(draw_image.view);
 	assert(id == 0); // TODO: remove hardcoding drawimage1 to have texture id 0
@@ -1186,9 +1185,10 @@ void VulkanEngine::init_swapchain()
 	texture_cache.add_texture(visibility_buffer.view);
 
 	// TODO: correct vk format and image aspect for every gbuffer?
+	std::vector<VkFormat> gbuffer_formats = { VK_FORMAT_R16G16B16A16_SFLOAT, VK_FORMAT_R16G16B16A16_SFLOAT, VK_FORMAT_R8G8_SNORM };
 	for (int i = 0; i < GBUFFER_COUNT; i++)
 	{
-		gbuffers.emplace_back(create_image(device, allocator, draw_image_extent, VK_FORMAT_R16G16B16A16_SFLOAT, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
+		gbuffers.emplace_back(create_image(device, allocator, draw_image_extent, gbuffer_formats[i], gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
 
 		id = texture_cache.add_texture(gbuffers[i].view);
 		if (i == 0)
@@ -1395,7 +1395,7 @@ void VulkanEngine::init_pipelines()
 	shader_cache.add_shader(device, "shadow_cull.comp", VK_SHADER_STAGE_COMPUTE_BIT);
 
 	// graphics pipeline
-	shader_cache.add_shader(device, "mesh_pbr.vert", VK_SHADER_STAGE_VERTEX_BIT);
+	shader_cache.add_shader(device, "mesh.vert", VK_SHADER_STAGE_VERTEX_BIT);
 	shader_cache.add_shader(device, "geometry.frag", VK_SHADER_STAGE_FRAGMENT_BIT);
 	shader_cache.add_shader(device, "meshlet.mesh.glsl", VK_SHADER_STAGE_MESH_BIT_EXT);
 	shader_cache.add_shader(device, "full_screen.vert", VK_SHADER_STAGE_VERTEX_BIT);
@@ -1410,7 +1410,7 @@ void VulkanEngine::init_pipelines()
 	shader_cache.add_shader(device, "vis_deferred.frag", VK_SHADER_STAGE_FRAGMENT_BIT);
 	shader_cache.add_shader(device, "vis_meshlet.mesh.glsl", VK_SHADER_STAGE_MESH_BIT_EXT);
 #ifdef NDEBUG
-	fmt::println("running Release mode");
+	fmt::println("running Release mode"); // ensuring no clion shenanigans
 #else
 	fmt::println("running Debug mode");
 #endif
@@ -1449,8 +1449,7 @@ void VulkanEngine::init_pipelines()
 	std::vector<VkPipelineColorBlendAttachmentState> color_blend_states{};
 	for (size_t i = 0; i < GBUFFER_COUNT; i++)
 	{
-		// color_attachment_formats.push_back(VK_FORMAT_R16G16B16A16_SFLOAT);
-		color_attachment_formats.push_back(gbuffers[0].format);
+		color_attachment_formats.push_back(gbuffers[i].format);
 		VkPipelineColorBlendAttachmentState state{};
 		state.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
 		state.blendEnable = VK_FALSE;
@@ -1477,7 +1476,7 @@ void VulkanEngine::init_pipelines()
 	specialization_info.dataSize = sizeof(GBufferSpecializationData);
 	specialization_info.pData = &specialization_data;
 
-	builder.set_shaders({ shader_cache["mesh_pbr.vert"], shader_cache["geometry.frag"] });
+	builder.set_shaders({ shader_cache["mesh.vert"], shader_cache["geometry.frag"] });
 	builder.shader_stages[1].pSpecializationInfo = &specialization_info;
 	specialization_data.opaque = 1;
 	builder.set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
@@ -1558,7 +1557,7 @@ void VulkanEngine::init_pipelines()
 	builder.set_color_attachment_format(color_attachment_formats);
 	builder.set_depth_format(depth_image.format);
 	builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-	shader_passes["mlab_vert"] = vkutil::build_shader(device, builder, { shader_cache["mesh_pbr.vert"], shader_cache["mlab.frag"] }, descriptor_layouts, sizeof(GPUPushConstants));
+	shader_passes["mlab_vert"] = vkutil::build_shader(device, builder, { shader_cache["mesh.vert"], shader_cache["mlab.frag"] }, descriptor_layouts, sizeof(GPUPushConstants));
 	shader_passes["mlab_mesh"] = vkutil::build_shader(device, builder, { shader_cache["meshlet.mesh.glsl"], shader_cache["mlab.frag"] }, descriptor_layouts, sizeof(GPUPushConstants));
 
 	for (const auto& v : std::views::values(shader_cache.data))
@@ -2058,8 +2057,8 @@ void VulkanEngine::update_scene()
 	last_view = freeze_camera ? last_view : scene_data.view;
 	last_proj = freeze_camera ? last_proj : scene_data.proj;
 
-	scene_data.sunlight_dir = glm::vec4(7.75, 12.5, 12.5, 1.);
-	// scene_data.sunlight_dir = glm::vec4(0.001, 12.0, 0.0, 1.);
+	// scene_data.sunlight_dir = glm::vec4(7.75, 12.5, 12.5, 1.);
+	scene_data.sunlight_dir = glm::vec4(0.001, 12.0, 0.0, 1.);
 	// scene_data.sunlight_dir = glm::vec4(0.0, 12.0, 12.0, 1.);
 	scene_data.sunlight_color = glm::vec4(1);
 
@@ -2182,7 +2181,7 @@ void VulkanEngine::execute_deferred_shading(VkCommandBuffer cmd)
 	pc.depth_id = texture_cache.get_depth_image();
 	pc.albedo_id = texture_cache.get_first_gbuffer();
 	pc.normal_id = pc.albedo_id + 1;
-	pc.world_pos_id = pc.albedo_id + 2; // TODO: loop based on size perhaps? remove hardcode
+	pc.metalroughness_id = pc.albedo_id + 2; // TODO: loop based on size perhaps? remove hardcode
 	pc.shadow_id = texture_cache.get_shadowmap();
 	pc.light_culling = CVAR_TOGGLE_LIGHT_CULLING.get();
 	pc.near = main_camera.far;
@@ -2730,6 +2729,8 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass, ui
 	// deferred
 	VkClearColorValue clear_color_value{ 0.f, 0.f, 0.f, 1.0f };
 	VkClearValue clear_value{ .color = clear_color_value };
+	VkClearColorValue clear_color_value2{ 1.f, 1.f, 0.f, 1.0f };
+	VkClearValue clear_value2{ .color = clear_color_value2 };
 
 	std::vector<VkRenderingAttachmentInfo> rendering_attachment_infos{};
 	bool visibility_rendering = CVAR_TOGGLE_VIS_BUFFER.get() && CVAR_TOGGLE_MESH_SHADING.get();
@@ -2739,10 +2740,11 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass, ui
 	}
 	else
 	{
-		for (int i = 0; i < GBUFFER_COUNT; i++)
+		for (int i = 0; i < GBUFFER_COUNT - 1; i++)
 		{
 			rendering_attachment_infos.push_back(late ? vkinit::attachment_info(gbuffers[i].view, nullptr) : vkinit::attachment_info(gbuffers[i].view, &clear_value));
 		}
+		rendering_attachment_infos.push_back(late ? vkinit::attachment_info(gbuffers[GBUFFER_COUNT - 1].view, nullptr) : vkinit::attachment_info(gbuffers[GBUFFER_COUNT - 1].view, &clear_value2));
 	}
 
 	VkRenderingAttachmentInfo depth_attachment = vkinit::depth_attachment_info(depth_image.view);

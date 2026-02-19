@@ -6,6 +6,7 @@
 
 #include "scene.glsl"
 #include "samplers.glsl"
+#include "pbr.glsl"
 
 layout(set = 1, binding = 0) uniform texture2D allTextures[];
 layout(set = 2, binding = 0) uniform sampler samplers[];
@@ -65,7 +66,7 @@ layout( push_constant ) uniform constants
 	uint depth_id;
 	uint albedo_id;    // gbuffer ids
 	uint normal_id;    // gbuffer ids
-	uint world_pos_id; // gbuffer ids
+	uint metalroughness_id; // gbuffer ids
 	uint shadowmap_id;
 	uint lightCulling;
 	float near;
@@ -187,19 +188,71 @@ float calculateShadow(vec3 worldPos, inout uint cascadeIdx)
 	return shadow;
 }
 
+vec3 reconstructWorldPos(float depth, mat4 viewproj)
+{
+	vec2 ndc = gl_FragCoord.xy / pc.screenSize;
+	ndc = ndc * 2.0 - 1.0;
+	ndc.y *= -1.0; // flip as window coords are top down
+	vec4 worldPos = inverse(viewproj) * vec4(ndc, depth, 1.0);
+	
+	return worldPos.xyz / worldPos.w;
+}
+
+#define PBR
+
 void main()
 {
+	vec3 N = texture(sampler2D(allTextures[pc.normal_id], samplers[NEAREST_SAMPLER]), inUV).xyz;
+
 	if (pc.debugMeshlets == 1)
 	{
-		vec3 normal = texture(sampler2D(allTextures[pc.normal_id], samplers[NEAREST_SAMPLER]), inUV).xyz;
-		outFragColor = vec4(normal, 1.0);
+		outFragColor = vec4(N, 1.0);
 		return;
 	}
 	
+	//vec3 worldPos = texture(sampler2D(allTextures[pc.world_pos_id], samplers[NEAREST_SAMPLER]), inUV).xyz;
 	vec3 albedo = texture(sampler2D(allTextures[pc.albedo_id], samplers[NEAREST_SAMPLER]), inUV).xyz;
-	vec3 worldPos = texture(sampler2D(allTextures[pc.world_pos_id], samplers[NEAREST_SAMPLER]), inUV).xyz;
+	float depth = texture(sampler2D(allTextures[pc.depth_id], samplers[NEAREST_SAMPLER]), inUV).r;
+	vec3 worldPos = reconstructWorldPos(depth, sceneData.viewproj);
 	
+#ifdef PBR
+	vec2 metalRoughness = texture(sampler2D(allTextures[pc.metalroughness_id], samplers[NEAREST_SAMPLER]), inUV).xy;
+	float metallic = metalRoughness.x;
+	float roughness = metalRoughness.y;
+	roughness *= roughness;
+	
+	vec3 Fr = vec3(0.0);
+	
+	vec3 L = normalize(sceneData.sunlightDir.xyz); // problematic
+	vec3 V = normalize(sceneData.cameraPos.xyz - worldPos);
+	vec3 H = normalize(L + V);
+	
+	float NdotL = max(dot(N, L), 0.0);
+	float NdotH = max(dot(N, H), 0.0);
+	float NdotV = max(dot(N, V), 0.001);
+	
+	vec3 f0 = vec3(0.04);
+	f0 = mix(f0, albedo.xyz, metallic);
+	
+	vec3 F = F_Schlick(NdotV, f0);
+		
+	vec3 kS = F;
+	vec3 kD = vec3(1.0) - kS;
+	
+	kD *= 1.0 - metallic;
+	vec3 Fd = kD * albedo.xyz / PI;
+	
+	float D = D_GGX(NdotH, roughness);
+	float G = V_SmithGGXCorrelated(NdotV, NdotL, roughness);
+	Fr = D * G * F;
+	
+	vec3 lightColor = vec3(1.0); // HARDCODED SUNLIGHT VALUE
+	vec3 Lo = (Fd + Fr) * lightColor * NdotL; 
+	outFragColor = vec4(Lo, 1.0);
+	outFragColor.xyz += albedo.xyz * AMBIENT; // for debugging without IBL 
+#else	
 	outFragColor = vec4(albedo, 1.0);
+#endif
 	
 	uint cascadeIdx = 0;
 	if (pc.shadows == 1)
@@ -258,9 +311,7 @@ void main()
 		clusterXY.x = clamp(clusterXY.x, 0, clusterDim.x - 1);
 		clusterXY.y = clamp(clusterXY.y, 0, clusterDim.y - 1);
 		
-		float viewZ = -(sceneData.view * vec4(worldPos, 1.0)).z; // possible precision tradeoff
-		//float depth = texture(sampler2D(allTextures[pc.depth_id], samplers[NEAREST_SAMPLER]), inUV).r;
-		//float viewZ = linearizeDepthInfiniteReverse(depth);
+		float viewZ = linearizeDepthInfiniteReverse(depth); // implicitly flipped
 		
 		// equation (3): https://www.aortiz.me/2018/12/21/CG.html#part-2 
 		// slide 5: https://advances.realtimerendering.com/s2016/Siggraph2016_idTech6.pdf
