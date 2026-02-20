@@ -61,8 +61,9 @@ constexpr int TIMESTAMP_QUERIES{ 24 };
 constexpr int PIPELINE_QUERIES{ 8 };
 constexpr int MAX_OPAQUE_DRAWS{ 200000 };
 constexpr int MAX_ALPHACLIP_DRAWS{ 200000 };
+constexpr int MAX_LIGHTS_PER_CLUSTER = 1000;
 
-AutoCVar_Int CVAR_DRAW_DISTANCE{ "Draw distance", 100, 100, CVarFlags::EditSliderInt, 100, 1000, 100 };
+AutoCVar_Int CVAR_DRAW_DISTANCE{ "Draw distance", 1000, 1000, CVarFlags::EditSliderInt, 100, 1000, 100 };
 AutoCVar_Int CVAR_TOGGLE_MESH_SHADING{ "Mesh shading", 1, 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TOGGLE_OCCLUSION{ "Occlusion", 1, 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TOGGLE_LOD{ "LOD", 1, 1, CVarFlags::EditCheckbox };
@@ -1760,8 +1761,6 @@ void VulkanEngine::init_default_data()
 		light_data[i].color = glm::vec4(color_dist(mt), color_dist(mt), color_dist(mt), 1.0);
 	}
 
-	light_data[LIGHT_COUNT - 1].pos.w = 0.0001f;
-
 	light_buffer = upload_buffer(device, graphics_queue, imm_command_buffer, imm_fence, allocator, light_data.data(), LIGHT_COUNT * sizeof(PointLight));
 
 	constexpr uint32_t cluster_size = 64; // TODO: hardcoded 64x64
@@ -1769,10 +1768,9 @@ void VulkanEngine::init_default_data()
 	const uint32_t grid_y = (window_extent.height + cluster_size - 1) / cluster_size;
 	constexpr uint32_t grid_z = CLUSTER_SLICE_COUNT;
 	const uint32_t total_clusters = grid_x * grid_y * grid_z;
-	constexpr uint32_t max_lights_per_cluster = 10;
 
 	light_cluster_buffer = create_buffer(allocator, total_clusters * sizeof(ClusterAABB), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
-	light_index_buffer = create_buffer(allocator, total_clusters * max_lights_per_cluster * sizeof(uint32_t), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT); // could use smaller more conservative size
+	light_index_buffer = create_buffer(allocator, total_clusters * MAX_LIGHTS_PER_CLUSTER * sizeof(uint32_t), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT); // could use smaller more conservative size
 	light_grid_buffer = create_buffer(allocator, total_clusters * sizeof(LightGrid), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
 	light_count_buffer = create_buffer(allocator, sizeof(uint32_t), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
 
@@ -2077,7 +2075,6 @@ void VulkanEngine::update_scene()
 	auto ms_per_orbit = 10000;
 	float rot_angle = static_cast<float>(elapsed_ms % ms_per_orbit) / static_cast<float>(ms_per_orbit) * 360.0f;
 	scene_data.light_rot = glm::rotate(glm::mat4(1.0f), glm::radians(rot_angle), glm::vec3(0, 1, 0));
-
 	auto end = std::chrono::system_clock::now();
 	auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
 	stats.scene_update_time = static_cast<float>(elapsed.count()) / 1000.0f; // milliseconds

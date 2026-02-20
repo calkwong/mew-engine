@@ -74,7 +74,6 @@ bool sphereAABBIntersect(AABB aabb, vec3 center, float radius)
 	vec3 closest = clamp(lightCenter, aabb.min.xyz, aabb.max.xyz);
 	
 	float d = distanceSquared(closest, lightCenter);
-	
 	return d <= (radius * radius);
 }
 
@@ -101,7 +100,9 @@ void main()
 	
 	for (uint batch = 0; batch < batches; batch++)
 	{
-		uint lightIndex = min(batch * gl_WorkGroupSize.x + gl_LocalInvocationIndex, MAX_LIGHTS - 1); // clamp to last light which will never intersect
+		uint lightIndex = min(batch * gl_WorkGroupSize.x + gl_LocalInvocationIndex, MAX_LIGHTS);
+		if (lightIndex == MAX_LIGHTS)
+			break;
 		
 		PointLight light = pc.lightBuffer.lights[lightIndex];
 		vec3 lightPos = light.pos.xyz;

@@ -27,3 +27,12 @@ vec3 F_Schlick(float u, vec3 f0)
     float f = pow(1.0 - u, 5.0);
     return f + f0 * (1.0 - f);
 }
+
+float getSquareFalloffAttenuation(vec3 distance, float radius)
+{
+	float distanceSquare = dot(distance, distance);
+	float lightInvRadius = 1.0 / radius;
+	float factor = distanceSquare * lightInvRadius * lightInvRadius;
+	float smoothFactor = max(1.0 - factor * factor, 0.0);
+	return (smoothFactor * smoothFactor) / max(distanceSquare, 1e-4);
+}

@@ -112,11 +112,6 @@ layout( push_constant ) uniform constants
 	uint debugCascades;
 } pc;
 
-float distanceSquared(vec3 a, vec3 b)
-{
-	vec3 d = a - b;
-	return dot(d, d);
-}
 
 // formula is for infinite far plane, reverse-z
 // returns positive value, may need to negate depending on what we're using it for
@@ -224,7 +219,7 @@ float calculateShadow(vec3 worldPos, inout uint cascadeIdx)
 
 void main()
 {
-	//// HANDLE LATER, NOT SUPPORTED FOR NOW
+	//// HANDLE LATER, NOT SUPPORTED ON VISIBILITY PATH
 	//if (pc.debugMeshlets == 1)
 	//{
 	//	vec3 normal = texture(sampler2D(allTextures[pc.normal_id], samplers[NEAREST_SAMPLER]), inUV).xyz;
@@ -353,7 +348,6 @@ void main()
 	outFragColor = vec4(albedo);
 #endif
 	
-	// end of vis buffer
 
 	uint cascadeIdx = 0;
 	if (pc.shadows == 1)
@@ -382,28 +376,9 @@ void main()
 		}
 	}
 	
+	float depth = texture(sampler2D(allTextures[pc.depth_id], samplers[NEAREST_SAMPLER]), inUV).r;
 	if (pc.lightCulling == 1)
 	{
-		vec3 color = vec3(0.);
-#ifndef CLUSTERED_SHADING
-		for (int i = 0; i < MAX_LIGHTS; i++)
-		{
-			PointLight light = pc.lightBuffer.lights[i];
-			vec3 lightCenter = light.pos.xyz;
-			lightCenter = vec3(sceneData.lightRot * vec4(lightCenter, 1.0));
-			float lightRadius = light.pos.w;
-			vec3 lightColor = light.color.xyz;
-		
-			float distance = distance(worldPos, lightCenter);
-			
-			if (distance < lightRadius)
-			{
-				color += albedo.xyz * lightColor;
-			}
-		}
-#else
-
-		// is this fragcoord?
 		vec4 clipPos = sceneData.viewproj * vec4(worldPos, 1.0);
 		vec3 ndc = clipPos.xyz / clipPos.w;
 		vec2 screenPos = ndc.xy * 0.5 + 0.5;
@@ -415,7 +390,6 @@ void main()
 		clusterXY.y = clamp(clusterXY.y, 0, clusterDim.y - 1);
 		
 		//float viewZ = -(sceneData.view * vec4(worldPos, 1.0)).z; // possible precision tradeoff
-		float depth = texture(sampler2D(allTextures[pc.depth_id], samplers[NEAREST_SAMPLER]), inUV).r;
 		float viewZ = linearizeDepthInfiniteReverse(depth); // implicitly flipped, is this cheaper than matrix multiply?
 		
 		// equation (3): https://www.aortiz.me/2018/12/21/CG.html#part-2 
@@ -428,6 +402,7 @@ void main()
 		uint offset = pc.lightGridBuffer.grid[clusterIndex].offset;
 		uint count = pc.lightGridBuffer.grid[clusterIndex].count;
 		
+		vec3 color = vec3(0.);
 		for (int i = 0; i < count; i++)
 		{
 			uint index = pc.lightIndexBuffer.indices[offset + i];
@@ -435,23 +410,33 @@ void main()
 			lightPos = vec3(sceneData.lightRot * vec4(lightPos, 1.0));
 			float lightRadius = pc.lightBuffer.lights[index].pos.w;
 			vec3 lightColor = pc.lightBuffer.lights[index].color.xyz;
-			
-			float d = distanceSquared(worldPos, lightPos);
-	
-			if (d <= lightRadius * lightRadius)
-			{
-				color += (albedo.xyz * lightColor);
-			}
-		}
-#endif
+			vec3 distance = lightPos - worldPos;
+			vec3 L = normalize(distance); 
+			float NdotL = max(dot(N, L), 0.0);
+#ifdef PBR
+			vec3 Fr = vec3(0.0);
 
-		// if not affected by any lights, keep outFragColor = albedo.xyz * occluded
-		if (color != vec3(0.0))
-			outFragColor = vec4(color, 1.0);
+			vec3 H = normalize(L + V);
+			
+			float NdotH = max(dot(N, H), 0.0);
+			
+			// some intermediate values taken from dir light as they are unchanged
+			float D = D_GGX(NdotH, roughness);
+			float G = V_SmithGGXCorrelated(NdotV, NdotL, roughness);
+			Fr = D * G * F;
+			
+			float attenuation = getSquareFalloffAttenuation(distance, lightRadius);
+			color += (Fd + Fr) * lightColor * attenuation * NdotL; 
+#else
+			float attenuation = getSquareFalloffAttenuation(distance, lightRadius);
+			color += albedo * lightColor * attenuation * NdotL;
+#endif
+		}
+		outFragColor.xyz += color; 
 	}
 	
-	// can we handle this elegantly?
-	if (drawID == 0 && packedID == 0)
+	// TODO: refactor and use depth/stencil buffer to reject pixels
+	if (depth == 0.0)
 	{
 		outFragColor = vec4(0,0,0,1);
 	}
