@@ -107,7 +107,7 @@ void ShaderCache::add_shader(VkDevice device, const char* path, VkShaderStageFla
 {
 	const auto it = data.find(path);
 
-	std::string shader_path{ "../shaders/" };
+	std::string shader_path{ "shaders/" };
 	shader_path += path;
 	shader_path += ".spv";
 

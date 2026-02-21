@@ -21,6 +21,7 @@
 #include <imgui.h>
 #include <imgui_impl_sdl3.h>
 #include <imgui_impl_vulkan.h>
+#include <fmt/core.h>
 
 #include <algorithm>
 #include <chrono>
@@ -60,8 +61,9 @@ constexpr int TIMESTAMP_QUERIES{ 24 };
 constexpr int PIPELINE_QUERIES{ 8 };
 constexpr int MAX_OPAQUE_DRAWS{ 200000 };
 constexpr int MAX_ALPHACLIP_DRAWS{ 200000 };
+constexpr int MAX_LIGHTS_PER_CLUSTER = 1000;
 
-AutoCVar_Int CVAR_DRAW_DISTANCE{ "Draw distance", 100, 100, CVarFlags::EditSliderInt, 100, 1000, 100 };
+AutoCVar_Int CVAR_DRAW_DISTANCE{ "Draw distance", 1000, 1000, CVarFlags::EditSliderInt, 100, 1000, 100 };
 AutoCVar_Int CVAR_TOGGLE_MESH_SHADING{ "Mesh shading", 1, 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TOGGLE_OCCLUSION{ "Occlusion", 1, 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TOGGLE_LOD{ "LOD", 1, 1, CVarFlags::EditCheckbox };
@@ -78,6 +80,7 @@ AutoCVar_Int CVAR_TOGGLE_DEBUG_SHADOWMAP{ "Debug shadows", 0, 0, CVarFlags::Edit
 AutoCVar_Int CVAR_TOGGLE_DEBUG_CASCADES{ "Debug cascades", 0, 0, CVarFlags::EditCheckbox };
 AutoCVar_Float CVAR_CSM_LAMBDA{ "CSM log factor", 0.95f, 0.95f, CVarFlags::EditSliderFloat, 0.f, 1.f, 0.05f };
 AutoCVar_Int CVAR_SHADOW_DISTANCE{ "Shadow distance", 48, 48, CVarFlags::EditSliderInt, 20, 200, 5 };
+AutoCVar_Int CVAR_TOGGLE_VIS_BUFFER{ "Visibility renderer", 1, 1, CVarFlags::EditCheckbox };
 
 uint32_t nearest_pow2(uint32_t extent)
 {
@@ -1179,10 +1182,15 @@ void VulkanEngine::init_swapchain()
 		VK_IMAGE_USAGE_SAMPLED_BIT // for deferred shading
 	};
 
+	visibility_buffer = create_image(device, allocator, draw_image_extent, VK_FORMAT_R32G32_UINT, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT);
+	texture_cache.add_texture(visibility_buffer.view);
+
 	// TODO: correct vk format and image aspect for every gbuffer?
+	std::vector<VkFormat> gbuffer_formats = { VK_FORMAT_R16G16B16A16_SFLOAT, VK_FORMAT_R16G16B16A16_SFLOAT, VK_FORMAT_R8G8_SNORM };
 	for (int i = 0; i < GBUFFER_COUNT; i++)
 	{
-		gbuffers.emplace_back(create_image(device, allocator, draw_image_extent, VK_FORMAT_R16G16B16A16_SFLOAT, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
+		gbuffers.emplace_back(create_image(device, allocator, draw_image_extent, gbuffer_formats[i], gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
+
 		id = texture_cache.add_texture(gbuffers[i].view);
 		if (i == 0)
 		{
@@ -1202,6 +1210,8 @@ void VulkanEngine::init_swapchain()
 	                                  {
 		vkDestroyImageView(device, draw_image.view, nullptr);
 		vmaDestroyImage(allocator, draw_image.image, draw_image.allocation);
+		vkDestroyImageView(device, visibility_buffer.view, nullptr);
+		vmaDestroyImage(allocator, visibility_buffer.image, visibility_buffer.allocation);
 		vkDestroyImageView(device, depth_image.view, nullptr);
 		vmaDestroyImage(allocator, depth_image.image, depth_image.allocation);
 
@@ -1376,24 +1386,6 @@ void VulkanEngine::init_descriptors()
 
 void VulkanEngine::init_pipelines()
 {
-	//> IBL
-	// module = shader_cache.add_shader(device, "equi_to_cube.comp.spv");
-	// compute_builder.set_shaders(module);
-	// pc = { VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IBLPushConstants) };
-	// std::unique_ptr<ShaderPass> equi_to_cube_pass = vkutil::build_shader(device, compute_builder, descriptor_layouts, &pc);
-
-	// module = shader_cache.add_shader(device, "irradiance.comp.spv");
-	// compute_builder.set_shaders(module);
-	// std::unique_ptr<ShaderPass> irradiance_pass = vkutil::build_shader(device, compute_builder, descriptor_layouts, &pc);
-
-	// module = shader_cache.add_shader(device, "prefiltered.comp.spv");
-	// compute_builder.set_shaders(module);
-	// std::unique_ptr<ShaderPass> prefiltered_pass = vkutil::build_shader(device, compute_builder, descriptor_layouts, &pc);
-
-	// module = shader_cache.add_shader(device, "brdf.comp.spv");
-	// compute_builder.set_shaders(module);
-	// std::unique_ptr<ShaderPass> brdf_pass = vkutil::build_shader(device, compute_builder, descriptor_layouts, &pc);
-
 	// compute pipeline
 	shader_cache.add_shader(device, "cluster_grid.comp", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "light_culling.comp", VK_SHADER_STAGE_COMPUTE_BIT);
@@ -1404,7 +1396,7 @@ void VulkanEngine::init_pipelines()
 	shader_cache.add_shader(device, "shadow_cull.comp", VK_SHADER_STAGE_COMPUTE_BIT);
 
 	// graphics pipeline
-	shader_cache.add_shader(device, "mesh_pbr.vert", VK_SHADER_STAGE_VERTEX_BIT);
+	shader_cache.add_shader(device, "mesh.vert", VK_SHADER_STAGE_VERTEX_BIT);
 	shader_cache.add_shader(device, "geometry.frag", VK_SHADER_STAGE_FRAGMENT_BIT);
 	shader_cache.add_shader(device, "meshlet.mesh.glsl", VK_SHADER_STAGE_MESH_BIT_EXT);
 	shader_cache.add_shader(device, "full_screen.vert", VK_SHADER_STAGE_VERTEX_BIT);
@@ -1413,6 +1405,17 @@ void VulkanEngine::init_pipelines()
 	shader_cache.add_shader(device, "mlab.frag", VK_SHADER_STAGE_FRAGMENT_BIT);
 	shader_cache.add_shader(device, "depth.vert", VK_SHADER_STAGE_VERTEX_BIT);
 	shader_cache.add_shader(device, "depth.frag", VK_SHADER_STAGE_FRAGMENT_BIT);
+
+	// vis buffer
+	shader_cache.add_shader(device, "vis_buffer.frag", VK_SHADER_STAGE_FRAGMENT_BIT);
+	shader_cache.add_shader(device, "vis_deferred.frag", VK_SHADER_STAGE_FRAGMENT_BIT);
+	shader_cache.add_shader(device, "vis_meshlet.mesh.glsl", VK_SHADER_STAGE_MESH_BIT_EXT);
+#ifdef NDEBUG
+	fmt::println("running Release mode"); // ensuring no clion shenanigans
+#else
+	fmt::println("running Debug mode");
+#endif
+
 
 	std::vector<VkDescriptorSetLayout> descriptor_layouts{};
 
@@ -1447,8 +1450,7 @@ void VulkanEngine::init_pipelines()
 	std::vector<VkPipelineColorBlendAttachmentState> color_blend_states{};
 	for (size_t i = 0; i < GBUFFER_COUNT; i++)
 	{
-		color_attachment_formats.push_back(VK_FORMAT_R16G16B16A16_SFLOAT);
-
+		color_attachment_formats.push_back(gbuffers[i].format);
 		VkPipelineColorBlendAttachmentState state{};
 		state.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
 		state.blendEnable = VK_FALSE;
@@ -1475,7 +1477,7 @@ void VulkanEngine::init_pipelines()
 	specialization_info.dataSize = sizeof(GBufferSpecializationData);
 	specialization_info.pData = &specialization_data;
 
-	builder.set_shaders({ shader_cache["mesh_pbr.vert"], shader_cache["geometry.frag"] });
+	builder.set_shaders({ shader_cache["mesh.vert"], shader_cache["geometry.frag"] });
 	builder.shader_stages[1].pSpecializationInfo = &specialization_info;
 	specialization_data.opaque = 1;
 	builder.set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
@@ -1492,6 +1494,21 @@ void VulkanEngine::init_pipelines()
 	specialization_data.opaque = 0;
 	builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
 	shader_passes["geometry_mesh_mask"] = vkutil::build_shader(device, builder, {}, descriptor_layouts, sizeof(GPUPushConstants));
+
+	color_attachment_formats.clear();
+	color_attachment_formats.push_back(visibility_buffer.format);
+	builder.set_color_attachment_format(color_attachment_formats);
+	color_blend_states.clear();
+	color_blend_states.push_back(builder.disable_blending());
+	builder.set_blending_state(color_blend_states);
+	builder.set_shaders({ shader_cache["vis_meshlet.mesh.glsl"], shader_cache["vis_buffer.frag"] });
+	builder.shader_stages[1].pSpecializationInfo = &specialization_info;
+	specialization_data.opaque = 1;
+	builder.set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
+	shader_passes["visibility_mesh"] = vkutil::build_shader(device, builder, {}, descriptor_layouts, sizeof(GPUPushConstants));
+	specialization_data.opaque = 0;
+	builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
+	shader_passes["visibility_mesh_mask"] = vkutil::build_shader(device, builder, {}, descriptor_layouts, sizeof(GPUPushConstants));
 
 	// single render target
 	descriptor_layouts.clear();
@@ -1519,7 +1536,7 @@ void VulkanEngine::init_pipelines()
 	builder.rasterization.depthClampEnable = VK_FALSE; // reset
 
 	color_attachment_formats.clear();
-	color_attachment_formats.push_back(VK_FORMAT_R16G16B16A16_SFLOAT);
+	color_attachment_formats.push_back(draw_image.format);
 	builder.set_color_attachment_format(color_attachment_formats);
 	// color_blend_states.clear();
 	// color_blend_states.push_back(builder.disable_blending());
@@ -1528,6 +1545,7 @@ void VulkanEngine::init_pipelines()
 	builder.set_depth_format(VK_FORMAT_UNDEFINED);
 	builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
 	shader_passes["deferred"] = vkutil::build_shader(device, builder, { shader_cache["full_screen.vert"], shader_cache["deferred.frag"] }, descriptor_layouts, sizeof(DeferredPushConstants));
+	shader_passes["vis_deferred"] = vkutil::build_shader(device, builder, { shader_cache["full_screen.vert"], shader_cache["vis_deferred.frag"] }, descriptor_layouts, sizeof(DeferredPushConstants));
 
 	// builder.disable_depth();
 	// builder.set_depth_format(VK_FORMAT_UNDEFINED);
@@ -1540,7 +1558,7 @@ void VulkanEngine::init_pipelines()
 	builder.set_color_attachment_format(color_attachment_formats);
 	builder.set_depth_format(depth_image.format);
 	builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-	shader_passes["mlab_vert"] = vkutil::build_shader(device, builder, { shader_cache["mesh_pbr.vert"], shader_cache["mlab.frag"] }, descriptor_layouts, sizeof(GPUPushConstants));
+	shader_passes["mlab_vert"] = vkutil::build_shader(device, builder, { shader_cache["mesh.vert"], shader_cache["mlab.frag"] }, descriptor_layouts, sizeof(GPUPushConstants));
 	shader_passes["mlab_mesh"] = vkutil::build_shader(device, builder, { shader_cache["meshlet.mesh.glsl"], shader_cache["mlab.frag"] }, descriptor_layouts, sizeof(GPUPushConstants));
 
 	for (const auto& v : std::views::values(shader_cache.data))
@@ -1743,8 +1761,6 @@ void VulkanEngine::init_default_data()
 		light_data[i].color = glm::vec4(color_dist(mt), color_dist(mt), color_dist(mt), 1.0);
 	}
 
-	light_data[LIGHT_COUNT - 1].pos.w = 0.0001f;
-
 	light_buffer = upload_buffer(device, graphics_queue, imm_command_buffer, imm_fence, allocator, light_data.data(), LIGHT_COUNT * sizeof(PointLight));
 
 	constexpr uint32_t cluster_size = 64; // TODO: hardcoded 64x64
@@ -1752,10 +1768,9 @@ void VulkanEngine::init_default_data()
 	const uint32_t grid_y = (window_extent.height + cluster_size - 1) / cluster_size;
 	constexpr uint32_t grid_z = CLUSTER_SLICE_COUNT;
 	const uint32_t total_clusters = grid_x * grid_y * grid_z;
-	constexpr uint32_t max_lights_per_cluster = 10;
 
 	light_cluster_buffer = create_buffer(allocator, total_clusters * sizeof(ClusterAABB), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
-	light_index_buffer = create_buffer(allocator, total_clusters * max_lights_per_cluster * sizeof(uint32_t), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT); // could use smaller more conservative size
+	light_index_buffer = create_buffer(allocator, total_clusters * MAX_LIGHTS_PER_CLUSTER * sizeof(uint32_t), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT); // could use smaller more conservative size
 	light_grid_buffer = create_buffer(allocator, total_clusters * sizeof(LightGrid), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
 	light_count_buffer = create_buffer(allocator, sizeof(uint32_t), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
 
@@ -1967,6 +1982,7 @@ void VulkanEngine::register_object(const Node* node, const glm::mat4& top_matrix
 			const GeoSurface& s = node->mesh->surfaces[i];
 
 			RenderObject obj{};
+			obj.transform = node_matrix;
 
 			if (found)
 			{
@@ -1986,10 +2002,7 @@ void VulkanEngine::register_object(const Node* node, const glm::mat4& top_matrix
 				render_scene.primitives.push_back(p);
 			}
 
-			obj.material = nullptr;
-
 			obj.material_id = s.material_id;
-			obj.transform = node_matrix;
 			obj.meshlet_bits = s.meshlet_bits;
 			{
 				switch (s.pass)
@@ -2062,7 +2075,6 @@ void VulkanEngine::update_scene()
 	auto ms_per_orbit = 10000;
 	float rot_angle = static_cast<float>(elapsed_ms % ms_per_orbit) / static_cast<float>(ms_per_orbit) * 360.0f;
 	scene_data.light_rot = glm::rotate(glm::mat4(1.0f), glm::radians(rot_angle), glm::vec3(0, 1, 0));
-
 	auto end = std::chrono::system_clock::now();
 	auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
 	stats.scene_update_time = static_cast<float>(elapsed.count()) / 1000.0f; // milliseconds
@@ -2130,7 +2142,16 @@ void VulkanEngine::execute_deferred_shading(VkCommandBuffer cmd)
 
 	vkCmdBeginRendering(cmd, &render_info);
 
-	ShaderPass current_pass = *shader_passes["deferred"];
+	ShaderPass current_pass{};
+	bool visibility_rendering = CVAR_TOGGLE_VIS_BUFFER.get() && CVAR_TOGGLE_MESH_SHADING.get();
+	if (visibility_rendering)
+	{
+		current_pass = *shader_passes["vis_deferred"];
+	}
+	else
+	{
+		current_pass = *shader_passes["deferred"];
+	}
 	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
@@ -2148,11 +2169,16 @@ void VulkanEngine::execute_deferred_shading(VkCommandBuffer cmd)
 	pc.light_index_buffer_address = get_buffer_address(device, light_index_buffer.buffer);
 	pc.light_grid_buffer_address = get_buffer_address(device, light_grid_buffer.buffer);
 	pc.oit_buffer_address = get_buffer_address(device, render_scene.oit_buffer.buffer);
+	pc.meshlet_indices_address = get_buffer_address(device, render_scene.meshlet_indices.buffer);
+	pc.meshlet_buffer_address = get_buffer_address(device, render_scene.meshlet_buffer.buffer);
+	pc.vertex_buffer_address = get_buffer_address(device, render_scene.vertex_buffer.buffer);
+	pc.object_buffer_address = get_buffer_address(device, render_scene.object_buffer.buffer);
+	pc.material_buffer_address = get_buffer_address(device, render_scene.material_buffer.buffer);
 
 	pc.depth_id = texture_cache.get_depth_image();
 	pc.albedo_id = texture_cache.get_first_gbuffer();
 	pc.normal_id = pc.albedo_id + 1;
-	pc.world_pos_id = pc.albedo_id + 2; // TODO: loop based on size perhaps? remove hardcode
+	pc.metalroughness_id = pc.albedo_id + 2; // TODO: loop based on size perhaps? remove hardcode
 	pc.shadow_id = texture_cache.get_shadowmap();
 	pc.light_culling = CVAR_TOGGLE_LIGHT_CULLING.get();
 	pc.near = main_camera.far;
@@ -2700,20 +2726,28 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass, ui
 	// deferred
 	VkClearColorValue clear_color_value{ 0.f, 0.f, 0.f, 1.0f };
 	VkClearValue clear_value{ .color = clear_color_value };
+	VkClearColorValue clear_color_value2{ 1.f, 1.f, 0.f, 1.0f };
+	VkClearValue clear_value2{ .color = clear_color_value2 };
 
-	std::vector<VkRenderingAttachmentInfo> gbuffer_info{};
-	for (int i = 0; i < GBUFFER_COUNT; i++)
+	std::vector<VkRenderingAttachmentInfo> rendering_attachment_infos{};
+	bool visibility_rendering = CVAR_TOGGLE_VIS_BUFFER.get() && CVAR_TOGGLE_MESH_SHADING.get();
+	if (visibility_rendering)
 	{
-		if (late)
-			gbuffer_info.push_back(vkinit::attachment_info(gbuffers[i].view, nullptr));
-		else
-			gbuffer_info.push_back(vkinit::attachment_info(gbuffers[i].view, &clear_value));
+		rendering_attachment_infos.push_back(late ? vkinit::attachment_info(visibility_buffer.view, nullptr) : vkinit::attachment_info(visibility_buffer.view, &clear_value));
 	}
+	else
+	{
+		for (int i = 0; i < GBUFFER_COUNT - 1; i++)
+		{
+			rendering_attachment_infos.push_back(late ? vkinit::attachment_info(gbuffers[i].view, nullptr) : vkinit::attachment_info(gbuffers[i].view, &clear_value));
+		}
+		rendering_attachment_infos.push_back(late ? vkinit::attachment_info(gbuffers[GBUFFER_COUNT - 1].view, nullptr) : vkinit::attachment_info(gbuffers[GBUFFER_COUNT - 1].view, &clear_value2));
+	}
+
 	VkRenderingAttachmentInfo depth_attachment = vkinit::depth_attachment_info(depth_image.view);
 	depth_attachment.loadOp = late ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_CLEAR;
-
-	VkRenderingInfo render_info = vkinit::rendering_info(draw_extent, gbuffer_info.data(), &depth_attachment);
-	render_info.colorAttachmentCount = static_cast<uint32_t>(gbuffer_info.size());
+	VkRenderingInfo render_info = vkinit::rendering_info(draw_extent, rendering_attachment_infos.data(), &depth_attachment);
+	render_info.colorAttachmentCount = static_cast<uint32_t>(rendering_attachment_infos.size());
 
 	vkCmdBeginRendering(cmd, &render_info);
 
@@ -2770,7 +2804,15 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass, ui
 	}
 	else // mesh shading path
 	{
-		ShaderPass current_pass = post_pass == 0 ? *shader_passes["geometry_mesh"] : *shader_passes["geometry_mesh_mask"];
+		ShaderPass current_pass{};
+		if (visibility_rendering)
+		{
+			current_pass = post_pass == 0 ? *shader_passes["visibility_mesh"] : *shader_passes["visibility_mesh_mask"];
+		}
+		else // deferred rendering
+		{
+			current_pass = post_pass == 0 ? *shader_passes["geometry_mesh"] : *shader_passes["geometry_mesh_mask"];
+		}
 
 		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
 		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);

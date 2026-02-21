@@ -17,13 +17,10 @@
 layout(set = 1, binding = 0) uniform texture2D allTextures[];
 layout(set = 2, binding = 0) uniform sampler samplers[];
 
-// TODO: clean up - lots of redundant interpolants based on old pbr code that's been put aside
 layout (location = 0) in vec3 inNormal;
-layout (location = 1) in vec3 inWorldPos;
-layout (location = 2) in vec3 inViewPos;
-layout (location = 3) in vec2 inUV;
-layout (location = 4) in vec4 inTangent;
-layout (location = 5) in flat uint inMaterialID;
+layout (location = 1) in vec2 inUV;
+layout (location = 2) in vec4 inTangent;
+layout (location = 3) in flat uint inMaterialID;
 
 layout (location = 0) out vec4 outFragColor;
 

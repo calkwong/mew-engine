@@ -136,13 +136,9 @@ struct Handle<DrawPrimitive>
 
 struct RenderObject
 {
+	glm::mat4 transform{};
 	Handle<DrawPrimitive> primitive_id{};
 	uint32_t material_id{};
-
-	Material* material{};
-	glm::mat4 transform{};
-
-	VkDeviceAddress material_buffer_address{};
 	uint32_t meshlet_bits{};
 	uint32_t post_pass{};
 };

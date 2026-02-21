@@ -485,7 +485,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, Loade
 {
 	auto& materials_data = loader.materials;
 	auto initial_materials_size = materials_data.size();
-	file_path = "../assets/" + file_path;
+	file_path = "assets/" + file_path;
 	fmt::println("Loading GLTF: {}", file_path);
 
 	std::shared_ptr<LoadedGLTF> scene = std::make_shared<LoadedGLTF>();

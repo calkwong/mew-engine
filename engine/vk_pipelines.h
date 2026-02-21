@@ -34,10 +34,15 @@ struct DeferredPushConstants
 	VkDeviceAddress light_index_buffer_address{};
 	VkDeviceAddress light_grid_buffer_address{};
 	VkDeviceAddress oit_buffer_address{};
+	VkDeviceAddress meshlet_indices_address{}; // TESTING FOR VIS BUFFER ONLY
+	VkDeviceAddress meshlet_buffer_address{}; // TESTING FOR VIS BUFFER ONLY
+	VkDeviceAddress vertex_buffer_address{}; // TESTING FOR VIS BUFFER ONLY
+	VkDeviceAddress object_buffer_address{}; // TESTING FOR VIS BUFFER ONLY
+	VkDeviceAddress material_buffer_address{}; // TESTING FOR VIS BUFFER ONLY
 	uint32_t depth_id{};
 	uint32_t albedo_id{};
 	uint32_t normal_id{};
-	uint32_t world_pos_id{};
+	uint32_t metalroughness_id{};
 	uint32_t shadow_id{};
 	uint32_t light_culling{}; // for toggling light culling between naive and proper implementation
 	float near{};

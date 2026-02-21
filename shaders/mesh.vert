@@ -7,11 +7,9 @@
 #include "mesh.glsl"
 
 layout (location = 0) out vec3 outNormal;
-layout (location = 1) out vec3 outWorldPos;
-layout (location = 2) out vec3 outViewPos;
-layout (location = 3) out vec2 outUV;
-layout (location = 4) out vec4 outTangent;
-layout (location = 5) flat out uint outMaterialID;
+layout (location = 1) out vec2 outUV;
+layout (location = 2) out vec4 outTangent;
+layout (location = 3) out flat uint outMaterialID;
 
 layout(buffer_reference, std430) readonly buffer VertexBuffer
 { 
@@ -44,11 +42,11 @@ void main()
 	
 	vec4 position = o.worldMatrix * vec4(v.position, 1.0);
 
-	outNormal = mat3(transpose(inverse(o.worldMatrix))) * v.normal;
+	//outNormal = mat3(transpose(inverse(o.worldMatrix))) * v.normal;
+	//outTangent = vec4(mat3(transpose(inverse(o.worldMatrix))) * v.tangent.xyz, v.tangent.w);
 	
-	outViewPos = vec3(sceneData.view * position);
-	outTangent = vec4(mat3(transpose(inverse(o.worldMatrix))) * v.tangent.xyz, v.tangent.w);
-	outWorldPos = position.xyz;
+	outNormal = mat3(o.worldMatrix) * v.normal;
+	outTangent = vec4(mat3(o.worldMatrix) * v.tangent.xyz, v.tangent.w);
 	
 	outUV = vec2(v.uv_x, v.uv_y);
 	outMaterialID = o.materialID;

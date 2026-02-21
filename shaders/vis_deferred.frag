@@ -6,9 +6,12 @@
 
 #include "scene.glsl"
 #include "samplers.glsl"
+#include "mesh.glsl"
+#include "vbuffer.glsl"
 #include "pbr.glsl"
 
 layout(set = 1, binding = 0) uniform texture2D allTextures[];
+layout(set = 1, binding = 0) uniform utexture2D allUTextures[];
 layout(set = 2, binding = 0) uniform sampler samplers[];
 
 layout (location = 0) in vec2 inUV;
@@ -54,6 +57,31 @@ layout(buffer_reference, std430) buffer OITBuffer
 	OITData frags[];
 };
 
+layout(buffer_reference, std430) readonly buffer MeshletIndicesBuffer
+{ 
+	uint indices[];
+};
+
+layout(buffer_reference, std430) readonly buffer MeshletBuffer
+{ 
+	Meshlet meshlets[];
+};
+
+layout(buffer_reference, std430) readonly buffer VertexBuffer
+{ 
+	Vertex vertices[];
+};
+
+layout(buffer_reference, std430) readonly buffer ObjectBuffer
+{ 
+	ObjectData objects[];
+};
+
+layout(buffer_reference, std430) readonly buffer MaterialBuffer
+{ 
+	MaterialData materials[];
+};
+
 layout( push_constant ) uniform constants
 {
 	vec4 clusterSize; // xyz is cluster data struct dim, w is single cluster dim where width==height
@@ -62,7 +90,11 @@ layout( push_constant ) uniform constants
 	LightIndexBuffer lightIndexBuffer;
 	LightGridBuffer lightGridBuffer;
 	OITBuffer oitBuffer;
-	uint padding[10]; // padding for visibility buffer variant
+	MeshletIndicesBuffer meshletIndicesBuffer;
+	MeshletBuffer meshletBuffer;
+	VertexBuffer vertexBuffer;
+	ObjectBuffer objectBuffer;
+	MaterialBuffer materialBuffer;
 	uint depth_id;
 	uint albedo_id;    // gbuffer ids
 	uint normal_id;    // gbuffer ids
@@ -79,6 +111,7 @@ layout( push_constant ) uniform constants
 	uint debugShadowmap;
 	uint debugCascades;
 } pc;
+
 
 // formula is for infinite far plane, reverse-z
 // returns positive value, may need to negate depending on what we're using it for
@@ -182,38 +215,105 @@ float calculateShadow(vec3 worldPos, inout uint cascadeIdx)
 	return shadow;
 }
 
-vec3 reconstructWorldPos(float depth, mat4 viewproj)
-{
-	vec2 ndc = gl_FragCoord.xy / pc.screenSize;
-	ndc = ndc * 2.0 - 1.0;
-	ndc.y *= -1.0; // flip as window coords are top down
-	vec4 worldPos = inverse(viewproj) * vec4(ndc, depth, 1.0);
-	
-	return worldPos.xyz / worldPos.w;
-}
-
 #define PBR
 
 void main()
 {
-	vec3 N = texture(sampler2D(allTextures[pc.normal_id], samplers[NEAREST_SAMPLER]), inUV).xyz;
-	N = normalize(N); // necessary to remove banding, RGB32 does not need this
-
-	if (pc.debugMeshlets == 1)
+	//// HANDLE LATER, NOT SUPPORTED ON VISIBILITY PATH
+	//if (pc.debugMeshlets == 1)
+	//{
+	//	vec3 normal = texture(sampler2D(allTextures[pc.normal_id], samplers[NEAREST_SAMPLER]), inUV).xyz;
+	//	outFragColor = vec4(normal, 1.0);
+	//	return; 
+	//}
+	
+	uvec2 data = texture(usampler2D(allUTextures[pc.albedo_id - 1], samplers[NEAREST_SAMPLER]), inUV).rg; // TODO: vis_buffer_id currently == albedo_id - 1, hardcoded to fix
+	
+	uint drawID = data.x; 
+	uint packedID = data.y;
+	uint triangleID = bitfieldExtract(packedID, 25, 7);
+	uint meshletID = bitfieldExtract(packedID, 0, 25);
+	
+	Meshlet meshlet = pc.meshletBuffer.meshlets[meshletID];
+	uint triangleOffset = meshlet.dataOffset + meshlet.vertexCount;
+	
+	uint idx0 = pc.meshletIndicesBuffer.indices[triangleOffset + triangleID * 3 + 0];
+	uint idx1 = pc.meshletIndicesBuffer.indices[triangleOffset + triangleID * 3 + 1];
+	uint idx2 = pc.meshletIndicesBuffer.indices[triangleOffset + triangleID * 3 + 2];
+	
+	uint vertexIndex0 = pc.meshletIndicesBuffer.indices[meshlet.dataOffset + idx0]; 
+	uint vertexIndex1 = pc.meshletIndicesBuffer.indices[meshlet.dataOffset + idx1]; 
+	uint vertexIndex2 = pc.meshletIndicesBuffer.indices[meshlet.dataOffset + idx2]; 
+	
+	Vertex v0 = pc.vertexBuffer.vertices[vertexIndex0];
+	Vertex v1 = pc.vertexBuffer.vertices[vertexIndex1];
+	Vertex v2 = pc.vertexBuffer.vertices[vertexIndex2];
+	
+	mat4 worldMatrix = pc.objectBuffer.objects[drawID].worldMatrix;
+	
+	vec4 wp0 = worldMatrix * vec4(v0.position, 1.0); 
+	vec4 wp1 = worldMatrix * vec4(v1.position, 1.0); 
+	vec4 wp2 = worldMatrix * vec4(v2.position, 1.0); 
+	
+	vec4 p0 = sceneData.viewproj * wp0;
+	vec4 p1 = sceneData.viewproj * wp1;
+	vec4 p2 = sceneData.viewproj * wp2;
+	
+	// vulkan top left origin, hence flipping y is necessary
+	vec2 pNdc = gl_FragCoord.xy / pc.screenSize; 
+	pNdc = pNdc * 2.0 - 1.0;
+	pNdc.y = -pNdc.y; 
+	
+	BarycentricDeriv bary = calculateBarycentric(p0, p1, p2, pNdc, pc.screenSize);
+	vec2 uv;
+	vec2 uvDdx;
+	vec2 uvDdy;
+	interpolateWithDeriv(bary, vec2(v0.uv_x, v0.uv_y), vec2(v1.uv_x, v1.uv_y), vec2(v2.uv_x, v2.uv_y), uv, uvDdx, uvDdy);
+	
+	vec3 worldPos = interpolate(bary, wp0.xyz, wp1.xyz, wp2.xyz);
+	
+	vec3 n0 = mat3(worldMatrix) * v0.normal;  // no transpose(inverse), no normalization
+	vec3 n1 = mat3(worldMatrix) * v1.normal;
+	vec3 n2 = mat3(worldMatrix) * v2.normal;
+	vec3 N = normalize(interpolate(bary, n0, n1, n2)); // mikktspace convention is NOT to normalize? but khronos sponza breaks
+	
+	uint materialID = pc.objectBuffer.objects[drawID].materialID;
+	MaterialData m = pc.materialBuffer.materials[materialID];
+	
+	vec4 albedo = m.baseColorFactor;
+	
+	if (m.diffuseID != 0)
 	{
-		outFragColor = vec4(N, 1.0);
-		return;
+		albedo.xyz *= textureGrad(sampler2D(allTextures[m.diffuseID], samplers[LINEAR_SAMPLER]), uv, uvDdx, uvDdy).xyz;
 	}
 	
-	vec3 albedo = texture(sampler2D(allTextures[pc.albedo_id], samplers[NEAREST_SAMPLER]), inUV).xyz;
-	float depth = texture(sampler2D(allTextures[pc.depth_id], samplers[NEAREST_SAMPLER]), inUV).r;
-	vec3 worldPos = reconstructWorldPos(depth, sceneData.viewproj);
-	
 #ifdef PBR
-	vec2 metalRoughness = texture(sampler2D(allTextures[pc.metalroughness_id], samplers[NEAREST_SAMPLER]), inUV).xy;
-	float metallic = metalRoughness.x;
-	float roughness = metalRoughness.y;
-	roughness *= roughness;
+	if (m.normalID != 0)
+	{
+		vec4 t0 = vec4(mat3(worldMatrix) * v0.tangent.xyz, v0.tangent.w);
+		vec4 t1 = vec4(mat3(worldMatrix) * v1.tangent.xyz, v1.tangent.w);
+		vec4 t2 = vec4(mat3(worldMatrix) * v2.tangent.xyz, v2.tangent.w);
+		vec4 T = interpolate(bary, t0, t1, t2); 
+		T.xyz = normalize(T.xyz); // mikktspace convention is NOT to normalize? but khronos sponza breaks	
+	
+		float sign = T.w; // sign is flipped during tangent generation so mikktspace is consistent with glTF handedness
+		vec3 B = sign * cross(N, T.xyz);
+		vec3 shadingNormal = textureGrad(sampler2D(allTextures[m.normalID], samplers[LINEAR_SAMPLER]), uv, uvDdx, uvDdy).xyz;
+		shadingNormal = shadingNormal * 2.0 - 1.0;
+		N = normalize(shadingNormal.x * T.xyz + shadingNormal.y * B + shadingNormal.z * N);
+	}
+	
+	float metallic = m.metallicFactor;
+	float perceptualRoughness = m.roughnessFactor;
+	vec2 metalRoughness = vec2(0.0);
+	if (m.metalRoughnessID != 0)
+	{
+		metalRoughness = textureGrad(sampler2D(allTextures[m.metalRoughnessID], samplers[LINEAR_SAMPLER]), uv, uvDdx, uvDdy).bg;
+		metallic *= metalRoughness.x;
+		perceptualRoughness *= metalRoughness.y;
+	}
+	perceptualRoughness = max(perceptualRoughness, 0.045); // frostbite engine clamp value for analytical lights (fp32)
+	float roughness = perceptualRoughness * perceptualRoughness;
 	
 	vec3 Fr = vec3(0.0);
 	
@@ -245,9 +345,10 @@ void main()
 	outFragColor = vec4(Lo, 1.0);
 	outFragColor.xyz += albedo.xyz * AMBIENT; // for debugging without IBL 
 #else	
-	outFragColor = vec4(albedo, 1.0);
+	outFragColor = vec4(albedo);
 #endif
 	
+
 	uint cascadeIdx = 0;
 	if (pc.shadows == 1)
 	{
@@ -275,9 +376,9 @@ void main()
 		}
 	}
 	
+	float depth = texture(sampler2D(allTextures[pc.depth_id], samplers[NEAREST_SAMPLER]), inUV).r;
 	if (pc.lightCulling == 1)
 	{
-		vec3 color = vec3(0.);
 		vec4 clipPos = sceneData.viewproj * vec4(worldPos, 1.0);
 		vec3 ndc = clipPos.xyz / clipPos.w;
 		vec2 screenPos = ndc.xy * 0.5 + 0.5;
@@ -288,7 +389,8 @@ void main()
 		clusterXY.x = clamp(clusterXY.x, 0, clusterDim.x - 1);
 		clusterXY.y = clamp(clusterXY.y, 0, clusterDim.y - 1);
 		
-		float viewZ = linearizeDepthInfiniteReverse(depth); // implicitly flipped
+		//float viewZ = -(sceneData.view * vec4(worldPos, 1.0)).z; // possible precision tradeoff
+		float viewZ = linearizeDepthInfiniteReverse(depth); // implicitly flipped, is this cheaper than matrix multiply?
 		
 		// equation (3): https://www.aortiz.me/2018/12/21/CG.html#part-2 
 		// slide 5: https://advances.realtimerendering.com/s2016/Siggraph2016_idTech6.pdf
@@ -300,6 +402,7 @@ void main()
 		uint offset = pc.lightGridBuffer.grid[clusterIndex].offset;
 		uint count = pc.lightGridBuffer.grid[clusterIndex].count;
 		
+		vec3 color = vec3(0.);
 		for (int i = 0; i < count; i++)
 		{
 			uint index = pc.lightIndexBuffer.indices[offset + i];
@@ -316,7 +419,7 @@ void main()
 			vec3 H = normalize(L + V);
 			
 			float NdotH = max(dot(N, H), 0.0);
-
+			
 			// some intermediate values taken from dir light as they are unchanged
 			float D = D_GGX(NdotH, roughness);
 			float G = V_SmithGGXCorrelated(NdotV, NdotL, roughness);
@@ -326,10 +429,16 @@ void main()
 			color += (Fd + Fr) * lightColor * attenuation * NdotL; 
 #else
 			float attenuation = getSquareFalloffAttenuation(distance, lightRadius);
-			color += (albedo * lightColor * attenuation * NdotL);
+			color += albedo * lightColor * attenuation * NdotL;
 #endif
 		}
-		outFragColor.xyz += color;
+		outFragColor.xyz += color; 
+	}
+	
+	// TODO: refactor and use depth/stencil buffer to reject pixels
+	if (depth == 0.0)
+	{
+		outFragColor = vec4(0,0,0,1);
 	}
 	
 	if (pc.resolveTransparent == 1)
@@ -344,4 +453,5 @@ void main()
 		vec3 depth = vec3(texture(sampler2D(allTextures[pc.shadowmap_id + idx], samplers[NEAREST_SAMPLER]), uv).r);
 		outFragColor.xyz = depth;
 	}
+	
 }
