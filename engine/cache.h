@@ -13,12 +13,14 @@ struct TextureCache
 	uint32_t add_texture(const VkImageView& view);
 
 	void set_draw_image(uint32_t id);
-	void set_gbuffers(uint32_t id);
+	void set_gbuffers(uint32_t id); // deferred
+	void set_visibility_buffer(uint32_t id); // visibility
 	void set_depth_image(uint32_t id);
 	void set_depth_pyramid_image(uint32_t id);
 	void set_shadowmap(uint32_t id);
 	uint32_t get_draw_image() const;
-	uint32_t get_first_gbuffer() const;
+	uint32_t get_first_gbuffer() const; // deferred
+	uint32_t get_visibility_buffer() const; // visibility
 	uint32_t get_depth_image() const;
 	uint32_t get_depth_pyramid_image() const;
 	uint32_t get_shadowmap() const;
@@ -26,6 +28,7 @@ struct TextureCache
 private:
 	uint32_t draw_id{};
 	uint32_t gbuffer_id{};
+	uint32_t visibility_id{};
 	uint32_t depth_id{};
 	uint32_t depth_pyramid_id{};
 	uint32_t shadowmap_id{};

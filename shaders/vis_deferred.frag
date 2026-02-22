@@ -96,9 +96,7 @@ layout( push_constant ) uniform constants
 	ObjectBuffer objectBuffer;
 	MaterialBuffer materialBuffer;
 	uint depth_id;
-	uint albedo_id;    // gbuffer ids
-	uint normal_id;    // gbuffer ids
-	uint metalroughness_id; // gbuffer ids
+	uint gbuffer_id;    
 	uint shadowmap_id;
 	uint lightCulling;
 	float near;
@@ -227,7 +225,7 @@ void main()
 	//	return; 
 	//}
 	
-	uvec2 data = texture(usampler2D(allUTextures[pc.albedo_id - 1], samplers[NEAREST_SAMPLER]), inUV).rg; // TODO: vis_buffer_id currently == albedo_id - 1, hardcoded to fix
+	uvec2 data = texture(usampler2D(allUTextures[pc.gbuffer_id], samplers[NEAREST_SAMPLER]), inUV).rg; 
 	
 	uint drawID = data.x; 
 	uint packedID = data.y;

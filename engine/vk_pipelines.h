@@ -40,9 +40,7 @@ struct DeferredPushConstants
 	VkDeviceAddress object_buffer_address{}; // TESTING FOR VIS BUFFER ONLY
 	VkDeviceAddress material_buffer_address{}; // TESTING FOR VIS BUFFER ONLY
 	uint32_t depth_id{};
-	uint32_t albedo_id{};
-	uint32_t normal_id{};
-	uint32_t metalroughness_id{};
+	uint32_t gbuffer_id{};
 	uint32_t shadow_id{};
 	uint32_t light_culling{}; // for toggling light culling between naive and proper implementation
 	float near{};

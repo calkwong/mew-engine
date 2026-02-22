@@ -64,9 +64,7 @@ layout( push_constant ) uniform constants
 	OITBuffer oitBuffer;
 	uint padding[10]; // padding for visibility buffer variant
 	uint depth_id;
-	uint albedo_id;    // gbuffer ids
-	uint normal_id;    // gbuffer ids
-	uint metalroughness_id; // gbuffer ids
+	uint gbuffer_id;  
 	uint shadowmap_id;
 	uint lightCulling;
 	float near;
@@ -196,7 +194,11 @@ vec3 reconstructWorldPos(float depth, mat4 viewproj)
 
 void main()
 {
-	vec3 N = texture(sampler2D(allTextures[pc.normal_id], samplers[NEAREST_SAMPLER]), inUV).xyz;
+	uint albedo_id = pc.gbuffer_id;
+	uint normal_id = pc.gbuffer_id + 1;
+	uint metalroughness_id = pc.gbuffer_id + 2;
+
+	vec3 N = texture(sampler2D(allTextures[normal_id], samplers[NEAREST_SAMPLER]), inUV).xyz;
 	N = normalize(N); // necessary to remove banding, RGB32 does not need this
 
 	if (pc.debugMeshlets == 1)
@@ -205,12 +207,12 @@ void main()
 		return;
 	}
 	
-	vec3 albedo = texture(sampler2D(allTextures[pc.albedo_id], samplers[NEAREST_SAMPLER]), inUV).xyz;
+	vec3 albedo = texture(sampler2D(allTextures[albedo_id], samplers[NEAREST_SAMPLER]), inUV).xyz;
 	float depth = texture(sampler2D(allTextures[pc.depth_id], samplers[NEAREST_SAMPLER]), inUV).r;
 	vec3 worldPos = reconstructWorldPos(depth, sceneData.viewproj);
 	
 #ifdef PBR
-	vec2 metalRoughness = texture(sampler2D(allTextures[pc.metalroughness_id], samplers[NEAREST_SAMPLER]), inUV).xy;
+	vec2 metalRoughness = texture(sampler2D(allTextures[metalroughness_id], samplers[NEAREST_SAMPLER]), inUV).xy;
 	float metallic = metalRoughness.x;
 	float roughness = metalRoughness.y;
 	roughness *= roughness;

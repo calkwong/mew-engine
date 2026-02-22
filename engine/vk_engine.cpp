@@ -1179,23 +1179,27 @@ void VulkanEngine::init_swapchain()
 
 	VkImageUsageFlags gbuffer_flags{
 		VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
-		VK_IMAGE_USAGE_SAMPLED_BIT // for deferred shading
+		VK_IMAGE_USAGE_SAMPLED_BIT
 	};
 
-	visibility_buffer = create_image(device, allocator, draw_image_extent, VK_FORMAT_R32G32_UINT, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT);
-	texture_cache.add_texture(visibility_buffer.view);
-
-	// TODO: correct vk format and image aspect for every gbuffer?
-	std::vector<VkFormat> gbuffer_formats = { VK_FORMAT_R16G16B16A16_SFLOAT, VK_FORMAT_R16G16B16A16_SFLOAT, VK_FORMAT_R8G8_SNORM };
-	for (int i = 0; i < GBUFFER_COUNT; i++)
+	// visibility path - visibility, velocity
 	{
-		gbuffers.emplace_back(create_image(device, allocator, draw_image_extent, gbuffer_formats[i], gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
+		visibility_buffer = create_image(device, allocator, draw_image_extent, VK_FORMAT_R32G32_UINT, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT);
+		auto vis_id = texture_cache.add_texture(visibility_buffer.view);
+		texture_cache.set_visibility_buffer(vis_id);
+		velocity_buffer = create_image(device, allocator, draw_image_extent, VK_FORMAT_R16G16_SFLOAT, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT);
+		texture_cache.add_texture(velocity_buffer.view);
+	}
 
-		id = texture_cache.add_texture(gbuffers[i].view);
-		if (i == 0)
-		{
-			texture_cache.set_gbuffers(id);
-		}
+	// deferred path - albedo, normal, metalroughness
+	{
+		gbuffers.emplace_back(create_image(device, allocator, draw_image_extent, VK_FORMAT_R16G16B16A16_SFLOAT, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
+		auto gbuffer_id = texture_cache.add_texture(gbuffers[0].view);
+		texture_cache.set_gbuffers(gbuffer_id);
+		gbuffers.emplace_back(create_image(device, allocator, draw_image_extent, VK_FORMAT_R16G16B16A16_SFLOAT, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
+		texture_cache.add_texture(gbuffers[1].view);
+		gbuffers.emplace_back(create_image(device, allocator, draw_image_extent, VK_FORMAT_R8G8_SNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
+		texture_cache.add_texture(gbuffers[2].view);
 	}
 
 	depth_image.format = VK_FORMAT_D32_SFLOAT;
@@ -1212,6 +1216,8 @@ void VulkanEngine::init_swapchain()
 		vmaDestroyImage(allocator, draw_image.image, draw_image.allocation);
 		vkDestroyImageView(device, visibility_buffer.view, nullptr);
 		vmaDestroyImage(allocator, visibility_buffer.image, visibility_buffer.allocation);
+		vkDestroyImageView(device, velocity_buffer.view, nullptr);
+		vmaDestroyImage(allocator, velocity_buffer.image, velocity_buffer.allocation);
 		vkDestroyImageView(device, depth_image.view, nullptr);
 		vmaDestroyImage(allocator, depth_image.image, depth_image.allocation);
 
@@ -2176,9 +2182,7 @@ void VulkanEngine::execute_deferred_shading(VkCommandBuffer cmd)
 	pc.material_buffer_address = get_buffer_address(device, render_scene.material_buffer.buffer);
 
 	pc.depth_id = texture_cache.get_depth_image();
-	pc.albedo_id = texture_cache.get_first_gbuffer();
-	pc.normal_id = pc.albedo_id + 1;
-	pc.metalroughness_id = pc.albedo_id + 2; // TODO: loop based on size perhaps? remove hardcode
+	pc.gbuffer_id = visibility_rendering ? texture_cache.get_visibility_buffer() : texture_cache.get_first_gbuffer();
 	pc.shadow_id = texture_cache.get_shadowmap();
 	pc.light_culling = CVAR_TOGGLE_LIGHT_CULLING.get();
 	pc.near = main_camera.far;

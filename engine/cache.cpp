@@ -17,6 +17,11 @@ void TextureCache::set_gbuffers(uint32_t id)
 	gbuffer_id = id;
 }
 
+void TextureCache::set_visibility_buffer(uint32_t id)
+{
+	visibility_id = id;
+}
+
 void TextureCache::set_depth_image(uint32_t id)
 {
 	depth_id = id;
@@ -40,6 +45,11 @@ uint32_t TextureCache::get_draw_image() const
 uint32_t TextureCache::get_first_gbuffer() const
 {
 	return gbuffer_id;
+}
+
+uint32_t TextureCache::get_visibility_buffer() const
+{
+	return visibility_id;
 }
 
 uint32_t TextureCache::get_depth_image() const
