@@ -12,8 +12,12 @@ layout (location = 0) flat in uint inDrawID;
 layout (location = 1) flat in uint inTriangleID;
 layout (location = 2) in vec2 inUV;
 layout (location = 3) flat in uint inMaterialID;
+layout (location = 4) in vec4 inClipPos;
+layout (location = 5) in vec4 inPrevClipPos;
 
-layout (location = 0) out uvec4 outFragColor;
+//layout (location = 0) out uvec4 outFragColor;
+layout (location = 0) out uvec2 visibilityID;
+layout (location = 1) out vec2 velocity;
 
 // 1 - OPAQUE
 // 0 - MASK
@@ -37,6 +41,8 @@ layout( push_constant ) uniform constants
 	//OITBuffer oitBuffer;
 	uint padding2[1 * 2];
 	uint debugMeshlets;
+	uint padding3;
+	vec2 jitterOffset;
 } pc;
 
 layout(set = 1, binding = 0) uniform texture2D allTextures[];
@@ -56,6 +62,15 @@ void main()
 		
 	}
 
-	outFragColor = uvec4(inDrawID, inTriangleID, 0, 0);
+	//outFragColor = uvec4(inDrawID, inTriangleID, 0, 0);
+	visibilityID = uvec2(inDrawID, inTriangleID);
 	
+	vec2 currentNdc = inClipPos.xy / inClipPos.w;
+	vec2 previousNdc = inPrevClipPos.xy / inPrevClipPos.w;
+
+	vec2 velocity = currentNdc - previousNdc;
+	velocity = velocity * 0.5 + 0.5; 
+	velocity.y *= -1.0; // flip for uv space
+	
+	velocity -= pc.jitterOffset;
 }

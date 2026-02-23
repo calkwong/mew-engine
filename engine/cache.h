@@ -18,12 +18,14 @@ struct TextureCache
 	void set_depth_image(uint32_t id);
 	void set_depth_pyramid_image(uint32_t id);
 	void set_shadowmap(uint32_t id);
+	void set_accumulation_buffer(uint32_t id);
 	uint32_t get_draw_image() const;
 	uint32_t get_first_gbuffer() const; // deferred
 	uint32_t get_visibility_buffer() const; // visibility
 	uint32_t get_depth_image() const;
 	uint32_t get_depth_pyramid_image() const;
 	uint32_t get_shadowmap() const;
+	uint32_t get_accumulation_buffer();
 
 private:
 	uint32_t draw_id{};
@@ -32,6 +34,10 @@ private:
 	uint32_t depth_id{};
 	uint32_t depth_pyramid_id{};
 	uint32_t shadowmap_id{};
+	uint32_t accum_id{};
+
+	// pingpong
+	int accum_pp{-1};
 };
 
 struct SamplerCache

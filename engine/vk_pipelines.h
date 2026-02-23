@@ -24,6 +24,8 @@ struct GPUPushConstants // temporarily shared by vertex and mesh shading path
 	VkDeviceAddress material_buffer_address{};
 	VkDeviceAddress oit_buffer_address{};
 	uint32_t debug_meshlets{};
+	uint32_t padding{};
+	glm::vec2 jitter_offset{}; // last + current frame jitter; should move this up but i am too lazy to edit shaders
 };
 
 struct DeferredPushConstants
@@ -77,6 +79,17 @@ struct SkyboxPushConstants
 {
 	glm::mat4 inverse_viewproj{};
 	uint32_t texture_id{};
+};
+
+struct TAAResolvePC
+{
+	glm::vec2 screen_size{};
+	glm::vec2 current_jitter{};
+	uint32_t color_id{};
+	uint32_t accum_id{}; // previous frame's accumulation/history buffer
+	uint32_t depth_id{};
+	uint32_t velocity_id{};
+	uint32_t debug{};
 };
 
 struct DebugPushConstants

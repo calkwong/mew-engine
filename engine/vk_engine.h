@@ -93,6 +93,7 @@ public:
 	bool stop_rendering{ false };
 	bool stop_movement{ false };
 	bool freeze_camera{ false };
+	bool first_frame{ true };
 	glm::mat4 last_view{};
 	glm::mat4 last_proj{};
 
@@ -123,6 +124,7 @@ public:
 	AllocatedImage draw_image{};
 	AllocatedImage visibility_buffer{};
 	AllocatedImage velocity_buffer{};
+	std::array<AllocatedImage, 2> accumulation_buffers{};
 	std::vector<AllocatedImage> gbuffers{};
 	VkExtent2D draw_extent{};
 
@@ -187,6 +189,8 @@ public:
 
 	SceneData scene_data{};
 	std::array<CascadeData, 4> cascade_data{};
+	std::array<float, 4> jx{};
+	std::array<float, 4> jy{};
 
 	// tracy::VkCtx* tracy_ctx{};
 	RenderScene render_scene{};
@@ -207,6 +211,7 @@ public:
 	void register_object(const Node* node, const glm::mat4& top_matrix);
 	void execute_debug_pass(VkCommandBuffer cmd);
 	void execute_deferred_shading(VkCommandBuffer cmd);
+	void execute_taa_resolve(VkCommandBuffer cmd, VkImageView view);
 	void update_cascade();
 	void draw_imgui(VkCommandBuffer cmd, VkImageView swapchain_view);
 	void ready_mesh_draw();
@@ -238,3 +243,6 @@ private:
 	void create_swapchain(uint32_t width, uint32_t height);
 	void destroy_swapchain();
 };
+
+uint32_t nearest_pow2(uint32_t extent);
+float Halton(uint32_t i, uint32_t b);

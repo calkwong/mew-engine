@@ -63,12 +63,16 @@ layout( push_constant ) uniform constants
 	//OITBuffer oitBuffer;
 	uint padding[2 * 2];
 	uint debugMeshlets;
+	uint padding2;
+	vec2 jitterOffset;
 } pc;
 
 layout (location = 0) perprimitiveEXT out uint outDrawID[];
 layout (location = 1) perprimitiveEXT out uint outTriangleID[];
 layout (location = 2) out vec2 outUV[];
 layout (location = 3) out uint outMaterialID[];
+layout (location = 4) out vec4 outClipPos[];
+layout (location = 5) out vec4 outPrevClipPos[];
 
 uint hash(uint a)
 {
@@ -114,10 +118,16 @@ void main()
 		Vertex v = pc.vertexBuffer.vertices[vertexIndex];
 		vec4 position = o.worldMatrix * vec4(v.position, 1.0);
 	
-		gl_MeshVerticesEXT[i].gl_Position = sceneData.viewproj * position;
+		vec4 clipPos = sceneData.viewproj * position;
+		vec4 prevClipPos = sceneData.previousViewproj * position;
 		
 		outUV[i] = vec2(v.uv_x, v.uv_y);
 		outMaterialID[i] = o.materialID; // only used for alpha clipping
+		
+		outClipPos[i] = clipPos;
+		outPrevClipPos[i] = prevClipPos;
+		
+		gl_MeshVerticesEXT[i].gl_Position = clipPos;
 	}
 	
 	memoryBarrier(); 

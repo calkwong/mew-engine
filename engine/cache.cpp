@@ -36,6 +36,17 @@ void TextureCache::set_shadowmap(uint32_t id)
 {
 	shadowmap_id = id;
 }
+void TextureCache::set_accumulation_buffer(uint32_t id)
+{
+	accum_id = id;
+}
+
+uint32_t TextureCache::get_accumulation_buffer()
+{
+	accum_pp *= -1;
+	accum_id += accum_pp;
+	return accum_id;
+}
 
 uint32_t TextureCache::get_draw_image() const
 {

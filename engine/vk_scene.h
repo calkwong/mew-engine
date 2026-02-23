@@ -67,6 +67,7 @@ struct SceneData
 	glm::mat4 view{};
 	glm::mat4 proj{};
 	glm::mat4 viewproj{};
+	glm::mat4 previous_viewproj{};
 	glm::mat4 light_rot{};
 	std::array<glm::mat4, 4> shadow_transforms{};
 	glm::vec4 cascade_splits{};
