@@ -143,6 +143,8 @@ void VulkanEngine::init(std::vector<std::string>& file_paths)
 
 	init_imgui();
 
+	ready_mesh_draw();
+
 	build_cluster_grid(); // TODO: support draw distance change
 	// init_precomputations();
 
@@ -260,6 +262,7 @@ void VulkanEngine::cleanup()
 
 void VulkanEngine::draw()
 {
+	// clang-format off
 	{
 		VK_CHECK(vkWaitForFences(device, 1, &get_current_frame().render_fence, true, 1000000000));
 	}
@@ -268,12 +271,12 @@ void VulkanEngine::draw()
 
 	get_current_frame().deletion_queue.flush();
 
+	bool visibility_rendering = CVAR_TOGGLE_VIS_BUFFER.get() && CVAR_TOGGLE_MESH_SHADING.get();
+	buffer_barriers.clear();
+	image_barriers.clear();
+
 	auto* scene_uniform_data = static_cast<SceneData*>(get_current_frame().scene_buffer.info.pMappedData);
 	*scene_uniform_data = scene_data;
-
-	ready_mesh_draw();
-
-	std::vector<RenderScene::MeshPass*> passes = { &render_scene.opaque_pass };
 
 	CullData forward_mesh_cull_data{};
 	ClusterCullData forward_cluster_cull_data{};
@@ -374,57 +377,62 @@ void VulkanEngine::draw()
 		}
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 1);
 
-		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
-
-		vkutil::transition_image(
-		    cmd,
-		    depth_image.image,
-		    VK_IMAGE_LAYOUT_UNDEFINED,
-		    VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
-		    VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, // TODO: do we need fragment shader bit? cc deferred.frag
-		    VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
-		    VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, // TODO: do we need shader sample? cc deferred.frag
-		    VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
-		    VK_IMAGE_ASPECT_DEPTH_BIT
+		buffer_barriers.emplace_back(buffer_barrier(VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT));
+		image_barriers.emplace_back(image_barrier(depth_image.image,
+				VK_IMAGE_LAYOUT_UNDEFINED,
+				VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+				VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, // TODO: do we need fragment shader bit? cc deferred.frag
+				VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
+				VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, // TODO: do we need shader sample? cc deferred.frag
+				VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
+				VK_IMAGE_ASPECT_DEPTH_BIT
+			)
 		);
 
 		// TODO: we don't need to transition all
+		if (visibility_rendering)
 		{
-			vkutil::transition_image(
-				cmd,
-				visibility_buffer.image,
-				VK_IMAGE_LAYOUT_UNDEFINED,
-				VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-				VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-				VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-				VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-				VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT
-			);
-			vkutil::transition_image(
-				cmd,
-				velocity_buffer.image,
-				VK_IMAGE_LAYOUT_UNDEFINED,
-				VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-				VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-				VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-				VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-				VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT
-			);
-
-			for (int i = 0; i < GBUFFER_COUNT; i++)
-			{
-				vkutil::transition_image(
-					cmd,
-					gbuffers[i].image,
+			image_barriers.emplace_back(image_barrier(
+					visibility_buffer.image,
 					VK_IMAGE_LAYOUT_UNDEFINED,
 					VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 					VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
 					VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
 					VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
 					VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT
+				)
+			);
+			image_barriers.emplace_back(image_barrier(
+					velocity_buffer.image,
+					VK_IMAGE_LAYOUT_UNDEFINED,
+					VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+					VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+					VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+					VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
+					VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT
+				)
+			);
+		}
+		else
+		{
+			for (int i = 0; i < GBUFFER_COUNT; i++)
+			{
+				image_barriers.emplace_back(image_barrier(
+						gbuffers[i].image,
+						VK_IMAGE_LAYOUT_UNDEFINED,
+						VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+						VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+						VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+						VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
+						VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT
+					)
 				);
 			}
 		}
+
+		pipeline_barrier(cmd, buffer_barriers.data(), buffer_barriers.size(), image_barriers.data(), image_barriers.size());
+		buffer_barriers.clear();
+		image_barriers.clear();
 
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 2);
 		render(cmd, false, 0, 0);
@@ -554,17 +562,17 @@ void VulkanEngine::draw()
 		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
 
 		// is this necessary - ensure depth image in use is final; skipping this worked ok, not sure if pixel interlock interference compensates for it
-		// vkutil::transition_image(
-		//	cmd,
-		//	depth_image.image,
-		//	VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
-		//	VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
-		//	VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
-		//	VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
-		//	VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-		//	VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
-		//	VK_IMAGE_ASPECT_DEPTH_BIT
-		//);
+		 vkutil::transition_image(
+			cmd,
+			depth_image.image,
+			VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+			VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+			VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+			VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
+			VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+			VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
+			VK_IMAGE_ASPECT_DEPTH_BIT
+		);
 
 		// TODO: barrier for OIT buffer from last frame? this is likely unnecessary
 		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
@@ -621,13 +629,16 @@ void VulkanEngine::draw()
 		execute_shadow_cull(cmd);
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 21);
 
-		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, // | VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT,
-		                          VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+		buffer_barriers.emplace_back(buffer_barrier(VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, // | VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT,
+								  VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT));
 
 		for (auto& i : cascade_data)
 		{
-			vkutil::transition_image(cmd, i.shadow_map.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT, VK_IMAGE_ASPECT_DEPTH_BIT);
+			image_barriers.emplace_back(image_barrier(i.shadow_map.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT, VK_IMAGE_ASPECT_DEPTH_BIT));
 		}
+		pipeline_barrier(cmd, buffer_barriers.data(), buffer_barriers.size(), image_barriers.data(), image_barriers.size());
+		buffer_barriers.clear();
+		image_barriers.clear();
 
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 22);
 		uint32_t q = 4;
@@ -640,8 +651,10 @@ void VulkanEngine::draw()
 
 		for (auto& i : cascade_data)
 		{
-			vkutil::transition_image(cmd, i.shadow_map.image, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, VK_IMAGE_ASPECT_DEPTH_BIT);
+			image_barriers.emplace_back(image_barrier(i.shadow_map.image, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, VK_IMAGE_ASPECT_DEPTH_BIT));
 		}
+		pipeline_barrier(cmd, nullptr, 0, image_barriers.data(), image_barriers.size());
+		image_barriers.clear();
 	}
 	else
 	{
@@ -657,83 +670,86 @@ void VulkanEngine::draw()
 	{
 		if (CVAR_TOGGLE_VIS_BUFFER.get())
 		{
-			vkutil::transition_image(
-				cmd,
-				visibility_buffer.image,
-				VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-				VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-				VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-				VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-				VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-				VK_ACCESS_2_SHADER_SAMPLED_READ_BIT
-			);
-			// TODO: only for TAA
-			vkutil::transition_image(
-				cmd,
-				velocity_buffer.image,
-				VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-				VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-				VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-				VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-				VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-				VK_ACCESS_2_SHADER_SAMPLED_READ_BIT
-			);
-		}
-		else
-		{
-			for (int i = 0; i < GBUFFER_COUNT; i++)
-			{
-				vkutil::transition_image(
-					cmd,
-					gbuffers[i].image,
+			image_barriers.emplace_back(image_barrier(
+					visibility_buffer.image,
 					VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 					VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 					VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
 					VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
 					VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
 					VK_ACCESS_2_SHADER_SAMPLED_READ_BIT
+				)
+			);
+			// could technically transition this only if TAA is enabled, but we transition anyway
+			image_barriers.emplace_back(image_barrier(
+					velocity_buffer.image,
+					VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+					VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+					VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+					VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+					VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+					VK_ACCESS_2_SHADER_SAMPLED_READ_BIT
+				)
+			);
+		}
+		else
+		{
+			for (int i = 0; i < GBUFFER_COUNT; i++)
+			{
+				image_barriers.emplace_back(image_barrier(
+						gbuffers[i].image,
+						VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+						VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+						VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+						VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+						VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+						VK_ACCESS_2_SHADER_SAMPLED_READ_BIT
+					)
 				);
 			}
 		}
 
-		vkutil::transition_image(
-			cmd,
-			depth_image.image,
-			VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
-			VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-			VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
-			VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-			VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-			VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-			VK_IMAGE_ASPECT_DEPTH_BIT
+		image_barriers.emplace_back(image_barrier(
+				depth_image.image,
+				VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+				VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+				VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+				VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+				VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+				VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
+				VK_IMAGE_ASPECT_DEPTH_BIT
+			)
 		);
 
 		// if TAA, this is used in resolve attachment; else as deferred lighting attachment
-		vkutil::transition_image(
-			cmd,
-			draw_image.image,
-			VK_IMAGE_LAYOUT_UNDEFINED,
-			VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-			VK_PIPELINE_STAGE_2_BLIT_BIT,
-			VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-			VK_ACCESS_2_TRANSFER_READ_BIT,
-			VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT
-		); // from prev frame's blit to swapchain
+		image_barriers.emplace_back(image_barrier(
+				draw_image.image,
+				VK_IMAGE_LAYOUT_UNDEFINED, // from prev frame's blit to swapchain
+				VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+				VK_PIPELINE_STAGE_2_BLIT_BIT,
+				VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+				VK_ACCESS_2_TRANSFER_READ_BIT,
+				VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT
+			)
+		);
 
 		if (CVAR_TOGGLE_TAA.get())
 		{
 			// previous frame history buffer
-			vkutil::transition_image(
-				cmd,
-				accumulation_buffers[frame_number % 2].image,
-				VK_IMAGE_LAYOUT_UNDEFINED,
-				VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-				VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-				VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-				VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-				VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT
+			image_barriers.emplace_back(image_barrier(
+					accumulation_buffers[frame_number % 2].image,
+					VK_IMAGE_LAYOUT_UNDEFINED,
+					VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+					VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+					VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+					VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
+					VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT
+				)
 			);
 		}
+
+		pipeline_barrier(cmd, nullptr, 0, image_barriers.data(), image_barriers.size());
+		image_barriers.clear();
 
 		VkImageView view = CVAR_TOGGLE_TAA.get() ? accumulation_buffers[frame_number % 2].view : draw_image.view;
 		if (first_frame)
@@ -750,28 +766,31 @@ void VulkanEngine::draw()
 	if (CVAR_TOGGLE_TAA.get())
 	{
 		// current frame output buffer
-		vkutil::transition_image(
-			cmd,
-			accumulation_buffers[frame_number % 2].image,
-			VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-			VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-			VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-			VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-			VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-			VK_ACCESS_2_SHADER_READ_BIT
+		image_barriers.emplace_back(image_barrier(
+				accumulation_buffers[frame_number % 2].image,
+				VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+				VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+				VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+				VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+				VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+				VK_ACCESS_2_SHADER_READ_BIT
+			)
 		);
 
 		// previous frame output buffer
-		vkutil::transition_image(
-			cmd,
-			accumulation_buffers[(frame_number + 1) % 2].image,
-			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-			VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-			VK_PIPELINE_STAGE_2_BLIT_BIT,
-			VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-			VK_ACCESS_2_TRANSFER_WRITE_BIT,
-			VK_ACCESS_2_SHADER_READ_BIT
+		image_barriers.emplace_back(image_barrier(
+				accumulation_buffers[(frame_number + 1) % 2].image,
+				VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+				VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+				VK_PIPELINE_STAGE_2_BLIT_BIT,
+				VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+				VK_ACCESS_2_TRANSFER_WRITE_BIT,
+				VK_ACCESS_2_SHADER_READ_BIT
+			)
 		);
+
+		pipeline_barrier(cmd, nullptr, 0, image_barriers.data(), image_barriers.size());
+		image_barriers.clear();
 
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 24);
 		if (!first_frame)
@@ -779,15 +798,15 @@ void VulkanEngine::draw()
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 25);
 
 		// copy resolve to current output buffer
-		vkutil::transition_image(
-			cmd,
-			accumulation_buffers[frame_number % 2].image,
-			VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-			VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-			VK_PIPELINE_STAGE_2_BLIT_BIT,
-			VK_ACCESS_2_SHADER_READ_BIT,
-			VK_ACCESS_2_TRANSFER_WRITE_BIT
+		image_barriers.emplace_back(image_barrier(
+				accumulation_buffers[frame_number % 2].image,
+				VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+				VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+				VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+				VK_PIPELINE_STAGE_2_BLIT_BIT,
+				VK_ACCESS_2_SHADER_READ_BIT,
+				VK_ACCESS_2_TRANSFER_WRITE_BIT
+			)
 		);
 	}
 	else
@@ -796,28 +815,31 @@ void VulkanEngine::draw()
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 25);
 	}
 
-	// TAA or not, this is a color attachment prior to copying
-	vkutil::transition_image(
-	    cmd,
-	    draw_image.image,
-	    VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-	    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-	    VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-	    VK_PIPELINE_STAGE_2_BLIT_BIT,
-	    VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-	    VK_ACCESS_2_TRANSFER_READ_BIT
+	// TAA or not, this is a color attachment prior to using as blit src
+	image_barriers.emplace_back(image_barrier(
+		    draw_image.image,
+		    VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+		    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+		    VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+		    VK_PIPELINE_STAGE_2_BLIT_BIT,
+		    VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+		    VK_ACCESS_2_TRANSFER_READ_BIT
+	    )
 	);
 
-	vkutil::transition_image(
-	    cmd,
-	    swapchain_images[swapchain_image_idx],
-	    VK_IMAGE_LAYOUT_UNDEFINED,
-	    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-	    0,
-	    VK_PIPELINE_STAGE_2_BLIT_BIT,
-	    0,
-	    VK_ACCESS_2_TRANSFER_WRITE_BIT
+	image_barriers.emplace_back(image_barrier(
+		    swapchain_images[swapchain_image_idx],
+		    VK_IMAGE_LAYOUT_UNDEFINED,
+		    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		    0,
+		    VK_PIPELINE_STAGE_2_BLIT_BIT,
+		    0,
+		    VK_ACCESS_2_TRANSFER_WRITE_BIT
+		)
 	);
+
+	pipeline_barrier(cmd, nullptr, 0, image_barriers.data(), image_barriers.size());
+	image_barriers.clear();
 
 	if (CVAR_TOGGLE_TAA.get())
 	{
@@ -876,6 +898,7 @@ void VulkanEngine::draw()
 	VK_CHECK(vkQueuePresentKHR(graphics_queue, &present_info));
 	// FrameMark;
 	frame_number++;
+	// clang-format on;
 }
 
 /*
@@ -1429,8 +1452,8 @@ void VulkanEngine::create_swapchain(uint32_t width, uint32_t height)
 	vkb::Swapchain vkbSwapchain = swapchainBuilder
 	                                  //.use_default_format_selection()
 	                                  .set_desired_format(VkSurfaceFormatKHR{ .format = swapchain_image_format, .colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR })
-	                                  // .set_desired_present_mode(VK_PRESENT_MODE_FIFO_KHR)
-	                                  .set_desired_present_mode(VK_PRESENT_MODE_IMMEDIATE_KHR)
+	                                  .set_desired_present_mode(VK_PRESENT_MODE_FIFO_KHR)
+	                                  // .set_desired_present_mode(VK_PRESENT_MODE_IMMEDIATE_KHR)
 	                                  .set_desired_extent(width, height)
 	                                  .add_image_usage_flags(VK_IMAGE_USAGE_TRANSFER_DST_BIT)
 	                                  .build()

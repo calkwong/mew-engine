@@ -62,3 +62,22 @@ namespace vkutil
 	);
 }
 
+VkMemoryBarrier2 buffer_barrier(
+	VkPipelineStageFlags2 src_stage_mask,
+	VkPipelineStageFlags2 dst_stage_mask,
+	VkAccessFlags2 src_access_mask,
+	VkAccessFlags2 dst_access_mask
+);
+
+VkImageMemoryBarrier2 image_barrier(
+	VkImage image,
+	VkImageLayout old_layout,
+	VkImageLayout new_layout,
+	VkPipelineStageFlags2 src_stage_mask,
+	VkPipelineStageFlags2 dst_stage_mask,
+	VkAccessFlags2 src_access_mask,
+	VkAccessFlags2 dst_access_mask,
+	VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT
+);
+
+void pipeline_barrier(VkCommandBuffer cmd, VkMemoryBarrier2* p_buffer, size_t count_buffer, VkImageMemoryBarrier2* p_image, size_t count_image);

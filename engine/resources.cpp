@@ -350,3 +350,53 @@ void vkutil::transition_buffer(
 	vkCmdPipelineBarrier2(cmd, &info);
 }
 
+VkMemoryBarrier2 buffer_barrier(
+	VkPipelineStageFlags2 src_stage_mask,
+	VkPipelineStageFlags2 dst_stage_mask,
+	VkAccessFlags2 src_access_mask,
+	VkAccessFlags2 dst_access_mask
+)
+{
+	VkMemoryBarrier2 barrier{};
+	barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+	barrier.srcStageMask = src_stage_mask;
+	barrier.dstStageMask = dst_stage_mask;
+	barrier.srcAccessMask = src_access_mask;
+	barrier.dstAccessMask = dst_access_mask;
+	return barrier;
+}
+
+VkImageMemoryBarrier2 image_barrier(
+	VkImage image,
+	VkImageLayout old_layout,
+	VkImageLayout new_layout,
+	VkPipelineStageFlags2 src_stage_mask,
+	VkPipelineStageFlags2 dst_stage_mask,
+	VkAccessFlags2 src_access_mask,
+	VkAccessFlags2 dst_access_mask,
+	VkImageAspectFlags aspect
+)
+{
+	VkImageMemoryBarrier2 barrier{};
+	barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+	barrier.srcStageMask = src_stage_mask;
+	barrier.dstStageMask = dst_stage_mask;
+	barrier.srcAccessMask = src_access_mask;
+	barrier.dstAccessMask = dst_access_mask;
+	barrier.oldLayout = old_layout;
+	barrier.newLayout = new_layout;
+	barrier.subresourceRange = vkinit::image_subresource_range(aspect);
+	barrier.image = image;
+	return barrier;
+}
+
+void pipeline_barrier(VkCommandBuffer cmd, VkMemoryBarrier2* p_buffer, size_t count_buffer, VkImageMemoryBarrier2* p_image, size_t count_image)
+{
+	VkDependencyInfo info{};
+	info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+	info.memoryBarrierCount = count_buffer;
+	info.pMemoryBarriers = p_buffer;
+	info.imageMemoryBarrierCount = count_image;
+	info.pImageMemoryBarriers = p_image;
+	vkCmdPipelineBarrier2(cmd, &info);
+}

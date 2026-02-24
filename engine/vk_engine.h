@@ -192,6 +192,8 @@ public:
 	std::array<CascadeData, 4> cascade_data{};
 	std::array<float, 4> jx{};
 	std::array<float, 4> jy{};
+	std::vector<VkImageMemoryBarrier2> image_barriers{};
+	std::vector<VkMemoryBarrier2> buffer_barriers{};
 
 	// tracy::VkCtx* tracy_ctx{};
 	RenderScene render_scene{};
