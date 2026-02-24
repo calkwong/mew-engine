@@ -63,12 +63,15 @@ layout( push_constant ) uniform constants
 	//OITBuffer oitBuffer;
 	uint padding[2 * 2];
 	uint debugMeshlets;
+	vec2 jitterOffset;
 } pc;
 
 layout (location = 0) out vec3 outNormal[];
 layout (location = 1) out vec2 outUV[];
 layout (location = 2) out vec4 outTangent[];
 layout (location = 3) out flat uint outMaterialID[];
+layout (location = 4) out vec4 outClipPos[];
+layout (location = 5) out vec4 outPrevClipPos[];
 
 uint hash(uint a)
 {
@@ -127,7 +130,13 @@ void main()
 		outTangent[i] = vec4(mat3(o.worldMatrix) * v.tangent.xyz, v.tangent.w);
 		outUV[i] = vec2(v.uv_x, v.uv_y);
 		outMaterialID[i] = o.materialID;
-	
+
+	    vec4 clipPos = sceneData.viewproj * position;
+        vec4 prevClipPos = sceneData.previousViewproj * position;
+
+        outClipPos[i] = clipPos;
+	    outPrevClipPos[i] = prevClipPos;
+
 		gl_MeshVerticesEXT[i].gl_Position = sceneData.viewproj * position;
 	}
 	

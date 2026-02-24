@@ -220,6 +220,8 @@ void main()
 			// experiment 32 meshlets per workgroup, each workgroup limited to meshlets from a single mesh
 			uint tasks = (meshletCount + 31) / 32;
 			uint count = atomicAdd(pc.dispatchBuffer.workgroupX, tasks); 
+			pc.dispatchBuffer.workgroupY = 1;
+			pc.dispatchBuffer.workgroupZ = 1;
 			for (uint i = 0; i < tasks; i++)
 			{
 				pc.meshTaskBuffer.commands[count + i].meshletOffset = meshletOffset + i * 32;

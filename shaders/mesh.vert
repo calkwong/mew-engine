@@ -10,6 +10,8 @@ layout (location = 0) out vec3 outNormal;
 layout (location = 1) out vec2 outUV;
 layout (location = 2) out vec4 outTangent;
 layout (location = 3) out flat uint outMaterialID;
+layout (location = 4) out vec4 outClipPos;
+layout (location = 5) out vec4 outPrevClipPos;
 
 layout(buffer_reference, std430) readonly buffer VertexBuffer
 { 
@@ -33,6 +35,7 @@ layout( push_constant ) uniform constants
 	//OITBuffer oitBuffer;
 	uint padding[6 * 2];
 	uint debugMeshlets;
+	vec2 jitterOffset;
 } pc;
 
 void main() 
@@ -50,6 +53,9 @@ void main()
 	
 	outUV = vec2(v.uv_x, v.uv_y);
 	outMaterialID = o.materialID;
-	
+
+    outClipPos = sceneData.viewproj * position;
+    outPrevClipPos = sceneData.previousViewproj * position;
+
 	gl_Position =  sceneData.viewproj * position;
 }

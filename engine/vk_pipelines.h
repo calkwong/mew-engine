@@ -96,12 +96,6 @@ struct TAAResolvePC
 	uint32_t depth_dilation{};
 };
 
-struct DebugPushConstants
-{
-	uint32_t texture_id{};
-	uint32_t lod{}; // depth pyramid lod
-};
-
 struct DepthPyramidPushConstants
 {
 	std::array<int32_t, 2> image_size{};

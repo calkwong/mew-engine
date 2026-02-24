@@ -25,7 +25,7 @@ struct TextureCache
 	uint32_t get_depth_image() const;
 	uint32_t get_depth_pyramid_image() const;
 	uint32_t get_shadowmap() const;
-	uint32_t get_accumulation_buffer();
+	uint32_t get_accumulation_buffer(uint32_t flip) const;
 
 private:
 	uint32_t draw_id{};

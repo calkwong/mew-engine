@@ -12,8 +12,13 @@ layout (location = 0) in vec3 inNormal;
 layout (location = 1) in vec2 inUV;
 layout (location = 2) in vec4 inTangent;
 layout (location = 3) in flat uint inMaterialID;
+layout (location = 4) in vec4 inClipPos;
+layout (location = 5) in vec4 inPrevClipPos;
 
-layout (location = 0) out vec4 gbuffer[];
+layout (location = 0) out vec4 outAlbedo;
+layout (location = 1) out vec4 outNormal;
+layout (location = 2) out vec2 outMetalRoughness;
+layout (location = 3) out vec2 outVelocity;
 
 // 1 - OPAQUE
 // 0 - MASK
@@ -38,6 +43,7 @@ layout( push_constant ) uniform constants
 	//OITBuffer oitBuffer;
 	uint padding2[1 * 2];
 	uint debugMeshlets;
+	vec2 jitterOffset;
 } pc;
 
 layout(set = 1, binding = 0) uniform texture2D allTextures[];
@@ -97,17 +103,18 @@ void main()
 #else
 	N = normalize(inNormal); 
 #endif
-	
-	if (pc.debugMeshlets == 0)
-	{
-		gbuffer[0] = albedo;
-		gbuffer[1] = vec4(N, 1);
-		gbuffer[2] = vec4(metallic, roughness, 0.0, 1.0);
-	}
-	else // visualize meshlets
-	{
-		gbuffer[0] = albedo; // don't matter
-		gbuffer[1] = vec4(N, 1); // meshlet color
-		gbuffer[2] = vec4(metallic, roughness, 0.0, 1.0); // don't matter
-	}
+
+    vec2 currentNdc = inClipPos.xy / inClipPos.w;
+    vec2 previousNdc = inPrevClipPos.xy / inPrevClipPos.w;
+
+    vec2 velocity = currentNdc - previousNdc;
+    velocity = velocity * 0.5 + 0.5;
+    velocity.y *= -1.0; // flip for velocity in uv space
+
+    velocity -= pc.jitterOffset;
+
+    outAlbedo = albedo;
+    outNormal = vec4(N, 1);
+    outMetalRoughness = vec2(metallic, roughness);
+    outVelocity = vec2(velocity);
 }
