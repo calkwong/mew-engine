@@ -89,7 +89,11 @@ struct TAAResolvePC
 	uint32_t accum_id{}; // previous frame's accumulation/history buffer
 	uint32_t depth_id{};
 	uint32_t velocity_id{};
-	uint32_t debug{};
+	uint32_t variance_clipping{};
+	uint32_t history_filter{};
+	uint32_t local_filter{};
+	uint32_t ycocg{};
+	uint32_t depth_dilation{};
 };
 
 struct DebugPushConstants

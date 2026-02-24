@@ -86,7 +86,7 @@ struct CVarArray
 class CVarSystemImpl final : public CVarSystem
 {
 public:
-	constexpr static int MAX_INT_CVARS = 20;
+	constexpr static int MAX_INT_CVARS = 40;
 	CVarArray<int> cvars_int{ MAX_INT_CVARS };
 
 	constexpr static int MAX_FLOAT_CVARS = 20;

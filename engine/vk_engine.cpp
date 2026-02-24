@@ -81,8 +81,13 @@ AutoCVar_Int CVAR_TOGGLE_DEBUG_CASCADES{ "Debug cascades", 0, 0, CVarFlags::Edit
 AutoCVar_Float CVAR_CSM_LAMBDA{ "CSM log factor", 0.95f, 0.95f, CVarFlags::EditSliderFloat, 0.f, 1.f, 0.05f };
 AutoCVar_Int CVAR_SHADOW_DISTANCE{ "Shadow distance", 48, 48, CVarFlags::EditSliderInt, 20, 200, 5 };
 AutoCVar_Int CVAR_TOGGLE_VIS_BUFFER{ "Visibility renderer", 1, 1, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_TOGGLE_TAA{ "TAA", 1, 1, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_TOGGLE_DEBUG{ "Debug", 1, 1, CVarFlags::EditCheckbox };
+// TAA settings
+AutoCVar_Int CVAR_TOGGLE_TAA{ "TAA", 0, 0, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_TOGGLE_VARIANCE_CLIP{ "Variance clipping", 0, 0, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_TOGGLE_HISTORY_FILTER{ "Catmull Rom", 0, 0, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_TOGGLE_LOCAL_FILTER{ "Mitchell", 0, 0, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_TOGGLE_YCOCG{ "YCoCg", 0, 0, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_TOGGLE_DEPTH_DILATION{ "Depth dilation", 1, 1, CVarFlags::EditCheckbox };
 
 uint32_t nearest_pow2(uint32_t extent)
 {
@@ -709,12 +714,12 @@ void VulkanEngine::draw()
 			vkutil::transition_image(
 				cmd,
 				velocity_buffer.image,
-				VK_IMAGE_LAYOUT_UNDEFINED,
 				VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-				VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+				VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 				VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-				VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-				VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT
+				VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+				VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+				VK_ACCESS_2_SHADER_SAMPLED_READ_BIT
 			);
 
 			for (int i = 0; i < GBUFFER_COUNT; i++)
@@ -1131,13 +1136,27 @@ void VulkanEngine::run()
 				{
 					RENDER_IMGUI = !RENDER_IMGUI;
 				}
-
-				if (e.key.repeat == 0 && e.key.key == SDLK_F)
+				// TAA
+				if (e.key.repeat == 0 && e.key.key == SDLK_Z)
 				{
-					if (CVAR_TOGGLE_DEBUG.get() == 1)
-						CVAR_TOGGLE_DEBUG.set(0);
+					if (CVAR_TOGGLE_VARIANCE_CLIP.get() == 1)
+						CVAR_TOGGLE_VARIANCE_CLIP.set(0);
 					else
-						CVAR_TOGGLE_DEBUG.set(1);
+						CVAR_TOGGLE_VARIANCE_CLIP.set(1);
+				}
+				if (e.key.repeat == 0 && e.key.key == SDLK_X)
+				{
+					if (CVAR_TOGGLE_HISTORY_FILTER.get() == 1)
+						CVAR_TOGGLE_HISTORY_FILTER.set(0);
+					else
+						CVAR_TOGGLE_HISTORY_FILTER.set(1);
+				}
+				if (e.key.repeat == 0 && e.key.key == SDLK_C)
+				{
+					if (CVAR_TOGGLE_YCOCG.get() == 1)
+						CVAR_TOGGLE_YCOCG.set(0);
+					else
+						CVAR_TOGGLE_YCOCG.set(1);
 				}
 			}
 
@@ -2438,7 +2457,11 @@ void VulkanEngine::execute_taa_resolve(VkCommandBuffer cmd, VkImageView view)
 	pc.color_id = texture_cache.get_draw_image();
 	pc.depth_id = texture_cache.get_depth_image();
 	pc.velocity_id = texture_cache.get_visibility_buffer() + 1; // TODO: hardcoded, maybe give velocity its own setter/getter?
-	pc.debug = CVAR_TOGGLE_DEBUG.get();
+	pc.variance_clipping = CVAR_TOGGLE_VARIANCE_CLIP.get();
+	pc.history_filter = CVAR_TOGGLE_HISTORY_FILTER.get();
+	pc.local_filter = CVAR_TOGGLE_LOCAL_FILTER.get();
+	pc.ycocg = CVAR_TOGGLE_YCOCG.get();
+	pc.depth_dilation = CVAR_TOGGLE_DEPTH_DILATION.get();
 
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(TAAResolvePC), &pc);
 	vkCmdDraw(cmd, 3, 1, 0, 0);
