@@ -83,11 +83,12 @@ AutoCVar_Int CVAR_SHADOW_DISTANCE{ "Shadow distance", 48, 48, CVarFlags::EditSli
 AutoCVar_Int CVAR_TOGGLE_VIS_BUFFER{ "Visibility renderer", 1, 1, CVarFlags::EditCheckbox };
 // TAA settings
 AutoCVar_Int CVAR_TOGGLE_TAA{ "TAA", 1, 1, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_TOGGLE_VARIANCE_CLIP{ "Variance clipping", 0, 0, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_TOGGLE_VARIANCE_CLIP{ "Variance clipping", 1, 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TOGGLE_HISTORY_FILTER{ "Catmull Rom", 0, 0, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TOGGLE_LOCAL_FILTER{ "Mitchell", 0, 0, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TOGGLE_YCOCG{ "YCoCg", 0, 0, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TOGGLE_DEPTH_DILATION{ "Depth dilation", 1, 1, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_TOGGLE_WEIGH_LUMINANCE{ "Luminance weighing", 1, 1, CVarFlags::EditCheckbox };
 
 uint32_t nearest_pow2(uint32_t extent)
 {
@@ -1130,6 +1131,20 @@ void VulkanEngine::run()
 						CVAR_TOGGLE_YCOCG.set(0);
 					else
 						CVAR_TOGGLE_YCOCG.set(1);
+				}
+				if (e.key.repeat == 0 && e.key.key == SDLK_V)
+				{
+					if (CVAR_TOGGLE_WEIGH_LUMINANCE.get() == 1)
+						CVAR_TOGGLE_WEIGH_LUMINANCE.set(0);
+					else
+						CVAR_TOGGLE_WEIGH_LUMINANCE.set(1);
+				}
+				if (e.key.repeat == 0 && e.key.key == SDLK_B)
+				{
+					if (CVAR_TOGGLE_DEPTH_DILATION.get() == 1)
+						CVAR_TOGGLE_DEPTH_DILATION.set(0);
+					else
+						CVAR_TOGGLE_DEPTH_DILATION.set(1);
 				}
 			}
 
@@ -2395,6 +2410,7 @@ void VulkanEngine::execute_taa_resolve(VkCommandBuffer cmd, VkImageView view)
 	pc.local_filter = CVAR_TOGGLE_LOCAL_FILTER.get();
 	pc.ycocg = CVAR_TOGGLE_YCOCG.get();
 	pc.depth_dilation = CVAR_TOGGLE_DEPTH_DILATION.get();
+	pc.weigh_luminance = CVAR_TOGGLE_WEIGH_LUMINANCE.get();
 
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(TAAResolvePC), &pc);
 	vkCmdDraw(cmd, 3, 1, 0, 0);

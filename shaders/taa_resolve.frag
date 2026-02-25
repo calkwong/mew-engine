@@ -33,8 +33,10 @@ layout( push_constant ) uniform constants
 	uint local_filter;
 	uint ycocg;
 	uint depth_dilation;
+	uint weigh_luminance;
 } pc;
 
+/*
 // https://github.com/TheRealMJP/MSAAFilter/blob/master/MSAAFilter/Resolve.hlsl
 float filterCubic(float x, float B, float C)
 {
@@ -52,6 +54,12 @@ float filterCubic(float x, float B, float C)
 float filterMitchell(float value)
 {
 	return filterCubic(value, 1.0 / 3.0, 1.0 / 3.0);
+}
+*/
+
+float luminance(vec3 color)
+{
+	return dot(color, vec3(0.299, 0.587, 0.114));
 }
 
 vec3 rgb_to_ycocg(vec3 c)
@@ -233,8 +241,19 @@ void main()
 	}
 
     // TODO: fix flickering
+	float srcWeight = 0.1;
+	float historyWeight = 0.9;
+	
+	if (pc.weigh_luminance == 1)
+	{
+		float luminanceSrc = luminance(currentColor);
+		float luminanceHistory = luminance(previousColorClamped);
 
-	vec3 finalColor = currentColor * 0.1 + previousColorClamped * 0.9;
+		srcWeight *= 1.0 / (1.0 + luminanceSrc);
+		historyWeight *= 1.0 / (1.0 + luminanceHistory);
+	}
+	
+	vec3 finalColor = (currentColor * srcWeight + previousColorClamped * historyWeight) / max(srcWeight + historyWeight, 0.00001);
 
 	if (pc.ycocg == 1)
 	    finalColor = ycocg_to_rgb(finalColor);

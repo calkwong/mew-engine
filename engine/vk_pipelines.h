@@ -94,6 +94,7 @@ struct TAAResolvePC
 	uint32_t local_filter{};
 	uint32_t ycocg{};
 	uint32_t depth_dilation{};
+	uint32_t weigh_luminance{};
 };
 
 struct DepthPyramidPushConstants
