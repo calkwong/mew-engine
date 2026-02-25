@@ -82,7 +82,7 @@ AutoCVar_Float CVAR_CSM_LAMBDA{ "CSM log factor", 0.95f, 0.95f, CVarFlags::EditS
 AutoCVar_Int CVAR_SHADOW_DISTANCE{ "Shadow distance", 48, 48, CVarFlags::EditSliderInt, 20, 200, 5 };
 AutoCVar_Int CVAR_TOGGLE_VIS_BUFFER{ "Visibility renderer", 1, 1, CVarFlags::EditCheckbox };
 // TAA settings
-AutoCVar_Int CVAR_TOGGLE_TAA{ "TAA", 1, 1, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_TOGGLE_TAA{ "TAA", 0, 0, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TOGGLE_VARIANCE_CLIP{ "Variance clipping", 1, 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TOGGLE_HISTORY_FILTER{ "Catmull Rom", 0, 0, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TOGGLE_LOCAL_FILTER{ "Mitchell", 0, 0, CVarFlags::EditCheckbox };
@@ -440,7 +440,49 @@ void VulkanEngine::draw()
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 3);
 
 		if (!freeze_camera)
+		{
+			image_barriers.emplace_back(image_barrier(
+					depth_image.image,
+					VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+					VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+					VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+					VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+					VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+					VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
+					VK_IMAGE_ASPECT_DEPTH_BIT
+				)
+			);
+
+			image_barriers.emplace_back(image_barrier(
+					depth_pyramid.image,
+					VK_IMAGE_LAYOUT_UNDEFINED,
+					VK_IMAGE_LAYOUT_GENERAL,
+					VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, // debugging in fragment shader ????????????????
+					VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+					VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
+					VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+					VK_IMAGE_ASPECT_COLOR_BIT
+				)
+			);
+
+			pipeline_barrier(cmd, nullptr, 0, image_barriers.data(), image_barriers.size());
+			image_barriers.clear();
+
 			build_depth_pyramid(cmd);
+
+			// next use in compute occlusion cull; if freeze_camera, we will always be in the right image layout
+			vkutil::transition_image(
+				cmd,
+				depth_pyramid.image,
+				VK_IMAGE_LAYOUT_GENERAL,
+				VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+				VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+				VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+				VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+				VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
+				VK_IMAGE_ASPECT_COLOR_BIT
+			);
+		}
 
 		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
 
@@ -466,7 +508,7 @@ void VulkanEngine::draw()
 
 		if (!freeze_camera)
 		{
-			// last use was for building hi-z, transitioning back as depth attachment
+			// last use was for building hi-z; it never leaves depth attachment layout if freeze_camera == true
 			vkutil::transition_image(
 			    cmd,
 			    depth_image.image,
@@ -479,19 +521,6 @@ void VulkanEngine::draw()
 			    VK_IMAGE_ASPECT_DEPTH_BIT
 			);
 		}
-
-		// for sampling/debugging hi-z
-		vkutil::transition_image(
-		    cmd,
-		    depth_pyramid.image,
-		    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-		    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-		    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-		    VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-		    VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-		    VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-		    VK_IMAGE_ASPECT_COLOR_BIT
-		);
 
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 6);
 		render(cmd, true, 0, 1);
@@ -594,7 +623,7 @@ void VulkanEngine::draw()
 		vkCmdEndQuery(cmd, get_current_frame().query_pool_pipelines, 3);
 	}
 
-	// light culling
+	// light culling pass
 	if (CVAR_TOGGLE_LIGHT_CULLING.get())
 	{
 		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_SHADER_READ_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
@@ -615,7 +644,7 @@ void VulkanEngine::draw()
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 13);
 	}
 
-	// shadow
+	// shadow pass
 	if (CVAR_TOGGLE_SHADOW.get())
 	{
 		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
@@ -3209,29 +3238,29 @@ void VulkanEngine::render_shadows(VkCommandBuffer cmd, uint32_t cascade_idx, uin
 
 void VulkanEngine::build_depth_pyramid(VkCommandBuffer cmd)
 {
-	vkutil::transition_image(
-	    cmd,
-	    depth_image.image,
-	    VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
-	    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-	    VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
-	    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-	    VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-	    VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-	    VK_IMAGE_ASPECT_DEPTH_BIT
-	);
-
-	vkutil::transition_image(
-	    cmd,
-	    depth_pyramid.image,
-	    VK_IMAGE_LAYOUT_UNDEFINED,
-	    VK_IMAGE_LAYOUT_GENERAL,
-	    VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, // debugging in fragment shader
-	    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-	    VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-	    VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-	    VK_IMAGE_ASPECT_COLOR_BIT
-	);
+	// vkutil::transition_image(
+	//     cmd,
+	//     depth_image.image,
+	//     VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+	//     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+	//     VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+	//     VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+	//     VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+	//     VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
+	//     VK_IMAGE_ASPECT_DEPTH_BIT
+	// );
+	//
+	// vkutil::transition_image(
+	//     cmd,
+	//     depth_pyramid.image,
+	//     VK_IMAGE_LAYOUT_UNDEFINED,
+	//     VK_IMAGE_LAYOUT_GENERAL,
+	//     VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, // debugging in fragment shader
+	//     VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+	//     VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
+	//     VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+	//     VK_IMAGE_ASPECT_COLOR_BIT
+	// );
 
 	ShaderPass current_pass = *shader_passes["depth_pyramid"];
 	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
@@ -3284,17 +3313,17 @@ void VulkanEngine::build_depth_pyramid(VkCommandBuffer cmd)
 		}
 	}
 
-	vkutil::transition_image(
-	    cmd,
-	    depth_pyramid.image,
-	    VK_IMAGE_LAYOUT_GENERAL,
-	    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-	    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-	    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-	    VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-	    VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-	    VK_IMAGE_ASPECT_COLOR_BIT
-	);
+	// vkutil::transition_image(
+	//     cmd,
+	//     depth_pyramid.image,
+	//     VK_IMAGE_LAYOUT_GENERAL,
+	//     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+	//     VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+	//     VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+	//     VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+	//     VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
+	//     VK_IMAGE_ASPECT_COLOR_BIT
+	// );
 }
 
 void VulkanEngine::build_cluster_grid()
