@@ -30,6 +30,7 @@ void destroy_buffer(VmaAllocator allocator, const AllocatedBuffer& buffer);
 // view has access to all mip and layers
 AllocatedImage create_image(VkDevice device, VmaAllocator allocator, VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspect, VmaAllocationCreateFlags flags = 0, bool mipmapped = false);
 AllocatedImage upload_image(VkDevice device, VkQueue queue, VkCommandBuffer cmd, VkFence fence, VmaAllocator allocator, const void* data, VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspect, VmaAllocationCreateFlags flags = 0, bool mipmapped = false);
+AllocatedImage create_cubemap(VkDevice device, VmaAllocator allocator, VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspect, VmaAllocationCreateFlags flags = 0, bool mipmapped = false);
 void destroy_image(VkDevice device, VmaAllocator allocator, const AllocatedImage& image);
 
 VkDeviceAddress get_buffer_address(VkDevice device, VkBuffer buffer);

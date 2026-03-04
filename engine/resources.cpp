@@ -146,18 +146,49 @@ AllocatedImage upload_image(VkDevice device, VkQueue queue, VkCommandBuffer cmd,
 		{
 			vkutil::generate_mipmaps(cmd_buf, new_image.image, VkExtent2D{ new_image.extent.width, new_image.extent.height });
 		}
-		else // only works for textures to be sampled in fragment shader
+		else
 		{
 			vkutil::transition_image(
 				cmd_buf, new_image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 				VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-				VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+				VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
 				VK_ACCESS_2_TRANSFER_WRITE_BIT,
 				VK_ACCESS_2_SHADER_READ_BIT
 			);
 		} });
 
 	destroy_buffer(allocator, upload_buffer);
+
+	return new_image;
+}
+
+AllocatedImage create_cubemap(VkDevice device, VmaAllocator allocator, VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspect, VmaAllocationCreateFlags flags /*= 0*/, bool mipmapped /*= false*/)
+{
+	AllocatedImage new_image{};
+	new_image.extent = extent;
+	new_image.format = format;
+
+	VkImageCreateInfo img_info{ vkinit::image_create_info(format, usage, new_image.extent) };
+	img_info.flags = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
+	img_info.arrayLayers = 6;
+
+	if (mipmapped)
+	{
+		img_info.mipLevels = static_cast<uint32_t>(std::floor(std::log2(static_cast<float>(std::max(extent.width, extent.height))))) + 1;
+		img_info.usage |= (VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
+	}
+
+	VmaAllocationCreateInfo alloc_info{};
+	alloc_info.flags = flags;
+	alloc_info.usage = VMA_MEMORY_USAGE_AUTO;
+	alloc_info.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+
+	VK_CHECK(vmaCreateImage(allocator, &img_info, &alloc_info, &new_image.image, &new_image.allocation, nullptr));
+
+	VkImageViewCreateInfo img_view_info{ vkinit::imageview_create_info(format, new_image.image, VK_IMAGE_ASPECT_COLOR_BIT) };
+	img_view_info.viewType = VK_IMAGE_VIEW_TYPE_CUBE;
+
+	VK_CHECK(vkCreateImageView(device, &img_view_info, nullptr, &new_image.view));
 
 	return new_image;
 }
@@ -394,9 +425,9 @@ void pipeline_barrier(VkCommandBuffer cmd, VkMemoryBarrier2* p_buffer, size_t co
 {
 	VkDependencyInfo info{};
 	info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-	info.memoryBarrierCount = count_buffer;
+	info.memoryBarrierCount = static_cast<uint32_t>(count_buffer);
 	info.pMemoryBarriers = p_buffer;
-	info.imageMemoryBarrierCount = count_image;
+	info.imageMemoryBarrierCount = static_cast<uint32_t>(count_image);
 	info.pImageMemoryBarriers = p_image;
 	vkCmdPipelineBarrier2(cmd, &info);
 }

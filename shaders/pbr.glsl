@@ -1,6 +1,4 @@
-// From https://google.github.io/filament/Filament.md.html
-
-const float PI = 3.14159265359;
+// Based on https://google.github.io/filament/Filament.md.html
 
 float D_GGX(float NdotH, float roughness)
 {

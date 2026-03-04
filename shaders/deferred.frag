@@ -4,8 +4,9 @@
 #extension GL_EXT_buffer_reference : require
 #extension GL_EXT_nonuniform_qualifier : require
 
-#include "scene.glsl"
 #include "samplers.glsl"
+#include "math.glsl"
+#include "scene.glsl"
 #include "pbr.glsl"
 
 layout(set = 1, binding = 0) uniform texture2D allTextures[];

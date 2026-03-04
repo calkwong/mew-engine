@@ -1,0 +1,104 @@
+#version 450
+
+#extension GL_EXT_nonuniform_qualifier : require
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_buffer_reference : require
+
+#include "samplers.glsl"
+#include "math.glsl"
+#include "gi.glsl"
+
+layout (local_size_x = 32) in;
+
+layout(set = 0, binding = 0, rgba32f) uniform image2DArray allImages[];
+layout(set = 1, binding = 0) uniform textureCube allCubemaps[];
+layout(set = 2, binding = 0) uniform sampler samplers[];
+
+layout(buffer_reference, std430) writeonly buffer SHBuffer
+{
+	SH9 rCoefficients;
+	SH9 gCoefficients;
+	SH9 bCoefficients;
+};
+
+layout (push_constant) uniform constants
+{
+	SHBuffer shBuffer;
+	uint cubemap_id;
+} pc;
+
+shared SH9 sharedR[gl_WorkGroupSize.x];
+shared SH9 sharedG[gl_WorkGroupSize.x];
+shared SH9 sharedB[gl_WorkGroupSize.x];
+
+const int samples = 100;
+
+void main()
+{
+	SH9 R = shZero();
+	SH9 G = shZero();
+	SH9 B = shZero();
+
+	// TODO: use more workgroups
+	for (float phi = gl_LocalInvocationIndex + 0.5; phi < samples; phi = phi + gl_WorkGroupSize.x)
+	{
+		for (float theta = 0.5; theta < samples; theta++) 
+		{
+			vec3 dir = uniformSampleSphere(phi * (1.0 / samples), theta * (1.0 / samples));
+			
+			SH9 base = shBasis(dir);
+			
+			vec3 color = texture(samplerCube(allCubemaps[pc.cubemap_id], samplers[CUBE_SAMPLER]), dir).xyz;
+			
+			R = shSum(R, shScale(base, color.r));
+			G = shSum(G, shScale(base, color.g));
+			B = shSum(B, shScale(base, color.b));
+		}
+	}
+	
+	sharedR[gl_LocalInvocationIndex] = R;
+	sharedG[gl_LocalInvocationIndex] = G;
+	sharedB[gl_LocalInvocationIndex] = B;
+	
+	// TODO: technically not required for single workgroup single warp - to modify if using more workgroups/warps
+	//memoryBarrier();
+	//barrier();
+	
+	if (gl_LocalInvocationIndex == 0)
+	{
+		R = sharedR[0];
+		G = sharedG[0];
+		B = sharedB[0];
+		
+		for (int i = 1; i < gl_WorkGroupSize.x; i++)
+		{
+			R = shSum(sharedR[i], R);
+			G = shSum(sharedG[i], G);
+			B = shSum(sharedB[i], B);
+		}
+		
+		float factor = (4 * PI) / (samples * samples);
+		R = shScale(R, factor);
+		G = shScale(G, factor);
+		B = shScale(B, factor);
+		
+		SH9 coefficients;
+		coefficients.c[0] = 3.141593 * 0.282095; 
+		coefficients.c[1] = 2.094395 * -0.488603;
+		coefficients.c[2] = 2.094395 * 0.488603;
+		coefficients.c[3] = 2.094395 * -0.488603;
+		coefficients.c[4] = 0.785398 * 1.092548;
+		coefficients.c[5] = 0.785398 * -1.092548;
+		coefficients.c[6] = 0.785398 * 0.315392;
+		coefficients.c[7] = 0.785398 * -1.092548;
+		coefficients.c[8] = 0.785398 * 0.546274;
+		
+		R = shMul(R, coefficients);
+		G = shMul(G, coefficients);
+		B = shMul(B, coefficients);
+		
+		pc.shBuffer.rCoefficients = R;
+		pc.shBuffer.gCoefficients = G;
+		pc.shBuffer.bCoefficients = B;
+	}
+}

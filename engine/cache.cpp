@@ -41,6 +41,16 @@ void TextureCache::set_accumulation_buffer(uint32_t id)
 	accum_id = id;
 }
 
+void TextureCache::set_hdri(uint32_t id)
+{
+	hdri_id = id;
+}
+
+uint32_t TextureCache::get_hdri() const
+{
+	return hdri_id;
+}
+
 uint32_t TextureCache::get_accumulation_buffer(uint32_t flip) const
 {
 	// accum_pp = flip ? accum_pp * -1 : accum_pp;
@@ -101,6 +111,16 @@ void SamplerCache::add_sampler(const VkSampler& sampler)
 void ImageCache::set_depth_pyramid_image(uint32_t id)
 {
 	depth_pyramid_id = id;
+}
+
+void ImageCache::set_hdri(uint32_t id)
+{
+	hdri_id = id;
+}
+
+uint32_t ImageCache::get_hdri() const
+{
+	return hdri_id;
 }
 
 uint32_t ImageCache::get_depth_pyramid_image() const

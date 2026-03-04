@@ -14,6 +14,8 @@
 // #include <tracy/Tracy.hpp>
 // #include <tracy/TracyVulkan.hpp>
 // #include <glm/gtx/string_cast.hpp>
+#include "stb_image.h"
+
 #include <SDL3/SDL_events.h>
 #include <SDL3/SDL_init.h>
 #include <SDL3/SDL_timer.h>
@@ -63,7 +65,7 @@ constexpr int MAX_OPAQUE_DRAWS{ 200000 };
 constexpr int MAX_ALPHACLIP_DRAWS{ 200000 };
 constexpr int MAX_LIGHTS_PER_CLUSTER = 1000;
 
-AutoCVar_Int CVAR_DRAW_DISTANCE{ "Draw distance", 1000, 1000, CVarFlags::EditSliderInt, 100, 1000, 100 };
+AutoCVar_Int CVAR_DRAW_DISTANCE{ "Draw distance", 100, 100, CVarFlags::EditSliderInt, 100, 1000, 100 };
 AutoCVar_Int CVAR_TOGGLE_MESH_SHADING{ "Mesh shading", 1, 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TOGGLE_OCCLUSION{ "Occlusion", 1, 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TOGGLE_LOD{ "LOD", 1, 1, CVarFlags::EditCheckbox };
@@ -89,6 +91,12 @@ AutoCVar_Int CVAR_TOGGLE_LOCAL_FILTER{ "Mitchell", 0, 0, CVarFlags::EditCheckbox
 AutoCVar_Int CVAR_TOGGLE_YCOCG{ "YCoCg", 0, 0, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TOGGLE_DEPTH_DILATION{ "Depth dilation", 1, 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TOGGLE_WEIGH_LUMINANCE{ "Luminance weighing", 1, 1, CVarFlags::EditCheckbox };
+// GI settings
+AutoCVar_Float CVAR_GI_METALLIC{ "Metallic", 0.0f, 0.0f, CVarFlags::EditSliderFloat, 0.f, 1.f, 0.05f };
+AutoCVar_Float CVAR_GI_ROUGHNESS{ "Roughness", 0.5f, 0.5f, CVarFlags::EditSliderFloat, 0.f, 1.f, 0.05f };
+AutoCVar_Int CVAR_TOGGLE_SH{ "SH", 1, 1, CVarFlags::EditCheckbox };
+
+uint32_t CUBEMAP_ID = 0;
 
 uint32_t nearest_pow2(uint32_t extent)
 {
@@ -148,6 +156,7 @@ void VulkanEngine::init(std::vector<std::string>& file_paths)
 
 	build_cluster_grid(); // TODO: support draw distance change
 	// init_precomputations();
+	init_gi();
 
 	// first frame transitions to avoid validation errors
 	{
@@ -235,6 +244,8 @@ void VulkanEngine::cleanup()
 		destroy_buffer(allocator, render_scene.oit_buffer);
 		destroy_buffer(allocator, render_scene.indices_buffer);
 
+		destroy_buffer(allocator, render_scene.sh_buffer);
+
 		// TODO: possibly destroy loadedgltf resources here instead?
 
 		for (const auto& shader : std::views::values(shader_passes))
@@ -261,6 +272,88 @@ void VulkanEngine::cleanup()
 	loaded_engine = nullptr;
 }
 
+void VulkanEngine::init_gi()
+{
+	VK_CHECK(vkResetFences(device, 1, &imm_fence));
+	VK_CHECK(vkResetCommandBuffer(imm_command_buffer, 0));
+	VkCommandBufferBeginInfo cmd_begin_info = vkinit::command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
+	VK_CHECK(vkBeginCommandBuffer(imm_command_buffer, &cmd_begin_info));
+
+	{
+		vkutil::transition_image(imm_command_buffer, hdri_cubemap.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, 0, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, 0, VK_ACCESS_2_SHADER_WRITE_BIT);
+
+		ShaderPass current_pass = *shader_passes["hdri2cubemap"];
+		IBLPushConstants pc{};
+		pc.image_size = glm::vec2(hdri_cubemap.extent.width, hdri_cubemap.extent.height);
+		pc.texture_id = texture_cache.get_hdri();
+		pc.image_id = image_cache.get_hdri();
+
+		vkCmdBindPipeline(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
+		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &bindless_image_descriptor, 0, nullptr);
+		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
+		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
+		vkCmdPushConstants(imm_command_buffer, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IBLPushConstants), &pc);
+		// TODO: hardcoded, use threadgroup size from config?
+		vkCmdDispatch(imm_command_buffer, static_cast<uint32_t>(std::ceil(hdri_cubemap.extent.width / 32.0)), static_cast<uint32_t>(std::ceil(hdri_cubemap.extent.height / 32.0)), 1);
+
+		auto updated_hdri_id = texture_cache.get_hdri() + 1;
+		texture_cache.set_hdri(updated_hdri_id);
+
+		vkutil::transition_image(imm_command_buffer, hdri_cubemap.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_BLIT_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+
+		vkutil::generate_mipmaps(imm_command_buffer, hdri_cubemap.image, VkExtent2D(hdri_cubemap.extent.width, hdri_cubemap.extent.height), 6);
+
+		vkutil::transition_image(imm_command_buffer, hdri_cubemap.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_BLIT_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT, VK_ACCESS_2_SHADER_READ_BIT);
+	}
+
+	// compute SH coefficients
+	{
+		ShaderPass current_pass = *shader_passes["spherical_harmonics"];
+		SHPushConstants pc{};
+		pc.sh_buffer_address = get_buffer_address(device, render_scene.sh_buffer.buffer);
+		pc.cubemap_id = texture_cache.get_hdri();
+
+		vkCmdBindPipeline(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
+		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &bindless_image_descriptor, 0, nullptr);
+		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
+		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
+		vkCmdPushConstants(imm_command_buffer, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(SHPushConstants), &pc);
+
+		vkCmdDispatch(imm_command_buffer, 1, 1, 1);
+	}
+
+	// compute irradiance cubemap for SH reference
+	{
+		vkutil::transition_image(imm_command_buffer, irradiance_cubemap.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, 0, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, 0, VK_ACCESS_2_SHADER_WRITE_BIT);
+
+		ShaderPass current_pass = *shader_passes["irradiance"];
+		IBLPushConstants pc{};
+		pc.image_size = glm::vec2(irradiance_cubemap.extent.width, irradiance_cubemap.extent.height);
+		pc.texture_id = texture_cache.get_hdri();
+		pc.image_id = image_cache.get_hdri() + 1;
+
+		vkCmdBindPipeline(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
+		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &bindless_image_descriptor, 0, nullptr);
+		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
+		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
+		vkCmdPushConstants(imm_command_buffer, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IBLPushConstants), &pc);
+		// TODO: hardcoded, use threadgroup size from config?
+		vkCmdDispatch(imm_command_buffer, static_cast<uint32_t>(std::ceil(irradiance_cubemap.extent.width / 8.0)), static_cast<uint32_t>(std::ceil(irradiance_cubemap.extent.height / 8.0)), 1);
+
+		auto skybox_id = texture_cache.get_hdri() + 1;
+		scene_data.textures[0] = skybox_id;
+
+		vkutil::transition_image(imm_command_buffer, irradiance_cubemap.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_READ_BIT);
+	}
+
+	vkutil::transition_buffer(imm_command_buffer, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+
+	VK_CHECK(vkEndCommandBuffer(imm_command_buffer));
+	VkCommandBufferSubmitInfo cmd_info = vkinit::command_buffer_submit_info(imm_command_buffer);
+	VkSubmitInfo2 submit = vkinit::submit_info(&cmd_info, nullptr, nullptr);
+	VK_CHECK(vkQueueSubmit2(graphics_queue, 1, &submit, imm_fence));
+	VK_CHECK(vkWaitForFences(device, 1, &imm_fence, true, 9999999999));
+}
 void VulkanEngine::draw()
 {
 	// clang-format off
@@ -920,7 +1013,7 @@ void VulkanEngine::draw()
 	VkPresentInfoKHR present_info{};
 	present_info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
 	present_info.waitSemaphoreCount = 1;
-	present_info.pWaitSemaphores = &get_current_frame().render_semaphore;
+	present_info.pWaitSemaphores = &get_current_frame().render_semaphore; // TODO: use swapchain image count number of semaphores instead of frame in flight? see: vulkanised 2026 frames in flight talk
 	present_info.swapchainCount = 1;
 	present_info.pSwapchains = &swapchain;
 	present_info.pImageIndices = &swapchain_image_idx;
@@ -930,6 +1023,7 @@ void VulkanEngine::draw()
 	frame_number++;
 	// clang-format on;
 }
+
 
 /*
 void VulkanEngine::init_precomputations()
@@ -956,7 +1050,7 @@ void VulkanEngine::init_precomputations()
     );
 
     //> cubemap pass
-    ShaderPass current_pass = *shader_passes["equi_to_cube"];
+    ShaderPass current_pass = *shader_passes["hdri2cubemap"];
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &bindless_image_descriptor, 0, nullptr);
@@ -1174,6 +1268,13 @@ void VulkanEngine::run()
 						CVAR_TOGGLE_DEPTH_DILATION.set(0);
 					else
 						CVAR_TOGGLE_DEPTH_DILATION.set(1);
+				}
+				if (e.key.repeat == 0 && e.key.key == SDLK_G)
+				{
+					if (CVAR_TOGGLE_SH.get() == 1)
+						CVAR_TOGGLE_SH.set(0);
+					else
+						CVAR_TOGGLE_SH.set(1);
 				}
 			}
 
@@ -1627,6 +1728,11 @@ void VulkanEngine::init_pipelines()
 	// taa
 	shader_cache.add_shader(device, "taa_resolve.frag", VK_SHADER_STAGE_FRAGMENT_BIT);
 
+	// gi
+	shader_cache.add_shader(device, "hdri2cubemap.comp", VK_SHADER_STAGE_COMPUTE_BIT);
+	shader_cache.add_shader(device, "spherical_harmonics.comp", VK_SHADER_STAGE_COMPUTE_BIT);
+	shader_cache.add_shader(device, "irradiance.comp", VK_SHADER_STAGE_COMPUTE_BIT);
+
 #ifdef NDEBUG
 	fmt::println("running Release mode"); // ensuring no clion shenanigans
 #else
@@ -1646,6 +1752,9 @@ void VulkanEngine::init_pipelines()
 	shader_passes["depth_pyramid"] = vkutil::build_shader(device, compute_builder, shader_cache["depth_pyramid.comp"], descriptor_layouts, sizeof(DepthPyramidPushConstants));
 	shader_passes["mesh_cull"] = vkutil::build_shader(device, compute_builder, shader_cache["mesh_cull.comp"], descriptor_layouts, sizeof(CullData));
 	shader_passes["meshlet_cull"] = vkutil::build_shader(device, compute_builder, shader_cache["meshlet_cull.comp"], descriptor_layouts, sizeof(ClusterCullData)); // TODO: check if this is also culldata
+	shader_passes["hdri2cubemap"] = vkutil::build_shader(device, compute_builder, shader_cache["hdri2cubemap.comp"], descriptor_layouts, sizeof(IBLPushConstants));
+	shader_passes["spherical_harmonics"] = vkutil::build_shader(device, compute_builder, shader_cache["spherical_harmonics.comp"], descriptor_layouts, sizeof(SHPushConstants));
+	shader_passes["irradiance"] = vkutil::build_shader(device, compute_builder, shader_cache["irradiance.comp"], descriptor_layouts, sizeof(IBLPushConstants));
 
 	descriptor_layouts.clear();
 	descriptor_layouts = { scene_descriptor_layout };
@@ -1776,37 +1885,6 @@ void VulkanEngine::init_pipelines()
 	{
 		vkDestroyShaderModule(device, v.get()->module, nullptr);
 	}
-}
-
-AllocatedImage VulkanEngine::create_cubemap(VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspect, VmaAllocationCreateFlags flags /*= 0*/, bool mipmapped /*= false*/)
-{
-	AllocatedImage new_image{};
-	new_image.extent = extent;
-	new_image.format = format;
-
-	VkImageCreateInfo img_info{ vkinit::image_create_info(format, usage, new_image.extent) };
-	img_info.flags = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
-	img_info.arrayLayers = 6;
-
-	if (mipmapped)
-	{
-		img_info.mipLevels = static_cast<uint32_t>(std::floor(std::log2(static_cast<float>(std::max(extent.width, extent.height))))) + 1;
-		img_info.usage |= (VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT); // TODO: possible refactor - prefiltered cubemap wont need these
-	}
-
-	VmaAllocationCreateInfo alloc_info{};
-	alloc_info.flags = flags;
-	alloc_info.usage = VMA_MEMORY_USAGE_AUTO;
-	alloc_info.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-
-	VK_CHECK(vmaCreateImage(allocator, &img_info, &alloc_info, &new_image.image, &new_image.allocation, nullptr));
-
-	VkImageViewCreateInfo img_view_info{ vkinit::imageview_create_info(format, new_image.image, VK_IMAGE_ASPECT_COLOR_BIT) };
-	img_view_info.viewType = VK_IMAGE_VIEW_TYPE_CUBE;
-
-	VK_CHECK(vkCreateImageView(device, &img_view_info, nullptr, &new_image.view));
-
-	return new_image;
 }
 
 void VulkanEngine::init_default_data()
@@ -1985,13 +2063,55 @@ void VulkanEngine::init_default_data()
 	light_grid_buffer = create_buffer(allocator, total_clusters * sizeof(LightGrid), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
 	light_count_buffer = create_buffer(allocator, sizeof(uint32_t), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
 
+	// GI
+	const char* hdri_path = {"assets/pisa.hdr"};
+	float* data{};
+
+	int width{};
+	int height{};
+	int channels{};
+
+	data = stbi_loadf(hdri_path, &width, &height, &channels, STBI_rgb_alpha);
+
+	auto extent = VkExtent3D(static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1);
+
+	hdri = upload_image(device, graphics_queue, imm_command_buffer, imm_fence, allocator, (void*)data, extent,
+		VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT
+	);
+
+	auto hdri_id = texture_cache.add_texture(hdri.view);
+	texture_cache.set_hdri(hdri_id);
+
+	extent.width /= 4;
+	extent.height = extent.width;
+
+	hdri_cubemap = create_cubemap(device, allocator, extent, VK_FORMAT_R32G32B32A32_SFLOAT,
+		VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT, 0, true
+	);
+
+	texture_cache.add_texture(hdri_cubemap.view);
+	auto hdri_cubemap_id = image_cache.add_texture(hdri_cubemap.view);
+	image_cache.set_hdri(hdri_cubemap_id);
+
+	irradiance_cubemap = create_cubemap(device, allocator, VkExtent3D{ 64, 64, 1}, VK_FORMAT_R32G32B32A32_SFLOAT,
+		VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT
+	);
+
+	texture_cache.add_texture(irradiance_cubemap.view);
+	image_cache.add_texture(irradiance_cubemap.view);
+
 	main_deletion_queue.push_function([&]()
-	                                  {
-		destroy_buffer(allocator, light_buffer);
-		destroy_buffer(allocator, light_cluster_buffer);
-		destroy_buffer(allocator, light_index_buffer);
-		destroy_buffer(allocator, light_grid_buffer);
-		destroy_buffer(allocator, light_count_buffer); });
+	    {
+			destroy_buffer(allocator, light_buffer);
+			destroy_buffer(allocator, light_cluster_buffer);
+			destroy_buffer(allocator, light_index_buffer);
+			destroy_buffer(allocator, light_grid_buffer);
+			destroy_buffer(allocator, light_count_buffer);
+			destroy_image(device, allocator, hdri);
+			destroy_image(device, allocator, hdri_cubemap);
+			destroy_image(device, allocator, irradiance_cubemap);
+	    }
+	);
 
 	// initialize jitter offsets
 	{
@@ -2385,6 +2505,13 @@ void VulkanEngine::execute_deferred_shading(VkCommandBuffer cmd, VkImageView vie
 	pc.debug_shadowmap = CVAR_TOGGLE_DEBUG_SHADOWMAP.get();
 	pc.debug_cascades = CVAR_TOGGLE_DEBUG_CASCADES.get();
 
+	// GI
+	pc.metallic = CVAR_GI_METALLIC.get();
+	pc.roughness = CVAR_GI_ROUGHNESS.get();
+	pc.cubemap_id = texture_cache.get_hdri();
+	pc.sh_buffer_address = get_buffer_address(device, render_scene.sh_buffer.buffer);
+	pc.sh = CVAR_TOGGLE_SH.get();
+
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(DeferredPushConstants), &pc);
 	vkCmdDraw(cmd, 3, 1, 0, 0);
 
@@ -2644,6 +2771,13 @@ void VulkanEngine::ready_mesh_draw()
 
 		render_scene.build_mesh_buffer();
 	}
+
+	render_scene.sh_buffer = create_buffer(
+			allocator,
+			27 * sizeof(float),
+			0,
+			VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
+		);
 
 	std::vector<RenderScene::MeshPass*> passes = { &render_scene.opaque_pass, &render_scene.mask_pass, &render_scene.transparent_pass };
 

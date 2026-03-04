@@ -140,11 +140,16 @@ public:
 	AllocatedImage default_normal_image{};
 	AllocatedImage error_image{};
 	AllocatedImage offscreen_image{};
-	AllocatedImage equirectangular_image{};
-	AllocatedImage cubemap_image{};
-	AllocatedImage irradiance_image{};
-	AllocatedImage prefiltered_image{};
-	AllocatedImage brdflut_image{};
+	// AllocatedImage equirectangular_image{};
+	// AllocatedImage cubemap_image{};
+	// AllocatedImage irradiance_image{};
+	// AllocatedImage prefiltered_image{};
+	// AllocatedImage brdflut_image{};
+
+	// GI
+	AllocatedImage hdri{};
+	AllocatedImage hdri_cubemap{};
+	AllocatedImage irradiance_cubemap{}; // for SH reference
 
 	AllocatedImage shadow_map{};
 
@@ -207,8 +212,6 @@ public:
 	void draw();
 	void run();
 
-	AllocatedImage create_cubemap(VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspect, VmaAllocationCreateFlags flags = 0, bool mipmapped = false);
-
 	void update_scene();
 
 	void register_object(const Node* node, const glm::mat4& top_matrix);
@@ -238,7 +241,7 @@ private:
 	void init_default_data();
 	void init_renderables(std::vector<std::string>& file_paths);
 	void init_bindless();
-	// void init_precomputations();
+	void init_gi();
 	void init_imgui();
 	void build_cluster_grid();
 

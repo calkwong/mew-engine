@@ -8,9 +8,16 @@
 
 struct IBLPushConstants
 {
+	glm::vec2 image_size{};
 	uint32_t texture_id{};
 	uint32_t image_id{};
 	float roughness{};
+};
+
+struct SHPushConstants
+{
+	VkDeviceAddress sh_buffer_address{};
+	uint32_t cubemap_id{};
 };
 
 struct GPUPushConstants // temporarily shared by vertex and mesh shading path
@@ -54,6 +61,11 @@ struct DeferredPushConstants
 	uint32_t pcf{};
 	uint32_t debug_shadowmap{};
 	uint32_t debug_cascades{};
+	float metallic{};
+	float roughness{};
+	uint32_t cubemap_id{};
+	VkDeviceAddress sh_buffer_address{};
+	uint32_t sh{};
 };
 
 // rasteroze shadows

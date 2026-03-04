@@ -1,10 +1,11 @@
-// TODO: REFACTOR, PLENTY OF COMMITS BEHIND
-
 #version 450
 
 #extension GL_EXT_nonuniform_qualifier : require
+#extension GL_GOOGLE_include_directive : require
 
-layout (local_size_x = 16, local_size_y = 16) in;
+#include "samplers.glsl"
+
+layout (local_size_x = 32, local_size_y = 32) in;
 
 layout(set = 0, binding = 0, rgba32f) uniform image2DArray allImages[];
 layout(set = 1, binding = 0) uniform texture2D allTextures[];
@@ -12,13 +13,12 @@ layout(set = 2, binding = 0) uniform sampler samplers[];
 
 const vec2 invAtan = vec2(0.1591, 0.3183);
 
-// push constant block
 layout (push_constant) uniform constants
 {
+	vec2 imageSize;
 	uint texture_id;
 	uint image_id;
 	float roughness;
-	
 } pc;
 
 vec2 sampleSphericalMap(vec3 v)
@@ -34,9 +34,8 @@ void main()
 {
 	vec3 direction = vec3(0.0);
 
-	ivec2 texelCoord = ivec2(gl_GlobalInvocationID.xy);
-	ivec2 size = imageSize(allImages[pc.image_id]).xy;
-	vec2 uv = vec2(texelCoord + 0.5)  / vec2(size);
+	vec2 texelCoord = vec2(gl_GlobalInvocationID.xy);
+	vec2 uv = (texelCoord + vec2(0.5)) / pc.imageSize;
 	uv = uv * 2.0 - 1.0;
 
 	for (int face = 0; face < 6; face++)
@@ -53,8 +52,7 @@ void main()
 		}
 
 		vec2 sample_uv = sampleSphericalMap(direction);
-		vec4 color = texture(sampler2D(allTextures[pc.texture_id], samplers[0]), sample_uv);
-		
+		vec4 color = texture(sampler2D(allTextures[pc.texture_id], samplers[LINEAR_SAMPLER]), sample_uv); // linear?
 		imageStore(allImages[pc.image_id], ivec3(texelCoord, face), color);
 	}
 }

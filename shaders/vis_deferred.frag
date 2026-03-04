@@ -4,14 +4,17 @@
 #extension GL_EXT_buffer_reference : require
 #extension GL_EXT_nonuniform_qualifier : require
 
-#include "scene.glsl"
 #include "samplers.glsl"
+#include "math.glsl"
+#include "scene.glsl"
 #include "mesh.glsl"
 #include "vbuffer.glsl"
 #include "pbr.glsl"
+#include "gi.glsl"
 
 layout(set = 1, binding = 0) uniform texture2D allTextures[];
 layout(set = 1, binding = 0) uniform utexture2D allUTextures[];
+layout(set = 1, binding = 0) uniform textureCube allCubemaps[];
 layout(set = 2, binding = 0) uniform sampler samplers[];
 
 layout (location = 0) in vec2 inUV;
@@ -82,6 +85,13 @@ layout(buffer_reference, std430) readonly buffer MaterialBuffer
 	MaterialData materials[];
 };
 
+layout(buffer_reference, std430) readonly buffer SHBuffer
+{
+	SH9 rCoefficients;
+	SH9 gCoefficients;
+	SH9 bCoefficients;
+};
+
 layout( push_constant ) uniform constants
 {
 	vec4 clusterSize; // xyz is cluster data struct dim, w is single cluster dim where width==height
@@ -108,6 +118,12 @@ layout( push_constant ) uniform constants
 	uint pcf;
 	uint debugShadowmap;
 	uint debugCascades;
+	// gi
+	float metallic;
+	float roughness;
+	uint cubemap_id;
+	SHBuffer shBuffer;
+	uint sh;
 } pc;
 
 
@@ -214,6 +230,7 @@ float calculateShadow(vec3 worldPos, inout uint cascadeIdx)
 }
 
 #define PBR
+#define GI
 
 void main()
 {
@@ -224,6 +241,15 @@ void main()
 	//	outFragColor = vec4(normal, 1.0);
 	//	return; 
 	//}
+	
+	// TODO: determine best spot to place this
+	float depth = texture(sampler2D(allTextures[pc.depth_id], samplers[NEAREST_SAMPLER]), inUV).r;
+	// TODO: refactor and use depth/stencil buffer to reject pixels
+	if (depth == 0.0)
+	{
+		outFragColor = vec4(0,0,0,1);
+		return;
+	}
 	
 	uvec2 data = texture(usampler2D(allUTextures[pc.gbuffer_id], samplers[NEAREST_SAMPLER]), inUV).rg; 
 	
@@ -310,6 +336,24 @@ void main()
 		metallic *= metalRoughness.x;
 		perceptualRoughness *= metalRoughness.y;
 	}
+	
+#ifdef GI
+	perceptualRoughness = pc.roughness;
+	metallic = pc.metallic;
+	if (pc.sh == 1.0) // evaluateSH
+	{
+		vec3 irradiance = evaluateSH(pc.shBuffer.rCoefficients, pc.shBuffer.gCoefficients, pc.shBuffer.bCoefficients, N);
+		outFragColor = vec4(irradiance * (1.0 / PI), 1.0);
+		return;
+	}
+	else // sample from irradiance map
+	{
+		albedo.xyz = texture(samplerCube(allCubemaps[uint(sceneData.textures[0])], samplers[CUBE_SAMPLER]), N).xyz;
+		outFragColor = vec4(albedo.xyz, 1.0);
+		return;
+	}
+#endif
+
 	perceptualRoughness = max(perceptualRoughness, 0.045); // frostbite engine clamp value for analytical lights (fp32)
 	float roughness = perceptualRoughness * perceptualRoughness;
 	
@@ -374,7 +418,6 @@ void main()
 		}
 	}
 	
-	float depth = texture(sampler2D(allTextures[pc.depth_id], samplers[NEAREST_SAMPLER]), inUV).r;
 	if (pc.lightCulling == 1)
 	{
 		vec4 clipPos = sceneData.viewproj * vec4(worldPos, 1.0);
@@ -431,12 +474,6 @@ void main()
 #endif
 		}
 		outFragColor.xyz += color; 
-	}
-	
-	// TODO: refactor and use depth/stencil buffer to reject pixels
-	if (depth == 0.0)
-	{
-		outFragColor = vec4(0,0,0,1);
 	}
 	
 	if (pc.resolveTransparent == 1)

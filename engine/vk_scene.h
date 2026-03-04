@@ -265,6 +265,8 @@ struct RenderScene
 	AllocatedBuffer cluster_indices{};
 	AllocatedBuffer oit_buffer{};
 
+	AllocatedBuffer sh_buffer{};
+
 	MeshPass opaque_pass{};
 	MeshPass mask_pass{};
 	MeshPass transparent_pass{};

@@ -6,6 +6,7 @@
 #extension GL_EXT_nonuniform_qualifier : require
 
 #include "scene.glsl"
+#include "samplers.glsl"
 
 layout (location = 0) in vec3 inUVW;
 
@@ -22,6 +23,6 @@ layout( push_constant ) uniform constants
 
 void main()
 {
-	vec4 color = texture(samplerCube(allTextures[pc.texture_id], samplers[1]), inUVW); // tonemap req
+	vec4 color = texture(samplerCube(allTextures[pc.texture_id], samplers[CUBE_SAMPLER]), inUVW); // tonemap req
 	outFragColor = color;
 }

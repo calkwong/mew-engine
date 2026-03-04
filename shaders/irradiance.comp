@@ -1,21 +1,22 @@
-// TODO: REFACTOR, PLENTY OF COMMITS BEHIND
-
 #version 450
 
 #extension GL_EXT_nonuniform_qualifier : require
+#extension GL_GOOGLE_include_directive : require
+
+#include "samplers.glsl"
+#include "math.glsl"
 
 layout (local_size_x = 8, local_size_y = 8) in;
 
 layout(set = 0, binding = 0, rgba32f) uniform image2DArray allImages[];
-layout(set = 1, binding = 0) uniform textureCube allTextures[];
+layout(set = 1, binding = 0) uniform textureCube allCubemaps[];
 layout(set = 2, binding = 0) uniform sampler samplers[];
 
-const float PI = 3.14159265359;
 const float sampleDelta = 0.025; 
 
-// push constant block
 layout (push_constant) uniform constants
 {
+	vec2 imageSize;
 	uint texture_id;
 	uint image_id;
 	float roughness;
@@ -27,9 +28,8 @@ void main()
 
 	vec3 direction = vec3(0.0);
 
-	ivec2 texelCoord = ivec2(gl_GlobalInvocationID.xy);
-	ivec2 size = imageSize(allImages[pc.image_id]).xy;
-	vec2 uv = vec2(texelCoord + 0.5) / vec2(size);
+	vec2 texelCoord = vec2(gl_GlobalInvocationID.xy);
+	vec2 uv = (texelCoord + vec2(0.5)) / pc.imageSize;
 	uv = uv * 2.0 - 1.0;
 
 	for (int face = 0; face < 6; face++)
@@ -46,7 +46,6 @@ void main()
 		}
 		
 		vec3 N = direction;
-		//vec3 up = vec3(0.0, 0.0, 1.0);
 		vec3 up = abs(N.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
 		vec3 T = normalize(cross(up, N));
 		vec3 B = cross(N, T);
@@ -59,8 +58,7 @@ void main()
 				vec3 tempVec = cos(phi) * T + sin(phi) * B;
 				vec3 sampleVec = cos(theta) * N + sin(theta) * tempVec;
 
-				//irradiance += textureLod(envmap, sampleVec, 0.0).xyz * cos(theta) * sin(theta); 
-				irradiance += texture(samplerCube(allTextures[pc.texture_id], samplers[1]), sampleVec).xyz * cos(theta) * sin(theta); 
+				irradiance += texture(samplerCube(allCubemaps[pc.texture_id], samplers[CUBE_SAMPLER]), sampleVec).xyz * cos(theta) * sin(theta); 
 				sampleCount++;
 			}
 		}
