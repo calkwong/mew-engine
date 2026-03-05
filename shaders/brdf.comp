@@ -1,5 +1,3 @@
-// TODO: REFACTOR, PLENTY OF COMMITS BEHIND
-
 #version 450
 
 #extension GL_EXT_nonuniform_qualifier : require
@@ -12,11 +10,11 @@ const float PI = 3.14159265359;
 
 layout (push_constant) uniform constants
 {
+	vec2 imageSize;
 	uint texture_id;
 	uint image_id;
 	float roughness;
 } pc;
-
 
 float RadicalInverse_VdC(uint bits) 
 {
@@ -77,8 +75,8 @@ vec2 IntegratedBRDF(float NdotV, float perceptualRoughness)
 	float scale = 0.0;
 	float bias = 0.0;
 
-	uint sampleCount = 1024u;
-	for (uint i = 0u; i < sampleCount; i++)
+	uint sampleCount = 1024;
+	for (uint i = 0; i < sampleCount; i++)
 	{
 		vec2 Xi = Hammersley(i, sampleCount);
 		vec3 H = ImportanceSampleGGX(Xi, N, linearRoughness);
@@ -100,14 +98,12 @@ vec2 IntegratedBRDF(float NdotV, float perceptualRoughness)
 	return 4.0 * vec2(scale, bias) / float(sampleCount);
 }
 
-
 void main()
 {
-	ivec2 texelCoord = ivec2(gl_GlobalInvocationID.xy);
-	ivec2 size = imageSize(allImages[pc.image_id]).xy;
-	vec2 uv = vec2(texelCoord + 0.5) / vec2(size);
+	vec2 texelCoord = vec2(gl_GlobalInvocationID.xy);
+	vec2 uv = (texelCoord + vec2(0.5)) / pc.imageSize;
 	
 	vec2 color = IntegratedBRDF(uv.x, uv.y);
 	
-	imageStore(allImages[pc.image_id], texelCoord, vec4(color, 0.0, 1.0));
+	imageStore(allImages[pc.image_id], ivec2(texelCoord), vec4(color, 0.0, 1.0));
 }

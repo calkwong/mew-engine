@@ -123,6 +123,7 @@ layout( push_constant ) uniform constants
 	float roughness;
 	uint sh;
 	SHBuffer shBuffer;
+	float maxPrefilteredLod;
 } pc;
 
 
@@ -335,23 +336,6 @@ void main()
 		metallic *= metalRoughness.x;
 		perceptualRoughness *= metalRoughness.y;
 	}
-	
-#ifdef GI
-	perceptualRoughness = pc.roughness;
-	metallic = pc.metallic;
-	if (pc.sh == 1.0) // evaluateSH
-	{
-		vec3 irradiance = evaluateSH(pc.shBuffer.rCoefficients, pc.shBuffer.gCoefficients, pc.shBuffer.bCoefficients, N);
-		outFragColor = vec4(irradiance * (1.0 / PI), 1.0);
-		return;
-	}
-	else // sample from irradiance map
-	{
-		albedo.xyz = texture(samplerCube(allCubemaps[uint(sceneData.textures[1])], samplers[CUBE_SAMPLER]), N).xyz;
-		outFragColor = vec4(albedo.xyz, 1.0);
-		return;
-	}
-#endif
 
 	perceptualRoughness = max(perceptualRoughness, 0.045); // frostbite engine clamp value for analytical lights (fp32)
 	float roughness = perceptualRoughness * perceptualRoughness;
@@ -384,6 +368,35 @@ void main()
 	vec3 lightColor = vec3(1.0); // HARDCODED SUNLIGHT VALUE
 	vec3 Lo = (Fd + Fr) * lightColor * NdotL; 
 	outFragColor = vec4(Lo, 1.0);
+	
+	#ifdef GI
+		perceptualRoughness = pc.roughness;
+		metallic = pc.metallic;
+		
+		vec3 R = reflect(-V, N);
+		float prefilteredMip = pc.maxPrefilteredLod * perceptualRoughness; // or linear?
+		
+		{
+			vec3 irradiance = evaluateSH(pc.shBuffer.rCoefficients, pc.shBuffer.gCoefficients, pc.shBuffer.bCoefficients, N);
+			vec3 prefiltered = textureLod(samplerCube(allCubemaps[uint(sceneData.textures[2])], samplers[CUBE_SAMPLER]), R, prefilteredMip).xyz;
+			vec2 brdf = texture(sampler2D(allTextures[uint(sceneData.textures[3])], samplers[LINEAR_CLAMP_SAMPLER]), vec2(NdotV, perceptualRoughness)).rg;
+			vec3 white = vec3(1.0);
+			f0 = vec3(0.04);
+			f0 = mix(f0, white, metallic);
+			
+			F = F_SchlickRoughness(NdotV, f0, perceptualRoughness);
+			kS = F;
+			kD = vec3(1.0) - kS;
+			kD *= 1.0 - metallic;
+			
+			vec3 diffuse = kD * irradiance * (1.0 / PI) ;
+			vec3 specular = prefiltered * (F * brdf.x + brdf.y);
+			vec3 ambient = diffuse + specular;
+			outFragColor = vec4(ambient, 1.0);
+			return;
+		}
+	#endif
+	
 	outFragColor.xyz += albedo.xyz * AMBIENT; // for debugging without IBL 
 #else	
 	outFragColor = vec4(albedo);

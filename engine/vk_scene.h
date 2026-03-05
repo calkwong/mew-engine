@@ -74,7 +74,7 @@ struct SceneData
 	glm::vec4 camera_pos{};
 	glm::vec4 sunlight_color{};
 	glm::vec4 sunlight_dir{};
-	glm::vec4 textures{}; // irradiance, prefiltered, brdf, shadow
+	glm::vec4 textures{}; // cubemap/skybox, irradiance, prefiltered, brdf
 	std::array<glm::mat4, 4> shadow_views{}; // for shadow_cull
 	std::array<float, 4> shadow_widths{};
 };

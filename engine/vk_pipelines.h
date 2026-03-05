@@ -65,6 +65,7 @@ struct DeferredPushConstants
 	float roughness{};
 	uint32_t sh{};
 	VkDeviceAddress sh_buffer_address{};
+	float max_prefiltered_lod{};
 };
 
 // rasteroze shadows

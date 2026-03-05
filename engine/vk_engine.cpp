@@ -346,6 +346,7 @@ void VulkanEngine::init_gi()
 	}
 
 	// prefiltered envmap
+	uint32_t brdf_id{};
 	{
 		vkutil::transition_image(imm_command_buffer, prefiltered_envmap.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, 0, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, 0, VK_ACCESS_2_SHADER_WRITE_BIT);
 
@@ -366,8 +367,28 @@ void VulkanEngine::init_gi()
 			// TODO: hardcoded, use threadgroup size from config?
 			vkCmdDispatch(imm_command_buffer, static_cast<uint32_t>(std::ceil(prefiltered_envmap.extent.width / 8.0)), static_cast<uint32_t>(std::ceil(prefiltered_envmap.extent.height / 8.0)), 1);
 		}
-
+		brdf_id = image_cache.get_hdri() + 2 + mips;
 		vkutil::transition_image(imm_command_buffer, prefiltered_envmap.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_READ_BIT);
+	}
+
+	// brdf lut
+	{
+		vkutil::transition_image(imm_command_buffer, brdf_lut.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, 0, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, 0, VK_ACCESS_2_SHADER_WRITE_BIT);
+
+		ShaderPass current_pass = *shader_passes["brdf"];
+		IBLPushConstants pc{};
+		pc.image_size = glm::vec2(brdf_lut.extent.width, brdf_lut.extent.height);
+		pc.image_id = brdf_id;
+
+		vkCmdBindPipeline(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
+		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &bindless_image_descriptor, 0, nullptr);
+		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
+		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
+		vkCmdPushConstants(imm_command_buffer, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IBLPushConstants), &pc);
+		// TODO: hardcoded, use threadgroup size from config?
+		vkCmdDispatch(imm_command_buffer, static_cast<uint32_t>(std::ceil(brdf_lut.extent.width / 8.0)), static_cast<uint32_t>(std::ceil(brdf_lut.extent.height / 8.0)), 1);
+
+		vkutil::transition_image(imm_command_buffer, brdf_lut.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_READ_BIT);
 	}
 
 	// for SH coefficients buffer
@@ -1681,7 +1702,7 @@ void VulkanEngine::init_descriptors()
 	std::vector<DescriptorAllocatorGrowable::PoolSizeRatio> sizes = {
 		{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
 		{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000 },
-		{ VK_DESCRIPTOR_TYPE_SAMPLER, 10 },
+		{ VK_DESCRIPTOR_TYPE_SAMPLER, 20 },
 	};
 
 	global_descriptor_allocator.init(device, 1, sizes);
@@ -1758,6 +1779,7 @@ void VulkanEngine::init_pipelines()
 	shader_cache.add_shader(device, "spherical_harmonics.comp", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "irradiance.comp", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "prefiltered.comp", VK_SHADER_STAGE_COMPUTE_BIT);
+	shader_cache.add_shader(device, "brdf.comp", VK_SHADER_STAGE_COMPUTE_BIT);
 
 #ifdef NDEBUG
 	fmt::println("running Release mode"); // ensuring no clion shenanigans
@@ -1782,6 +1804,7 @@ void VulkanEngine::init_pipelines()
 	shader_passes["spherical_harmonics"] = vkutil::build_shader(device, compute_builder, shader_cache["spherical_harmonics.comp"], descriptor_layouts, sizeof(SHPushConstants));
 	shader_passes["irradiance"] = vkutil::build_shader(device, compute_builder, shader_cache["irradiance.comp"], descriptor_layouts, sizeof(IBLPushConstants));
 	shader_passes["prefiltered"] = vkutil::build_shader(device, compute_builder, shader_cache["prefiltered.comp"], descriptor_layouts, sizeof(IBLPushConstants));
+	shader_passes["brdf"] = vkutil::build_shader(device, compute_builder, shader_cache["brdf.comp"], descriptor_layouts, sizeof(IBLPushConstants));
 
 	descriptor_layouts.clear();
 	descriptor_layouts = { scene_descriptor_layout };
@@ -1943,7 +1966,7 @@ void VulkanEngine::init_default_data()
 	// sampler_info.anisotropyEnable = VK_TRUE;
 	// sampler_info.maxAnisotropy = 16.0f;
 
-	vkCreateSampler(device, &sampler_info, nullptr, &sampler); // linear
+	vkCreateSampler(device, &sampler_info, nullptr, &sampler); // 1 linear
 	sampler_cache.add_sampler(sampler);
 
 	// sampler_info.anisotropyEnable = VK_FALSE;
@@ -1951,7 +1974,7 @@ void VulkanEngine::init_default_data()
 	sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 	sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 
-	vkCreateSampler(device, &sampler_info, nullptr, &sampler); // cube map sampling
+	vkCreateSampler(device, &sampler_info, nullptr, &sampler); // 2 cube map sampling
 	sampler_cache.add_sampler(sampler);
 
 	sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
@@ -1960,7 +1983,7 @@ void VulkanEngine::init_default_data()
 	sampler_info.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK;
 	sampler_info.maxLod = 1.0;
 
-	vkCreateSampler(device, &sampler_info, nullptr, &sampler); // shadow map sampler - potentially problematic, clamp to edge?
+	vkCreateSampler(device, &sampler_info, nullptr, &sampler); // 3 shadow map sampler - potentially problematic, clamp to edge?
 	sampler_cache.add_sampler(sampler);
 
 	sampler_info.magFilter = VK_FILTER_LINEAR;
@@ -1977,7 +2000,7 @@ void VulkanEngine::init_default_data()
 
 	sampler_info.pNext = &reduction_info;
 
-	vkCreateSampler(device, &sampler_info, nullptr, &sampler); // building hi-z
+	vkCreateSampler(device, &sampler_info, nullptr, &sampler); // 4 building hi-z
 	sampler_cache.add_sampler(sampler);
 
 	sampler_info.pNext = nullptr;
@@ -1986,18 +2009,26 @@ void VulkanEngine::init_default_data()
 	sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
 	sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
 	sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
-	sampler_info.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK; // reverse depth
+	sampler_info.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK;
 
 	vkCreateSampler(device, &sampler_info, nullptr, &sampler);
-	sampler_cache.add_sampler(sampler);
+	sampler_cache.add_sampler(sampler); // 5 nearest clamp to border
 
 	sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 	sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 	sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 	vkCreateSampler(device, &sampler_info, nullptr, &sampler);
-	sampler_cache.add_sampler(sampler); // nearest
+	sampler_cache.add_sampler(sampler); // 6 nearest clamp to edge
 
-	sampler_info.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK; // reverse depth
+	sampler_info.magFilter = VK_FILTER_LINEAR;
+	sampler_info.minFilter = VK_FILTER_LINEAR;
+	sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+	sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+	sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+	sampler_info.maxLod = VK_LOD_CLAMP_NONE;
+	sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+	vkCreateSampler(device, &sampler_info, nullptr, &sampler);
+	sampler_cache.add_sampler(sampler); // 7 linear clamp to edge
 
 	// shadowmaps
 	for (size_t idx = 0; idx < cascade_data.size(); idx++)
@@ -2146,6 +2177,13 @@ void VulkanEngine::init_default_data()
 		image_cache.add_texture(prefiltered_views[i]);
 	}
 
+	brdf_lut = create_image(device, allocator, VkExtent3D{ 128, 128, 1}, VK_FORMAT_R16G16_SFLOAT,
+		VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT
+	);
+
+	scene_data.textures[3] = static_cast<float>(texture_cache.add_texture(brdf_lut.view));
+	image_cache.add_texture(brdf_lut.view);
+
 	main_deletion_queue.push_function([&, prefiltered_mips, prefiltered_views]()
 	    {
 			destroy_buffer(allocator, light_buffer);
@@ -2157,6 +2195,7 @@ void VulkanEngine::init_default_data()
 			destroy_image(device, allocator, hdri_cubemap);
 			destroy_image(device, allocator, irradiance_cubemap);
 			destroy_image(device, allocator, prefiltered_envmap);
+			destroy_image(device, allocator, brdf_lut);
 			for (uint32_t i = 0; i < prefiltered_mips; i++)
 			{
 				vkDestroyImageView(device, prefiltered_views[i], nullptr);
@@ -2561,6 +2600,7 @@ void VulkanEngine::execute_deferred_shading(VkCommandBuffer cmd, VkImageView vie
 	pc.roughness = CVAR_GI_ROUGHNESS.get();
 	pc.sh = CVAR_TOGGLE_SH.get();
 	pc.sh_buffer_address = get_buffer_address(device, render_scene.sh_buffer.buffer);
+	pc.max_prefiltered_lod = static_cast<float>(std::floor(std::log2(static_cast<float>(std::max(prefiltered_envmap.extent.width, prefiltered_envmap.extent.height))))) + 1;
 
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(DeferredPushConstants), &pc);
 	vkCmdDraw(cmd, 3, 1, 0, 0);
