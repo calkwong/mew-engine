@@ -1,5 +1,3 @@
-// TODO: REFACTOR, PLENTY OF COMMITS BEHIND
-
 #version 450
 
 #extension GL_GOOGLE_include_directive : require
@@ -73,23 +71,17 @@ void main()
 {
 	vec3 direction = vec3(0.0);
 
-	ivec2 texelCoord = ivec2(gl_GlobalInvocationID.xy);
-	ivec2 base_size = imageSize(allImages[pc.image_id]).xy;
+	vec2 texelCoord = vec2(gl_GlobalInvocationID.xy);
+	ivec2 image_size = imageSize(allImages[pc.image_id]).xy;
 	
-	// (!) USE PC
-	float envmapSize = float(textureSize(samplerCube(allTextures[pc.texture_id], samplers[CUBE_SAMPLER]), 0).r);
-	
-	ivec2 mip_size = base_size;
-
-	if (texelCoord.x >= mip_size.x || texelCoord.y >= mip_size.y)
+	if (texelCoord.x >= image_size.x || texelCoord.y >= image_size.y)
 		return;
 		
-	vec2 uv = vec2(texelCoord + 0.5) / vec2(mip_size);
+	vec2 uv = (texelCoord + vec2(0.5)) / vec2(image_size);
 	uv = uv * 2.0 - 1.0;
 	
-	//float perceptualRoughness = float(mip) / float(pc.mip_levels - 1); // (!) TODO: verify will never be NAN, shader always reqs mips > 1
-	//float perceptualRoughness = float(pc.mip) / float(pc.mip_levels - 1); // (!) TODO: verify will never be NAN, shader always reqs mips > 1
 	float perceptualRoughness = pc.roughness;
+	float envmapSize = float(textureSize(samplerCube(allTextures[pc.texture_id], samplers[CUBE_SAMPLER]), 0).r);
 	
 	for (int face = 0; face < 6; face++)
 	{
@@ -106,7 +98,7 @@ void main()
 		
 		vec3 N = direction;
 		vec3 V = N;
-		float linearRoughness = perceptualRoughness * perceptualRoughness; // TODO: clamped roughness?
+		float linearRoughness = perceptualRoughness * perceptualRoughness;
 
 		uint sampleCount = 32u;
 		float totalWeight = 0.0;

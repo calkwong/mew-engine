@@ -279,6 +279,7 @@ void VulkanEngine::init_gi()
 	VkCommandBufferBeginInfo cmd_begin_info = vkinit::command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
 	VK_CHECK(vkBeginCommandBuffer(imm_command_buffer, &cmd_begin_info));
 
+	// spherical map -> cubemap
 	{
 		vkutil::transition_image(imm_command_buffer, hdri_cubemap.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, 0, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, 0, VK_ACCESS_2_SHADER_WRITE_BIT);
 
@@ -296,6 +297,7 @@ void VulkanEngine::init_gi()
 		// TODO: hardcoded, use threadgroup size from config?
 		vkCmdDispatch(imm_command_buffer, static_cast<uint32_t>(std::ceil(hdri_cubemap.extent.width / 32.0)), static_cast<uint32_t>(std::ceil(hdri_cubemap.extent.height / 32.0)), 1);
 
+		// set to cubemap/skybo
 		auto updated_hdri_id = texture_cache.get_hdri() + 1;
 		texture_cache.set_hdri(updated_hdri_id);
 
@@ -311,7 +313,7 @@ void VulkanEngine::init_gi()
 		ShaderPass current_pass = *shader_passes["spherical_harmonics"];
 		SHPushConstants pc{};
 		pc.sh_buffer_address = get_buffer_address(device, render_scene.sh_buffer.buffer);
-		pc.cubemap_id = texture_cache.get_hdri();
+		pc.cubemap_id = static_cast<uint32_t>(scene_data.textures[0]);
 
 		vkCmdBindPipeline(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
 		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &bindless_image_descriptor, 0, nullptr);
@@ -329,7 +331,7 @@ void VulkanEngine::init_gi()
 		ShaderPass current_pass = *shader_passes["irradiance"];
 		IBLPushConstants pc{};
 		pc.image_size = glm::vec2(irradiance_cubemap.extent.width, irradiance_cubemap.extent.height);
-		pc.texture_id = texture_cache.get_hdri();
+		pc.texture_id = static_cast<uint32_t>(scene_data.textures[0]);
 		pc.image_id = image_cache.get_hdri() + 1;
 
 		vkCmdBindPipeline(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
@@ -340,12 +342,35 @@ void VulkanEngine::init_gi()
 		// TODO: hardcoded, use threadgroup size from config?
 		vkCmdDispatch(imm_command_buffer, static_cast<uint32_t>(std::ceil(irradiance_cubemap.extent.width / 8.0)), static_cast<uint32_t>(std::ceil(irradiance_cubemap.extent.height / 8.0)), 1);
 
-		auto skybox_id = texture_cache.get_hdri() + 1;
-		scene_data.textures[0] = skybox_id;
-
 		vkutil::transition_image(imm_command_buffer, irradiance_cubemap.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_READ_BIT);
 	}
 
+	// prefiltered envmap
+	{
+		vkutil::transition_image(imm_command_buffer, prefiltered_envmap.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, 0, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, 0, VK_ACCESS_2_SHADER_WRITE_BIT);
+
+		ShaderPass current_pass = *shader_passes["prefiltered"];
+		vkCmdBindPipeline(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
+		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &bindless_image_descriptor, 0, nullptr);
+		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
+		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
+		IBLPushConstants pc{};
+		pc.texture_id = static_cast<uint32_t>(scene_data.textures[0]);
+
+		auto mips = static_cast<uint32_t>(std::floor(std::log2(static_cast<float>(std::max(prefiltered_envmap.extent.width, prefiltered_envmap.extent.height))))) + 1;
+		for (uint32_t i = 0; i < mips; i++)
+		{
+			pc.image_id = image_cache.get_hdri() + 2 + i;
+			pc.roughness = static_cast<float>(i) / static_cast<float>(mips);
+			vkCmdPushConstants(imm_command_buffer, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IBLPushConstants), &pc);
+			// TODO: hardcoded, use threadgroup size from config?
+			vkCmdDispatch(imm_command_buffer, static_cast<uint32_t>(std::ceil(prefiltered_envmap.extent.width / 8.0)), static_cast<uint32_t>(std::ceil(prefiltered_envmap.extent.height / 8.0)), 1);
+		}
+
+		vkutil::transition_image(imm_command_buffer, prefiltered_envmap.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_READ_BIT);
+	}
+
+	// for SH coefficients buffer
 	vkutil::transition_buffer(imm_command_buffer, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
 
 	VK_CHECK(vkEndCommandBuffer(imm_command_buffer));
@@ -1732,6 +1757,7 @@ void VulkanEngine::init_pipelines()
 	shader_cache.add_shader(device, "hdri2cubemap.comp", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "spherical_harmonics.comp", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "irradiance.comp", VK_SHADER_STAGE_COMPUTE_BIT);
+	shader_cache.add_shader(device, "prefiltered.comp", VK_SHADER_STAGE_COMPUTE_BIT);
 
 #ifdef NDEBUG
 	fmt::println("running Release mode"); // ensuring no clion shenanigans
@@ -1755,6 +1781,7 @@ void VulkanEngine::init_pipelines()
 	shader_passes["hdri2cubemap"] = vkutil::build_shader(device, compute_builder, shader_cache["hdri2cubemap.comp"], descriptor_layouts, sizeof(IBLPushConstants));
 	shader_passes["spherical_harmonics"] = vkutil::build_shader(device, compute_builder, shader_cache["spherical_harmonics.comp"], descriptor_layouts, sizeof(SHPushConstants));
 	shader_passes["irradiance"] = vkutil::build_shader(device, compute_builder, shader_cache["irradiance.comp"], descriptor_layouts, sizeof(IBLPushConstants));
+	shader_passes["prefiltered"] = vkutil::build_shader(device, compute_builder, shader_cache["prefiltered.comp"], descriptor_layouts, sizeof(IBLPushConstants));
 
 	descriptor_layouts.clear();
 	descriptor_layouts = { scene_descriptor_layout };
@@ -2063,7 +2090,7 @@ void VulkanEngine::init_default_data()
 	light_grid_buffer = create_buffer(allocator, total_clusters * sizeof(LightGrid), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
 	light_count_buffer = create_buffer(allocator, sizeof(uint32_t), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
 
-	// GI
+	// gi
 	const char* hdri_path = {"assets/pisa.hdr"};
 	float* data{};
 
@@ -2089,7 +2116,7 @@ void VulkanEngine::init_default_data()
 		VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT, 0, true
 	);
 
-	texture_cache.add_texture(hdri_cubemap.view);
+	scene_data.textures[0] = static_cast<float>(texture_cache.add_texture(hdri_cubemap.view));
 	auto hdri_cubemap_id = image_cache.add_texture(hdri_cubemap.view);
 	image_cache.set_hdri(hdri_cubemap_id);
 
@@ -2097,10 +2124,29 @@ void VulkanEngine::init_default_data()
 		VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT
 	);
 
-	texture_cache.add_texture(irradiance_cubemap.view);
+	scene_data.textures[1] = static_cast<float>(texture_cache.add_texture(irradiance_cubemap.view));
 	image_cache.add_texture(irradiance_cubemap.view);
 
-	main_deletion_queue.push_function([&]()
+	prefiltered_envmap = create_cubemap(device, allocator, VkExtent3D{ 512, 512, 1}, VK_FORMAT_R32G32B32A32_SFLOAT,
+		VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT, 0, true
+	);
+
+	scene_data.textures[2] = static_cast<float>(texture_cache.add_texture(prefiltered_envmap.view));
+
+	auto prefiltered_mips = static_cast<uint32_t>(std::floor(std::log2(static_cast<float>(std::max(prefiltered_envmap.extent.width, prefiltered_envmap.extent.height))))) + 1;
+
+	std::vector<VkImageView> prefiltered_views(prefiltered_mips);
+	auto imageview_info = vkinit::imageview_create_info(VK_FORMAT_R32G32B32A32_SFLOAT, prefiltered_envmap.image, VK_IMAGE_ASPECT_COLOR_BIT);
+	imageview_info.viewType = VK_IMAGE_VIEW_TYPE_CUBE;
+	for (uint32_t i = 0; i < prefiltered_mips; ++i)
+	{
+		imageview_info.subresourceRange.baseMipLevel = i;
+		imageview_info.subresourceRange.levelCount = 1;
+		vkCreateImageView(device, &imageview_info, nullptr, &prefiltered_views[i]);
+		image_cache.add_texture(prefiltered_views[i]);
+	}
+
+	main_deletion_queue.push_function([&, prefiltered_mips, prefiltered_views]()
 	    {
 			destroy_buffer(allocator, light_buffer);
 			destroy_buffer(allocator, light_cluster_buffer);
@@ -2110,6 +2156,11 @@ void VulkanEngine::init_default_data()
 			destroy_image(device, allocator, hdri);
 			destroy_image(device, allocator, hdri_cubemap);
 			destroy_image(device, allocator, irradiance_cubemap);
+			destroy_image(device, allocator, prefiltered_envmap);
+			for (uint32_t i = 0; i < prefiltered_mips; i++)
+			{
+				vkDestroyImageView(device, prefiltered_views[i], nullptr);
+			}
 	    }
 	);
 
@@ -2505,12 +2556,11 @@ void VulkanEngine::execute_deferred_shading(VkCommandBuffer cmd, VkImageView vie
 	pc.debug_shadowmap = CVAR_TOGGLE_DEBUG_SHADOWMAP.get();
 	pc.debug_cascades = CVAR_TOGGLE_DEBUG_CASCADES.get();
 
-	// GI
+	// gi
 	pc.metallic = CVAR_GI_METALLIC.get();
 	pc.roughness = CVAR_GI_ROUGHNESS.get();
-	pc.cubemap_id = texture_cache.get_hdri();
-	pc.sh_buffer_address = get_buffer_address(device, render_scene.sh_buffer.buffer);
 	pc.sh = CVAR_TOGGLE_SH.get();
+	pc.sh_buffer_address = get_buffer_address(device, render_scene.sh_buffer.buffer);
 
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(DeferredPushConstants), &pc);
 	vkCmdDraw(cmd, 3, 1, 0, 0);

@@ -121,9 +121,8 @@ layout( push_constant ) uniform constants
 	// gi
 	float metallic;
 	float roughness;
-	uint cubemap_id;
-	SHBuffer shBuffer;
 	uint sh;
+	SHBuffer shBuffer;
 } pc;
 
 
@@ -348,7 +347,7 @@ void main()
 	}
 	else // sample from irradiance map
 	{
-		albedo.xyz = texture(samplerCube(allCubemaps[uint(sceneData.textures[0])], samplers[CUBE_SAMPLER]), N).xyz;
+		albedo.xyz = texture(samplerCube(allCubemaps[uint(sceneData.textures[1])], samplers[CUBE_SAMPLER]), N).xyz;
 		outFragColor = vec4(albedo.xyz, 1.0);
 		return;
 	}

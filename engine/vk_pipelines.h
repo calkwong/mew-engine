@@ -63,9 +63,8 @@ struct DeferredPushConstants
 	uint32_t debug_cascades{};
 	float metallic{};
 	float roughness{};
-	uint32_t cubemap_id{};
-	VkDeviceAddress sh_buffer_address{};
 	uint32_t sh{};
+	VkDeviceAddress sh_buffer_address{};
 };
 
 // rasteroze shadows

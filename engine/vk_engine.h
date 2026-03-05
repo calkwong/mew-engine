@@ -150,6 +150,7 @@ public:
 	AllocatedImage hdri{};
 	AllocatedImage hdri_cubemap{};
 	AllocatedImage irradiance_cubemap{}; // for SH reference
+	AllocatedImage prefiltered_envmap{};
 
 	AllocatedImage shadow_map{};
 
