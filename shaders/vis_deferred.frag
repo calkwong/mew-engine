@@ -134,7 +134,7 @@ float linearizeDepthInfiniteReverse(float depth)
 	return pc.near / depth;
 }
 
-const float AMBIENT = 0.1;
+const float IBL_STRENGTH = 0.1;
 const int CASCADE_COUNT = 4;
 int MAX_LIGHTS = 1000; // TODO: hardcoded
 const int MLAB_NODES = 4;
@@ -311,6 +311,7 @@ void main()
 		albedo.xyz *= textureGrad(sampler2D(allTextures[m.diffuseID], samplers[LINEAR_SAMPLER]), uv, uvDdx, uvDdy).xyz;
 	}
 	
+	vec3 ambient = albedo.xyz;
 #ifdef PBR
 	if (m.normalID != 0)
 	{
@@ -370,8 +371,8 @@ void main()
 	outFragColor = vec4(Lo, 1.0);
 	
 	#ifdef GI
-		perceptualRoughness = pc.roughness;
-		metallic = pc.metallic;
+		//perceptualRoughness = pc.roughness;
+		//metallic = pc.metallic;
 		
 		vec3 R = reflect(-V, N);
 		float prefilteredMip = pc.maxPrefilteredLod * perceptualRoughness; // or linear?
@@ -380,28 +381,25 @@ void main()
 			vec3 irradiance = evaluateSH(pc.shBuffer.rCoefficients, pc.shBuffer.gCoefficients, pc.shBuffer.bCoefficients, N);
 			vec3 prefiltered = textureLod(samplerCube(allCubemaps[uint(sceneData.textures[2])], samplers[CUBE_SAMPLER]), R, prefilteredMip).xyz;
 			vec2 brdf = texture(sampler2D(allTextures[uint(sceneData.textures[3])], samplers[LINEAR_CLAMP_SAMPLER]), vec2(NdotV, perceptualRoughness)).rg;
-			vec3 white = vec3(1.0);
-			f0 = vec3(0.04);
-			f0 = mix(f0, white, metallic);
+			//vec3 white = vec3(1.0);
+			//f0 = vec3(0.04);
+			//f0 = mix(f0, albedo.xyz, metallic);
 			
 			F = F_SchlickRoughness(NdotV, f0, perceptualRoughness);
 			kS = F;
 			kD = vec3(1.0) - kS;
 			kD *= 1.0 - metallic;
 			
-			vec3 diffuse = kD * irradiance * (1.0 / PI) ;
+			vec3 diffuse = kD * irradiance * (1.0 / PI) * albedo.xyz; // TODO: we could bake the division by PI into SH
 			vec3 specular = prefiltered * (F * brdf.x + brdf.y);
-			vec3 ambient = diffuse + specular;
-			outFragColor = vec4(ambient, 1.0);
-			return;
+			ambient = diffuse + specular;
+			//outFragColor = vec4(ambient, 1.0);
+			//return;
 		}
 	#endif
-	
-	outFragColor.xyz += albedo.xyz * AMBIENT; // for debugging without IBL 
 #else	
 	outFragColor = vec4(albedo);
 #endif
-	
 
 	uint cascadeIdx = 0;
 	if (pc.shadows == 1)
@@ -492,6 +490,9 @@ void main()
 	{
 		outFragColor.xyz = compositeTransparent(outFragColor.xyz);
 	}
+	
+	outFragColor.xyz += ambient * IBL_STRENGTH;
+	outFragColor.xyz = tonemap(outFragColor.xyz);
 	
 	if (pc.debugShadowmap != 0)
 	{
