@@ -130,8 +130,8 @@ void main()
 		gl_MeshVerticesEXT[i].gl_Position = clipPos;
 	}
 	
-	memoryBarrier(); 
-	barrier();
+	//barrier();
+	//memoryBarrier(); 
 	
 	for (uint i = ti; i < triangleCount; i += 32)
 	{

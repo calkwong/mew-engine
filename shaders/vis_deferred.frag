@@ -296,6 +296,7 @@ void main()
 	
 	vec3 worldPos = interpolate(bary, wp0.xyz, wp1.xyz, wp2.xyz);
 	
+	// TODO: store triangle face bit in visibility buffer so normals are correct for masked geometry
 	vec3 n0 = mat3(worldMatrix) * v0.normal;  // no transpose(inverse), no normalization
 	vec3 n1 = mat3(worldMatrix) * v1.normal;
 	vec3 n2 = mat3(worldMatrix) * v2.normal;
@@ -350,11 +351,12 @@ void main()
 	float NdotL = max(dot(N, L), 0.0);
 	float NdotH = max(dot(N, H), 0.0);
 	float NdotV = max(dot(N, V), 0.001);
+	float VdotH = max(dot(V, H), 0.0);
 	
 	vec3 f0 = vec3(0.04);
 	f0 = mix(f0, albedo.xyz, metallic);
 	
-	vec3 F = F_Schlick(NdotV, f0);
+	vec3 F = F_Schlick(VdotH, f0);
 		
 	vec3 kS = F;
 	vec3 kD = vec3(1.0) - kS;
@@ -371,30 +373,35 @@ void main()
 	outFragColor = vec4(Lo, 1.0);
 	
 	#ifdef GI
-		//perceptualRoughness = pc.roughness;
-		//metallic = pc.metallic;
+		//perceptualRoughness = pc.roughness; // sphere test
+		//metallic = pc.metallic; // sphere test
 		
 		vec3 R = reflect(-V, N);
-		float prefilteredMip = pc.maxPrefilteredLod * perceptualRoughness; // or linear?
+		float prefilteredMip = pc.maxPrefilteredLod * perceptualRoughness;
 		
 		{
 			vec3 irradiance = evaluateSH(pc.shBuffer.rCoefficients, pc.shBuffer.gCoefficients, pc.shBuffer.bCoefficients, N);
 			vec3 prefiltered = textureLod(samplerCube(allCubemaps[uint(sceneData.textures[2])], samplers[CUBE_SAMPLER]), R, prefilteredMip).xyz;
 			vec2 brdf = texture(sampler2D(allTextures[uint(sceneData.textures[3])], samplers[LINEAR_CLAMP_SAMPLER]), vec2(NdotV, perceptualRoughness)).rg;
-			//vec3 white = vec3(1.0);
-			//f0 = vec3(0.04);
-			//f0 = mix(f0, albedo.xyz, metallic);
+			
+			//vec3 white = vec3(1.0); // sphere test
+			//f0 = vec3(0.04); // sphere test
+			f0 = mix(f0, albedo.xyz, metallic);
+			//f0 = mix(f0, white, metallic); // sphere test
 			
 			F = F_SchlickRoughness(NdotV, f0, perceptualRoughness);
 			kS = F;
 			kD = vec3(1.0) - kS;
 			kD *= 1.0 - metallic;
 			
-			vec3 diffuse = kD * irradiance * (1.0 / PI) * albedo.xyz; // TODO: we could bake the division by PI into SH
+		    // TODO: we could bake the division by PI into SH
+			vec3 diffuse = kD * irradiance * (1.0 / PI) * albedo.xyz;
 			vec3 specular = prefiltered * (F * brdf.x + brdf.y);
 			ambient = diffuse + specular;
-			//outFragColor = vec4(ambient, 1.0);
-			//return;
+			//outFragColor = vec4(ambient, 1.0); // sphere test
+			//if (pc.sh == 1.0)
+			//	outFragColor.xyz = tonemap(outFragColor.xyz);
+			//return; // sphere test
 		}
 	#endif
 #else	
@@ -492,7 +499,7 @@ void main()
 	}
 	
 	outFragColor.xyz += ambient * IBL_STRENGTH;
-	outFragColor.xyz = tonemap(outFragColor.xyz);
+	//outFragColor.xyz = tonemap(outFragColor.xyz);
 	
 	if (pc.debugShadowmap != 0)
 	{
