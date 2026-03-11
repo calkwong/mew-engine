@@ -1,0 +1,71 @@
+#version 450
+
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_nonuniform_qualifier : require
+
+#include "math.glsl"
+
+layout (local_size_x = 16, local_size_y = 16) in;
+
+layout(set = 0, binding = 0, rgba32f) uniform image2D allImages[];
+layout(set = 1, binding = 0) uniform texture2D allTextures[]; // unused
+layout(set = 2, binding = 0) uniform sampler samplers[]; // unused
+
+layout(buffer_reference, std430) buffer LuminanceAvgBuffer
+{
+	float luminanceAvg;
+};
+
+layout( push_constant ) uniform constants
+{
+	LuminanceAvgBuffer luminanceAvgBuffer;
+	vec2 screenSize;
+	uint imageId;
+	uint autoexpose; 
+	uint tonemapFunc;
+} pc;
+
+// http://filmicworlds.com/blog/filmic-tonemapping-operators/
+vec3 filmicOptimized(vec3 c)
+{
+	vec3 x = max(vec3(0.0), c - 0.004);
+	vec3 color = (x * ( 6.2 * x + 0.5)) / (x * (6.2 * x +1.7) + 0.06);
+	color = srgbToLinear(color);
+	return color;
+}
+
+vec3 reinhard(vec3 c)
+{
+	return c / (vec3(1.0) + c);
+}
+
+void main()
+{
+	ivec2 texelCoord = ivec2(gl_GlobalInvocationID.xy);
+	
+	if (texelCoord.x < pc.screenSize.x && texelCoord.y < pc.screenSize.y)
+	{
+		vec3 color = imageLoad(allImages[pc.imageId], texelCoord).rgb;
+
+		float exposure = 1.0;
+		
+		// automatic exposure, see eq. 112: https://google.github.io/filament/Filament.md.html#imagingpipeline/physicallybasedcamera/automaticexposure
+		// also, https://bruop.github.io/exposure/
+		if (pc.autoexpose == 1.0)
+		{
+			float Lavg = pc.luminanceAvgBuffer.luminanceAvg;
+			float Lmax = 9.6 * Lavg;
+			exposure = 1.0 / Lmax;
+		}
+		
+		switch (pc.tonemapFunc)
+		{
+			case 0: color.xyz = reinhard(color.xyz * exposure); break;
+			case 1: color.xyz = filmicOptimized(color.xyz * exposure); break;
+			default: break; // clamp
+		}
+		
+		imageStore(allImages[pc.imageId], texelCoord, vec4(color, 1.0));
+	}
+}

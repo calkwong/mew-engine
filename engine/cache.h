@@ -59,12 +59,15 @@ struct ImageCache
 
 	void set_depth_pyramid_image(uint32_t id);
 	void set_hdri(uint32_t id);
+	void set_draw_image(uint32_t id);
 	uint32_t get_depth_pyramid_image() const;
 	uint32_t get_hdri() const;
+	uint32_t get_draw_image() const;
 
 private:
 	uint32_t depth_pyramid_id{};
 	uint32_t hdri_id{};
+	uint32_t draw_id{};
 };
 
 struct ShaderProgram;

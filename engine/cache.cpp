@@ -117,6 +117,15 @@ void ImageCache::set_hdri(uint32_t id)
 {
 	hdri_id = id;
 }
+void ImageCache::set_draw_image(uint32_t id)
+{
+	draw_id = id;
+}
+
+uint32_t ImageCache::get_draw_image() const
+{
+	return draw_id;
+}
 
 uint32_t ImageCache::get_hdri() const
 {

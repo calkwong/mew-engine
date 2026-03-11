@@ -266,6 +266,8 @@ struct RenderScene
 	AllocatedBuffer oit_buffer{};
 
 	AllocatedBuffer sh_buffer{};
+	AllocatedBuffer luminance_buffer{};
+	AllocatedBuffer luminance_avg_buffer{};
 
 	MeshPass opaque_pass{};
 	MeshPass mask_pass{};

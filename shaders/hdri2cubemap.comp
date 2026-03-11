@@ -52,7 +52,7 @@ void main()
 		}
 
 		vec2 sample_uv = sampleSphericalMap(direction);
-		vec4 color = texture(sampler2D(allTextures[pc.texture_id], samplers[LINEAR_SAMPLER]), sample_uv); // linear?
+		vec4 color = texture(sampler2D(allTextures[pc.texture_id], samplers[LINEAR_SAMPLER]), sample_uv);
 		imageStore(allImages[pc.image_id], ivec3(texelCoord, face), color);
 	}
 }

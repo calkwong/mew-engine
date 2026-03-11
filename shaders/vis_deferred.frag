@@ -121,9 +121,8 @@ layout( push_constant ) uniform constants
 	// gi
 	float metallic;
 	float roughness;
-	uint sh;
-	SHBuffer shBuffer;
 	float maxPrefilteredLod;
+	SHBuffer shBuffer;
 } pc;
 
 
@@ -208,7 +207,7 @@ float calculateShadow(vec3 worldPos, inout uint cascadeIdx)
 				closestDepth = texture(sampler2D(allTextures[pc.shadowmap_id + cascadeIdx], samplers[NEAREST_SAMPLER]), sample_uv).r;
 				
 				if (closestDepth > currentDepth)
-					shadow += 0.3;
+					shadow += 0.0; // TODO: change to 0.0 in other path as we have IBL now
 				else
 					shadow += 1.0;
 			}
@@ -247,7 +246,12 @@ void main()
 	// TODO: refactor and use depth/stencil buffer to reject pixels
 	if (depth == 0.0)
 	{
-		outFragColor = vec4(0,0,0,1);
+		vec2 ndc = inUV * 2.0 - 1.0;
+		ndc.y *= -1.0;
+		vec4 worldPos = inverse(sceneData.viewproj) * vec4(ndc, 0.0, 1.0);
+		vec3 sampleDir = normalize(worldPos.xyz);
+		outFragColor = texture(samplerCube(allCubemaps[uint(sceneData.textures[0])], samplers[CUBE_SAMPLER]), sampleDir);
+		outFragColor.a = 1.0;
 		return;
 	}
 	
@@ -368,7 +372,7 @@ void main()
 	float G = V_SmithGGXCorrelated(NdotV, NdotL, roughness);
 	Fr = D * G * F;
 	
-	vec3 lightColor = vec3(1.0); // HARDCODED SUNLIGHT VALUE
+	vec3 lightColor = vec3(15.0); // HARDCODED SUNLIGHT VALUE
 	vec3 Lo = (Fd + Fr) * lightColor * NdotL; 
 	outFragColor = vec4(Lo, 1.0);
 	
@@ -399,8 +403,6 @@ void main()
 			vec3 specular = prefiltered * (F * brdf.x + brdf.y);
 			ambient = diffuse + specular;
 			//outFragColor = vec4(ambient, 1.0); // sphere test
-			//if (pc.sh == 1.0)
-			//	outFragColor.xyz = tonemap(outFragColor.xyz);
 			//return; // sphere test
 		}
 	#endif
@@ -498,8 +500,7 @@ void main()
 		outFragColor.xyz = compositeTransparent(outFragColor.xyz);
 	}
 	
-	outFragColor.xyz += ambient * IBL_STRENGTH;
-	//outFragColor.xyz = tonemap(outFragColor.xyz);
+	outFragColor.xyz += ambient;
 	
 	if (pc.debugShadowmap != 0)
 	{
@@ -508,5 +509,4 @@ void main()
 		vec3 depth = vec3(texture(sampler2D(allTextures[pc.shadowmap_id + idx], samplers[NEAREST_SAMPLER]), uv).r);
 		outFragColor.xyz = depth;
 	}
-	
 }

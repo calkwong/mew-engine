@@ -14,6 +14,28 @@ struct IBLPushConstants
 	float roughness{};
 };
 
+struct LuminanceBinsPC
+{
+	VkDeviceAddress luminance_buffer{};
+	VkDeviceAddress luminance_avg_buffer{};
+	glm::vec2 screen_size{};
+	uint32_t image_id{};
+	float min_log_luminance{};
+	float one_over_log_luminance_range{};
+	uint32_t pixel_count{};
+	float tau{};
+	float delta_time{};
+};
+
+struct TonemapPC
+{
+	VkDeviceAddress luminance_avg_buffer{};
+	glm::vec2 screen_size{};
+	uint32_t image_id{};
+	uint32_t autoexpose{};
+	uint32_t tonemap_func{};
+};
+
 struct SHPushConstants
 {
 	VkDeviceAddress sh_buffer_address{};
@@ -63,9 +85,8 @@ struct DeferredPushConstants
 	uint32_t debug_cascades{};
 	float metallic{};
 	float roughness{};
-	uint32_t sh{};
-	VkDeviceAddress sh_buffer_address{};
 	float max_prefiltered_lod{};
+	VkDeviceAddress sh_buffer_address{};
 };
 
 // rasteroze shadows

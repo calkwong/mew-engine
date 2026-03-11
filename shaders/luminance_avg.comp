@@ -1,0 +1,88 @@
+#version 450
+
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_buffer_reference : require
+
+layout (local_size_x = 16, local_size_y = 16) in;
+
+layout(set = 0, binding = 0, rgba32f) uniform image2D allImages[]; // unused
+layout(set = 1, binding = 0) uniform texture2D allTextures[]; // unused
+layout(set = 2, binding = 0) uniform sampler samplers[]; // unused
+
+layout(buffer_reference, std430) buffer LuminanceBuffer
+{
+	uint bins[256];
+};
+
+layout(buffer_reference, std430) buffer LuminanceAvgBuffer
+{
+	float luminanceAvg;
+};
+
+layout( push_constant ) uniform constants
+{
+	LuminanceBuffer luminanceBuffer;
+	LuminanceAvgBuffer luminanceAvgBuffer;
+	vec2 screenSize;
+	uint imageId; 
+	float minLogLuminance;
+	float oneOverLogLuminanceRange;
+	uint pixelCount;
+	float tau;
+	float deltaTime;
+} pc;
+
+shared uint sharedBins[256];
+
+void main()
+{
+	uint threadIndex = gl_LocalInvocationIndex;
+
+	uint countForThisBin = pc.luminanceBuffer.bins[threadIndex];
+	sharedBins[threadIndex] = countForThisBin * threadIndex; // bin 0 is set to 0, intentional?
+	
+	barrier();
+	
+	// reset buffer
+	pc.luminanceBuffer.bins[threadIndex] = 0; 
+	
+	// manual unrolling to prevent barrier UB
+	if (threadIndex < 128)
+		sharedBins[threadIndex] += sharedBins[threadIndex + 128];
+	barrier();
+	if (threadIndex < 64)
+		sharedBins[threadIndex] += sharedBins[threadIndex + 64];
+	barrier();
+	if (threadIndex < 32)
+		sharedBins[threadIndex] += sharedBins[threadIndex + 32];
+	barrier();
+	if (threadIndex < 16)
+		sharedBins[threadIndex] += sharedBins[threadIndex + 16];
+	barrier();
+	if (threadIndex < 8)
+		sharedBins[threadIndex] += sharedBins[threadIndex + 8];
+	barrier();
+	if (threadIndex < 4)
+		sharedBins[threadIndex] += sharedBins[threadIndex + 4];
+	barrier();
+	if (threadIndex < 2)
+		sharedBins[threadIndex] += sharedBins[threadIndex + 2];
+	barrier();
+	if (threadIndex < 1)
+		sharedBins[threadIndex] += sharedBins[threadIndex + 1];
+	barrier();
+		
+	if (threadIndex == 0)
+	{
+		// reversing colorToBin from luminance_histogram.comp
+		// weightedAverage for black pixels were effectively 0 as we multiplied black pixel count by threadIndex 0; below compensates for it
+		float weightedAvgLog = (float(sharedBins[0]) / max(float(pc.pixelCount) - countForThisBin, 1.0)) - 1.0;
+		
+		// map from histogram to luminance
+		float weightedAvgLuminance = exp2(((weightedAvgLog / 254.0) * 1.0 / pc.oneOverLogLuminanceRange) + pc.minLogLuminance);
+		
+		float lastLuminanceAvg = pc.luminanceAvgBuffer.luminanceAvg;
+		float adaptedLuminance = lastLuminanceAvg + (weightedAvgLuminance - lastLuminanceAvg) * (1.0 - exp(-pc.deltaTime * pc.tau));
+		pc.luminanceAvgBuffer.luminanceAvg = adaptedLuminance;
+	}
+}
