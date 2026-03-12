@@ -844,7 +844,7 @@ void VulkanEngine::draw()
 
 	// deferred lighting pass
 	{
-		if (CVAR_TOGGLE_VIS_BUFFER.get())
+		if (visibility_rendering)
 		{
 			image_barriers.emplace_back(image_barrier(
 					visibility_buffer.image,
@@ -2432,6 +2432,7 @@ void VulkanEngine::execute_deferred_shading(VkCommandBuffer cmd, VkImageView vie
 	pc.vertex_buffer_address = get_buffer_address(device, render_scene.vertex_buffer.buffer);
 	pc.object_buffer_address = get_buffer_address(device, render_scene.object_buffer.buffer);
 	pc.material_buffer_address = get_buffer_address(device, render_scene.material_buffer.buffer);
+	pc.sh_buffer_address = get_buffer_address(device, render_scene.sh_buffer.buffer);
 
 	pc.depth_id = texture_cache.get_depth_image();
 	pc.gbuffer_id = visibility_rendering ? texture_cache.get_visibility_buffer() : texture_cache.get_first_gbuffer();
@@ -2450,10 +2451,9 @@ void VulkanEngine::execute_deferred_shading(VkCommandBuffer cmd, VkImageView vie
 	pc.debug_cascades = CVAR_TOGGLE_DEBUG_CASCADES.get();
 
 	// gi
+	pc.max_prefiltered_lod = static_cast<float>(std::floor(std::log2(static_cast<float>(std::max(prefiltered_envmap.extent.width, prefiltered_envmap.extent.height))))) + 1;
 	pc.metallic = CVAR_GI_METALLIC.get();
 	pc.roughness = CVAR_GI_ROUGHNESS.get();
-	pc.max_prefiltered_lod = static_cast<float>(std::floor(std::log2(static_cast<float>(std::max(prefiltered_envmap.extent.width, prefiltered_envmap.extent.height))))) + 1;
-	pc.sh_buffer_address = get_buffer_address(device, render_scene.sh_buffer.buffer);
 
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(DeferredPushConstants), &pc);
 	vkCmdDraw(cmd, 3, 1, 0, 0);

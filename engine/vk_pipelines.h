@@ -70,6 +70,7 @@ struct DeferredPushConstants
 	VkDeviceAddress vertex_buffer_address{}; // TESTING FOR VIS BUFFER ONLY
 	VkDeviceAddress object_buffer_address{}; // TESTING FOR VIS BUFFER ONLY
 	VkDeviceAddress material_buffer_address{}; // TESTING FOR VIS BUFFER ONLY
+	VkDeviceAddress sh_buffer_address{};
 	uint32_t depth_id{};
 	uint32_t gbuffer_id{};
 	uint32_t shadow_id{};
@@ -83,10 +84,9 @@ struct DeferredPushConstants
 	uint32_t pcf{};
 	uint32_t debug_shadowmap{};
 	uint32_t debug_cascades{};
+	float max_prefiltered_lod{};
 	float metallic{};
 	float roughness{};
-	float max_prefiltered_lod{};
-	VkDeviceAddress sh_buffer_address{};
 };
 
 // rasteroze shadows

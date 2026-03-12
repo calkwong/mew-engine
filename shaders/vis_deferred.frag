@@ -105,6 +105,7 @@ layout( push_constant ) uniform constants
 	VertexBuffer vertexBuffer;
 	ObjectBuffer objectBuffer;
 	MaterialBuffer materialBuffer;
+	SHBuffer shBuffer;
 	uint depth_id;
 	uint gbuffer_id;    
 	uint shadowmap_id;
@@ -119,14 +120,13 @@ layout( push_constant ) uniform constants
 	uint debugShadowmap;
 	uint debugCascades;
 	// gi
-	float metallic;
-	float roughness;
 	float maxPrefilteredLod;
-	SHBuffer shBuffer;
+	float metallic; // unused, for debugging
+	float roughness; // unused, for debugging
 } pc;
 
 // formula is for infinite far plane, reverse-z
-// returns positive value, may need to negate depending on what we're using it for
+// returns positive z, negate depending on usage
 float linearizeDepthInfiniteReverse(float depth)
 {
 	return pc.near / depth;
@@ -203,7 +203,7 @@ float calculateShadow(vec3 worldPos, inout uint cascadeIdx)
 				closestDepth = texture(sampler2D(allTextures[pc.shadowmap_id + cascadeIdx], samplers[NEAREST_SAMPLER]), sample_uv).r;
 				
 				if (closestDepth > currentDepth)
-					shadow += 0.0; // TODO: change to 0.0 in other path as we have IBL now
+					shadow += 0.0;
 				else
 					shadow += 1.0;
 			}
@@ -236,20 +236,6 @@ void main()
 	//	outFragColor = vec4(normal, 1.0);
 	//	return; 
 	//}
-	
-	// TODO: determine best spot to place this
-	float depth = texture(sampler2D(allTextures[pc.depth_id], samplers[NEAREST_SAMPLER]), inUV).r;
-	// TODO: refactor and use depth/stencil buffer to reject pixels
-	if (depth == 0.0)
-	{
-		vec2 ndc = inUV * 2.0 - 1.0;
-		ndc.y *= -1.0;
-		vec4 worldPos = inverse(sceneData.viewproj) * vec4(ndc, 0.0, 1.0);
-		vec3 sampleDir = normalize(worldPos.xyz);
-		outFragColor = texture(samplerCube(allCubemaps[uint(sceneData.textures[0])], samplers[CUBE_SAMPLER]), sampleDir);
-		outFragColor.a = 1.0;
-		return;
-	}
 	
 	uvec2 data = texture(usampler2D(allUTextures[pc.gbuffer_id], samplers[NEAREST_SAMPLER]), inUV).rg; 
 	
@@ -312,7 +298,9 @@ void main()
 		albedo.xyz *= textureGrad(sampler2D(allTextures[m.diffuseID], samplers[LINEAR_SAMPLER]), uv, uvDdx, uvDdy).xyz;
 	}
 	
-	vec3 ambient = albedo.xyz;
+	vec3 color = vec3(0.0);
+	vec3 ambient = albedo.xyz * 0.1; // when GI is off, likely going to look physically incorrect
+	
 #ifdef PBR
 	if (m.normalID != 0)
 	{
@@ -369,8 +357,7 @@ void main()
 	Fr = D * G * F;
 	
 	vec3 lightColor = vec3(15.0); // HARDCODED SUNLIGHT VALUE
-	vec3 Lo = (Fd + Fr) * lightColor * NdotL; 
-	outFragColor = vec4(Lo, 1.0);
+	color = (Fd + Fr) * lightColor * NdotL; 
 	
 	#ifdef GI
 		//perceptualRoughness = pc.roughness; // sphere test
@@ -388,8 +375,10 @@ void main()
 			//f0 = vec3(0.04); // sphere test
 			f0 = mix(f0, albedo.xyz, metallic);
 			//f0 = mix(f0, white, metallic); // sphere test
+
+			// try normal schlick and visualize difference, remove comment after
+			F = F_SchlickRoughness(NdotV, f0, perceptualRoughness); 
 			
-			F = F_SchlickRoughness(NdotV, f0, perceptualRoughness);
 			kS = F;
 			kD = vec3(1.0) - kS;
 			kD *= 1.0 - metallic;
@@ -403,35 +392,39 @@ void main()
 		}
 	#endif
 #else	
-	outFragColor = vec4(albedo);
+	color += vec4(albedo);
 #endif
-
+	
 	uint cascadeIdx = 0;
 	if (pc.shadows == 1)
 	{
 		float occluded = calculateShadow(worldPos, cascadeIdx);
 		
-		outFragColor.xyz *= occluded;
+		color *= occluded;
 		
 		if (pc.debugCascades == 1)
 		{
 			switch (cascadeIdx)
 			{
 				case 0:
-					outFragColor.xyz *= vec3(1, 0, 0);
+					color *= vec3(1, 0, 0);
 					break;
 				case 1:
-					outFragColor.xyz *= vec3(0, 1, 0);
+					color *= vec3(0, 1, 0);
 					break;
 				case 2:
-					outFragColor.xyz *= vec3(0, 0, 1);
+					color *= vec3(0, 0, 1);
 					break;
 				case 3:
-					outFragColor.xyz *= vec3(1, 1, 0);
+					color *= vec3(1, 1, 0);
 					break;
 			}
 		}
 	}
+	
+	color += ambient;
+	
+	float depth = texture(sampler2D(allTextures[pc.depth_id], samplers[NEAREST_SAMPLER]), inUV).r;
 	
 	if (pc.lightCulling == 1)
 	{
@@ -445,8 +438,7 @@ void main()
 		clusterXY.x = clamp(clusterXY.x, 0, clusterDim.x - 1);
 		clusterXY.y = clamp(clusterXY.y, 0, clusterDim.y - 1);
 		
-		//float viewZ = -(sceneData.view * vec4(worldPos, 1.0)).z; // possible precision tradeoff
-		float viewZ = linearizeDepthInfiniteReverse(depth); // implicitly flipped, is this cheaper than matrix multiply?
+		float viewZ = linearizeDepthInfiniteReverse(depth); // alternative: calculate via matrix multiply, likely more expensive?
 		
 		// equation (3): https://www.aortiz.me/2018/12/21/CG.html#part-2 
 		// slide 5: https://advances.realtimerendering.com/s2016/Siggraph2016_idTech6.pdf
@@ -458,7 +450,6 @@ void main()
 		uint offset = pc.lightGridBuffer.grid[clusterIndex].offset;
 		uint count = pc.lightGridBuffer.grid[clusterIndex].count;
 		
-		vec3 color = vec3(0.);
 		for (int i = 0; i < count; i++)
 		{
 			uint index = pc.lightIndexBuffer.indices[offset + i];
@@ -485,18 +476,26 @@ void main()
 			color += (Fd + Fr) * lightColor * attenuation * NdotL; 
 #else
 			float attenuation = getSquareFalloffAttenuation(distance, lightRadius);
-			color += albedo * lightColor * attenuation * NdotL;
+			color += albedo.xyz * lightColor * attenuation * NdotL;
 #endif
 		}
-		outFragColor.xyz += color; 
+	}
+	
+	// TODO: refactor and use depth/stencil buffer to reject pixels in future
+	if (depth == 0.0)
+	{
+		vec2 ndc = inUV * 2.0 - 1.0;
+		ndc.y *= -1.0;
+		vec3 sampleDir = vec3(inverse(sceneData.viewproj) * vec4(ndc, 0.0, 1.0));
+		color = texture(samplerCube(allCubemaps[uint(sceneData.textures[0])], samplers[CUBE_SAMPLER]), sampleDir).xyz;
 	}
 	
 	if (pc.resolveTransparent == 1)
 	{
-		outFragColor.xyz = compositeTransparent(outFragColor.xyz);
+		color = compositeTransparent(color);
 	}
 	
-	outFragColor.xyz += ambient;
+	outFragColor = vec4(color, 1.0);
 	
 	if (pc.debugShadowmap != 0)
 	{
