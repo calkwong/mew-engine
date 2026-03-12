@@ -47,7 +47,6 @@ constexpr bool USE_VALIDATION_LAYERS = false;
 constexpr bool USE_VALIDATION_LAYERS = true;
 #endif
 
-// #define IBL
 #define SINGLE // uncomment if loading a proper scene
 
 bool RENDER_IMGUI = true;
@@ -156,7 +155,6 @@ void VulkanEngine::init(std::vector<std::string>& file_paths)
 	ready_mesh_draw();
 
 	build_cluster_grid(); // TODO: support draw distance change
-	// init_precomputations();
 	init_gi();
 
 	// first frame transitions to avoid validation errors
@@ -1160,177 +1158,6 @@ void VulkanEngine::draw()
 	// clang-format on;
 }
 
-
-/*
-void VulkanEngine::init_precomputations()
-{
-    //> draw
-    VkCommandBuffer cmd = imm_command_buffer;
-    VK_CHECK(vkResetFences(device, 1, &imm_fence));
-
-    VK_CHECK(vkResetCommandBuffer(cmd, 0));
-
-    VkCommandBufferBeginInfo cmd_begin_info = vkinit::command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
-
-    VK_CHECK(vkBeginCommandBuffer(cmd, &cmd_begin_info));
-
-    vkutil::transition_image(
-        cmd,
-        cubemap_image.image,
-        VK_IMAGE_LAYOUT_UNDEFINED,
-        VK_IMAGE_LAYOUT_GENERAL,
-        0,
-        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-        0,
-        VK_ACCESS_2_SHADER_WRITE_BIT
-    );
-
-    //> cubemap pass
-    ShaderPass current_pass = *shader_passes["hdri2cubemap"];
-
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &bindless_image_descriptor, 0, nullptr);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_tex_descriptor, 0, nullptr);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_sampler_descriptor, 0, nullptr);
-    IBLPushConstants pc{};
-    pc.texture_id = bindless_texture.equi;
-    pc.image_id = bindless_image.skybox;
-    vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IBLPushConstants), &pc);
-    vkCmdDispatch(cmd, static_cast<uint32_t>(std::ceil(cubemap_image.extent.width / 16.0)), static_cast<uint32_t>(std::ceil(cubemap_image.extent.height / 16.0)), 1);
-
-    vkutil::transition_image(
-        cmd,
-        cubemap_image.image,
-        VK_IMAGE_LAYOUT_GENERAL,
-        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-        VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-        VK_ACCESS_2_SHADER_WRITE_BIT,
-        VK_ACCESS_2_TRANSFER_WRITE_BIT
-    );
-
-    vkutil::generate_mipmaps(cmd, cubemap_image.image, { cubemap_image.extent.width, cubemap_image.extent.height }, 6);
-
-    vkutil::transition_image(
-        cmd,
-        cubemap_image.image,
-        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-        VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-        VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_TRANSFER_READ_BIT,
-        VK_ACCESS_2_SHADER_READ_BIT
-    );
-
-    //> irradiance pass
-    current_pass = *shader_passes["irradiance"];
-
-    vkutil::transition_image(
-        cmd,
-        irradiance_image.image,
-        VK_IMAGE_LAYOUT_UNDEFINED,
-        VK_IMAGE_LAYOUT_GENERAL,
-        0,
-        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-        0,
-        VK_ACCESS_2_SHADER_WRITE_BIT
-    );
-
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
-    pc.texture_id = bindless_texture.skybox;
-    pc.image_id = bindless_image.irradiance;
-    vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IBLPushConstants), &pc);
-    vkCmdDispatch(cmd, static_cast<uint32_t>(std::ceil(irradiance_image.extent.width / 8.0)), static_cast<uint32_t>(std::ceil(irradiance_image.extent.height / 8.0)), 1);
-
-    vkutil::transition_image(
-        cmd,
-        irradiance_image.image,
-        VK_IMAGE_LAYOUT_GENERAL,
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-        VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-        VK_ACCESS_2_SHADER_WRITE_BIT,
-        VK_ACCESS_2_SHADER_READ_BIT
-    );
-
-    //> prefiltered pass
-    current_pass = *shader_passes["prefiltered"];
-
-    vkutil::transition_image(
-        cmd,
-        prefiltered_image.image,
-        VK_IMAGE_LAYOUT_UNDEFINED,
-        VK_IMAGE_LAYOUT_GENERAL,
-        0,
-        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-        0,
-        VK_ACCESS_2_SHADER_WRITE_BIT
-    );
-
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
-
-    const int mip_level = static_cast<int>(std::floor(std::log2(std::max(prefiltered_image.extent.width, prefiltered_image.extent.height)))) + 1;
-    pc.texture_id = bindless_texture.skybox;
-    for (int mip = 0; mip < mip_level; mip++)
-    {
-        pc.image_id = bindless_image.prefiltered + mip;
-        pc.roughness = static_cast<float>(mip) / static_cast<float>(mip_level - 1);
-        vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IBLPushConstants), &pc);
-        vkCmdDispatch(cmd, static_cast<uint32_t>(std::ceil((prefiltered_image.extent.width >> mip) / 8.0)), static_cast<uint32_t>(std::ceil((prefiltered_image.extent.height >> mip) / 8.0)), 1);
-    }
-
-    vkutil::transition_image(
-        cmd,
-        prefiltered_image.image,
-        VK_IMAGE_LAYOUT_GENERAL,
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-        VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-        VK_ACCESS_2_SHADER_WRITE_BIT,
-        VK_ACCESS_2_SHADER_READ_BIT
-    );
-
-    //> brdf pass
-    current_pass = *shader_passes["brdf"];
-
-    vkutil::transition_image(
-        cmd,
-        brdflut_image.image,
-        VK_IMAGE_LAYOUT_UNDEFINED,
-        VK_IMAGE_LAYOUT_GENERAL,
-        0,
-        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-        0,
-        VK_ACCESS_2_SHADER_WRITE_BIT
-    );
-
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
-
-    pc.image_id = bindless_image.brdf;
-    vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IBLPushConstants), &pc);
-    vkCmdDispatch(cmd, static_cast<uint32_t>(std::ceil(brdflut_image.extent.width / 8.0)), static_cast<uint32_t>(std::ceil(brdflut_image.extent.height / 8.0)), 1);
-
-    vkutil::transition_image(
-        cmd,
-        brdflut_image.image,
-        VK_IMAGE_LAYOUT_GENERAL,
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-        VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-        VK_ACCESS_2_SHADER_WRITE_BIT,
-        VK_ACCESS_2_SHADER_READ_BIT
-    );
-
-    VK_CHECK(vkEndCommandBuffer(cmd));
-
-    VkCommandBufferSubmitInfo cmd_info = vkinit::command_buffer_submit_info(cmd);
-    VkSubmitInfo2 submit = vkinit::submit_info(&cmd_info, nullptr, nullptr);
-
-    VK_CHECK(vkQueueSubmit2(graphics_queue, 1, &submit, imm_fence));
-    VK_CHECK(vkWaitForFences(device, 1, &imm_fence, true, 9999999999));
-}
-*/
-
 void VulkanEngine::run()
 {
 	SDL_Event e;
@@ -1592,14 +1419,15 @@ void VulkanEngine::init_swapchain()
 		VK_IMAGE_USAGE_STORAGE_BIT // write in compute
 	};
 
-	//draw_image = create_image(device, allocator, draw_image_extent, VK_FORMAT_R16G16B16A16_SFLOAT, draw_image_flags, VK_IMAGE_ASPECT_COLOR_BIT);
+	// if reverting to VK_FORMAT_R16G16B16A16_SFLOAT, need to preexpose lights
 	draw_image = create_image(device, allocator, draw_image_extent, VK_FORMAT_R32G32B32A32_SFLOAT, draw_image_flags, VK_IMAGE_ASPECT_COLOR_BIT);
 
 	auto id = texture_cache.add_texture(draw_image.view);
-	assert(id == 0); // TODO: remove hardcoding drawimage1 to have texture id 0
+	assert(id == 0); // hardcode to id 0
 	texture_cache.set_draw_image(id);
 
 	id = image_cache.add_texture(draw_image.view);
+	assert(id == 0); // hardcode to id 0
 	image_cache.set_draw_image(id);
 
 	// TODO: refactor prob necessary after implementing window/swapchain resize
@@ -1618,9 +1446,6 @@ void VulkanEngine::init_swapchain()
 		texture_cache.set_visibility_buffer(vis_id);
 		velocity_buffer = create_image(device, allocator, draw_image_extent, VK_FORMAT_R16G16_SFLOAT, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT);
 		texture_cache.add_texture(velocity_buffer.view);
-		// accumulation_buffer = create_image(device, allocator, draw_image_extent, VK_FORMAT_R16G16B16A16_SFLOAT, gbuffer_flags | VK_IMAGE_USAGE_STORAGE_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
-		// texture_cache.add_texture(accumulation_buffer.view);
-		// image_cache.add_texture(accumulation_buffer.view);
 
 		auto accum_id = 0;
 		for (int i = 0; i < 2; ++i) // ping pong
@@ -1658,25 +1483,27 @@ void VulkanEngine::init_swapchain()
 	texture_cache.set_depth_image(id);
 
 	main_deletion_queue.push_function([&]()
-	                                  {
-		vkDestroyImageView(device, draw_image.view, nullptr);
-		vmaDestroyImage(allocator, draw_image.image, draw_image.allocation);
-		vkDestroyImageView(device, visibility_buffer.view, nullptr);
-		vmaDestroyImage(allocator, visibility_buffer.image, visibility_buffer.allocation);
-		vkDestroyImageView(device, velocity_buffer.view, nullptr);
-		vmaDestroyImage(allocator, velocity_buffer.image, velocity_buffer.allocation);
-		vkDestroyImageView(device, accumulation_buffers[0].view, nullptr);
-		vmaDestroyImage(allocator, accumulation_buffers[0].image, accumulation_buffers[0].allocation);
-		vkDestroyImageView(device, accumulation_buffers[1].view, nullptr);
-		vmaDestroyImage(allocator, accumulation_buffers[1].image, accumulation_buffers[1].allocation);
-		vkDestroyImageView(device, depth_image.view, nullptr);
-		vmaDestroyImage(allocator, depth_image.image, depth_image.allocation);
-
-		for (int i = 0; i < GBUFFER_COUNT; i++)
 		{
-			vkDestroyImageView(device, gbuffers[i].view, nullptr);
-			vmaDestroyImage(allocator, gbuffers[i].image, gbuffers[i].allocation);
-		} });
+			vkDestroyImageView(device, draw_image.view, nullptr);
+			vmaDestroyImage(allocator, draw_image.image, draw_image.allocation);
+			vkDestroyImageView(device, visibility_buffer.view, nullptr);
+			vmaDestroyImage(allocator, visibility_buffer.image, visibility_buffer.allocation);
+			vkDestroyImageView(device, velocity_buffer.view, nullptr);
+			vmaDestroyImage(allocator, velocity_buffer.image, velocity_buffer.allocation);
+			vkDestroyImageView(device, accumulation_buffers[0].view, nullptr);
+			vmaDestroyImage(allocator, accumulation_buffers[0].image, accumulation_buffers[0].allocation);
+			vkDestroyImageView(device, accumulation_buffers[1].view, nullptr);
+			vmaDestroyImage(allocator, accumulation_buffers[1].image, accumulation_buffers[1].allocation);
+			vkDestroyImageView(device, depth_image.view, nullptr);
+			vmaDestroyImage(allocator, depth_image.image, depth_image.allocation);
+
+			for (int i = 0; i < GBUFFER_COUNT; i++)
+			{
+				vkDestroyImageView(device, gbuffers[i].view, nullptr);
+				vmaDestroyImage(allocator, gbuffers[i].image, gbuffers[i].allocation);
+			}
+		}
+	);
 }
 
 void VulkanEngine::init_commands()
@@ -1706,7 +1533,10 @@ void VulkanEngine::init_commands()
 	VK_CHECK(vkAllocateCommandBuffers(device, &cmd_alloc_info, &imm_command_buffer));
 
 	main_deletion_queue.push_function([&]()
-	                                  { vkDestroyCommandPool(device, imm_command_pool, nullptr); });
+		{
+			vkDestroyCommandPool(device, imm_command_pool, nullptr);
+		}
+	);
 }
 
 void VulkanEngine::init_sync_structures()
@@ -1759,7 +1589,6 @@ void VulkanEngine::destroy_swapchain()
 
 	for (auto& swapchain_image_view : swapchain_image_views)
 	{
-
 		vkDestroyImageView(device, swapchain_image_view, nullptr);
 	}
 }
@@ -1833,12 +1662,14 @@ void VulkanEngine::init_descriptors()
 	}
 
 	main_deletion_queue.push_function([&]()
-	                                  {
-		global_descriptor_allocator.destroy_pools(device);
-		vkDestroyDescriptorSetLayout(device, scene_descriptor_layout, nullptr);
-		vkDestroyDescriptorSetLayout(device, bindless_tex_layout, nullptr);
-		vkDestroyDescriptorSetLayout(device, bindless_sampler_layout, nullptr);
-		vkDestroyDescriptorSetLayout(device, bindless_image_layout, nullptr); });
+		{
+			global_descriptor_allocator.destroy_pools(device);
+			vkDestroyDescriptorSetLayout(device, scene_descriptor_layout, nullptr);
+			vkDestroyDescriptorSetLayout(device, bindless_tex_layout, nullptr);
+			vkDestroyDescriptorSetLayout(device, bindless_sampler_layout, nullptr);
+			vkDestroyDescriptorSetLayout(device, bindless_image_layout, nullptr);
+		}
+	);
 }
 
 void VulkanEngine::init_pipelines()
@@ -1884,7 +1715,6 @@ void VulkanEngine::init_pipelines()
 #else
 	fmt::println("running Debug mode");
 #endif
-
 
 	std::vector<VkDescriptorSetLayout> descriptor_layouts{};
 
@@ -2144,13 +1974,15 @@ void VulkanEngine::init_default_data()
 	}
 
 	main_deletion_queue.push_function([&]()
-	                                  {
-		destroy_image(device, allocator, error_image);
-
-		for (auto& cascade : cascade_data)
 		{
-			destroy_image(device, allocator, cascade.shadow_map);
-		} });
+			destroy_image(device, allocator, error_image);
+
+			for (auto& cascade : cascade_data)
+			{
+				destroy_image(device, allocator, cascade.shadow_map);
+			}
+		}
+	);
 
 	//> init scene
 	render_scene.init();
@@ -2186,12 +2018,14 @@ void VulkanEngine::init_default_data()
 	}
 
 	main_deletion_queue.push_function([&, pyramid_views]()
-	                                  {
-		destroy_image(device, allocator, depth_pyramid);
-		for (auto pyramid_view : pyramid_views)
-		{
-			vkDestroyImageView(device, pyramid_view, nullptr);
-		} });
+	    {
+			destroy_image(device, allocator, depth_pyramid);
+			for (auto pyramid_view : pyramid_views)
+			{
+				vkDestroyImageView(device, pyramid_view, nullptr);
+			}
+	    }
+	);
 
 	// global light list
 	std::mt19937 mt(42);
@@ -2315,87 +2149,6 @@ void VulkanEngine::init_default_data()
 
 void VulkanEngine::init_renderables(std::vector<std::string>& file_paths)
 {
-#ifdef IBL
-	/*
-	const char* hdr_path{ "../../assets/pisa.hdr" };
-	float* hdr_data{};
-
-	int width{};
-	int height{};
-	int channels{};
-
-	hdr_data = stbi_loadf(hdr_path, &width, &height, &channels, STBI_rgb_alpha);
-
-	ibl_extent.width = static_cast<uint32_t>(width);
-	ibl_extent.height = static_cast<uint32_t>(height);
-	ibl_extent.depth = 1;
-
-	equirectangular_image = create_image(static_cast<void*>(hdr_data), ibl_extent, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
-
-	stbi_image_free(hdr_data);
-
-	ibl_extent.width /= 4;
-	ibl_extent.height = ibl_extent.width;
-
-	cubemap_image = create_cubemap(ibl_extent, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT, 0, true);
-
-	irradiance_image = create_cubemap({ 64, 64, 1 }, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
-
-	prefiltered_image = create_cubemap({ 512, 512, 1 }, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT, 0, true);
-
-	brdflut_image = create_image({ 128, 128, 1 }, VK_FORMAT_R16G16_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
-
-	bindless_texture.equi = texture_cache.add_texture(equirectangular_image.view);
-	bindless_texture.skybox = texture_cache.add_texture(cubemap_image.view);
-	bindless_texture.irradiance = texture_cache.add_texture(irradiance_image.view);
-	bindless_texture.prefiltered = texture_cache.add_texture(prefiltered_image.view);
-	bindless_texture.brdf = texture_cache.add_texture(brdflut_image.view);
-
-	scene_data.textures[0] = bindless_texture.irradiance;
-	scene_data.textures[1] = bindless_texture.prefiltered;
-	scene_data.textures[2] = bindless_texture.brdf;
-	scene_data.textures[3] = bindless_texture.shadow;
-
-	bindless_image.skybox = image_cache.add_texture(cubemap_image.view);
-	bindless_image.irradiance = image_cache.add_texture(irradiance_image.view);
-
-	// add each prefiltered mip level view (with all layers visible) to imagecache
-	int mip_levels = int(std::floor(std::log2(std::max(prefiltered_image.extent.width, prefiltered_image.extent.height)))) + 1;
-	std::vector<VkImageView> temporary_views(mip_levels);
-	VkImageViewCreateInfo img_view_info = vkinit::imageview_create_info(VK_FORMAT_R32G32B32A32_SFLOAT, prefiltered_image.image, VK_IMAGE_ASPECT_COLOR_BIT);
-	img_view_info.subresourceRange.levelCount = 1;
-	img_view_info.viewType = VK_IMAGE_VIEW_TYPE_CUBE;
-
-	img_view_info.subresourceRange.baseMipLevel = 0;
-	vkCreateImageView(device, &img_view_info, nullptr, &temporary_views[0]);
-	bindless_image.prefiltered = image_cache.add_texture(temporary_views[0]);
-
-	for (int mip = 1; mip < mip_levels; mip++)
-	{
-	    img_view_info.subresourceRange.baseMipLevel = mip;
-	    vkCreateImageView(device, &img_view_info, nullptr, &temporary_views[mip]);
-	    image_cache.add_texture(temporary_views[mip]);
-	}
-
-	bindless_image.brdf = image_cache.add_texture(brdflut_image.view);
-
-	main_deletion_queue.push_function([&, temporary_views]()
-	                                  {
-	    for (int mip = 0; mip < temporary_views.size(); mip++)
-	    {
-	        vkDestroyImageView(device, temporary_views[mip], nullptr);
-	    } });
-
-	main_deletion_queue.push_function([&]()
-	                                  {
-	    destroy_image(equirectangular_image);
-	    destroy_image(cubemap_image);
-	    destroy_image(irradiance_image);
-	    destroy_image(prefiltered_image);
-	    destroy_image(brdflut_image); });
-	*/
-#endif
-
 	auto start = std::chrono::system_clock::now();
 	Loader loader{};
 	for (std::string& file_path : file_paths)
@@ -2915,11 +2668,13 @@ void VulkanEngine::init_imgui()
 	ImGui_ImplVulkan_Init(&init_info);
 
 	main_deletion_queue.push_function([&, imgui_pool]()
-	                                  {
-		ImGui_ImplVulkan_Shutdown();
-		ImGui_ImplSDL3_Shutdown();
-		ImGui::DestroyContext();
-		vkDestroyDescriptorPool(device, imgui_pool, nullptr); });
+		{
+			ImGui_ImplVulkan_Shutdown();
+			ImGui_ImplSDL3_Shutdown();
+			ImGui::DestroyContext();
+			vkDestroyDescriptorPool(device, imgui_pool, nullptr);
+		}
+	);
 }
 
 void VulkanEngine::draw_imgui(VkCommandBuffer cmd, VkImageView swapchain_view)
@@ -3576,30 +3331,6 @@ void VulkanEngine::render_shadows(VkCommandBuffer cmd, uint32_t cascade_idx, uin
 
 void VulkanEngine::build_depth_pyramid(VkCommandBuffer cmd)
 {
-	// vkutil::transition_image(
-	//     cmd,
-	//     depth_image.image,
-	//     VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
-	//     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-	//     VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
-	//     VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-	//     VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-	//     VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-	//     VK_IMAGE_ASPECT_DEPTH_BIT
-	// );
-	//
-	// vkutil::transition_image(
-	//     cmd,
-	//     depth_pyramid.image,
-	//     VK_IMAGE_LAYOUT_UNDEFINED,
-	//     VK_IMAGE_LAYOUT_GENERAL,
-	//     VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, // debugging in fragment shader
-	//     VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-	//     VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-	//     VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-	//     VK_IMAGE_ASPECT_COLOR_BIT
-	// );
-
 	ShaderPass current_pass = *shader_passes["depth_pyramid"];
 	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &bindless_image_descriptor, 0, nullptr);
@@ -3650,18 +3381,6 @@ void VulkanEngine::build_depth_pyramid(VkCommandBuffer cmd)
 			vkCmdPipelineBarrier2(cmd, &info);
 		}
 	}
-
-	// vkutil::transition_image(
-	//     cmd,
-	//     depth_pyramid.image,
-	//     VK_IMAGE_LAYOUT_GENERAL,
-	//     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-	//     VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-	//     VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-	//     VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-	//     VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-	//     VK_IMAGE_ASPECT_COLOR_BIT
-	// );
 }
 
 void VulkanEngine::build_cluster_grid()

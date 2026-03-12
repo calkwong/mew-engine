@@ -125,7 +125,6 @@ layout( push_constant ) uniform constants
 	SHBuffer shBuffer;
 } pc;
 
-
 // formula is for infinite far plane, reverse-z
 // returns positive value, may need to negate depending on what we're using it for
 float linearizeDepthInfiniteReverse(float depth)
@@ -133,11 +132,8 @@ float linearizeDepthInfiniteReverse(float depth)
 	return pc.near / depth;
 }
 
-const float IBL_STRENGTH = 0.1;
 const int CASCADE_COUNT = 4;
-int MAX_LIGHTS = 1000; // TODO: hardcoded
 const int MLAB_NODES = 4;
-#define CLUSTERED_SHADING
 
 vec3 compositeTransparent(vec3 inputColor)
 {

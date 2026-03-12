@@ -140,11 +140,6 @@ public:
 	AllocatedImage default_normal_image{};
 	AllocatedImage error_image{};
 	AllocatedImage offscreen_image{};
-	// AllocatedImage equirectangular_image{};
-	// AllocatedImage cubemap_image{};
-	// AllocatedImage irradiance_image{};
-	// AllocatedImage prefiltered_image{};
-	// AllocatedImage brdflut_image{};
 
 	// GI
 	AllocatedImage hdri{};
@@ -251,5 +246,6 @@ private:
 	void destroy_swapchain();
 };
 
+// TODO: move these to math
 uint32_t nearest_pow2(uint32_t extent);
 float Halton(uint32_t i, uint32_t b);
