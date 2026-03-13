@@ -67,6 +67,7 @@ struct SceneData
 	glm::mat4 view{};
 	glm::mat4 proj{};
 	glm::mat4 viewproj{};
+	glm::mat4 inverse_viewproj{};
 	glm::mat4 previous_viewproj{};
 	glm::mat4 light_rot{};
 	std::array<glm::mat4, 4> shadow_transforms{};
@@ -76,7 +77,7 @@ struct SceneData
 	glm::vec4 sunlight_dir{};
 	glm::vec4 textures{}; // cubemap/skybox, irradiance, prefiltered, brdf
 	std::array<glm::mat4, 4> shadow_views{}; // for shadow_cull
-	std::array<float, 4> shadow_widths{};
+	std::array<float, 4> shadow_widths{}; // TODO: move to pc?
 };
 
 struct CascadeData

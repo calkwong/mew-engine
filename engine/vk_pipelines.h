@@ -141,11 +141,11 @@ struct DepthPyramidPushConstants
 struct ClusterGridPushConstants
 {
 	glm::mat4 inverse_proj{};
-	glm::vec4 cluster_size{};
+	VkDeviceAddress light_cluster_buffer_address{};
 	glm::vec2 screen_size{};
+	float cluster_dim{};
 	float near{};
 	float far{};
-	VkDeviceAddress light_cluster_buffer_address{};
 };
 
 struct LightCullingPushConstants

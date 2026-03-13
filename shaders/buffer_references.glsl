@@ -108,7 +108,7 @@ layout(buffer_reference, std430) buffer MeshletBuffer
 #else
 #define OIT_QUALIFIER coherent
 #endif
-layout(buffer_reference, std430) OIT_QUALIFIER buffer OITBuffer // coherent in mlab.frag?
+layout(buffer_reference, std430) OIT_QUALIFIER buffer OITBuffer
 { 
 	OITData frags[];
 };

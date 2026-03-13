@@ -2,6 +2,8 @@
 
 #extension GL_GOOGLE_include_directive : require
 
+#define SHADOW_CULL
+
 #include "bindings.glsl"
 #include "buffer_references.glsl"
 
@@ -82,7 +84,7 @@ void main()
 		
 		// TODO: verify that below is ok to go after completelyInsideCascade check
 		// TODO: profile shadow LODs 
-		uint index = 0;
+		uint lodIndex = 0;
 		if (pc.lodEnabled == 1) 
 		{
 			// automatic LOD selection - at distance d, how many world space units does each pixel cover? 
@@ -93,16 +95,16 @@ void main()
 
 			for (uint i = 0; i < mesh.lodCount; i++)
 			{
-				index = e >= mesh.lods[i].error ? i : index;
+				lodIndex = e >= mesh.lods[i].error ? i : lodIndex;
 			}
 		}
 		
 		uint count = alphaClip ? atomicAdd(pc.drawBuffer.draws[cascadeIdx].alphaClipCount, 1) : atomicAdd(pc.drawBuffer.draws[cascadeIdx].opaqueCount, 1);
-		count = alphaClip ? count + 200000 : count;
-		pc.drawBuffer.draws[cascadeIdx].commands[count].indexCount = mesh.lods[index].count; // TODO: LODS still unaccounted for
-		pc.drawBuffer.draws[cascadeIdx].commands[count].instanceCount = 1;
-		pc.drawBuffer.draws[cascadeIdx].commands[count].firstIndex = mesh.lods[index].firstIndex;
-		pc.drawBuffer.draws[cascadeIdx].commands[count].vertexOffset = mesh.vertexOffset;
-		pc.drawBuffer.draws[cascadeIdx].commands[count].firstInstance = id;
+		uint index = alphaClip ? count + 200000 : count;
+		pc.drawBuffer.draws[cascadeIdx].commands[index].indexCount = mesh.lods[lodIndex].count; // TODO: LODS still unaccounted for
+		pc.drawBuffer.draws[cascadeIdx].commands[index].instanceCount = 1;
+		pc.drawBuffer.draws[cascadeIdx].commands[index].firstIndex = mesh.lods[lodIndex].firstIndex;
+		pc.drawBuffer.draws[cascadeIdx].commands[index].vertexOffset = mesh.vertexOffset;
+		pc.drawBuffer.draws[cascadeIdx].commands[index].firstInstance = id;
 	}
 }

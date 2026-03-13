@@ -5,16 +5,16 @@
 #include "bindings.glsl"
 #include "buffer_references.glsl"
 
-layout (local_size_x = 27, local_size_y = 15, local_size_z = 2) in;
+layout (local_size_x = 27, local_size_y = 15, local_size_z = 1) in;
 
 layout( push_constant ) uniform constants
 {
 	mat4 inverseProj;
-	vec4 clusterSize; // xyz is cluster data struct dim, w is single cluster dim where width==height
+	ClusterBuffer clusterBuffer;
 	vec2 screenSize;
+	float clusterDim; // width == height
 	float nearZ;
 	float farZ;
-	ClusterBuffer clusterBuffer;
 } pc;
 
 vec3 screen2View(vec2 screenPos)
@@ -40,16 +40,17 @@ vec3 lineIntersectionToZPlane(vec3 point, float z)
 void main()
 {
 	// left-bot & right-top cluster corners in screen space 
-	vec2 minScreenPos = vec2(gl_LocalInvocationID.x, gl_LocalInvocationID.y) * pc.clusterSize.w; 
-	vec2 maxScreenPos = vec2(gl_LocalInvocationID.x + 1, gl_LocalInvocationID.y + 1) * pc.clusterSize.w; 
+	vec2 minScreenPos = vec2(gl_LocalInvocationID.x, gl_LocalInvocationID.y) * pc.clusterDim;
+	vec2 maxScreenPos = vec2(gl_LocalInvocationID.x + 1, gl_LocalInvocationID.y + 1) * pc.clusterDim;
 	
 	// left-bot & right-top cluster corners in view space
 	vec3 minViewPos = screen2View(minScreenPos);
 	vec3 maxViewPos = screen2View(maxScreenPos);
 	
+	uint slice = gl_WorkGroupID.z;
+	uint numSlices = gl_NumWorkGroups.z;
+	
 	// negation necessary as our z is negative when pointing into the screen
-	uint slice = gl_WorkGroupID.z * gl_WorkGroupSize.z + gl_LocalInvocationID.z;
-	uint numSlices = uint(pc.clusterSize.z);
 	float nearZ = -pc.nearZ * pow(pc.farZ / pc.nearZ, float(slice) / float(numSlices));
 	float farZ = -pc.nearZ * pow(pc.farZ / pc.nearZ, float(slice + 1) / float(numSlices));
 	
@@ -62,8 +63,8 @@ void main()
 	vec3 aabbMin = min(min(minNear, minFar), min(maxNear, maxFar));
 	vec3 aabbMax = max(max(minNear, minFar), max(maxNear, maxFar));
 	
-	uint threadCount = gl_WorkGroupSize.x * gl_WorkGroupSize.y * gl_WorkGroupSize.z;
-	uint clusterIndex = gl_WorkGroupID.z * threadCount + gl_LocalInvocationIndex; // gl_GlobalInvocationID?
+	uint clustersPerSlice = gl_WorkGroupSize.x * gl_WorkGroupSize.y;
+	uint clusterIndex = gl_WorkGroupID.z * clustersPerSlice + gl_LocalInvocationIndex; 
 		
 	pc.clusterBuffer.aabb[clusterIndex].min = vec4(aabbMin, 1.0);
 	pc.clusterBuffer.aabb[clusterIndex].max = vec4(aabbMax, 1.0);

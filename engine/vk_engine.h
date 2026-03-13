@@ -95,6 +95,7 @@ public:
 	bool stop_movement{ false };
 	bool freeze_camera{ false };
 	bool first_frame{ true };
+	bool render_imgui{ true };
 	glm::mat4 last_view{};
 	glm::mat4 last_proj{};
 
@@ -246,6 +247,7 @@ private:
 	void destroy_swapchain();
 };
 
-// TODO: move these to math
+// TODO: move these to math/utility haeder
 uint32_t nearest_pow2(uint32_t extent);
 float Halton(uint32_t i, uint32_t b);
+uint32_t get_groupcount(uint32_t size, uint32_t threads);

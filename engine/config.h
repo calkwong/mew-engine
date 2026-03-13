@@ -1,0 +1,22 @@
+#pragma once
+
+#define SHADOW_MAP_SIZE 4096
+#define NUMBER_OF_CASCADES 4
+#define GBUFFER_COUNT 4
+
+#define MAX_OPAQUE_DRAWS 200000
+#define MAX_ALPHACLIP_DRAWS 200000
+
+#define WARP_SIZE 32
+#define LUMINANCE_BINS 16 // 16*16=256
+#define CULL_WGSIZE 256
+
+// queries
+#define QUERY_COUNT 50
+#define TIMESTAMP_QUERIES 26
+#define PIPELINE_QUERIES 8
+
+// clustered shading
+#define CLUSTER_DEPTH_SLICES 24
+#define CLUSTER_DIM 64 // width == height
+#define MAX_POINT_LIGHTS 1000

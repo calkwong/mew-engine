@@ -34,17 +34,16 @@ bool sphereAABBIntersect(AABB aabb, vec3 center, float radius)
 	return d <= (radius * radius);
 }
 
-const uint MAX_LIGHTS = 1000;
+// TODO: move this to a config file
+#define MAX_LIGHTS 1000
 
-// thread local variables
-uint localLightCount = 0;
-const uint batches = (MAX_LIGHTS + gl_WorkGroupSize.x - 1) / gl_WorkGroupSize.x;
-uint localLightList[MAX_LIGHTS]; // TODO: temporarily using max count as all lights can fall into a single cluster at far plane if our scene is far away, causing OOB device lost 
-	
 // workgroup shared
 shared uint sharedOffset; 
-shared uint sharedCount[gl_WorkGroupSize.x]; // can't use gl_NumSubgroups as its not compile time constant?
+shared uint sharedCount[gl_WorkGroupSize.x];
 shared uint sharedLightList[MAX_LIGHTS];
+
+shared uint clusterLightCount;
+shared uint clusterOffset;
 	
 void main()
 {
@@ -55,6 +54,11 @@ void main()
 		
 	AABB clusterAABB = pc.clusterBuffer.aabb[clusterIndex];
 	
+	const uint batches = (MAX_LIGHTS + gl_WorkGroupSize.x - 1) / gl_WorkGroupSize.x;
+	uint localLightList[batches];
+	uint localLightCount = 0;
+	
+	// each thread performs approx MAX_LIGHTS/threads light intersection test
 	for (uint batch = 0; batch < batches; batch++)
 	{
 		uint lightIndex = min(batch * gl_WorkGroupSize.x + gl_LocalInvocationIndex, MAX_LIGHTS);
@@ -73,11 +77,11 @@ void main()
 	}
 	
 	sharedOffset = 0;
-	barrier();
+	barrier(); 
 	
 	uint offset;
 	if (localLightCount > 0)
-		offset = atomicAdd(sharedOffset, localLightCount);
+		offset = atomicAdd(sharedOffset, localLightCount); // TODO: potentially slow per thread atomic
 	
 	for (uint i = 0; i < localLightCount; i++)
 	{
@@ -91,30 +95,26 @@ void main()
 	if (gl_LocalInvocationIndex == 0)
 	{
 	
-		uint clusterLightCount = 0;
+		clusterLightCount = 0;
 		
 		// sum up total lights affecting cluster
+		// TODO: use ballot
 		for (int i = 0; i < gl_WorkGroupSize.x; i++)
 		{
 			clusterLightCount += sharedCount[i];
 		}
 	
-		uint clusterOffset = atomicAdd(pc.lightCountBuffer.count, clusterLightCount);
-		
-		// update global light index list
-		for (int i = 0; i < clusterLightCount; i++)
-		{
-			pc.lightIndexBuffer.indices[clusterOffset + i] = sharedLightList[i];
-		}
+		clusterOffset = atomicAdd(pc.lightCountBuffer.count, clusterLightCount);
 		
 		pc.lightGridBuffer.grid[clusterIndex].offset = clusterOffset;
 		pc.lightGridBuffer.grid[clusterIndex].count = clusterLightCount;
 	}
+	
+	barrier();
+	
+	// update global light index list
+	for (uint i = gl_LocalInvocationIndex; i < clusterLightCount; i = i + gl_WorkGroupSize.x)
+	{
+		pc.lightIndexBuffer.indices[clusterOffset + i] = sharedLightList[i];
+	}
 }
-
-// POTENTIAL IMPROVEMENTS
-// - subgroup ops
-// - tree reduction when computing final offset/count from shared workgroup memory, this uses more thread for final computation instead of thread ID 0 only
-// - light sorting?
-// - instead of lightIndex, write out light data to prevent rand-access indirection during shading? this comes at cost of duplicated data
-// - any ideas from https://themaister.net/blog/2020/01/10/clustered-shading-evolution-in-granite/?

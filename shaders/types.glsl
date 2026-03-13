@@ -101,11 +101,16 @@ struct MaterialData
 	uint emissiveID;
 };
 
+#ifdef SHADOW_CULL
+#define MAX_DRAW_COMMANDS 400000
+#else
+#define MAX_DRAW_COMMANDS 200000
+#endif
 struct DrawCommands
 {
 	uint opaqueCount;
 	uint alphaClipCount;
-	DrawCommand commands[200000]; // TODO: shadow_cull using 400000, why is it different again?
+	DrawCommand commands[MAX_DRAW_COMMANDS]; // TODO: shadow_cull using 400000, why is it different again?
 };
 
 struct OITData

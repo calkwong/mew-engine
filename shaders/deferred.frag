@@ -141,12 +141,12 @@ float calculateShadow(vec3 worldPos, inout uint cascadeIdx)
 	return shadow;
 }
 
-vec3 reconstructWorldPos(float depth, mat4 viewproj)
+vec3 reconstructWorldPos(float depth, mat4 inverseViewproj)
 {
 	vec2 ndc = gl_FragCoord.xy / pc.screenSize;
 	ndc = ndc * 2.0 - 1.0;
 	ndc.y *= -1.0; // flip as window coords are top down
-	vec4 worldPos = inverse(viewproj) * vec4(ndc, depth, 1.0);
+	vec4 worldPos = inverseViewproj * vec4(ndc, depth, 1.0);
 	
 	return worldPos.xyz / worldPos.w;
 }
@@ -171,7 +171,7 @@ void main()
 	
 	vec4 albedo = vec4(texture(sampler2D(textures[albedo_id], samplers[NEAREST_SAMPLER]), inUV).xyz, 1.0);
 	float depth = texture(sampler2D(textures[pc.depth_id], samplers[NEAREST_SAMPLER]), inUV).r;
-	vec3 worldPos = reconstructWorldPos(depth, sceneData.viewproj);
+	vec3 worldPos = reconstructWorldPos(depth, sceneData.inverseViewproj);
 	
 	vec3 color = vec3(0.0);
 	vec3 ambient = albedo.xyz * 0.1; // when GI is off, likely going to look physically incorrect
@@ -208,7 +208,7 @@ void main()
 	float G = V_SmithGGXCorrelated(NdotV, NdotL, roughness);
 	Fr = D * G * F;
 	
-	vec3 lightColor = vec3(15.0); // HARDCODED SUNLIGHT VALUE
+	vec3 lightColor = sceneData.sunlightColor.xyz;
 	color = (Fd + Fr) * lightColor * NdotL; 
 	
 	#ifdef GI
@@ -276,10 +276,8 @@ void main()
 	
 	if (pc.lightCulling == 1)
 	{
-		vec4 clipPos = sceneData.viewproj * vec4(worldPos, 1.0);
-		vec3 ndc = clipPos.xyz / clipPos.w;
-		vec2 screenPos = ndc.xy * 0.5 + 0.5;
-		screenPos = screenPos * pc.screenSize;
+		vec2 screenPos = vec2(gl_FragCoord.xy);
+		screenPos.y = pc.screenSize.y - screenPos.y;
 		
 		ivec4 clusterDim = ivec4(pc.clusterSize);
 		ivec2 clusterXY = ivec2(floor(screenPos.xy / clusterDim.w));
@@ -334,7 +332,7 @@ void main()
 	{
 		vec2 ndc = inUV * 2.0 - 1.0;
 		ndc.y *= -1.0;
-		vec3 sampleDir = vec3(inverse(sceneData.viewproj) * vec4(ndc, 0.0, 1.0));
+		vec3 sampleDir = vec3(sceneData.inverseViewproj * vec4(ndc, 0.0, 1.0));
 		color = texture(samplerCube(textures_cube[uint(sceneData.textures[0])], samplers[CUBE_SAMPLER]), sampleDir).xyz;
 	}
 	

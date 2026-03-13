@@ -39,21 +39,20 @@ void main()
 	uv = uv * 2.0 - 1.0;
 	uv.y *= -1.0; 
 	
-	for (int face = 0; face < 6; face++)
+	uint face = gl_WorkGroupID.z;
+	
+	switch (face)
 	{
-		switch (face)
-		{
-			case 0: direction = normalize(vec3(1.0, uv.y, -uv.x)); break; // +X
-			case 1: direction = normalize(vec3(-1.0, uv.y, uv.x)); break; // -X
-			case 2: direction = normalize(vec3(uv.x, 1.0, -uv.y)); break; // +Y
-			case 3: direction = normalize(vec3(uv.x, -1.0, uv.y)); break; // -Y
-			case 4: direction = normalize(vec3(uv.x, uv.y, 1.0)); break; // +Z
-			case 5: direction = normalize(vec3(-uv.x, uv.y, -1.0)); break; // -Z
-			default: direction = vec3(0.0); break; // Should not happen
-		}
-
-		vec2 sample_uv = sampleSphericalMap(direction);
-		vec4 color = texture(sampler2D(textures[pc.texture_id], samplers[LINEAR_SAMPLER]), sample_uv);
-		imageStore(images_array_rgba32f[pc.image_id], ivec3(texelCoord, face), color);
+		case 0: direction = normalize(vec3(1.0, uv.y, -uv.x)); break; // +X
+		case 1: direction = normalize(vec3(-1.0, uv.y, uv.x)); break; // -X
+		case 2: direction = normalize(vec3(uv.x, 1.0, -uv.y)); break; // +Y
+		case 3: direction = normalize(vec3(uv.x, -1.0, uv.y)); break; // -Y
+		case 4: direction = normalize(vec3(uv.x, uv.y, 1.0)); break; // +Z
+		case 5: direction = normalize(vec3(-uv.x, uv.y, -1.0)); break; // -Z
+		default: direction = vec3(0.0); break; // Should not happen
 	}
+
+	vec2 sample_uv = sampleSphericalMap(direction);
+	vec4 color = texture(sampler2D(textures[pc.texture_id], samplers[LINEAR_SAMPLER]), sample_uv);
+	imageStore(images_array_rgba32f[pc.image_id], ivec3(texelCoord, face), color);
 }

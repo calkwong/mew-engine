@@ -278,7 +278,7 @@ void main()
 	float G = V_SmithGGXCorrelated(NdotV, NdotL, roughness);
 	Fr = D * G * F;
 	
-	vec3 lightColor = vec3(15.0); // HARDCODED SUNLIGHT VALUE
+	vec3 lightColor = sceneData.sunlightColor.xyz;
 	color = (Fd + Fr) * lightColor * NdotL; 
 	
 	#ifdef GI
@@ -350,10 +350,8 @@ void main()
 	
 	if (pc.lightCulling == 1)
 	{
-		vec4 clipPos = sceneData.viewproj * vec4(worldPos, 1.0);
-		vec3 ndc = clipPos.xyz / clipPos.w;
-		vec2 screenPos = ndc.xy * 0.5 + 0.5;
-		screenPos = screenPos * pc.screenSize;
+		vec2 screenPos = vec2(gl_FragCoord.xy);
+		screenPos.y = pc.screenSize.y - screenPos.y;
 		
 		ivec4 clusterDim = ivec4(pc.clusterSize);
 		ivec2 clusterXY = ivec2(floor(screenPos.xy / clusterDim.w));
@@ -408,7 +406,7 @@ void main()
 	{
 		vec2 ndc = inUV * 2.0 - 1.0;
 		ndc.y *= -1.0;
-		vec3 sampleDir = vec3(inverse(sceneData.viewproj) * vec4(ndc, 0.0, 1.0));
+		vec3 sampleDir = vec3(sceneData.inverseViewproj * vec4(ndc, 0.0, 1.0));
 		color = texture(samplerCube(textures_cube[uint(sceneData.textures[0])], samplers[CUBE_SAMPLER]), sampleDir).xyz;
 	}
 	

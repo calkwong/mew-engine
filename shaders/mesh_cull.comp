@@ -182,6 +182,7 @@ void main()
 		}
 		else
 		{
+			// TODO: currently, third pass for masked geometry is only culling for late==1. it is incremented in opaqueCount. make a proper distinction when we cull masked geometry in early and late?
 			uint count = atomicAdd(pc.drawBuffer.draws[0].opaqueCount, 1);
 			pc.drawBuffer.draws[0].commands[count].indexCount = mesh.lods[index].count;
 			pc.drawBuffer.draws[0].commands[count].instanceCount = 1;
