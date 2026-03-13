@@ -1,10 +1,10 @@
 #version 450
 
-#extension GL_EXT_nonuniform_qualifier : require
+#extension GL_GOOGLE_include_directive : require
+
+#include "bindings.glsl"
 
 layout (local_size_x = 8, local_size_y = 8) in;
-
-layout(set = 0, binding = 0, rg16f) uniform image2D allImages[];
 
 const float PI = 3.14159265359;
 
@@ -105,5 +105,5 @@ void main()
 	
 	vec2 color = IntegratedBRDF(uv.x, uv.y);
 	
-	imageStore(allImages[pc.image_id], ivec2(texelCoord), vec4(color, 0.0, 1.0));
+	imageStore(images_rg16f[pc.image_id], ivec2(texelCoord), vec4(color, 0.0, 1.0));
 }

@@ -1,69 +1,17 @@
 #version 450
 
 #extension GL_GOOGLE_include_directive : require
-#extension GL_EXT_buffer_reference : require
-#extension GL_EXT_nonuniform_qualifier : require
 
-#include "samplers.glsl"
-#include "math.glsl"
-#include "scene.glsl"
+#define OIT_RESOLVE
+
+#include "bindings.glsl"
+#include "buffer_references.glsl"
 #include "pbr.glsl"
-#include "gi.glsl"
-
-layout(set = 1, binding = 0) uniform texture2D allTextures[];
-layout(set = 1, binding = 0) uniform utexture2D allUTextures[];
-layout(set = 1, binding = 0) uniform textureCube allCubemaps[];
-layout(set = 2, binding = 0) uniform sampler samplers[];
+#include "sh.glsl"
 
 layout (location = 0) in vec2 inUV;
 
 layout (location = 0) out vec4 outFragColor;
-
-struct PointLight
-{
-	vec4 pos;
-	vec4 color;
-};
-
-struct LightGrid
-{
-	uint offset;
-	uint count;
-};
-
-layout(buffer_reference, std430) readonly buffer LightBuffer
-{
-	PointLight lights[];
-};
-
-layout(buffer_reference, std430) readonly buffer LightIndexBuffer
-{
-	uint indices[];
-};
-
-layout(buffer_reference, std430) readonly buffer LightGridBuffer
-{
-	LightGrid grid[];
-};
-
-struct OITData
-{
-	uvec4 colors;
-	uvec4 depths;
-	vec4 transmissions; // could we pack this in color.a?
-};
-
-layout(buffer_reference, std430) buffer OITBuffer
-{ 
-	OITData frags[];
-};
-
-layout(buffer_reference, std430) readonly buffer SHBuffer
-{
-	SH9 rCoefficients;
-	SH9 gCoefficients;
-	SH9 bCoefficients;
-};
 
 layout( push_constant ) uniform constants
 {
@@ -157,7 +105,7 @@ float calculateShadow(vec3 worldPos, inout uint cascadeIdx)
 	uv = uv * 0.5 + 0.5;
 	uv.y = 1.0 - uv.y;
 	
-	vec2 offset = 1.0 / textureSize(sampler2D(allTextures[pc.shadowmap_id + cascadeIdx], samplers[NEAREST_SAMPLER]), 0);
+	vec2 offset = 1.0 / textureSize(sampler2D(textures[pc.shadowmap_id + cascadeIdx], samplers[NEAREST_SAMPLER]), 0);
 	
 	float shadow = 0.0;
 	float closestDepth = 0.0;
@@ -169,7 +117,7 @@ float calculateShadow(vec3 worldPos, inout uint cascadeIdx)
 			for (int x = -1; x <= 1; x++)
 			{
 				vec2 sample_uv = vec2(uv.x + x * offset.x, uv.y + y * offset.y);
-				closestDepth = texture(sampler2D(allTextures[pc.shadowmap_id + cascadeIdx], samplers[NEAREST_SAMPLER]), sample_uv).r;
+				closestDepth = texture(sampler2D(textures[pc.shadowmap_id + cascadeIdx], samplers[NEAREST_SAMPLER]), sample_uv).r;
 				
 				if (closestDepth > currentDepth)
 					shadow += 0.0;
@@ -182,7 +130,7 @@ float calculateShadow(vec3 worldPos, inout uint cascadeIdx)
 	}
 	else
 	{
-		closestDepth = texture(sampler2D(allTextures[pc.shadowmap_id + cascadeIdx], samplers[LINEAR_SAMPLER]), uv).r;
+		closestDepth = texture(sampler2D(textures[pc.shadowmap_id + cascadeIdx], samplers[LINEAR_SAMPLER]), uv).r;
 		
 		float bias = 0.0;
 		if (closestDepth > currentDepth + bias)
@@ -212,7 +160,7 @@ void main()
 	uint normal_id = pc.gbuffer_id + 1;
 	uint metalroughness_id = pc.gbuffer_id + 2;
 
-	vec3 N = texture(sampler2D(allTextures[normal_id], samplers[NEAREST_SAMPLER]), inUV).xyz;
+	vec3 N = texture(sampler2D(textures[normal_id], samplers[NEAREST_SAMPLER]), inUV).xyz;
 	N = normalize(N); // necessary to remove banding, RGB32 does not need this
 
 	if (pc.debugMeshlets == 1)
@@ -221,15 +169,15 @@ void main()
 		return;
 	}
 	
-	vec4 albedo = vec4(texture(sampler2D(allTextures[albedo_id], samplers[NEAREST_SAMPLER]), inUV).xyz, 1.0);
-	float depth = texture(sampler2D(allTextures[pc.depth_id], samplers[NEAREST_SAMPLER]), inUV).r;
+	vec4 albedo = vec4(texture(sampler2D(textures[albedo_id], samplers[NEAREST_SAMPLER]), inUV).xyz, 1.0);
+	float depth = texture(sampler2D(textures[pc.depth_id], samplers[NEAREST_SAMPLER]), inUV).r;
 	vec3 worldPos = reconstructWorldPos(depth, sceneData.viewproj);
 	
 	vec3 color = vec3(0.0);
 	vec3 ambient = albedo.xyz * 0.1; // when GI is off, likely going to look physically incorrect
 	
 #ifdef PBR
-	vec2 metalRoughness = texture(sampler2D(allTextures[metalroughness_id], samplers[NEAREST_SAMPLER]), inUV).xy;
+	vec2 metalRoughness = texture(sampler2D(textures[metalroughness_id], samplers[NEAREST_SAMPLER]), inUV).xy;
 	float metallic = metalRoughness.x;
 	float perceptualRoughness = metalRoughness.y;
 	float roughness = perceptualRoughness * perceptualRoughness;
@@ -272,8 +220,8 @@ void main()
 		
 		{
 			vec3 irradiance = evaluateSH(pc.shBuffer.rCoefficients, pc.shBuffer.gCoefficients, pc.shBuffer.bCoefficients, N);
-			vec3 prefiltered = textureLod(samplerCube(allCubemaps[uint(sceneData.textures[2])], samplers[CUBE_SAMPLER]), R, prefilteredMip).xyz;
-			vec2 brdf = texture(sampler2D(allTextures[uint(sceneData.textures[3])], samplers[LINEAR_CLAMP_SAMPLER]), vec2(NdotV, perceptualRoughness)).rg;
+			vec3 prefiltered = textureLod(samplerCube(textures_cube[uint(sceneData.textures[2])], samplers[CUBE_SAMPLER]), R, prefilteredMip).xyz;
+			vec2 brdf = texture(sampler2D(textures[uint(sceneData.textures[3])], samplers[LINEAR_CLAMP_SAMPLER]), vec2(NdotV, perceptualRoughness)).rg;
 			
 			//vec3 white = vec3(1.0); // sphere test
 			//f0 = vec3(0.04); // sphere test
@@ -387,7 +335,7 @@ void main()
 		vec2 ndc = inUV * 2.0 - 1.0;
 		ndc.y *= -1.0;
 		vec3 sampleDir = vec3(inverse(sceneData.viewproj) * vec4(ndc, 0.0, 1.0));
-		color = texture(samplerCube(allCubemaps[uint(sceneData.textures[0])], samplers[CUBE_SAMPLER]), sampleDir).xyz;
+		color = texture(samplerCube(textures_cube[uint(sceneData.textures[0])], samplers[CUBE_SAMPLER]), sampleDir).xyz;
 	}
 	
 	if (pc.resolveTransparent == 1)
@@ -401,7 +349,7 @@ void main()
 	{
 		vec2 uv = gl_FragCoord.xy / pc.screenSize;
 		uint idx = pc.debugShadowmap - 1;
-		vec3 depth = vec3(texture(sampler2D(allTextures[pc.shadowmap_id + idx], samplers[NEAREST_SAMPLER]), uv).r);
+		vec3 depth = vec3(texture(sampler2D(textures[pc.shadowmap_id + idx], samplers[NEAREST_SAMPLER]), uv).r);
 		outFragColor.xyz = depth;
 	}
 }

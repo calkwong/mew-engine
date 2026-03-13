@@ -6,16 +6,10 @@
 // https://interplayoflight.wordpress.com/2022/07/02/order-independent-transparency-part-2/
 
 #extension GL_GOOGLE_include_directive : require
-#extension GL_EXT_buffer_reference : require
-#extension GL_EXT_nonuniform_qualifier : require
 #extension GL_ARB_fragment_shader_interlock : require
 
-#include "scene.glsl"
-#include "samplers.glsl"
-#include "mesh.glsl"
-
-layout(set = 1, binding = 0) uniform texture2D allTextures[];
-layout(set = 2, binding = 0) uniform sampler samplers[];
+#include "bindings.glsl"
+#include "buffer_references.glsl"
 
 layout (location = 0) in vec3 inNormal;
 layout (location = 1) in vec2 inUV;
@@ -28,23 +22,6 @@ layout(early_fragment_tests) in; // REQUIRED
 layout(pixel_interlock_ordered) in; // seems to work even without, not sure if spec mandates this qualifier
 
 const int MLAB_NODES = 4;
-
-struct OITData
-{
-	uvec4 colors;
-	uvec4 depths;
-	vec4 transmissions;
-};
-
-layout(buffer_reference, std430) coherent buffer OITBuffer // REQUIRED to prevent WAW 
-{ 
-	OITData frags[];
-};
-
-layout(buffer_reference, std430) readonly buffer MaterialBuffer
-{ 
-	MaterialData materials[];
-};
 
 layout( push_constant ) uniform constants
 {
@@ -128,7 +105,7 @@ void main()
 	
 	vec4 albedo = m.baseColorFactor;
 	if (m.diffuseID != 0)
-		albedo *= texture(sampler2D(allTextures[m.diffuseID], samplers[0]), inUV);
+		albedo *= texture(sampler2D(textures[m.diffuseID], samplers[0]), inUV);
 	
 	albedo.a = 0.5; // TODO: remove, just for testing
 	vec4 premultipliedAlpha = vec4(albedo.xyz * albedo.a, 1.0);
@@ -138,6 +115,7 @@ void main()
 	
 	uvec2 screenCoords = uvec2(floor(gl_FragCoord.xy));
 	
+	// the same pixel cannot enter critical section; neighbouring pixels ok 
 	beginInvocationInterlockARB();
 	insertNode(screenCoords, color, depth, transmission);
 	endInvocationInterlockARB();

@@ -1,26 +1,11 @@
 #version 450
 
 #extension GL_GOOGLE_include_directive : require
-#extension GL_EXT_nonuniform_qualifier : require
-#extension GL_EXT_buffer_reference : require
 
-#include "math.glsl"
+#include "bindings.glsl"
+#include "buffer_references.glsl"
 
 layout (local_size_x = 16, local_size_y = 16) in;
-
-layout(set = 0, binding = 0, rgba32f) uniform image2D allImages[];
-layout(set = 1, binding = 0) uniform texture2D allTextures[]; // unused
-layout(set = 2, binding = 0) uniform sampler samplers[]; // unused
-
-layout(buffer_reference, std430) buffer LuminanceBuffer
-{
-	uint bins[256];
-};
-
-layout(buffer_reference, std430) buffer LuminanceAvgBuffer
-{
-	float luminanceAvg;
-};
 
 layout( push_constant ) uniform constants
 {
@@ -62,7 +47,7 @@ void main()
 	ivec2 texelCoord = ivec2(gl_GlobalInvocationID.xy);
 	if (texelCoord.x < pc.screenSize.x && texelCoord.y < pc.screenSize.y)
 	{
-		vec3 color = imageLoad(allImages[pc.imageId], texelCoord).rgb;
+		vec3 color = imageLoad(images_rgba32f[pc.imageId], texelCoord).rgb;
 		
 		uint bin = colorToBin(color);
 		

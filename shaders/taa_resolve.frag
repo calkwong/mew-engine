@@ -8,13 +8,8 @@
 #version 450
 
 #extension GL_GOOGLE_include_directive : require
-#extension GL_EXT_nonuniform_qualifier : require
 
-#include "scene.glsl"
-#include "samplers.glsl"
-
-layout(set = 1, binding = 0) uniform texture2D allTextures[];
-layout(set = 2, binding = 0) uniform sampler samplers[];
+#include "bindings.glsl"
 
 layout (location = 0) in vec2 inUV;
 
@@ -83,7 +78,7 @@ vec3 ycocg_to_rgb(vec3 c)
 
 vec3 sample_color(uint texture_index, uint sampler_index, vec2 uv)
 {
-    vec3 color = texture(sampler2D(allTextures[texture_index], samplers[sampler_index]), uv).xyz;
+    vec3 color = texture(sampler2D(textures[texture_index], samplers[sampler_index]), uv).xyz;
 
     if (pc.ycocg == 1)
         color = rgb_to_ycocg(color);
@@ -127,15 +122,15 @@ vec3 sample_texture_catmull_rom(vec2 uv, uint texture_index, vec2 resolution) {
     tex_pos_12 /= resolution;
 
     vec3 result = vec3(0);
-    result += texture(sampler2D(allTextures[texture_index], samplers[LINEAR_SAMPLER]), vec2(tex_pos_0.x, tex_pos_0.y)).rgb * w0.x * w0.y;
-    result += texture(sampler2D(allTextures[texture_index], samplers[LINEAR_SAMPLER]), vec2(tex_pos_12.x, tex_pos_0.y)).rgb * w12.x * w0.y;
-    result += texture(sampler2D(allTextures[texture_index], samplers[LINEAR_SAMPLER]), vec2(tex_pos_3.x, tex_pos_0.y)).rgb * w3.x * w0.y;
-    result += texture(sampler2D(allTextures[texture_index], samplers[LINEAR_SAMPLER]), vec2(tex_pos_0.x, tex_pos_12.y)).rgb * w0.x * w12.y;
-    result += texture(sampler2D(allTextures[texture_index], samplers[LINEAR_SAMPLER]), vec2(tex_pos_12.x, tex_pos_12.y)).rgb * w12.x * w12.y;
-    result += texture(sampler2D(allTextures[texture_index], samplers[LINEAR_SAMPLER]), vec2(tex_pos_3.x, tex_pos_12.y)).rgb * w3.x * w12.y;
-    result += texture(sampler2D(allTextures[texture_index], samplers[LINEAR_SAMPLER]), vec2(tex_pos_0.x, tex_pos_3.y)).rgb * w0.x * w3.y;
-    result += texture(sampler2D(allTextures[texture_index], samplers[LINEAR_SAMPLER]), vec2(tex_pos_12.x, tex_pos_3.y)).rgb * w12.x * w3.y;
-    result += texture(sampler2D(allTextures[texture_index], samplers[LINEAR_SAMPLER]), vec2(tex_pos_3.x, tex_pos_3.y)).rgb * w3.x * w3.y;
+    result += texture(sampler2D(textures[texture_index], samplers[LINEAR_SAMPLER]), vec2(tex_pos_0.x, tex_pos_0.y)).rgb * w0.x * w0.y;
+    result += texture(sampler2D(textures[texture_index], samplers[LINEAR_SAMPLER]), vec2(tex_pos_12.x, tex_pos_0.y)).rgb * w12.x * w0.y;
+    result += texture(sampler2D(textures[texture_index], samplers[LINEAR_SAMPLER]), vec2(tex_pos_3.x, tex_pos_0.y)).rgb * w3.x * w0.y;
+    result += texture(sampler2D(textures[texture_index], samplers[LINEAR_SAMPLER]), vec2(tex_pos_0.x, tex_pos_12.y)).rgb * w0.x * w12.y;
+    result += texture(sampler2D(textures[texture_index], samplers[LINEAR_SAMPLER]), vec2(tex_pos_12.x, tex_pos_12.y)).rgb * w12.x * w12.y;
+    result += texture(sampler2D(textures[texture_index], samplers[LINEAR_SAMPLER]), vec2(tex_pos_3.x, tex_pos_12.y)).rgb * w3.x * w12.y;
+    result += texture(sampler2D(textures[texture_index], samplers[LINEAR_SAMPLER]), vec2(tex_pos_0.x, tex_pos_3.y)).rgb * w0.x * w3.y;
+    result += texture(sampler2D(textures[texture_index], samplers[LINEAR_SAMPLER]), vec2(tex_pos_12.x, tex_pos_3.y)).rgb * w12.x * w3.y;
+    result += texture(sampler2D(textures[texture_index], samplers[LINEAR_SAMPLER]), vec2(tex_pos_3.x, tex_pos_3.y)).rgb * w3.x * w3.y;
 
     if (pc.ycocg == 1)
         result = rgb_to_ycocg(result);
@@ -176,7 +171,7 @@ void main()
 			for (int y = -1; y <= 1; y++)
 			{
 				vec2 uvOffset = vec2(x, y) / pc.screenSize;
-				float neighbourDepth = texture(sampler2D(allTextures[pc.depth_id], samplers[NEAREST_SAMPLER]), uv + uvOffset).r;
+				float neighbourDepth = texture(sampler2D(textures[pc.depth_id], samplers[NEAREST_SAMPLER]), uv + uvOffset).r;
 				if (neighbourDepth > closestDepth)
 				{
 					closestDepth = neighbourDepth;
@@ -185,11 +180,11 @@ void main()
 			}
 		}
 	
-		velocityUV = texture(sampler2D(allTextures[pc.velocity_id], samplers[NEAREST_SAMPLER]), uv + closestUVOffset).rg;
+		velocityUV = texture(sampler2D(textures[pc.velocity_id], samplers[NEAREST_SAMPLER]), uv + closestUVOffset).rg;
 	}
 	else
 	{
-		velocityUV = texture(sampler2D(allTextures[pc.velocity_id], samplers[NEAREST_SAMPLER]), uv).rg; 
+		velocityUV = texture(sampler2D(textures[pc.velocity_id], samplers[NEAREST_SAMPLER]), uv).rg; 
 	}
 	
 	// alternative: blend this with a 5 taps '+' pattern per Karis UE4

@@ -1,18 +1,10 @@
 #version 450
 
-#extension GL_EXT_nonuniform_qualifier : require
 #extension GL_GOOGLE_include_directive : require
 
-#include "samplers.glsl"
-#include "math.glsl"
+#include "bindings.glsl"
 
 layout (local_size_x = 8, local_size_y = 8) in;
-
-layout(set = 0, binding = 0, rgba32f) uniform image2DArray allImages[];
-layout(set = 1, binding = 0) uniform textureCube allCubemaps[];
-layout(set = 2, binding = 0) uniform sampler samplers[];
-
-const float sampleDelta = 0.025; 
 
 layout (push_constant) uniform constants
 {
@@ -21,6 +13,9 @@ layout (push_constant) uniform constants
 	uint image_id;
 	float roughness;
 } pc;
+
+const float sampleDelta = 0.025; 
+const float PI = 3.14159265359;
 
 void main()
 {
@@ -58,13 +53,13 @@ void main()
 				vec3 tempVec = cos(phi) * T + sin(phi) * B;
 				vec3 sampleVec = cos(theta) * N + sin(theta) * tempVec;
 
-				irradiance += texture(samplerCube(allCubemaps[pc.texture_id], samplers[CUBE_SAMPLER]), sampleVec).xyz * cos(theta) * sin(theta); 
+				irradiance += texture(samplerCube(textures_cube[pc.texture_id], samplers[CUBE_SAMPLER]), sampleVec).xyz * cos(theta) * sin(theta); 
 				sampleCount++;
 			}
 		}
 
 		irradiance = PI * irradiance / float(sampleCount);
 		
-		imageStore(allImages[pc.image_id], ivec3(texelCoord, face), vec4(irradiance, 1));
+		imageStore(images_array_rgba32f[pc.image_id], ivec3(texelCoord, face), vec4(irradiance, 1));
 	}
 }

@@ -4,9 +4,8 @@
 #extension GL_EXT_buffer_reference : require
 #extension GL_EXT_nonuniform_qualifier : require
 
-#include "scene.glsl"
-#include "mesh.glsl"
-#include "samplers.glsl"
+#include "bindings.glsl"
+#include "buffer_references.glsl"
 
 layout (location = 0) in vec3 inNormal;
 layout (location = 1) in vec2 inUV;
@@ -24,12 +23,6 @@ layout (location = 3) out vec2 outVelocity;
 // 0 - MASK
 layout (constant_id = 0) const int OPAQUE = 1;
 
-
-layout(buffer_reference, std430) readonly buffer MaterialBuffer
-{ 
-	MaterialData materials[];
-};
-
 layout( push_constant ) uniform constants
 {
 	//ObjectBuffer objectBuffer;
@@ -46,10 +39,6 @@ layout( push_constant ) uniform constants
 	vec2 jitterOffset;
 } pc;
 
-layout(set = 1, binding = 0) uniform texture2D allTextures[];
-layout(set = 1, binding = 0) uniform textureCube allCubemaps[];
-layout(set = 2, binding = 0) uniform sampler samplers[];
-
 #define PBR
 
 void main() 
@@ -59,7 +48,7 @@ void main()
 	vec4 albedo = m.baseColorFactor;
 	if (m.diffuseID != 0)
 	{
-		vec4 sampledAlbedo = texture(sampler2D(allTextures[m.diffuseID], samplers[LINEAR_SAMPLER]), inUV);
+		vec4 sampledAlbedo = texture(sampler2D(textures[m.diffuseID], samplers[LINEAR_SAMPLER]), inUV);
 		
 		if (OPAQUE == 0)
 		{
@@ -83,7 +72,7 @@ void main()
 		float sign = inTangent.w; // sign is flipped during tangent generation so mikktspace is consistent with glTF handedness
 		vec3 B = sign * cross(N, T);
 		
-		vec3 shadingNormal = texture(sampler2D(allTextures[m.normalID], samplers[LINEAR_SAMPLER]), inUV).xyz;
+		vec3 shadingNormal = texture(sampler2D(textures[m.normalID], samplers[LINEAR_SAMPLER]), inUV).xyz;
 		shadingNormal = shadingNormal * 2.0 - 1.0;
 		N = normalize(shadingNormal.x * T.xyz + shadingNormal.y * B + shadingNormal.z * N);
 	}
@@ -93,7 +82,7 @@ void main()
 	vec2 metalRoughness = vec2(0.0);
 	if (m.metalRoughnessID != 0)
 	{
-		metalRoughness = texture(sampler2D(allTextures[m.metalRoughnessID], samplers[LINEAR_SAMPLER]), inUV).bg;
+		metalRoughness = texture(sampler2D(textures[m.metalRoughnessID], samplers[LINEAR_SAMPLER]), inUV).bg;
 		metallic *= metalRoughness.x;
 		perceptualRoughness *= metalRoughness.y;
 	}

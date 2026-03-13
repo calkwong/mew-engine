@@ -1,3 +1,28 @@
+// TODO: better naming, from cluster_grid
+struct AABB
+{
+	vec4 min;
+	vec4 max;
+};
+
+// TODO: better naming, from light_culling
+struct PointLight // possible refactor to pos[], color[]?
+{
+	vec4 pos;
+	vec4 color;
+};
+
+struct LightGrid
+{
+	uint offset;
+	uint count;
+};
+
+struct SH9
+{
+	float c[9];
+};
+
 struct ObjectData
 {
 	mat4 worldMatrix;
@@ -74,4 +99,18 @@ struct MaterialData
 	uint normalID;
 	uint occlusionID;
 	uint emissiveID;
+};
+
+struct DrawCommands
+{
+	uint opaqueCount;
+	uint alphaClipCount;
+	DrawCommand commands[200000]; // TODO: shadow_cull using 400000, why is it different again?
+};
+
+struct OITData
+{
+	uvec4 colors;
+	uvec4 depths;
+	vec4 transmissions; // could we pack this in color.a?
 };

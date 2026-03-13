@@ -1,10 +1,9 @@
 #version 460
 
 #extension GL_GOOGLE_include_directive : require
-#extension GL_EXT_buffer_reference : require
 
-#include "scene.glsl"
-#include "mesh.glsl"
+#include "bindings.glsl"
+#include "buffer_references.glsl"
 
 layout (location = 0) out vec3 outNormal;
 layout (location = 1) out vec2 outUV;
@@ -12,16 +11,6 @@ layout (location = 2) out vec4 outTangent;
 layout (location = 3) out flat uint outMaterialID;
 layout (location = 4) out vec4 outClipPos;
 layout (location = 5) out vec4 outPrevClipPos;
-
-layout(buffer_reference, std430) readonly buffer VertexBuffer
-{ 
-	Vertex vertices[];
-};
-
-layout(buffer_reference, std430) readonly buffer ObjectBuffer
-{ 
-	ObjectData objects[];
-};
 
 layout( push_constant ) uniform constants
 {

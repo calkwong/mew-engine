@@ -1,5 +1,9 @@
 // Based on https://google.github.io/filament/Filament.md.html
 
+#ifndef PI
+#define PI 3.14159265359
+#endif
+
 float D_GGX(float NdotH, float roughness)
 {
 	float a = NdotH * roughness;
@@ -19,6 +23,12 @@ vec3 F_Schlick(float u, vec3 f0)
 {
     float f = pow(1.0 - u, 5.0);
     return f + f0 * (1.0 - f);
+}
+
+// takes NdotV, not VdotH
+vec3 F_SchlickRoughness(float u, vec3 f0, float roughness)
+{
+	return f0 + (max(vec3(1.0 - roughness), f0) - f0) * pow(1.0 - u, 5.0);
 }
 
 float getSquareFalloffAttenuation(vec3 distance, float radius)

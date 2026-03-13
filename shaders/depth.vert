@@ -1,24 +1,9 @@
 #version 450
 
 #extension GL_GOOGLE_include_directive : require
-#extension GL_EXT_buffer_reference : require
-#extension GL_EXT_nonuniform_qualifier : require
 
-#include "mesh.glsl"
-#include "scene.glsl"
-
-layout(set = 1, binding = 0) uniform texture2D allTextures[];
-layout(set = 2, binding = 0) uniform sampler samplers[];
-
-layout (buffer_reference, std430) readonly buffer VertexBuffer 
-{
-	Vertex vertices[];
-};
-
-layout(buffer_reference, std430) readonly buffer ObjectBuffer
-{ 
-	ObjectData objects[];
-};
+#include "bindings.glsl"
+#include "buffer_references.glsl"
 
 layout (push_constant) uniform constants
 {

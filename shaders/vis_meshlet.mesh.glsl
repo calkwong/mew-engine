@@ -1,55 +1,13 @@
 #version 460
 
 #extension GL_GOOGLE_include_directive : require
-#extension GL_EXT_buffer_reference : require
 #extension GL_EXT_mesh_shader : require
 
-#include "scene.glsl"
-#include "mesh.glsl"
-#include "samplers.glsl"
+#include "bindings.glsl"
+#include "buffer_references.glsl"
 
 layout(local_size_x = 32) in;
 layout(triangles, max_vertices = 64, max_primitives = 124) out; // not 126?
-
-layout(buffer_reference, std430) readonly buffer VertexBuffer
-{ 
-	Vertex vertices[];
-};
-
-layout(buffer_reference, std430) readonly buffer ObjectBuffer
-{ 
-	ObjectData objects[];
-};
-
-layout(buffer_reference, std430) buffer MeshTaskBuffer
-{ 
-	MeshTaskCommand commands[];
-};
-
-layout(buffer_reference, std430) readonly buffer MeshBuffer
-{ 
-	MeshData meshes[];
-};
-
-layout(buffer_reference, std430) readonly buffer MeshletBuffer
-{ 
-	Meshlet meshlets[];
-};
-
-layout(buffer_reference, std430) readonly buffer MeshletIndicesBuffer
-{ 
-	uint indices[];
-};
-
-layout(buffer_reference, std430) readonly buffer MaterialBuffer
-{ 
-	MaterialData materials[];
-};
-
-layout(buffer_reference, std430) buffer ClusterIndicesBuffer
-{ 
-	uint indices[];
-};
 
 layout( push_constant ) uniform constants
 {

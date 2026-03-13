@@ -1,7 +1,6 @@
-struct SH9
-{
-	float c[9];
-};
+#ifndef PI
+#define PI 3.14159265359
+#endif
 
 SH9 shMul(SH9 a, SH9 b)
 {
@@ -108,10 +107,4 @@ vec3 evaluateSH(SH9 rCoefficients, SH9 gCoefficients, SH9 bCoefficients, vec3 di
 	float b = max(shDot(bCoefficients, base), 0.0);
 	
 	return vec3(r, g, b);
-}
-
-// takes NdotV, not VdotH
-vec3 F_SchlickRoughness(float u, vec3 f0, float roughness)
-{
-	return f0 + (max(vec3(1.0 - roughness), f0) - f0) * pow(1.0 - u, 5.0);
 }

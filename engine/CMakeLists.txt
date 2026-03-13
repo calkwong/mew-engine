@@ -43,6 +43,7 @@ target_sources(engine PRIVATE
 	cache.h
 	cache.cpp
 	extern.cpp
+    config.h
 	${imgui_sources}
 )
 

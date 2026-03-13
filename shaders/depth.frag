@@ -3,14 +3,8 @@
 #extension GL_EXT_buffer_reference : require
 #extension GL_EXT_nonuniform_qualifier : require
 
-#include "mesh.glsl"
-#include "scene.glsl"
-#include "samplers.glsl"
-
-layout(buffer_reference, std430) readonly buffer MaterialBuffer
-{ 
-	MaterialData materials[];
-};
+#include "bindings.glsl"
+#include "buffer_references.glsl"
 
 layout (push_constant) uniform constants
 {
@@ -20,9 +14,6 @@ layout (push_constant) uniform constants
 //	VertexBuffer vertexBuffer;
 	uint padding[2 * 2];
 } pc;
-
-layout(set = 1, binding = 0) uniform texture2D allTextures[];
-layout(set = 2, binding = 0) uniform sampler samplers[];
 
 layout (location = 0) in vec2 inUV;
 layout (location = 1) flat in uint inMaterialID;
@@ -39,7 +30,7 @@ void main()
 			
 		vec4 albedo = m.baseColorFactor;
 		if (m.diffuseID != 0)
-			albedo *= texture(sampler2D(allTextures[m.diffuseID], samplers[LINEAR_SAMPLER]), inUV);
+			albedo *= texture(sampler2D(textures[m.diffuseID], samplers[LINEAR_SAMPLER]), inUV);
 			
 		if (albedo.a < 0.5)
 			discard;

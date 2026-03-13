@@ -1,58 +1,11 @@
 #version 450
 
 #extension GL_GOOGLE_include_directive : require
-#extension GL_EXT_nonuniform_qualifier : require
-#extension GL_EXT_buffer_reference : require
 
-#include "mesh.glsl"
-#include "samplers.glsl"
-#include "scene.glsl"
+#include "bindings.glsl"
+#include "buffer_references.glsl"
 
 layout (local_size_x = 256) in;
-
-layout(buffer_reference, std430) readonly buffer ObjectBuffer
-{ 
-	ObjectData objects[];
-};
-
-layout(buffer_reference, std430) readonly buffer MeshBuffer
-{ 
-	MeshData meshes[];
-};
-
-layout(buffer_reference, std430) readonly buffer IndicesBuffer
-{ 
-	uint indices[];
-};
-
-struct DrawCommands
-{
-	uint opaqueCount;
-	uint alphaClipCount;
-	DrawCommand commands[400000];
-};
-
-layout(buffer_reference, std430) buffer DrawCommandsBuffer
-{ 
-	DrawCommands draws[4];
-};
-
-layout(buffer_reference, std430) buffer DispatchBuffer
-{
-	uint workgroupX;
-	uint workgroupY;
-	uint workgroupZ;
-};
-
-layout(buffer_reference, std430) buffer MeshTaskBuffer
-{ 
-	MeshTaskCommand commands[];
-};
-	
-layout(buffer_reference, std430) buffer VisibilityBuffer
-{
-	uint visible[];
-};
 
 layout(push_constant) uniform constants
 {
@@ -63,11 +16,6 @@ layout(push_constant) uniform constants
 	uint count; 
 	uint lodEnabled;
 } pc;
-
-//layout(set = 0, binding = 0, r32f) uniform image2D allImages[];
-//layout(set = 1, binding = 0) uniform texture2D allTextures[];
-//layout(set = 2, binding = 0) uniform sampler samplers[];
-
 
 bool partiallyInsideCascade(vec3 center, uint cascade, float radius, float shadowRadius)
 {
