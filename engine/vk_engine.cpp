@@ -48,7 +48,7 @@ constexpr bool USE_VALIDATION_LAYERS = false;
 constexpr bool USE_VALIDATION_LAYERS = true;
 #endif
 
-#define SINGLE // uncomment if loading a proper scene
+// #define SINGLE // uncomment if loading a proper scene
 
 AutoCVar_Int CVAR_DRAW_DISTANCE{ "Draw distance", 1000, 1000, CVarFlags::EditSliderInt, 100, 1000, 100 };
 AutoCVar_Int CVAR_TOGGLE_MESH_SHADING{ "Mesh shading", 1, 1, CVarFlags::EditCheckbox };
@@ -136,7 +136,7 @@ void VulkanEngine::init(std::vector<std::string>& file_paths)
 
 	init_imgui();
 
-	ready_mesh_draw();
+	upload_buffers();
 
 	build_cluster_grid(); // TODO: support draw distance change
 	init_gi();
@@ -2033,6 +2033,7 @@ void VulkanEngine::init_default_data()
 	}
 
 	light_buffer = upload_buffer(device, graphics_queue, imm_command_buffer, imm_fence, allocator, light_data.data(), MAX_POINT_LIGHTS * sizeof(PointLight));
+	fmt::println("light_buffer: {}mb", size_in_bytes(light_buffer.info.size));
 
 	auto clusters_x = get_groupcount(window_extent.width, CLUSTER_DIM);
 	auto clusters_y = get_groupcount(window_extent.height, CLUSTER_DIM);
@@ -2154,6 +2155,11 @@ void VulkanEngine::init_renderables(std::vector<std::string>& file_paths)
 	render_scene.meshlet_indices = upload_buffer(device, graphics_queue, imm_command_buffer, imm_fence, allocator, loader.meshlet_indices.data(), loader.meshlet_indices.size() * sizeof(uint32_t));
 	render_scene.meshlet_buffer = upload_buffer(device, graphics_queue, imm_command_buffer, imm_fence, allocator, loader.meshlets.data(), loader.meshlets.size() * sizeof(Meshlet));
 	render_scene.material_buffer = upload_buffer(device, graphics_queue, imm_command_buffer, imm_fence, allocator, loader.materials.data(), loader.materials.size() * sizeof(MaterialData));
+	fmt::println("vertex_buffer: {}mb", size_in_bytes(render_scene.vertex_buffer.info.size));
+	fmt::println("index_buffer: {}mb", size_in_bytes(render_scene.index_buffer.info.size));
+	fmt::println("meslet_indices: {}mb", size_in_bytes(render_scene.meshlet_indices.info.size));
+	fmt::println("meshlet_buffer: {}mb", size_in_bytes(render_scene.meshlet_buffer.info.size));
+	fmt::println("material_buffer: {}mb", size_in_bytes(render_scene.material_buffer.info.size));
 
 	for (const auto& scene : loaded_scenes | std::views::values)
 	{
@@ -2188,6 +2194,16 @@ void VulkanEngine::init_renderables(std::vector<std::string>& file_paths)
 		}
 	}
 #endif
+
+	uint32_t meshlet_visibility_offset{};
+	for (auto& renderable : render_scene.renderables)
+	{
+		uint32_t meshlet_count = renderable.meshlet_bits;
+		renderable.meshlet_bits = meshlet_visibility_offset; // TODO: rename meshlet_bits
+		render_scene.max_meshtask_commands += (meshlet_count + 31) / 32; // TODO: using clustercull workgroup size, remove magic number
+		meshlet_visibility_offset += meshlet_count;
+	}
+	render_scene.total_meshlets_bits = meshlet_visibility_offset;
 }
 
 void VulkanEngine::init_bindless()
@@ -2676,188 +2692,96 @@ void VulkanEngine::draw_imgui(VkCommandBuffer cmd, VkImageView swapchain_view)
 	vkCmdEndRendering(cmd);
 }
 
-void VulkanEngine::ready_mesh_draw()
+void VulkanEngine::upload_buffers()
 {
-	if (render_scene.object_buffer.info.size < render_scene.renderables.size() * sizeof(ObjectData))
-	{
-		fmt::println("object_buffer");
-		render_scene.object_buffer = create_buffer(
-		    allocator,
-		    render_scene.renderables.size() * sizeof(ObjectData),
-		    VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-		    VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
-		);
+	// clang-format off
 
-		render_scene.build_object_buffer();
+	render_scene.object_buffer = upload_buffer(device, graphics_queue, imm_command_buffer, imm_fence, allocator, render_scene.renderables.data(), render_scene.renderables.size() * sizeof(ObjectData), 0);
+	fmt::println("object_buffer: {}mb", size_in_bytes(render_scene.object_buffer.info.size));
+
+	render_scene.mesh_buffer = upload_buffer(device, graphics_queue, imm_command_buffer, imm_fence, allocator, render_scene.primitives.data(), render_scene.primitives.size() * sizeof(DrawPrimitive), 0);
+	fmt::println("mesh_buffer: {}mb", size_in_bytes(render_scene.mesh_buffer.info.size));
+
+	render_scene.sh_buffer = create_buffer(allocator, 27 * sizeof(float), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
+	fmt::println("sh_buffer: {}mb", size_in_bytes(render_scene.sh_buffer.info.size));
+
+	render_scene.luminance_buffer = create_buffer(allocator, 256 * sizeof(uint32_t), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+	fmt::println("luminance_buffer: {}mb", size_in_bytes(render_scene.luminance_buffer.info.size));
+
+	render_scene.luminance_avg_buffer = create_buffer(allocator, sizeof(float), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+	fmt::println("luminance_avg_buffer: {}mb", size_in_bytes(render_scene.luminance_avg_buffer.info.size));
+
+	{
+		std::array<RenderScene::MeshPass*, 3> passes = { &render_scene.opaque_pass, &render_scene.mask_pass, &render_scene.transparent_pass };
+		unsigned int total = 0;
+		std::vector<uint32_t> staging{};
+		for (RenderScene::MeshPass* pass : passes)
+		{
+			pass->indices_offset = total;
+			total += static_cast<unsigned int>(pass->unbatched_objects.size());
+
+			for (unsigned int unbatched_object : pass->unbatched_objects)
+			{
+				staging.push_back(unbatched_object);
+			}
+		}
+
+		render_scene.indices_buffer = upload_buffer(device, graphics_queue, imm_command_buffer, imm_fence, allocator, staging.data(), total * sizeof(uint32_t));
+		fmt::println("indices_buffer: {}mb", size_in_bytes(render_scene.indices_buffer.info.size));
 	}
 
-	if (render_scene.mesh_buffer.info.size < render_scene.primitives.size() * sizeof(DrawPrimitive))
-	{
-		fmt::println("mesh_buffer");
-		render_scene.mesh_buffer = create_buffer(
-		    allocator,
-		    render_scene.primitives.size() * sizeof(DrawPrimitive),
-		    VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-		    VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT // ssbo usage?
-		);
+	// allocating for worst case
+	render_scene.vis_buffer = create_buffer(allocator,render_scene.renderables.size() * sizeof(uint32_t), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+	fmt::println("vis_buffer: {}mb", size_in_bytes(render_scene.vis_buffer.info.size));
 
-		render_scene.build_mesh_buffer();
-	}
-
-	render_scene.sh_buffer = create_buffer(
-			allocator,
-			27 * sizeof(float),
-			0,
-			VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
-		);
-
-	render_scene.luminance_buffer = create_buffer(
-			allocator,
-			256 * sizeof(uint32_t),
-			0,
-			VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT
-		);
-
-	render_scene.luminance_avg_buffer = create_buffer(
-		allocator,
-		sizeof(float),
-		0,
-		VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT
+	immediate_submit(device, graphics_queue, imm_command_buffer, imm_fence, [&](VkCommandBuffer cmd)
+		{
+			vkCmdFillBuffer(cmd, render_scene.vis_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
+		}
 	);
 
-	std::vector<RenderScene::MeshPass*> passes = { &render_scene.opaque_pass, &render_scene.mask_pass, &render_scene.transparent_pass };
+	render_scene.dispatch_buffer = create_buffer(allocator, 3 * sizeof(uint32_t), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_2_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_2_TRANSFER_DST_BIT);
+	// TODO: can we combine both of these?
+	render_scene.cluster_count_buffer = create_buffer(allocator,3 * sizeof(uint32_t),0,VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_2_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_2_TRANSFER_DST_BIT);
 
-	unsigned int total = 0;
-	std::vector<uint32_t> staging{};
-	for (RenderScene::MeshPass* pass : passes)
+	auto count_size = 2 * sizeof(uint32_t);
+	auto draw_commands_size = (MAX_OPAQUE_DRAWS + MAX_ALPHACLIP_DRAWS) * sizeof(VkDrawIndexedIndirectCommand);
+	render_scene.draw_indirect_buffer = create_buffer(allocator, (count_size + draw_commands_size) * NUMBER_OF_CASCADES, 0, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT);
+	fmt::println("draw_indirect_buffer: {}mb", size_in_bytes(render_scene.draw_indirect_buffer.info.size));
+
+	// TODO: impose a limit - if we have 1m meshes with 300 clusters each = ~1.2GB buffer
+	render_scene.cluster_indices = create_buffer( allocator, render_scene.total_meshlets_bits * sizeof(uint32_t), 0, VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT);
+	fmt::println("cluster_indices: {}mb", size_in_bytes(render_scene.cluster_indices.info.size));
+
+	render_scene.meshtask_indirect_buffer = create_buffer(allocator, render_scene.max_meshtask_commands * sizeof(MeshTaskCommand), 0, VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT);
+	fmt::println("meshtask_indirect_buffer: {}mb", size_in_bytes(render_scene.meshtask_indirect_buffer.info.size));
+
 	{
-		pass->indices_offset = total;
-		total += static_cast<unsigned int>(pass->unbatched_objects.size());
-
-		for (unsigned int unbatched_object : pass->unbatched_objects)
-		{
-			staging.push_back(unbatched_object);
-		}
-	}
-	if (render_scene.indices_buffer.info.size < total * sizeof(uint32_t))
-		render_scene.indices_buffer = upload_buffer(device, graphics_queue, imm_command_buffer, imm_fence, allocator, staging.data(), total * sizeof(uint32_t));
-
-	{
-		if (render_scene.vis_buffer.info.size < render_scene.renderables.size()) // allocate for worst case
-		{
-			render_scene.vis_buffer = create_buffer(
-			    allocator,
-			    render_scene.renderables.size() * sizeof(uint32_t),
-			    0,
-			    VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT
-			);
-			fmt::println("visibility buffer: {}mb", render_scene.vis_buffer.info.size / 1e6);
-
-			// clang-format off
-			immediate_submit(device, graphics_queue, imm_command_buffer, imm_fence, [&](VkCommandBuffer cmd)
-				{
-					vkCmdFillBuffer(cmd, render_scene.vis_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
-				}
-			);
-			// clang-format on
-		}
-
-		if (render_scene.dispatch_buffer.info.size < sizeof(uint32_t))
-		{
-			render_scene.dispatch_buffer = create_buffer(
-			    allocator,
-			    3 * sizeof(uint32_t),
-			    0,
-			    VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_2_TRANSFER_DST_BIT
-			);
-			fmt::println("count_buffer, {}mb", render_scene.dispatch_buffer.info.size / 1e6);
-
-			render_scene.cluster_count_buffer = create_buffer(
-			    allocator,
-			    3 * sizeof(uint32_t),
-			    0,
-			    VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_2_TRANSFER_DST_BIT
-			);
-		}
-
-		// if (render_scene.draw_indirect_buffer.info.size < render_scene.renderables.size() * sizeof(VkDrawIndexedIndirectCommand) + sizeof(uint32_t))
-		if (render_scene.draw_indirect_buffer.info.size < ((MAX_OPAQUE_DRAWS + MAX_ALPHACLIP_DRAWS) * sizeof(VkDrawIndexedIndirectCommand) + 2 * sizeof(uint32_t)) * 4)
-		{
-			render_scene.draw_indirect_buffer = create_buffer(
-			    allocator,
-			    ((MAX_OPAQUE_DRAWS + MAX_ALPHACLIP_DRAWS) * sizeof(VkDrawIndexedIndirectCommand) + 2 * sizeof(uint32_t)) * 4,
-			    0,
-			    VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT
-			);
-			fmt::println("draw_indirect_buffer: {}mb", render_scene.draw_indirect_buffer.info.size / 1e6);
-		}
-
-		// TODO: resize - if we have 1m meshes with 300 clusters each = ~1.2GB buffer
-		if (render_scene.cluster_indices.info.size < render_scene.total_meshlets_bits * sizeof(uint32_t))
-		{
-			render_scene.cluster_indices = create_buffer(
-			    allocator,
-			    render_scene.total_meshlets_bits * sizeof(uint32_t),
-			    0,
-			    VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT
-			);
-
-			fmt::println("cluster indices size: {}mb", static_cast<float>(render_scene.cluster_indices.info.size) / 1e6);
-		}
-
-		if (render_scene.meshtask_indirect_buffer.info.size < render_scene.max_meshtask_commands * sizeof(MeshTaskCommand))
-		{
-			render_scene.meshtask_indirect_buffer = create_buffer(
-			    allocator,
-			    render_scene.max_meshtask_commands * sizeof(MeshTaskCommand),
-			    0,
-			    VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT
-			);
-			fmt::println("meshtask_buffer size: {}mb", static_cast<float>(render_scene.meshtask_indirect_buffer.info.size) / 1e6);
-		}
-
 		size_t meshlet_visibility_size = (render_scene.total_meshlets_bits + 31) / 32;
-		if (render_scene.meshlet_vis_buffer.info.size < meshlet_visibility_size * sizeof(uint32_t))
-		{
-			render_scene.meshlet_vis_buffer = create_buffer(
-			    allocator,
-			    meshlet_visibility_size * sizeof(uint32_t),
-			    0,
-			    VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT
-			);
-			fmt::println("meshlet visibility bits size: {}mb", static_cast<float>(render_scene.meshlet_vis_buffer.info.size) / 1e6);
+		render_scene.meshlet_vis_buffer = create_buffer(allocator, meshlet_visibility_size * sizeof(uint32_t), 0, VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+		fmt::println("meshlet_vis_buffer: {}mb", size_in_bytes(render_scene.meshlet_vis_buffer.info.size));
 
-			// clang-format off
-			immediate_submit(device, graphics_queue, imm_command_buffer, imm_fence, [&](VkCommandBuffer cmd)
-				{
-					vkCmdFillBuffer(cmd, render_scene.meshlet_vis_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
-				}
-			);
-			// clang-format on
-		}
-
-		// TODO: refactor if window resize
-		auto screen_pixels = window_extent.width * window_extent.height;
-		if (render_scene.oit_buffer.info.size < screen_pixels * sizeof(OITData))
-		{
-			render_scene.oit_buffer = create_buffer(
-			    allocator,
-			    screen_pixels * sizeof(OITData),
-			    0,
-			    VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT
-			);
-
-			fmt::println("oit buffer size: {}mb", static_cast<float>(render_scene.oit_buffer.info.size) / 1e6);
-
-			// clang-format off
-			immediate_submit(device, graphics_queue, imm_command_buffer, imm_fence, [&](VkCommandBuffer cmd)
-				{
-					vkCmdFillBuffer(cmd, render_scene.oit_buffer.buffer, 0, VK_WHOLE_SIZE, 0x3F800000);
-				}
-			);
-			// clang-format on
-		}
+		immediate_submit(device, graphics_queue, imm_command_buffer, imm_fence, [&](VkCommandBuffer cmd)
+			{
+				vkCmdFillBuffer(cmd, render_scene.meshlet_vis_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
+			}
+		);
 	}
+
+	// TODO: refactor if window resize
+	{
+		auto screen_pixels = window_extent.width * window_extent.height;
+		render_scene.oit_buffer = create_buffer(allocator, screen_pixels * sizeof(OITData), 0, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+		fmt::println("oit_buffer: {}mb", size_in_bytes(render_scene.oit_buffer.info.size));
+
+		immediate_submit(device, graphics_queue, imm_command_buffer, imm_fence, [&](VkCommandBuffer cmd)
+			{
+				vkCmdFillBuffer(cmd, render_scene.oit_buffer.buffer, 0, VK_WHOLE_SIZE, 0x3F800000);
+			}
+		);
+	}
+
+	// clang-format on
 }
 
 // late & post_pass set in executecomputecull
@@ -3462,4 +3386,9 @@ float Halton(uint32_t i, uint32_t b)
 uint32_t get_groupcount(uint32_t size, uint32_t threads)
 {
 	return (size + threads - 1) / threads;
+}
+
+float size_in_bytes(uint64_t size)
+{
+	return static_cast<float>(size) * 1e-6f;
 }

@@ -217,7 +217,7 @@ public:
 	void execute_taa_resolve(VkCommandBuffer cmd, VkImageView view);
 	void update_cascade();
 	void draw_imgui(VkCommandBuffer cmd, VkImageView swapchain_view);
-	void ready_mesh_draw();
+	void upload_buffers();
 	void ready_mesh_cull(RenderScene::MeshPass& pass, CullData& cull_data, glm::mat4& proj, bool orthographic = false);
 	void ready_meshlet_cull(RenderScene::MeshPass& pass, ClusterCullData& cull_data, glm::mat4& proj, bool orthographic = false);
 	void execute_compute_cull(VkCommandBuffer cmd, const RenderScene::MeshPass& pass, CullData& cull_data, bool late, uint32_t post_pass);
@@ -251,3 +251,4 @@ private:
 uint32_t nearest_pow2(uint32_t extent);
 float Halton(uint32_t i, uint32_t b);
 uint32_t get_groupcount(uint32_t size, uint32_t threads);
+float size_in_bytes(uint64_t size);
