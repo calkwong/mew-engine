@@ -400,6 +400,7 @@ void VulkanEngine::init_gi()
 	VK_CHECK(vkQueueSubmit2(graphics_queue, 1, &submit, imm_fence));
 	VK_CHECK(vkWaitForFences(device, 1, &imm_fence, true, 9999999999));
 }
+
 void VulkanEngine::draw()
 {
 	// clang-format off
@@ -1169,6 +1170,7 @@ void VulkanEngine::run()
 		auto start = std::chrono::system_clock::now();
 		auto deltatime = std::chrono::duration_cast<std::chrono::microseconds>(start - last_frame);
 		stats.deltatime = static_cast<float>(deltatime.count()) / 1000000.0f; // microseconds to seconds
+		stats.frame_avg = stats.frame_avg * 0.95 + stats.deltatime * 0.05;
 		last_frame = start;
 
 		// Handle events on queue
@@ -1263,7 +1265,7 @@ void VulkanEngine::run()
 
 		{
 			ImGui::Begin("Stats");
-			ImGui::Text("Frametime:            %.3f ms", stats.deltatime * 1000.0f);
+			ImGui::Text("Frametime:            %.3f ms", stats.frame_avg * 1000.0f);
 			ImGui::Text("Draw calls:           %i", stats.draw_count);
 			// ImGui::Text("scene update time %f ms", stats.scene_update_time);
 			ImGui::Text("Early cull:           %.3f ms", stats.early_cull);

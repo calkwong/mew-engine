@@ -605,7 +605,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, Loade
 		{
 			fastgltf::Image& image = gltf.images[idx];
 			// fmt::println("image: {}", image.name.c_str()); // debug
-			std::optional<AllocatedImage> img = load_image(engine, file_path, gltf, image, VK_FORMAT_R8G8B8A8_SRGB, true);
+			std::optional<AllocatedImage> img = load_image(engine, file_path, gltf, image, VK_FORMAT_R8G8B8A8_SRGB, true); // image format here is placeholder; proper format parsed from file
 			if (img.has_value())
 			{
 				images[idx] = (*img);
