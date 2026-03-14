@@ -87,6 +87,7 @@ struct DeferredPushConstants
 	float max_prefiltered_lod{};
 	float metallic{};
 	float roughness{};
+	uint32_t debug{};
 };
 
 // rasteroze shadows

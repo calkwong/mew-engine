@@ -815,11 +815,22 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, Loade
 								(meshopt_quantizeSnorm(v.x, 10) + 511) << 20 |
 								(meshopt_quantizeSnorm(v.y, 10) + 511) << 10 |
 								(meshopt_quantizeSnorm(v.z, 10) + 511);
+
 							vertices[index].normal = normal;
 						}
 					);
 				}
 			}
+
+			auto encode_oct = [&](glm::vec3 n) -> glm::vec2 {
+				n /= (abs(n.x) + abs(n.y) + abs(n.z));
+				float u = n.z >= 0.0f ? n.x : (1.0f - abs(n.y)) * (n.x >= 0.0f ? 1.0f : -1.0f);
+				float v = n.z >= 0.0f ? n.y : (1.0f - abs(n.x)) * (n.y >= 0.0f ? 1.0f : -1.0f);
+
+				// optional mapping to [0, 1]?
+
+				return glm::vec2(u, v);
+			};
 
 			bool generate_tangents{};
 			// load vertex tangents
@@ -827,7 +838,18 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, Loade
 				auto tangents = p.findAttribute("TANGENT");
 				if (tangents != p.attributes.end())
 				{
-					fastgltf::iterateAccessorWithIndex<glm::vec4>(gltf, gltf.accessors[tangents->accessorIndex], [&](glm::vec4 v, size_t index){ vertices[index].tangent = v; });
+					fastgltf::iterateAccessorWithIndex<glm::vec4>(gltf, gltf.accessors[tangents->accessorIndex], [&](glm::vec4 v, size_t index)
+						{
+							glm::vec2 t = encode_oct(glm::vec3(v));
+
+							uint16_t tangent =
+								(meshopt_quantizeSnorm(t.x, 8) + 127) << 8 |
+								(meshopt_quantizeSnorm(t.y, 8) + 127);
+
+							vertices[index].tangent = tangent;
+							vertices[index].normal |= (v.w >= 0 ? 1 : 0) << 30;
+						}
+					);
 				}
 				else
 				{
@@ -1017,7 +1039,7 @@ void mikk_getNormal(const SMikkTSpaceContext* context, float outNormal[3], int f
 	uint32_t idx = (*mesh.indices)[faceIndex * 3 + vertIndex];
 
 	uint32_t n = (*mesh.vertices)[idx].normal;
-	glm::vec3 normal = glm::vec3((n & 1023), (n >> 10) & 1023, (n >> 20) & 1023) / glm::vec3(511.0) - glm::vec3(1.0);
+	glm::vec3 normal = normalize(glm::vec3((n >> 20) & 1023, (n >> 10) & 1023, n & 1023) / glm::vec3(511.0) - glm::vec3(1.0)); // normalize or no?
 
 	outNormal[0] = normal.x;
 	outNormal[1] = normal.y;
@@ -1037,9 +1059,36 @@ void mikk_setTSpaceBasic(const SMikkTSpaceContext* context, const float outTange
 {
 	MikkMesh mesh = *(static_cast<MikkMesh*>(context->m_pUserData));
 	uint32_t idx = (*mesh.indices)[faceIndex * 3 + vertIndex];
-	glm::vec4& tangent = (*mesh.vertices)[idx].tangent;
-	tangent.x = outTangent[0];
-	tangent.y = outTangent[1];
-	tangent.z = outTangent[2];
-	tangent.w = -sign;
+
+	// tangent.w = -sign;
+
+	auto tx = outTangent[0];
+	auto ty = outTangent[1];
+	auto tz = outTangent[2];
+	mikk_encodeOct(tx, ty, tz);
+
+	uint16_t t =
+		(meshopt_quantizeSnorm(tx, 8) + 127) << 8 |
+		(meshopt_quantizeSnorm(ty, 8) + 127);
+
+	(*mesh.vertices)[idx].tangent = t;
+	(*mesh.vertices)[idx].normal |= (-sign >= 0 ? 1 : 0) << 30;
+}
+
+void mikk_encodeOct(float& x, float& y, float z)
+{
+	float sum = abs(x) + abs(y) + abs(z);
+	x /= sum;
+	y /= sum;
+
+	// sign doesnt change so we can omit this
+	// z /= sum;
+
+	float u = z >= 0.0f ? x : (1.0f - abs(y)) * (x >= 0.0f ? 1.0f : -1.0f);
+	float v = z >= 0.0f ? y : (1.0f - abs(x)) * (y >= 0.0f ? 1.0f : -1.0f);
+
+	// optional mapping to [0,1]?
+
+	x = u;
+	y = v;
 }

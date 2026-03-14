@@ -35,12 +35,15 @@ void main()
 	
 	vec4 position = o.worldMatrix * vec4(v.position, 1.0);
 
-	vec3 normal = decodeNormal(v.normal);
-	//outNormal = mat3(transpose(inverse(o.worldMatrix))) * v.normal;
-	outNormal = mat3(o.worldMatrix) * normal;
+	vec3 normal;
+	vec4 tangent;
+	unpackTBN(v.normal, uint(v.tangent), normal, tangent);
 	
+	outNormal = mat3(o.worldMatrix) * normal;
+	outTangent = vec4(mat3(o.worldMatrix) * tangent.xyz, tangent.w);
+	
+	//outNormal = mat3(transpose(inverse(o.worldMatrix))) * v.normal;
 	//outTangent = vec4(mat3(transpose(inverse(o.worldMatrix))) * v.tangent.xyz, v.tangent.w);
-	outTangent = vec4(mat3(o.worldMatrix) * v.tangent.xyz, v.tangent.w);
 	
 	outUV = vec2(v.uv_x, v.uv_y);
 	outMaterialID = o.materialID;

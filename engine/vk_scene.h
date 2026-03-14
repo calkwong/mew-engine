@@ -16,8 +16,10 @@ struct Vertex
 	uint32_t normal{};
 	// glm::vec3 normal{};
 	float uv_y{};
-	float padding[2];
-	glm::vec4 tangent{};
+	uint16_t tangent{};
+	// float padding[2];
+	uint16_t padding[3];
+	// glm::vec4 tangent{};
 };
 
 enum class MaterialPass : uint32_t

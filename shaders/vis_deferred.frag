@@ -46,6 +46,7 @@ layout( push_constant ) uniform constants
 	float maxPrefilteredLod;
 	float metallic; // unused, for debugging
 	float roughness; // unused, for debugging
+	uint debug;
 } pc;
 
 // formula is for infinite far plane, reverse-z
@@ -205,17 +206,20 @@ void main()
 	
 	vec3 worldPos = interpolate(bary, wp0.xyz, wp1.xyz, wp2.xyz);
 	
-	vec3 unpackedNormal0 = decodeNormal(v0.normal);
-	vec3 unpackedNormal1 = decodeNormal(v1.normal);
-	vec3 unpackedNormal2 = decodeNormal(v2.normal);
+	vec3 np0, np1, np2;
+	vec4 tp0, tp1, tp2;
+	unpackTBN(v0.normal, uint(v0.tangent), np0, tp0);
+	unpackTBN(v1.normal, uint(v1.tangent), np1, tp1);
+	unpackTBN(v2.normal, uint(v2.tangent), np2, tp2);
 	
 	// TODO: store triangle face bit in visibility buffer so normals are correct for masked geometry
 	
-	vec3 n0 = mat3(worldMatrix) * unpackedNormal0;  // no transpose(inverse), no normalization
-	vec3 n1 = mat3(worldMatrix) * unpackedNormal1;
-	vec3 n2 = mat3(worldMatrix) * unpackedNormal2;
+	vec3 n0 = mat3(worldMatrix) * np0;  // no transpose(inverse), no normalization
+	vec3 n1 = mat3(worldMatrix) * np1;
+	vec3 n2 = mat3(worldMatrix) * np2;
 	
-	vec3 N = normalize(interpolate(bary, n0, n1, n2)); // mikktspace convention is NOT to normalize? but khronos sponza breaks
+	vec3 N = normalize(interpolate(bary, n0, n1, n2)); // TODO: mikktspace convention is NOT to normalize. we normalize here as khronos sponza iirc?
+	vec3 debugN = N;
 	
 	uint materialID = pc.objectBuffer.objects[drawID].materialID;
 	MaterialData m = pc.materialBuffer.materials[materialID];
@@ -230,14 +234,16 @@ void main()
 	vec3 color = vec3(0.0);
 	vec3 ambient = albedo.xyz * 0.1; // when GI is off, likely going to look physically incorrect
 	
+	vec4 debugT;
 #ifdef PBR
 	if (m.normalID != 0)
 	{
-		vec4 t0 = vec4(mat3(worldMatrix) * v0.tangent.xyz, v0.tangent.w);
-		vec4 t1 = vec4(mat3(worldMatrix) * v1.tangent.xyz, v1.tangent.w);
-		vec4 t2 = vec4(mat3(worldMatrix) * v2.tangent.xyz, v2.tangent.w);
-		vec4 T = interpolate(bary, t0, t1, t2); 
-		T.xyz = normalize(T.xyz); // mikktspace convention is NOT to normalize? but khronos sponza breaks	
+		vec4 t0 = vec4(mat3(worldMatrix) * tp0.xyz, tp0.w);
+		vec4 t1 = vec4(mat3(worldMatrix) * tp1.xyz, tp1.w);
+		vec4 t2 = vec4(mat3(worldMatrix) * tp2.xyz, tp2.w);
+		vec4 T = interpolate(bary, t0, t1, t2);
+		T.xyz = normalize(T.xyz); // TODO: mikktspace convention is NOT to normalize. we normalize here as khronos sponza iirc?
+		debugT = T;
 	
 		float sign = T.w; // sign is flipped during tangent generation so mikktspace is consistent with glTF handedness
 		vec3 B = sign * cross(N, T.xyz);
@@ -430,5 +436,27 @@ void main()
 		uint idx = pc.debugShadowmap - 1;
 		vec3 depth = vec3(texture(sampler2D(textures[pc.shadowmap_id + idx], samplers[NEAREST_SAMPLER]), uv).r);
 		outFragColor.xyz = depth;
+	}
+	
+	if (pc.debug != 0)
+	{
+		switch (pc.debug)
+		{
+		case 1: // geometry normals
+			debugN = debugN * 0.5 + 0.5;
+			debugN = srgbToLinear(debugN);
+			outFragColor = vec4(debugN, 1.0);
+			break;
+		case 2: // tangents
+			vec3 t = debugT.xyz * 0.5 + 0.5;
+			t = srgbToLinear(t);
+			outFragColor = vec4(t, 1.0);
+			break;
+		case 3: // tangent w
+		    vec3 w = debugT.w > 0.0 ? vec3(1.0) : vec3(0.0);
+		    w = srgbToLinear(w);
+		    outFragColor = vec4(w, 1.0);
+            break;
+		}
 	}
 }

@@ -21,6 +21,38 @@ vec4 linearToSrgb(vec4 c)
 // 10-10-10-2
 vec3 decodeNormal(uint n)
 {
-	// can we get away without normalizing?
+	// TODO: normalize or not?
 	return normalize(((ivec3(n) >> ivec3(20, 10, 0)) & ivec3(1023)) / 511.0 - 1.0); 
+}
+
+// 8-8
+vec2 decodeTangent(uint t)
+{
+	return ((ivec2(t) >> ivec2(8, 0)) & ivec2(255)) / 127.0 - 1.0;
+}
+
+vec2 encodeOct(vec3 n)
+{
+	n /= (abs(n.x) + abs(n.y) + abs(n.z));
+	vec2 s = vec2(n.x >= 0.0 ? 1.0 : -1.0, n.y >= 0.0 ? 1.0 : -1.0);
+	n.xy = n.z >= 0.0 ? n.xy : (1.0 - abs(n.yx)) * s;
+	//n.xy = n.xy * 0.5 + 0.5;
+	return n.xy;
+}
+
+// https://x.com/Stubbesaurus/status/937994790553227264/
+vec3 decodeOct(vec2 f)
+{
+	vec3 n = vec3(f.x, f.y, 1.0 - abs(f.x) - abs(f.y));
+	float t = max(-n.z, 0.0);
+	n.xy += vec2(n.x >= 0.0 ? -t : t, n.y >= 0.0 ? -t : t);
+	return normalize(n);
+}
+
+void unpackTBN(uint n, uint t, out vec3 normal, out vec4 tangent)
+{
+	normal = decodeNormal(n);
+	vec2 tp = decodeTangent(t);
+	tangent.xyz = decodeOct(tp);
+	tangent.w = (n & (1 << 30)) != 0 ? 1.0 : -1.0;
 }

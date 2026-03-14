@@ -105,3 +105,4 @@ void mikk_getPosition(const SMikkTSpaceContext* context, float outPosition[3], i
 void mikk_getNormal(const SMikkTSpaceContext* context, float outNormal[3], int faceIndex, int vertIndex);
 void mikk_getTexCoord(const SMikkTSpaceContext* context, float outUV[2], int faceIndex, int vertIndex);
 void mikk_setTSpaceBasic(const SMikkTSpaceContext* context, const float outTangent[3], float sign, int faceIndex, int vertIndex);
+void mikk_encodeOct(float& x, float& y, float z);

@@ -64,10 +64,10 @@ void main()
 	float roughness;
 #ifdef PBR
 	//N = inNormal; 
-	N = normalize(inNormal); // mikktspace convention is NOT to normalize? but khronos sponza breaks
+	N = normalize(inNormal); // TODO: mikktspace convention is NOT to normalize. we normalize here as khronos sponza iirc?
 	if (m.normalID != 0)
 	{
-		vec3 T = normalize(inTangent.xyz); // mikktspace convention is NOT to normalize? but khronos sponza breaks	
+		vec3 T = normalize(inTangent.xyz); // TODO: mikktspace convention is NOT to normalize. we normalize here as khronos sponza iirc?
 		//vec3 T = inTangent.xyz;
 		float sign = inTangent.w; // sign is flipped during tangent generation so mikktspace is consistent with glTF handedness
 		vec3 B = sign * cross(N, T);

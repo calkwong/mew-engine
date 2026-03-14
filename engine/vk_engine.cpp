@@ -79,6 +79,8 @@ AutoCVar_Float CVAR_GI_METALLIC{ "Metallic", 0.0f, 0.0f, CVarFlags::EditSliderFl
 AutoCVar_Float CVAR_GI_ROUGHNESS{ "Roughness", 0.5f, 0.5f, CVarFlags::EditSliderFloat, 0.f, 1.f, 0.05f };
 AutoCVar_Int CVAR_TOGGLE_AUTOEXPOSE{ "Auto exposure", 1, 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TOGGLE_TONEMAPFUNC{ "Tonemap function", 0, 0, CVarFlags::EditSliderInt, 0, 1, 1 };
+// DEBUG settings
+AutoCVar_Int CVAR_TOGGLE_DEBUG{ "Debug", 0, 0, CVarFlags::EditSliderInt, 0, 3, 1 };
 
 uint32_t CUBEMAP_ID = 0;
 
@@ -1050,6 +1052,7 @@ void VulkanEngine::draw()
 	}
 
 	// tonemapping pass
+	if (CVAR_TOGGLE_DEBUG.get() == 0)
 	{
 		ShaderPass current_pass = *shader_passes["tonemap"];
 		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
@@ -1339,6 +1342,13 @@ void VulkanEngine::init_vulkan()
 	features12.drawIndirectCount = true;
 	features12.samplerFilterMinmax = true;
 	features12.hostQueryReset = true;
+	features12.shaderFloat16 = true;
+	features12.shaderInt8 = true;
+
+	// vulkan 1.1 features
+	VkPhysicalDeviceVulkan11Features features11{};
+	features11.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
+	features11.storageBuffer16BitAccess = true;
 
 	// vulkan 1.0 features
 	VkPhysicalDeviceFeatures features10{};
@@ -1346,6 +1356,7 @@ void VulkanEngine::init_vulkan()
 	features10.pipelineStatisticsQuery = true;
 	// features10.samplerAnisotropy = true;
 	features10.depthClamp = true;
+	features10.shaderInt16 = true;
 
 	VkPhysicalDeviceMeshShaderFeaturesEXT mesh_shader_features{};
 	mesh_shader_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT;
@@ -1359,18 +1370,19 @@ void VulkanEngine::init_vulkan()
 	// we want a gpu that can write to the SDL surface and supports vulkan 1.3 with the correct features
 	vkb::PhysicalDeviceSelector selector{ vkb_inst };
 	vkb::PhysicalDevice physicalDevice = selector
-	                                         .set_minimum_version(1, 3)
-	                                         .set_required_features(features10)
-	                                         .set_required_features_13(features13)
-	                                         .set_required_features_12(features12)
-	                                         .add_required_extension("VK_KHR_calibrated_timestamps")
-	                                         .add_required_extension("VK_EXT_mesh_shader")
-	                                         .add_required_extension("VK_EXT_fragment_shader_interlock")
-	                                         .add_required_extension_features(mesh_shader_features)
-	                                         .add_required_extension_features(fragment_shader_interlock_features)
-	                                         .set_surface(surface)
-	                                         .select()
-	                                         .value();
+	                                     .set_minimum_version(1, 3)
+	                                     .set_required_features(features10)
+	                                     .set_required_features_13(features13)
+	                                     .set_required_features_12(features12)
+	                                     .set_required_features_11(features11)
+	                                     .add_required_extension("VK_KHR_calibrated_timestamps")
+	                                     .add_required_extension("VK_EXT_mesh_shader")
+	                                     .add_required_extension("VK_EXT_fragment_shader_interlock")
+	                                     .add_required_extension_features(mesh_shader_features)
+	                                     .add_required_extension_features(fragment_shader_interlock_features)
+	                                     .set_surface(surface)
+	                                     .select()
+	                                     .value();
 
 	// create the final vulkan device
 	vkb::DeviceBuilder deviceBuilder{ physicalDevice };
@@ -2357,8 +2369,8 @@ void VulkanEngine::update_scene()
 	last_view = freeze_camera ? last_view : scene_data.view;
 	last_proj = freeze_camera ? last_proj : scene_data.proj;
 
-	// scene_data.sunlight_dir = glm::vec4(7.75, 12.5, 12.5, 1.);
-	scene_data.sunlight_dir = glm::vec4(0.001, 12.0, 0.0, 1.);
+	scene_data.sunlight_dir = glm::vec4(7.75, 12.5, 12.5, 1.);
+	// scene_data.sunlight_dir = glm::vec4(0.001, 12.0, 0.0, 1.);
 	scene_data.sunlight_color = glm::vec4(15.0, 15.0, 15.0, 1.0);
 
 	if (CVAR_TOGGLE_SHADOW.get())
@@ -2458,6 +2470,7 @@ void VulkanEngine::execute_deferred_shading(VkCommandBuffer cmd, VkImageView vie
 	pc.max_prefiltered_lod = static_cast<float>(std::floor(std::log2(static_cast<float>(std::max(prefiltered_envmap.extent.width, prefiltered_envmap.extent.height))))) + 1;
 	pc.metallic = CVAR_GI_METALLIC.get();
 	pc.roughness = CVAR_GI_ROUGHNESS.get();
+	pc.debug = CVAR_TOGGLE_DEBUG.get();
 
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(DeferredPushConstants), &pc);
 	vkCmdDraw(cmd, 3, 1, 0, 0);

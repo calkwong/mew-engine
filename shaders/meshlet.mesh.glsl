@@ -77,9 +77,15 @@ void main()
 
 		vec4 position = o.worldMatrix * vec4(v.position, 1.0);
 		
-		vec3 normal = decodeNormal(v.normal);
+		vec3 normal;
+		vec4 tangent;
+		unpackTBN(v.normal, uint(v.tangent), normal, tangent);
+		
 		outNormal[i] = mat3(o.worldMatrix) * normal;
+		outTangent[i] = vec4(mat3(o.worldMatrix) * tangent.xyz, tangent.w);
+		
 		//outNormal[i] = mat3(transpose(inverse(o.worldMatrix))) * v.normal;
+		//outTangent[i] = vec4(mat3(transpose(inverse(o.worldMatrix))) * v.tangent.xyz, v.tangent.w);
 		
 		if (pc.debugMeshlets == 1)
 		{
@@ -87,8 +93,6 @@ void main()
 			outNormal[i] = vec3(float(mhash & 255), float((mhash >> 8) & 255), float((mhash >> 16) & 255)) / 255.0;
 		}
 		
-		//outTangent[i] = vec4(mat3(transpose(inverse(o.worldMatrix))) * v.tangent.xyz, v.tangent.w);
-		outTangent[i] = vec4(mat3(o.worldMatrix) * v.tangent.xyz, v.tangent.w);
 		outUV[i] = vec2(v.uv_x, v.uv_y);
 		outMaterialID[i] = o.materialID;
 
