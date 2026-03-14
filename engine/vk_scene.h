@@ -13,8 +13,10 @@ struct Vertex
 {
 	glm::vec3 position{};
 	float uv_x{};
-	glm::vec3 normal{};
+	uint32_t normal{};
+	// glm::vec3 normal{};
 	float uv_y{};
+	float padding[2];
 	glm::vec4 tangent{};
 };
 

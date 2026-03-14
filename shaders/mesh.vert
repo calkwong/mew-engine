@@ -4,6 +4,7 @@
 
 #include "bindings.glsl"
 #include "buffer_references.glsl"
+#include "util.glsl"
 
 layout (location = 0) out vec3 outNormal;
 layout (location = 1) out vec2 outUV;
@@ -34,10 +35,11 @@ void main()
 	
 	vec4 position = o.worldMatrix * vec4(v.position, 1.0);
 
+	vec3 normal = decodeNormal(v.normal);
 	//outNormal = mat3(transpose(inverse(o.worldMatrix))) * v.normal;
-	//outTangent = vec4(mat3(transpose(inverse(o.worldMatrix))) * v.tangent.xyz, v.tangent.w);
+	outNormal = mat3(o.worldMatrix) * normal;
 	
-	outNormal = mat3(o.worldMatrix) * v.normal;
+	//outTangent = vec4(mat3(transpose(inverse(o.worldMatrix))) * v.tangent.xyz, v.tangent.w);
 	outTangent = vec4(mat3(o.worldMatrix) * v.tangent.xyz, v.tangent.w);
 	
 	outUV = vec2(v.uv_x, v.uv_y);

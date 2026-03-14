@@ -9,6 +9,7 @@
 #include "vbuffer.glsl"
 #include "pbr.glsl"
 #include "sh.glsl"
+#include "util.glsl"
 
 layout (location = 0) in vec2 inUV;
 
@@ -204,10 +205,16 @@ void main()
 	
 	vec3 worldPos = interpolate(bary, wp0.xyz, wp1.xyz, wp2.xyz);
 	
+	vec3 unpackedNormal0 = decodeNormal(v0.normal);
+	vec3 unpackedNormal1 = decodeNormal(v1.normal);
+	vec3 unpackedNormal2 = decodeNormal(v2.normal);
+	
 	// TODO: store triangle face bit in visibility buffer so normals are correct for masked geometry
-	vec3 n0 = mat3(worldMatrix) * v0.normal;  // no transpose(inverse), no normalization
-	vec3 n1 = mat3(worldMatrix) * v1.normal;
-	vec3 n2 = mat3(worldMatrix) * v2.normal;
+	
+	vec3 n0 = mat3(worldMatrix) * unpackedNormal0;  // no transpose(inverse), no normalization
+	vec3 n1 = mat3(worldMatrix) * unpackedNormal1;
+	vec3 n2 = mat3(worldMatrix) * unpackedNormal2;
+	
 	vec3 N = normalize(interpolate(bary, n0, n1, n2)); // mikktspace convention is NOT to normalize? but khronos sponza breaks
 	
 	uint materialID = pc.objectBuffer.objects[drawID].materialID;

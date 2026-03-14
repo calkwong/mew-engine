@@ -5,6 +5,7 @@
 
 #include "bindings.glsl"
 #include "buffer_references.glsl"
+#include "util.glsl"
 
 layout(local_size_x = 32) in;
 layout(triangles, max_vertices = 64, max_primitives = 124) out;
@@ -75,7 +76,9 @@ void main()
 		Vertex v = pc.vertexBuffer.vertices[vertexIndex];
 
 		vec4 position = o.worldMatrix * vec4(v.position, 1.0);
-		outNormal[i] = mat3(o.worldMatrix) * v.normal;
+		
+		vec3 normal = decodeNormal(v.normal);
+		outNormal[i] = mat3(o.worldMatrix) * normal;
 		//outNormal[i] = mat3(transpose(inverse(o.worldMatrix))) * v.normal;
 		
 		if (pc.debugMeshlets == 1)

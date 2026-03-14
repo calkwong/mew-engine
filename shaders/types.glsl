@@ -84,8 +84,9 @@ struct Vertex
 {
 	vec3 position;
 	float uv_x;
-	vec3 normal;
+	uint normal;
 	float uv_y;
+	uint padding[2];
 	vec4 tangent;
 }; 
 

@@ -58,7 +58,9 @@ void optimize_mesh(
 	std::vector<glm::vec3> normals(vertex_count);
 	for (size_t i = 0; i < vertex_count; i++)
 	{
-		normals[i] = vertices[i].normal;
+		auto n = vertices[i].normal;
+		glm::vec3 normal = glm::vec3((n >> 20) & 1023, (n >> 10) & 1023, n & 1023) / glm::vec3(511.0) - glm::vec3(1.0);
+		normals[i] = normal;
 	}
 
 	center /= vertices.size();
@@ -807,7 +809,15 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, Loade
 				auto normals = p.findAttribute("NORMAL");
 				if (normals != p.attributes.end())
 				{
-					fastgltf::iterateAccessorWithIndex<glm::vec3>(gltf, gltf.accessors[normals->accessorIndex], [&](glm::vec3 v, size_t index){ vertices[index].normal = v; });
+					fastgltf::iterateAccessorWithIndex<glm::vec3>(gltf, gltf.accessors[normals->accessorIndex], [&](glm::vec3 v, size_t index)
+						{
+							uint32_t normal =
+								(meshopt_quantizeSnorm(v.x, 10) + 511) << 20 |
+								(meshopt_quantizeSnorm(v.y, 10) + 511) << 10 |
+								(meshopt_quantizeSnorm(v.z, 10) + 511);
+							vertices[index].normal = normal;
+						}
+					);
 				}
 			}
 
@@ -1005,7 +1015,10 @@ void mikk_getNormal(const SMikkTSpaceContext* context, float outNormal[3], int f
 {
 	MikkMesh mesh = *(static_cast<MikkMesh*>(context->m_pUserData));
 	uint32_t idx = (*mesh.indices)[faceIndex * 3 + vertIndex];
-	glm::vec3 normal = (*mesh.vertices)[idx].normal;
+
+	uint32_t n = (*mesh.vertices)[idx].normal;
+	glm::vec3 normal = glm::vec3((n & 1023), (n >> 10) & 1023, (n >> 20) & 1023) / glm::vec3(511.0) - glm::vec3(1.0);
+
 	outNormal[0] = normal.x;
 	outNormal[1] = normal.y;
 	outNormal[2] = normal.z;
