@@ -33,7 +33,7 @@ void main()
 	ObjectData o = pc.objectBuffer.objects[gl_InstanceIndex]; // gl_InstanceIndex from drawIndirectCommand
 	Vertex v = pc.vertexBuffer.vertices[gl_VertexIndex];
 	
-	vec4 position = o.worldMatrix * vec4(v.position, 1.0);
+	vec4 worldPos = o.worldMatrix * vec4(v.px, v.py, v.pz, 1.0);
 
 	vec3 normal;
 	vec4 tangent;
@@ -48,8 +48,8 @@ void main()
 	outUV = vec2(v.uv_x, v.uv_y);
 	outMaterialID = o.materialID;
 
-    outClipPos = sceneData.viewproj * position;
-    outPrevClipPos = sceneData.previousViewproj * position;
+    outClipPos = sceneData.viewproj * worldPos;
+    outPrevClipPos = sceneData.previousViewproj * worldPos;
 
-	gl_Position =  sceneData.viewproj * position;
+	gl_Position =  sceneData.viewproj * worldPos;
 }

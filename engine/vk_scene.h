@@ -11,15 +11,16 @@ struct ShaderPass;
 
 struct Vertex
 {
-	glm::vec3 position{};
-	float uv_x{};
-	uint32_t normal{};
-	// glm::vec3 normal{};
-	float uv_y{};
+	uint16_t px{};
+	uint16_t py{};
+	uint16_t pz{};
+
 	uint16_t tangent{};
-	// float padding[2];
-	uint16_t padding[3];
-	// glm::vec4 tangent{};
+
+	uint32_t normal{};
+
+	uint16_t uv_x{};
+	uint16_t uv_y{};
 };
 
 enum class MaterialPass : uint32_t

@@ -22,8 +22,8 @@ void main()
 	ObjectData o = pc.objectBuffer.objects[gl_InstanceIndex]; // gl_InstanceIndex from drawIndirectCommand
 	Vertex v = pc.vertexBuffer.vertices[gl_VertexIndex];
 	
-	vec4 position = o.worldMatrix * vec4(v.position, 1.0);
-	gl_Position = pc.viewproj * position;
+	vec4 worldPos = o.worldMatrix * vec4(v.px, v.py, v.pz, 1.0);
+	gl_Position = pc.viewproj * worldPos;
 	
 	outUV = vec2(v.uv_x, v.uv_y);
 	outMaterialID = o.materialID;

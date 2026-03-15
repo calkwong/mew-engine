@@ -1698,7 +1698,7 @@ void VulkanEngine::init_pipelines()
 	// graphics pipeline
 	shader_cache.add_shader(device, "mesh.vert", VK_SHADER_STAGE_VERTEX_BIT);
 	shader_cache.add_shader(device, "geometry.frag", VK_SHADER_STAGE_FRAGMENT_BIT);
-	shader_cache.add_shader(device, "meshlet.mesh.glsl", VK_SHADER_STAGE_MESH_BIT_EXT);
+	shader_cache.add_shader(device, "meshlet.mesh", VK_SHADER_STAGE_MESH_BIT_EXT);
 	shader_cache.add_shader(device, "full_screen.vert", VK_SHADER_STAGE_VERTEX_BIT);
 	shader_cache.add_shader(device, "deferred.frag", VK_SHADER_STAGE_FRAGMENT_BIT);
 	shader_cache.add_shader(device, "mlab.frag", VK_SHADER_STAGE_FRAGMENT_BIT);
@@ -1708,7 +1708,7 @@ void VulkanEngine::init_pipelines()
 	// vis buffer
 	shader_cache.add_shader(device, "vis_buffer.frag", VK_SHADER_STAGE_FRAGMENT_BIT);
 	shader_cache.add_shader(device, "vis_deferred.frag", VK_SHADER_STAGE_FRAGMENT_BIT);
-	shader_cache.add_shader(device, "vis_meshlet.mesh.glsl", VK_SHADER_STAGE_MESH_BIT_EXT);
+	shader_cache.add_shader(device, "vis_meshlet.mesh", VK_SHADER_STAGE_MESH_BIT_EXT);
 
 	// taa
 	shader_cache.add_shader(device, "taa_resolve.frag", VK_SHADER_STAGE_FRAGMENT_BIT);
@@ -1798,7 +1798,7 @@ void VulkanEngine::init_pipelines()
 	builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
 	shader_passes["geometry_vert_mask"] = vkutil::build_shader(device, builder, {}, descriptor_layouts, sizeof(GPUPushConstants));
 
-	builder.set_shaders({ shader_cache["meshlet.mesh.glsl"], shader_cache["geometry.frag"] });
+	builder.set_shaders({ shader_cache["meshlet.mesh"], shader_cache["geometry.frag"] });
 	builder.shader_stages[1].pSpecializationInfo = &specialization_info;
 	specialization_data.opaque = 1;
 	builder.set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
@@ -1815,7 +1815,7 @@ void VulkanEngine::init_pipelines()
 	color_blend_states.push_back(builder.disable_blending()); // 2 channel texture but RGBA write mask ok? no validation error
 	color_blend_states.push_back(builder.disable_blending()); // 2 channel texture but RGBA write mask ok? no validation error
 	builder.set_blending_state(color_blend_states);
-	builder.set_shaders({ shader_cache["vis_meshlet.mesh.glsl"], shader_cache["vis_buffer.frag"] });
+	builder.set_shaders({ shader_cache["vis_meshlet.mesh"], shader_cache["vis_buffer.frag"] });
 	builder.shader_stages[1].pSpecializationInfo = &specialization_info;
 	specialization_data.opaque = 1;
 	builder.set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
@@ -1863,7 +1863,7 @@ void VulkanEngine::init_pipelines()
 	builder.set_depth_format(depth_image.format);
 	builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
 	shader_passes["mlab_vert"] = vkutil::build_shader(device, builder, { shader_cache["mesh.vert"], shader_cache["mlab.frag"] }, descriptor_layouts, sizeof(GPUPushConstants));
-	shader_passes["mlab_mesh"] = vkutil::build_shader(device, builder, { shader_cache["meshlet.mesh.glsl"], shader_cache["mlab.frag"] }, descriptor_layouts, sizeof(GPUPushConstants));
+	shader_passes["mlab_mesh"] = vkutil::build_shader(device, builder, { shader_cache["meshlet.mesh"], shader_cache["mlab.frag"] }, descriptor_layouts, sizeof(GPUPushConstants));
 
 	for (const auto& v : std::views::values(shader_cache.data))
 	{

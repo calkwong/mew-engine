@@ -87,16 +87,16 @@ struct MeshTaskCommand
 
 struct Vertex
 {
-	vec3 position;
-	float uv_x;
-	uint normal;
-	float uv_y;
-	
+	float16_t px;
+	float16_t py;
+	float16_t pz;
+
 	uint16_t tangent;
-	uint16_t padding[3];
-	
-	//uint padding[2];
-	//vec4 tangent;
+
+	uint normal;
+
+	float16_t uv_x;
+	float16_t uv_y;
 }; 
 
 struct MaterialData

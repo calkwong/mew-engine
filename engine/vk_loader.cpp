@@ -51,7 +51,12 @@ void optimize_mesh(
 	std::vector<glm::vec3> positions(vertex_count);
 	for (size_t i = 0; i < vertex_count; i++)
 	{
-		positions[i] = vertices[i].position;
+
+		float px = meshopt_dequantizeHalf(vertices[i].px);
+		float py = meshopt_dequantizeHalf(vertices[i].py);
+		float pz = meshopt_dequantizeHalf(vertices[i].pz);
+
+		positions[i] = glm::vec3(px, py, pz);
 		center += positions[i];
 	}
 
@@ -798,7 +803,11 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, Loade
 				fastgltf::iterateAccessorWithIndex<glm::vec3>(gltf, pos_accessor, [&](glm::vec3 v, size_t index)
 				    {
 						Vertex new_vtx{};
-						new_vtx.position = v;
+
+						new_vtx.px = meshopt_quantizeHalf(v.x);
+						new_vtx.py = meshopt_quantizeHalf(v.y);
+						new_vtx.pz = meshopt_quantizeHalf(v.z);
+
 						vertices[index] = new_vtx;
 				    }
 				);
@@ -838,8 +847,8 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, Loade
 				{
 					fastgltf::iterateAccessorWithIndex<glm::vec2>(gltf, gltf.accessors[uv->accessorIndex], [&](glm::vec2 v, size_t index)
 						{
-						  vertices[index].uv_x = v.x;
-						  vertices[index].uv_y = v.y;
+						  vertices[index].uv_x = meshopt_quantizeHalf(v.x);
+						  vertices[index].uv_y = meshopt_quantizeHalf(v.y);
 						}
 					);
 				}
@@ -1027,10 +1036,14 @@ void mikk_getPosition(const SMikkTSpaceContext* context, float outPosition[3], i
 {
 	MikkMesh mesh = *(static_cast<MikkMesh*>(context->m_pUserData));
 	uint32_t idx = (*mesh.indices)[faceIndex * 3 + vertIndex];
-	glm::vec3 pos = (*mesh.vertices)[idx].position;
-	outPosition[0] = pos.x;
-	outPosition[1] = pos.y;
-	outPosition[2] = pos.z;
+
+	float px = meshopt_dequantizeHalf((*mesh.vertices)[idx].px);
+	float py = meshopt_dequantizeHalf((*mesh.vertices)[idx].py);
+	float pz = meshopt_dequantizeHalf((*mesh.vertices)[idx].pz);
+
+	outPosition[0] = px;
+	outPosition[1] = py;
+	outPosition[2] = pz;
 }
 
 void mikk_getNormal(const SMikkTSpaceContext* context, float outNormal[3], int faceIndex, int vertIndex)
@@ -1050,9 +1063,12 @@ void mikk_getTexCoord(const SMikkTSpaceContext* context, float outUV[2], int fac
 {
 	MikkMesh mesh = *(static_cast<MikkMesh*>(context->m_pUserData));
 	uint32_t idx = (*mesh.indices)[faceIndex * 3 + vertIndex];
-	glm::vec2 uv = glm::vec2((*mesh.vertices)[idx].uv_x, (*mesh.vertices)[idx].uv_y);
-	outUV[0] = uv.x;
-	outUV[1] = uv.y;
+
+	float uvx = meshopt_dequantizeHalf((*mesh.vertices)[idx].uv_x);
+	float uvy = meshopt_dequantizeHalf((*mesh.vertices)[idx].uv_y);
+
+	outUV[0] = uvx;
+	outUV[1] = uvy;
 }
 
 void mikk_setTSpaceBasic(const SMikkTSpaceContext* context, const float outTangent[3], float sign, int faceIndex, int vertIndex)

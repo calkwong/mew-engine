@@ -185,9 +185,9 @@ void main()
 	
 	mat4 worldMatrix = pc.objectBuffer.objects[drawID].worldMatrix;
 	
-	vec4 wp0 = worldMatrix * vec4(v0.position, 1.0); 
-	vec4 wp1 = worldMatrix * vec4(v1.position, 1.0); 
-	vec4 wp2 = worldMatrix * vec4(v2.position, 1.0); 
+	vec4 wp0 = worldMatrix * vec4(v0.px, v0.py, v0.pz, 1.0); 
+	vec4 wp1 = worldMatrix * vec4(v1.px, v1.py, v1.pz, 1.0); 
+	vec4 wp2 = worldMatrix * vec4(v2.px, v2.py, v2.pz, 1.0); 
 	
 	vec4 p0 = sceneData.viewproj * wp0;
 	vec4 p1 = sceneData.viewproj * wp1;
