@@ -34,6 +34,7 @@ void main()
 	// reset buffer
 	pc.luminanceBuffer.bins[threadIndex] = 0; 
 	
+	// TODO: reconsider placing in a for loop, dont think we actually have UB issue here
 	// manual unrolling to prevent barrier UB
 	if (threadIndex < 128)
 		sharedBins[threadIndex] += sharedBins[threadIndex + 128];

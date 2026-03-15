@@ -39,12 +39,13 @@ struct ObjectData
 
 struct Meshlet
 {
-	vec3 center;
-	float radius;
+	float16_t cx, cy, cz;
+	float16_t radius;
+	
 	uint dataOffset; // index into MeshletIndices
-	uint vertexCount;
-	uint triangleCount;
-	uint padding;
+	uint8_t vertexCount; 
+	uint8_t triangleCount; 
+	uint8_t padding[2];
 };
 
 struct MeshLod

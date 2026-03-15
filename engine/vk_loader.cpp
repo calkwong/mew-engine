@@ -1,4 +1,5 @@
 #include "common.h"
+#include "config.h"
 #include "vk_math.h"
 #include "vk_loader.h"
 #include "cache.h"
@@ -87,8 +88,8 @@ void optimize_mesh(
 	float next_error{};
 
 	// meshlets
-	constexpr size_t max_vertices = 64;
-	constexpr size_t max_triangles = 124;
+	constexpr size_t max_vertices = MESHLET_MAX_VERTICES;
+	constexpr size_t max_triangles = MESHLET_MAX_TRIANGLES;
 	constexpr float cone_weight = 0.f;
 	constexpr uint32_t MAX_LOD = 8;
 	float simplify_threshold = 0.6f;
@@ -139,8 +140,13 @@ void optimize_mesh(
 			meshopt_Bounds bounds = meshopt_computeMeshletBounds(&meshlet_vertices[m.vertex_offset], &meshlet_triangles[m.triangle_offset], m.triangle_count, &positions[0].x, vertex_count, sizeof(glm::vec3));
 
 			Meshlet new_meshlet{};
-			new_meshlet.center = glm::vec3(bounds.center[0], bounds.center[1], bounds.center[2]);
-			new_meshlet.radius = bounds.radius;
+
+			new_meshlet.cx = meshopt_quantizeHalf(bounds.center[0]);
+			new_meshlet.cy = meshopt_quantizeHalf(bounds.center[1]);
+			new_meshlet.cz = meshopt_quantizeHalf(bounds.center[2]);
+
+			new_meshlet.radius = meshopt_quantizeHalf(bounds.radius);
+
 			new_meshlet.data_offset = meshlet_indices_offset;
 			new_meshlet.vertex_count = m.vertex_count;
 			new_meshlet.triangle_count = m.triangle_count;

@@ -1344,6 +1344,7 @@ void VulkanEngine::init_vulkan()
 	features12.hostQueryReset = true;
 	features12.shaderFloat16 = true;
 	features12.shaderInt8 = true;
+	features12.storageBuffer8BitAccess = true;
 
 	// vulkan 1.1 features
 	VkPhysicalDeviceVulkan11Features features11{};

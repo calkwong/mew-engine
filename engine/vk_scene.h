@@ -45,13 +45,17 @@ struct MeshLod
 	uint32_t meshlet_count{};
 };
 
-struct alignas(16) Meshlet
+struct alignas(4) Meshlet
 {
-	glm::vec3 center{};
-	float radius{};
+	uint16_t cx{};
+	uint16_t cy{};
+	uint16_t cz{};
+	uint16_t radius{};
+
 	uint32_t data_offset{}; // aka index first count
-	uint32_t vertex_count{};
-	uint32_t triangle_count{};
+
+	uint8_t vertex_count{};
+	uint8_t triangle_count{};
 };
 
 struct MaterialData

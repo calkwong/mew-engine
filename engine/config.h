@@ -20,3 +20,7 @@
 #define CLUSTER_DEPTH_SLICES 24
 #define CLUSTER_DIM 64 // width == height
 #define MAX_POINT_LIGHTS 1000
+
+// meshlets
+#define MESHLET_MAX_VERTICES 64
+#define MESHLET_MAX_TRIANGLES 124
