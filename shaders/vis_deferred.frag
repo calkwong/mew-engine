@@ -204,6 +204,8 @@ void main()
 	vec2 uvDdy;
 	interpolateWithDeriv(bary, vec2(v0.uv_x, v0.uv_y), vec2(v1.uv_x, v1.uv_y), vec2(v2.uv_x, v2.uv_y), uv, uvDdx, uvDdy);
 	
+	vec3 debugUV = vec3(uv, 0.0);
+	
 	vec3 worldPos = interpolate(bary, wp0.xyz, wp1.xyz, wp2.xyz);
 	
 	vec3 np0, np1, np2;
@@ -212,14 +214,13 @@ void main()
 	unpackTBN(v1.normal, uint(v1.tangent), np1, tp1);
 	unpackTBN(v2.normal, uint(v2.tangent), np2, tp2);
 	
-	// TODO: store triangle face bit in visibility buffer so normals are correct for masked geometry
+	// TODO: store triangle face bit in visibility buffer or recompute for masked geometry only so normals are correct? 
 	
 	vec3 n0 = mat3(worldMatrix) * np0;  // no transpose(inverse), no normalization
 	vec3 n1 = mat3(worldMatrix) * np1;
 	vec3 n2 = mat3(worldMatrix) * np2;
 	
 	vec3 N = normalize(interpolate(bary, n0, n1, n2)); // TODO: mikktspace convention is NOT to normalize. we normalize here as khronos sponza iirc?
-	vec3 debugN = N;
 	
 	uint materialID = pc.objectBuffer.objects[drawID].materialID;
 	MaterialData m = pc.materialBuffer.materials[materialID];
@@ -234,18 +235,16 @@ void main()
 	vec3 color = vec3(0.0);
 	vec3 ambient = albedo.xyz * 0.1; // when GI is off, likely going to look physically incorrect
 	
-	vec4 debugT;
+	vec4 t0 = vec4(mat3(worldMatrix) * tp0.xyz, tp0.w);
+	vec4 t1 = vec4(mat3(worldMatrix) * tp1.xyz, tp1.w);
+	vec4 t2 = vec4(mat3(worldMatrix) * tp2.xyz, tp2.w);
+	vec4 T = interpolate(bary, t0, t1, t2);
+	T.xyz = normalize(T.xyz); // TODO: mikktspace convention is NOT to normalize. we normalize here as khronos sponza iirc?
+	float sign = T.w; // sign is flipped during tangent generation so mikktspace is consistent with glTF handedness
+		
 #ifdef PBR
 	if (m.normalID != 0)
 	{
-		vec4 t0 = vec4(mat3(worldMatrix) * tp0.xyz, tp0.w);
-		vec4 t1 = vec4(mat3(worldMatrix) * tp1.xyz, tp1.w);
-		vec4 t2 = vec4(mat3(worldMatrix) * tp2.xyz, tp2.w);
-		vec4 T = interpolate(bary, t0, t1, t2);
-		T.xyz = normalize(T.xyz); // TODO: mikktspace convention is NOT to normalize. we normalize here as khronos sponza iirc?
-		debugT = T;
-	
-		float sign = T.w; // sign is flipped during tangent generation so mikktspace is consistent with glTF handedness
 		vec3 B = sign * cross(N, T.xyz);
 		vec3 shadingNormal = textureGrad(sampler2D(textures[m.normalID], samplers[LINEAR_SAMPLER]), uv, uvDdx, uvDdy).xyz;
 		shadingNormal = shadingNormal * 2.0 - 1.0;
@@ -443,20 +442,26 @@ void main()
 		switch (pc.debug)
 		{
 		case 1: // geometry normals
-			debugN = debugN * 0.5 + 0.5;
-			debugN = srgbToLinear(debugN);
-			outFragColor = vec4(debugN, 1.0);
+			N = N * 0.5 + 0.5;
+			N = srgbToLinear(N);
+			outFragColor = vec4(N, 1.0);
 			break;
 		case 2: // tangents
-			vec3 t = debugT.xyz * 0.5 + 0.5;
-			t = srgbToLinear(t);
-			outFragColor = vec4(t, 1.0);
+			T.xyz = T.xyz * 0.5 + 0.5;
+			T.xyz = srgbToLinear(T.xyz);
+			outFragColor = vec4(T.xyz, 1.0);
 			break;
 		case 3: // tangent w
-		    vec3 w = debugT.w > 0.0 ? vec3(1.0) : vec3(0.0);
+		    vec3 w = T.w > 0.0 ? vec3(1.0) : vec3(0.0);
 		    w = srgbToLinear(w);
 		    outFragColor = vec4(w, 1.0);
             break;
+		case 4: // uv
+			debugUV = srgbToLinear(debugUV);
+			outFragColor = vec4(debugUV, 1.0);
+			break;
 		}
+		
+		outFragColor = depth != 0.0 ? outFragColor : vec4(0,0,0,1);
 	}
 }

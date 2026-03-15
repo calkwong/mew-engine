@@ -80,7 +80,7 @@ AutoCVar_Float CVAR_GI_ROUGHNESS{ "Roughness", 0.5f, 0.5f, CVarFlags::EditSlider
 AutoCVar_Int CVAR_TOGGLE_AUTOEXPOSE{ "Auto exposure", 1, 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TOGGLE_TONEMAPFUNC{ "Tonemap function", 0, 0, CVarFlags::EditSliderInt, 0, 1, 1 };
 // DEBUG settings
-AutoCVar_Int CVAR_TOGGLE_DEBUG{ "Debug", 0, 0, CVarFlags::EditSliderInt, 0, 3, 1 };
+AutoCVar_Int CVAR_DEBUG_TEXTURE{ "Debug", 0, 0, CVarFlags::EditSliderInt, 0, 4, 1 };
 
 uint32_t CUBEMAP_ID = 0;
 
@@ -1052,7 +1052,7 @@ void VulkanEngine::draw()
 	}
 
 	// tonemapping pass
-	if (CVAR_TOGGLE_DEBUG.get() == 0)
+	if (CVAR_DEBUG_TEXTURE.get() == 0)
 	{
 		ShaderPass current_pass = *shader_passes["tonemap"];
 		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
@@ -2470,7 +2470,7 @@ void VulkanEngine::execute_deferred_shading(VkCommandBuffer cmd, VkImageView vie
 	pc.max_prefiltered_lod = static_cast<float>(std::floor(std::log2(static_cast<float>(std::max(prefiltered_envmap.extent.width, prefiltered_envmap.extent.height))))) + 1;
 	pc.metallic = CVAR_GI_METALLIC.get();
 	pc.roughness = CVAR_GI_ROUGHNESS.get();
-	pc.debug = CVAR_TOGGLE_DEBUG.get();
+	pc.debug = CVAR_DEBUG_TEXTURE.get();
 
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(DeferredPushConstants), &pc);
 	vkCmdDraw(cmd, 3, 1, 0, 0);

@@ -828,9 +828,22 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, Loade
 				float v = n.z >= 0.0f ? n.y : (1.0f - abs(n.x)) * (n.y >= 0.0f ? 1.0f : -1.0f);
 
 				// optional mapping to [0, 1]?
-
 				return glm::vec2(u, v);
 			};
+
+			// load uvs
+			{
+				auto uv = p.findAttribute("TEXCOORD_0");
+				if (uv != p.attributes.end())
+				{
+					fastgltf::iterateAccessorWithIndex<glm::vec2>(gltf, gltf.accessors[uv->accessorIndex], [&](glm::vec2 v, size_t index)
+						{
+						  vertices[index].uv_x = v.x;
+						  vertices[index].uv_y = v.y;
+						}
+					);
+				}
+			}
 
 			bool generate_tangents{};
 			// load vertex tangents
@@ -865,19 +878,6 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, Loade
 				calculateTangents(mikk_mesh);
 			}
 
-			// load uvs
-			{
-				auto uv = p.findAttribute("TEXCOORD_0");
-				if (uv != p.attributes.end())
-				{
-					fastgltf::iterateAccessorWithIndex<glm::vec2>(gltf, gltf.accessors[uv->accessorIndex], [&](glm::vec2 v, size_t index)
-					    {
-							vertices[index].uv_x = v.x;
-							vertices[index].uv_y = v.y;
-					    }
-					);
-				}
-			}
 			// clang-format on
 
 			new_surface.vertex_offset = static_cast<uint32_t>(combined_vertices.size());

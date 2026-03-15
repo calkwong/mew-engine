@@ -40,6 +40,7 @@ layout( push_constant ) uniform constants
 	float maxPrefilteredLod;
 	float metallic; // unused, for debugging
 	float roughness; // unused, for debugging
+	uint debug; // unused, only in vis_deferred
 } pc;
 
 // formula is for infinite far plane, reverse-z
