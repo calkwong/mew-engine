@@ -220,7 +220,7 @@ void main()
 	vec3 n1 = mat3(worldMatrix) * np1;
 	vec3 n2 = mat3(worldMatrix) * np2;
 	
-	vec3 N = normalize(interpolate(bary, n0, n1, n2)); // TODO: mikktspace convention is NOT to normalize. we normalize here as khronos sponza iirc?
+	vec3 N = normalize(interpolate(bary, n0, n1, n2)); // TODO: mikktspace convention is NOT to normalize. we normalize here as khronos sponza breaks iirc?
 	
 	uint materialID = pc.objectBuffer.objects[drawID].materialID;
 	MaterialData m = pc.materialBuffer.materials[materialID];
@@ -239,7 +239,7 @@ void main()
 	vec4 t1 = vec4(mat3(worldMatrix) * tp1.xyz, tp1.w);
 	vec4 t2 = vec4(mat3(worldMatrix) * tp2.xyz, tp2.w);
 	vec4 T = interpolate(bary, t0, t1, t2);
-	T.xyz = normalize(T.xyz); // TODO: mikktspace convention is NOT to normalize. we normalize here as khronos sponza iirc?
+	T.xyz = normalize(T.xyz); // TODO: mikktspace convention is NOT to normalize. we normalize here as khronos sponza breaks iirc?
 	float sign = T.w; // sign is flipped during tangent generation so mikktspace is consistent with glTF handedness
 		
 #ifdef PBR

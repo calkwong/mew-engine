@@ -45,7 +45,6 @@ uint hash(uint a)
 
 void main() 
 {
-	
 	uint id = gl_WorkGroupID.x;
 	
 	uint value = pc.clusterIndicesBuffer.indices[id];

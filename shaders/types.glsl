@@ -121,7 +121,7 @@ struct DrawCommands
 {
 	uint opaqueCount;
 	uint alphaClipCount;
-	DrawCommand commands[MAX_DRAW_COMMANDS]; // TODO: shadow_cull using 400000, why is it different again?
+	DrawCommand commands[MAX_DRAW_COMMANDS]; // shadow_cull is using 400000 as we cull then render opaque & alphaclip together. main view implements alphaclip as third pass (late only).
 };
 
 struct OITData

@@ -162,6 +162,13 @@ void main()
 			}
 		}
 		
+		// TODO: inspired by https://github.com/expenses/lighthugger/blob/main/src/shaders/common/prefix_sum.glsl
+		// - prefixSum buffer storing instanceId, inclusive sum of meshletCount, and another new variable to account for LOD offsets to correctly index into meshlet buffer
+		// - dispatchBuffer needs to be handled in a new compute shader
+		// - meshletBitOffset/meshletVisibilityOffset obsolete as we can look into object/instanceBuffer for buffer offset + local offset computed from prefixSum?
+		// - so 4 uints down to 3 uints per meshtask, on top of 1 meshtask command PER mesh?
+		// - meshtask buffer replaced by prefixSum buffer, and each entry maps to a single visible mesh, no longer ceil(meshlets/32) entries
+		
 		if (pc.taskSubmit == 1)
 		{
 			uint meshletCount = mesh.lods[index].meshletCount;

@@ -69,6 +69,7 @@ void main()
 	float maxScale = max(scale.z, max(scale.x, scale.y));
 	radius = radius * maxScale;
 	
+	// TODO: remove the loop and split this into more threads
 	for (int cascadeIdx = 0; cascadeIdx < CASCADE_COUNT; cascadeIdx++) 
 	{
 		float shadowRadius = sceneData.shadowWidths[cascadeIdx];
@@ -78,19 +79,18 @@ void main()
 		
 		// https://learn.microsoft.com/en-us/windows/win32/dxtecharts/cascaded-shadow-maps
 		// this optimization complements map-based selection and is incompatible with interval-based map selection
-		// disable to use interval-based map selection
+		// comment to use interval-based map selection
 		//if (cascadeIdx != 0 && completelyInsideCascade(center, cascadeIdx - 1, radius, shadowRadius))
 		//	break;
 		
 		// TODO: verify that below is ok to go after completelyInsideCascade check
-		// TODO: profile shadow LODs 
 		uint lodIndex = 0;
 		if (pc.lodEnabled == 1) 
 		{
 			// automatic LOD selection - at distance d, how many world space units does each pixel cover? 
 			// is the absolute error computed (simplifyscale * result_error) less visible than error above? if so, move onto higher LOD
 			float d = max(0.0, length(center) - radius);
-			float lodDistanceFactor = shadowRadius / 4096.0; // TODO: seems to work ok - remove hardcoded value
+			float lodDistanceFactor = shadowRadius / 4096.0; // TODO: hardcoded; consider moving to PC to account for varying cascade resolution in the future
 			float e = lodDistanceFactor / maxScale;
 
 			for (uint i = 0; i < mesh.lodCount; i++)

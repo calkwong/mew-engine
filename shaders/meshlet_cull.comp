@@ -98,6 +98,15 @@ void main()
 {
 	uint id = gl_WorkGroupID.x; // 0 - workgroupX-1
 	uint ti = gl_LocalInvocationIndex; // 0 - 31
+
+	// TODO: inspired by https://github.com/expenses/lighthugger/blob/main/src/shaders/common/prefix_sum.glsl
+	// - read mesh_cull TODO first
+	// - id no longer indexes into meshTask, but used as binary search to get correct PrefixSumValue
+	// - meshlet_id from binary search for indexing into meshlet buffer should add meshletOffset to account for LODs?
+	// - result from binary search needs to be adjusted for LOD meshlet offset for correct indexing of meshlet buffer
+	// - yet to figure out how clusterIndices will change. 
+	//     - could compute inclusiveSum value for a specific meshlet as the index, at the cost of binary searching all over again in mesh shader
+	// - in a perfect world, task shader is efficient and we can forget storing all these intermediate buffers
 	
 	uint meshletOffset = pc.meshTaskBuffer.commands[id].meshletOffset + ti;
 	uint objectId = pc.meshTaskBuffer.commands[id].objectId;

@@ -2215,10 +2215,10 @@ void VulkanEngine::init_renderables(std::vector<std::string>& file_paths)
 	{
 		uint32_t meshlet_count = renderable.meshlet_bits;
 		renderable.meshlet_bits = meshlet_visibility_offset; // TODO: rename meshlet_bits
-		render_scene.max_meshtask_commands += (meshlet_count + 31) / 32; // TODO: using clustercull workgroup size, remove magic number
+		render_scene.max_meshtask_commands += (meshlet_count + MESHLETS_PER_MESHTASKCOMMAND - 1) / MESHLETS_PER_MESHTASKCOMMAND;
 		meshlet_visibility_offset += meshlet_count;
 	}
-	render_scene.total_meshlets_bits = meshlet_visibility_offset;
+	render_scene.total_meshlets_bits = meshlet_visibility_offset; // likely obsolete
 }
 
 void VulkanEngine::init_bindless()
@@ -2765,10 +2765,12 @@ void VulkanEngine::upload_buffers()
 	render_scene.draw_indirect_buffer = create_buffer(allocator, (count_size + draw_commands_size) * NUMBER_OF_CASCADES, 0, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT);
 	fmt::println("draw_indirect_buffer: {}mb", size_in_bytes(render_scene.draw_indirect_buffer.info.size));
 
-	// TODO: impose a limit - if we have 1m meshes with 300 clusters each = ~1.2GB buffer
-	render_scene.cluster_indices = create_buffer( allocator, render_scene.total_meshlets_bits * sizeof(uint32_t), 0, VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT);
+	// limit of ~16.7 meshlets, ~64mb
+	// TODO: implement error handling/limit check in shader; just drop the meshlets?
+	render_scene.cluster_indices = create_buffer( allocator, MESHLET_LIMIT * sizeof(uint32_t), 0, VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT);
 	fmt::println("cluster_indices: {}mb", size_in_bytes(render_scene.cluster_indices.info.size));
 
+	// TODO: impose a limit on this
 	render_scene.meshtask_indirect_buffer = create_buffer(allocator, render_scene.max_meshtask_commands * sizeof(MeshTaskCommand), 0, VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT);
 	fmt::println("meshtask_indirect_buffer: {}mb", size_in_bytes(render_scene.meshtask_indirect_buffer.info.size));
 
