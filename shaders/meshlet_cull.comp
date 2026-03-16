@@ -129,8 +129,8 @@ void main()
 		bool skip = false; // always false for early pass
 		if (late && visibleLastFrame) 
 			skip = true;
-		if (pc.postPass != 0) // culling mask and transparent regardless of visibility last frame as its a single cull pass
-			skip = false;
+		if (pc.postPass != 0) // TODO: update this when we start culling postpass > 0 for late==0
+			skip = false; // we never skip mask and transparent (postpass != 0) regardless of visibility last frame as they only run for late==1
 			
 		// reprocess all meshlets of visible meshes	
 		Meshlet meshlet = pc.meshletBuffer.meshlets[meshletOffset]; 
@@ -174,7 +174,7 @@ void main()
 			pc.clusterIndicesBuffer.indices[clusterIndex] = id | (ti << 27); // no error checking yet
 		}
 		
-		if (late) // can we skip this for masked geometry? 
+		if (late)
 		{
 			// TODO: use subgroups and update from a single thread, potentially need to update 2 uints
 			if (visible)

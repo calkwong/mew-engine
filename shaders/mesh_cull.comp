@@ -109,7 +109,7 @@ void main()
 	bool late = pc.late == 1;
 	
 	// TODO: visBuffer using 4 bytes instead of 1 bit for visibility
-	// TODO: can potentially skip this for pc.postPass != 0 (masked, transparent?)
+	// TODO: can potentially skip this for pc.postPass != 0 (masked, transparent)
 	bool visibleLastFrame = pc.visBuffer.visible[id] == 1;
 	
 	if (!late && !visibleLastFrame)
@@ -117,11 +117,6 @@ void main()
 		
 	ObjectData obj = pc.objectBuffer.objects[id];
 
-	// should no longer be necessary as we render by mask/opaque/transparent now
-	// late check should be unnecessary, masked geometry will behave like a third pass after 2-pass cull
-	//if (obj.postPass != pc.postPass) 
-		//return;
-		
 	uint meshID = obj.meshID;
 	MeshData mesh = pc.meshBuffer.meshes[meshID];
 
@@ -150,7 +145,7 @@ void main()
 	{
 		if (pc.occlusionEnabled == 1)
 			visible = visible && !occlusionCulled(center, radius);
-		shouldDraw = (pc.taskSubmit == 0) ? visible && (!visibleLastFrame || pc.postPass != 0) : visible;
+		shouldDraw = (pc.taskSubmit == 0) ? visible && (!visibleLastFrame || pc.postPass != 0) : visible; // TODO: verify we can remove postpass check here as we dispatch by geometry type?
 	}
 	
 	if (shouldDraw)

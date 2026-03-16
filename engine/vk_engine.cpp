@@ -1475,9 +1475,9 @@ void VulkanEngine::init_swapchain()
 		}
 	}
 
-	// deferred path - albedo, normal, metalroughness
+	// deferred path - albedo, normal, metalroughness, velocity
 	{
-		gbuffers.emplace_back(create_image(device, allocator, draw_image_extent, VK_FORMAT_R16G16B16A16_SFLOAT, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
+		gbuffers.emplace_back(create_image(device, allocator, draw_image_extent, VK_FORMAT_R8G8B8A8_UNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
 		auto gbuffer_id = texture_cache.add_texture(gbuffers[0].view);
 		texture_cache.set_gbuffers(gbuffer_id);
 		gbuffers.emplace_back(create_image(device, allocator, draw_image_extent, VK_FORMAT_R16G16B16A16_SFLOAT, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));

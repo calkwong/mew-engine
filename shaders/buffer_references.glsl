@@ -4,7 +4,7 @@
 
 layout(buffer_reference, std430) buffer ClusterBuffer
 {
-	AABB aabb[];
+	ClusterAABB aabb[];
 };
 
 layout(buffer_reference, std430) buffer LightBuffer

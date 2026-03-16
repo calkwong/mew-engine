@@ -52,7 +52,7 @@ void main()
 		+ gl_NumWorkGroups.x * gl_WorkGroupID.y 
 		+ gl_NumWorkGroups.x * gl_NumWorkGroups.y * gl_WorkGroupID.z;
 		
-	AABB clusterAABB = pc.clusterBuffer.aabb[clusterIndex];
+	ClusterAABB clusterAABB = pc.clusterBuffer.aabb[clusterIndex];
 	
 	const uint batches = (MAX_LIGHTS + gl_WorkGroupSize.x - 1) / gl_WorkGroupSize.x;
 	uint localLightList[batches];
