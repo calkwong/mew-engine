@@ -214,13 +214,21 @@ void main()
 	unpackTBN(v1.normal, uint(v1.tangent), np1, tp1);
 	unpackTBN(v2.normal, uint(v2.tangent), np2, tp2);
 	
-	// TODO: store triangle face bit in visibility buffer or recompute for masked geometry only so normals are correct? 
+	vec3 V = normalize(sceneData.cameraPos.xyz - worldPos);
+	
+	// alternative: store triangle face bit in visibility buffer
+	vec3 e1 = wp1 - wp0;
+	vec3 e2 = wp2 - wp0;
+	vec3 gN = cross(e1, e2);
+	bool isBackFace = dot(gN, V) < 0.0;
 	
 	vec3 n0 = rotateQuat(np0, obj.orientation);
 	vec3 n1 = rotateQuat(np1, obj.orientation);
 	vec3 n2 = rotateQuat(np2, obj.orientation);
 	
 	vec3 N = normalize(interpolate(bary, n0, n1, n2)); // TODO: mikktspace convention is NOT to normalize. we normalize here as khronos sponza breaks iirc?
+	
+	N = isBackFace ? -N : N;
 	
 	uint materialID = pc.objectBuffer.objects[drawID].materialID;
 	MaterialData m = pc.materialBuffer.materials[materialID];
@@ -242,6 +250,8 @@ void main()
 	vec4 T = interpolate(bary, t0, t1, t2);
 	T.xyz = normalize(T.xyz); // TODO: mikktspace convention is NOT to normalize. we normalize here as khronos sponza breaks iirc?
 	float sign = T.w; // sign is flipped during tangent generation so mikktspace is consistent with glTF handedness
+		
+	sign = isBackFace ? -sign : sign;	
 		
 #ifdef PBR
 	if (m.normalID != 0)
@@ -268,7 +278,6 @@ void main()
 	vec3 Fr = vec3(0.0);
 	
 	vec3 L = normalize(sceneData.sunlightDir.xyz); 
-	vec3 V = normalize(sceneData.cameraPos.xyz - worldPos);
 	vec3 H = normalize(L + V);
 	
 	float NdotL = max(dot(N, L), 0.0);

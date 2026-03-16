@@ -65,12 +65,21 @@ void main()
 #ifdef PBR
 	//N = inNormal; 
 	N = normalize(inNormal); // TODO: mikktspace convention is NOT to normalize. we normalize here as khronos sponza breaks iirc?
-	//N = inNormal;
+	
+	if (OPAQUE == 0)
+	{
+		N = gl_FrontFacing ? N : -N;
+	}
+	
 	if (m.normalID != 0)
 	{
 		vec3 T = normalize(inTangent.xyz); // TODO: mikktspace convention is NOT to normalize. we normalize here as khronos sponza breaks iirc?
 		//vec3 T = inTangent.xyz;
 		float sign = inTangent.w; // sign is flipped during tangent generation so mikktspace is consistent with glTF handedness
+		
+		if (OPAQUE == 0)
+			sign = gl_FrontFacing ? sign : -sign;
+		
 		vec3 B = sign * cross(N, T);
 		
 		vec3 shadingNormal = texture(sampler2D(textures[m.normalID], samplers[LINEAR_SAMPLER]), inUV).xyz;
@@ -88,8 +97,6 @@ void main()
 		perceptualRoughness *= metalRoughness.y;
 	}
 	perceptualRoughness = max(perceptualRoughness, 0.045); // frostbite engine clamp value for analytical lights (fp32)
-	roughness = perceptualRoughness;
-	//roughness = perceptualRoughness * perceptualRoughness; // we could maybe do this during lighting so we maintain perceptual roughness debuggability
 #else
 	N = normalize(inNormal); 
 #endif
@@ -105,6 +112,6 @@ void main()
 
     outAlbedo = albedo;
     outNormal = vec4(N, 1);
-    outMetalRoughness = vec2(metallic, roughness);
+    outMetalRoughness = vec2(metallic, perceptualRoughness);
     outVelocity = vec2(velocity);
 }
