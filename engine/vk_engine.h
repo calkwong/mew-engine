@@ -253,3 +253,4 @@ uint32_t nearest_pow2(uint32_t extent);
 float Halton(uint32_t i, uint32_t b);
 uint32_t get_groupcount(uint32_t size, uint32_t threads);
 float size_in_bytes(uint64_t size);
+void decompose_transform(const glm::mat4& m, glm::vec3& translation, glm::vec3& scale, glm::vec4& rotation);

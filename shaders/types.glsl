@@ -30,7 +30,10 @@ struct SH9
 
 struct ObjectData
 {
-	mat4 worldMatrix;
+	vec3 translation;
+	float scale;
+	vec4 orientation;
+	
 	uint meshID;
 	uint materialID;
 	uint meshletBitOffset;

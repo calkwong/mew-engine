@@ -147,7 +147,10 @@ struct Handle<DrawPrimitive>
 
 struct RenderObject
 {
-	glm::mat4 transform{};
+	glm::vec3 translation{};
+	float scale{};
+	glm::quat orientation{};
+
 	Handle<DrawPrimitive> primitive_id{};
 	uint32_t material_id{};
 	uint32_t meshlet_bits{};
@@ -162,7 +165,10 @@ struct Handle<RenderObject>
 
 struct ObjectData
 {
-	glm::mat4 transform{};
+	glm::vec3 translation{};
+	float scale{};
+	glm::quat orientation{};
+
 	uint32_t mesh_id{};
 	uint32_t material_id{};
 	uint32_t meshlet_bit_offset{};

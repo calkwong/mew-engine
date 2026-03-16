@@ -56,3 +56,8 @@ void unpackTBN(uint n, uint t, out vec3 normal, out vec4 tangent)
 	tangent.xyz = decodeOct(tp);
 	tangent.w = (n & (1 << 30)) != 0 ? 1.0 : -1.0;
 }
+
+vec3 rotateQuat(vec3 v, vec4 q)
+{
+	return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v);
+}

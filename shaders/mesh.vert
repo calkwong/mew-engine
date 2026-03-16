@@ -33,17 +33,15 @@ void main()
 	ObjectData o = pc.objectBuffer.objects[gl_InstanceIndex]; // gl_InstanceIndex from drawIndirectCommand
 	Vertex v = pc.vertexBuffer.vertices[gl_VertexIndex];
 	
-	vec4 worldPos = o.worldMatrix * vec4(v.px, v.py, v.pz, 1.0);
+	vec3 pos = vec3(v.px, v.py, v.pz);
+	vec4 worldPos = vec4(rotateQuat(pos, o.orientation) * o.scale + o.translation, 1.0);
 
 	vec3 normal;
 	vec4 tangent;
 	unpackTBN(v.normal, uint(v.tangent), normal, tangent);
 	
-	outNormal = mat3(o.worldMatrix) * normal;
-	outTangent = vec4(mat3(o.worldMatrix) * tangent.xyz, tangent.w);
-	
-	//outNormal = mat3(transpose(inverse(o.worldMatrix))) * v.normal;
-	//outTangent = vec4(mat3(transpose(inverse(o.worldMatrix))) * v.tangent.xyz, v.tangent.w);
+	outNormal = rotateQuat(normal, o.orientation);
+	outTangent = vec4(rotateQuat(tangent.xyz, o.orientation), tangent.w);
 	
 	outUV = vec2(v.uv_x, v.uv_y);
 	outMaterialID = o.materialID;

@@ -182,16 +182,16 @@ void main()
 	Vertex v0 = pc.vertexBuffer.vertices[vertexIndex0];
 	Vertex v1 = pc.vertexBuffer.vertices[vertexIndex1];
 	Vertex v2 = pc.vertexBuffer.vertices[vertexIndex2];
-	
-	mat4 worldMatrix = pc.objectBuffer.objects[drawID].worldMatrix;
-	
-	vec4 wp0 = worldMatrix * vec4(v0.px, v0.py, v0.pz, 1.0); 
-	vec4 wp1 = worldMatrix * vec4(v1.px, v1.py, v1.pz, 1.0); 
-	vec4 wp2 = worldMatrix * vec4(v2.px, v2.py, v2.pz, 1.0); 
-	
-	vec4 p0 = sceneData.viewproj * wp0;
-	vec4 p1 = sceneData.viewproj * wp1;
-	vec4 p2 = sceneData.viewproj * wp2;
+
+	ObjectData obj = pc.objectBuffer.objects[drawID];
+
+	vec3 wp0 = rotateQuat(vec3(v0.px, v0.py, v0.pz), obj.orientation) * obj.scale + obj.translation;
+	vec3 wp1 = rotateQuat(vec3(v1.px, v1.py, v1.pz), obj.orientation) * obj.scale + obj.translation;
+	vec3 wp2 = rotateQuat(vec3(v2.px, v2.py, v2.pz), obj.orientation) * obj.scale + obj.translation;
+
+	vec4 p0 = sceneData.viewproj * vec4(wp0, 1.0);
+	vec4 p1 = sceneData.viewproj * vec4(wp1, 1.0);
+	vec4 p2 = sceneData.viewproj * vec4(wp2, 1.0);
 	
 	// vulkan top left origin, hence flipping y is necessary
 	vec2 pNdc = gl_FragCoord.xy / pc.screenSize; 
@@ -206,7 +206,7 @@ void main()
 	
 	vec3 debugUV = vec3(uv, 0.0);
 	
-	vec3 worldPos = interpolate(bary, wp0.xyz, wp1.xyz, wp2.xyz);
+	vec3 worldPos = interpolate(bary, wp0, wp1, wp2);
 	
 	vec3 np0, np1, np2;
 	vec4 tp0, tp1, tp2;
@@ -216,9 +216,9 @@ void main()
 	
 	// TODO: store triangle face bit in visibility buffer or recompute for masked geometry only so normals are correct? 
 	
-	vec3 n0 = mat3(worldMatrix) * np0;  // no transpose(inverse), no normalization
-	vec3 n1 = mat3(worldMatrix) * np1;
-	vec3 n2 = mat3(worldMatrix) * np2;
+	vec3 n0 = rotateQuat(np0, obj.orientation);
+	vec3 n1 = rotateQuat(np1, obj.orientation);
+	vec3 n2 = rotateQuat(np2, obj.orientation);
 	
 	vec3 N = normalize(interpolate(bary, n0, n1, n2)); // TODO: mikktspace convention is NOT to normalize. we normalize here as khronos sponza breaks iirc?
 	
@@ -235,9 +235,10 @@ void main()
 	vec3 color = vec3(0.0);
 	vec3 ambient = albedo.xyz * 0.1; // when GI is off, likely going to look physically incorrect
 	
-	vec4 t0 = vec4(mat3(worldMatrix) * tp0.xyz, tp0.w);
-	vec4 t1 = vec4(mat3(worldMatrix) * tp1.xyz, tp1.w);
-	vec4 t2 = vec4(mat3(worldMatrix) * tp2.xyz, tp2.w);
+	vec4 t0 = vec4(rotateQuat(tp0.xyz, obj.orientation), tp0.w);
+	vec4 t1 = vec4(rotateQuat(tp1.xyz, obj.orientation), tp1.w);
+	vec4 t2 = vec4(rotateQuat(tp2.xyz, obj.orientation), tp2.w);
+	
 	vec4 T = interpolate(bary, t0, t1, t2);
 	T.xyz = normalize(T.xyz); // TODO: mikktspace convention is NOT to normalize. we normalize here as khronos sponza breaks iirc?
 	float sign = T.w; // sign is flipped during tangent generation so mikktspace is consistent with glTF handedness

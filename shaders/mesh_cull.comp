@@ -4,6 +4,7 @@
 
 #include "bindings.glsl"
 #include "buffer_references.glsl"
+#include "util.glsl"
 
 layout (local_size_x = 256) in;
 
@@ -124,16 +125,22 @@ void main()
 	uint meshID = obj.meshID;
 	MeshData mesh = pc.meshBuffer.meshes[meshID];
 
-	vec3 center = vec3(pc.view * obj.worldMatrix * vec4(mesh.center, 1.0));
+	vec3 mpos = mesh.center;
+	vec3 center = rotateQuat(mpos, obj.orientation) * obj.scale + obj.translation; // world space
+	center = vec3(pc.view * vec4(center, 1.0)); // view space
+
 	float radius = mesh.radius;
 	
-	vec3 right = vec3(obj.worldMatrix[0]);
-	vec3 up = vec3(obj.worldMatrix[1]);
-	vec3 forward = vec3(obj.worldMatrix[2]);
+	//vec3 right = vec3(obj.worldMatrix[0]);
+	//vec3 up = vec3(obj.worldMatrix[1]);
+	//vec3 forward = vec3(obj.worldMatrix[2]);
+	//
+	//vec3 scale = vec3(length(right), length(up), length(forward));
+	//
+	//float maxScale = max(scale.z, max(scale.x, scale.y));
+	//radius = radius * maxScale;
 	
-	vec3 scale = vec3(length(right), length(up), length(forward));
-	
-	float maxScale = max(scale.z, max(scale.x, scale.y));
+	float maxScale = obj.scale;
 	radius = radius * maxScale;
 	
 	bool visible = !frustumCulled(center, radius);

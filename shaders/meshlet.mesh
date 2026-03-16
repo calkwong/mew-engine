@@ -74,17 +74,15 @@ void main()
 		uint vertexIndex = pc.meshletIndicesBuffer.indices[m_vertexOffset + i];
 		Vertex v = pc.vertexBuffer.vertices[vertexIndex];
 
-		vec4 worldPos = o.worldMatrix * vec4(v.px, v.py, v.pz, 1.0);
-		
+		vec3 pos = vec3(v.px, v.py, v.pz);
+		vec4 worldPos = vec4(rotateQuat(pos, o.orientation) * o.scale + o.translation, 1.0);
+
 		vec3 normal;
 		vec4 tangent;
 		unpackTBN(v.normal, uint(v.tangent), normal, tangent);
 		
-		outNormal[i] = mat3(o.worldMatrix) * normal;
-		outTangent[i] = vec4(mat3(o.worldMatrix) * tangent.xyz, tangent.w);
-		
-		//outNormal[i] = mat3(transpose(inverse(o.worldMatrix))) * v.normal;
-		//outTangent[i] = vec4(mat3(transpose(inverse(o.worldMatrix))) * v.tangent.xyz, v.tangent.w);
+		outNormal[i] = rotateQuat(normal, o.orientation);
+		outTangent[i] = vec4(rotateQuat(tangent.xyz, o.orientation), tangent.w);
 		
 		if (pc.debugMeshlets == 1)
 		{
@@ -103,9 +101,6 @@ void main()
 
 		gl_MeshVerticesEXT[i].gl_Position = sceneData.viewproj * worldPos;
 	}
-	
-	//barrier();
-	//memoryBarrier();
 	
 	for (uint i = ti; i < triangleCount; i += 32)
 	{
