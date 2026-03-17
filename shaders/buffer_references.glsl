@@ -66,6 +66,11 @@ layout(buffer_reference, std430) buffer MeshIndicesBuffer
 
 layout(buffer_reference, std430) buffer DrawCommandsBuffer
 { 
+	DrawCommands draws;
+};
+
+layout(buffer_reference, std430) buffer ShadowDrawCommandsBuffer
+{
 	DrawCommands draws[4];
 };
 

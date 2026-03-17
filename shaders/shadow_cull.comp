@@ -15,7 +15,7 @@ layout(push_constant) uniform constants
 	ObjectBuffer object_buffer; 
 	MeshBuffer mesh_buffer; 
 	MeshIndicesBuffer mesh_indices_buffer; 
-	DrawCommandsBuffer draw_buffer; 
+	ShadowDrawCommandsBuffer draw_buffer;
 	uint count; 
 	uint lod_enabled;
 };

@@ -116,7 +116,9 @@ struct MaterialData
 #ifdef SHADOW_CULL
 #define MAX_DRAW_COMMANDS 400000
 #else
-#define MAX_DRAW_COMMANDS 200000
+#define MAX_DRAW_COMMANDS 1000000
+// can raise this for testing millions of triangles, otherwise mesh path has artifacts (meshlets seem fine for ~1M meshes, likely self correction)
+// for reasonable toy scenes, use 200000
 #endif
 struct DrawCommands
 {

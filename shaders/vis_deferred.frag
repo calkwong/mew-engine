@@ -423,7 +423,6 @@ void main()
 		}
 	}
 	
-	// TODO: refactor and use depth/stencil buffer to reject pixels in future
 	if (depth == 0.0)
 	{
 		vec2 ndc = in_uv * 2.0 - 1.0;
