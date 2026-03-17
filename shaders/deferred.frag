@@ -9,57 +9,57 @@
 #include "pbr.glsl"
 #include "sh.glsl"
 
-layout (location = 0) in vec2 inUV;
+layout (location = 0) in vec2 in_uv;
 
-layout (location = 0) out vec4 outFragColor;
+layout (location = 0) out vec4 out_color;
 
 layout( push_constant ) uniform constants
 {
-	vec4 clusterSize; // xyz is cluster data struct dim, w is single cluster dim where width==height
-	vec2 screenSize;
-	LightBuffer lightBuffer;
-	LightIndexBuffer lightIndexBuffer;
-	LightGridBuffer lightGridBuffer;
-	OITBuffer oitBuffer;
+	vec4 cluster_size; // xyz is cluster data struct dim, w is single cluster dim where width==height
+	vec2 screen_size;
+	LightBuffer light_buffer;
+	LightIndexBuffer light_index_buffer;
+	LightGridBuffer light_grid_buffer;
+	OITBuffer oit_buffer;
 	uint padding[10]; // padding for visibility buffer variant
-	SHBuffer shBuffer;
+	SHBuffer sh_buffer;
 	uint depth_id;
 	uint gbuffer_id;  
 	uint shadowmap_id;
-	uint lightCulling;
+	uint light_culling;
 	float near;
 	float scale;
 	float bias;
-	uint debugMeshlets;
-	uint resolveTransparent;
+	uint debug_meshlets;
+	uint resolve_transparent;
 	uint shadows;
 	uint pcf;
-	uint debugShadowmap;
-	uint debugCascades;
+	uint debug_shadowmap;
+	uint debug_cascades;
 	// gi
-	float maxPrefilteredLod;
+	float max_prefiltered_lod;
 	float metallic; // unused, for debugging
 	float roughness; // unused, for debugging
 	uint debug; // unused, only in vis_deferred
-} pc;
+};
 
-// formula is for infinite far plane, reverse-z
+// IMPORTANT! formula is for infinite far plane, reverse-z
 // returns positive value, may need to negate depending on what we're using it for
-float linearizeDepthInfiniteReverse(float depth)
+float linearize_depth(float near, float depth)
 {
-	return pc.near / depth;
+	return near / depth;
 }
 
 const int CASCADE_COUNT = 4;
 const int MLAB_NODES = 4;
 
-vec3 compositeTransparent(vec3 inputColor)
+vec3 composite_transparent(vec3 input_color)
 {
-	vec3 color = inputColor;
+	vec3 color = input_color;
 	
-		uvec2 screenCoords = uvec2(floor(gl_FragCoord.xy));
-		uint index = screenCoords.x + screenCoords.y * uint(pc.screenSize.x);
-		OITData frags = pc.oitBuffer.frags[index];
+		uvec2 screen_coords = uvec2(floor(gl_FragCoord.xy));
+		uint index = screen_coords.x + screen_coords.y * uint(screen_size.x);
+		OITData frags = oit_buffer.frags[index];
 		
 		// early return if nothing stored
 		if (frags.transmissions[0] == 1.0)
@@ -67,60 +67,60 @@ vec3 compositeTransparent(vec3 inputColor)
 			return color;
 		}
 		
-		pc.oitBuffer.frags[index].transmissions = vec4(1.0); // reset so we can skip vkcmdfillbuffer
+		oit_buffer.frags[index].transmissions = vec4(1.0); // reset so we can skip vkcmdfillbuffer
 		
 		vec3 composite = vec3(0.);
-		float accumT = 1.0;
+		float t_accum = 1.0;
 		for (int i = 0; i < MLAB_NODES; i++)
 		{
 			float t = frags.transmissions[i];
-			composite = t != 1.0 ? unpackUnorm4x8(frags.colors[i]).xyz * accumT + composite : composite;
-			accumT *= t;
+			composite = t != 1.0 ? unpackUnorm4x8(frags.colors[i]).xyz * t_accum + composite : composite;
+			t_accum *= t;
 		}
 		
-		color *= accumT;
+		color *= t_accum;
 		color += composite;
 	
 	return color;
 }
 
-float calculateShadow(vec3 worldPos, inout uint cascadeIdx)
+float calculate_shadow(vec3 world_pos, inout uint cascade_index)
 {
-	float d = (sceneData.view * vec4(worldPos, 1.0)).z; // view space z
+	float d = (uniforms.view * vec4(world_pos, 1.0)).z; // view space z
 	for (uint i = 0; i < CASCADE_COUNT; i++)
 	{
-		if (d > sceneData.cascadeSplits[i])
+		if (d > uniforms.cascade_splits[i])
 		{	
-			cascadeIdx = i;
+			cascade_index = i;
 			break;
 		}
 	}
-	vec3 lightFragPos = vec3(sceneData.shadowTransforms[cascadeIdx] * vec4(worldPos, 1.0)); // ortho, no division by w needed 
+	vec3 light_frag_pos = vec3(uniforms.shadow_transforms[cascade_index] * vec4(world_pos, 1.0)); // ortho, no division by w needed
 	
-	float currentDepth = lightFragPos.z;
+	float current_depth = light_frag_pos.z;
 	
-	if (currentDepth < 0.0) // this is possible
+	if (current_depth < 0.0) // this is possible
 		return 1.0;
 	
-	vec2 uv = vec2(lightFragPos.x, lightFragPos.y);
+	vec2 uv = vec2(light_frag_pos.x, light_frag_pos.y);
 	uv = uv * 0.5 + 0.5;
 	uv.y = 1.0 - uv.y;
 	
-	vec2 offset = 1.0 / textureSize(sampler2D(textures[pc.shadowmap_id + cascadeIdx], samplers[NEAREST_SAMPLER]), 0);
+	vec2 offset = 1.0 / textureSize(sampler2D(textures[shadowmap_id + cascade_index], samplers[NEAREST_SAMPLER]), 0);
 	
 	float shadow = 0.0;
-	float closestDepth = 0.0;
+	float closest_depth = 0.0;
 
-	if (pc.pcf == 1)
+	if (pcf == 1)
 	{
 		for (int y = -1; y <= 1; y++)
 		{
 			for (int x = -1; x <= 1; x++)
 			{
 				vec2 sample_uv = vec2(uv.x + x * offset.x, uv.y + y * offset.y);
-				closestDepth = texture(sampler2D(textures[pc.shadowmap_id + cascadeIdx], samplers[NEAREST_SAMPLER]), sample_uv).r;
+				closest_depth = texture(sampler2D(textures[shadowmap_id + cascade_index], samplers[NEAREST_SAMPLER]), sample_uv).r;
 				
-				if (closestDepth > currentDepth)
+				if (closest_depth > current_depth)
 					shadow += 0.0;
 				else
 					shadow += 1.0;
@@ -131,10 +131,10 @@ float calculateShadow(vec3 worldPos, inout uint cascadeIdx)
 	}
 	else
 	{
-		closestDepth = texture(sampler2D(textures[pc.shadowmap_id + cascadeIdx], samplers[LINEAR_SAMPLER]), uv).r;
+		closest_depth = texture(sampler2D(textures[shadowmap_id + cascade_index], samplers[LINEAR_SAMPLER]), uv).r;
 		
 		float bias = 0.0;
-		if (closestDepth > currentDepth + bias)
+		if (closest_depth > current_depth + bias)
 			shadow = 0.0;
 		else
 			shadow = 1.0;
@@ -142,14 +142,14 @@ float calculateShadow(vec3 worldPos, inout uint cascadeIdx)
 	return shadow;
 }
 
-vec3 reconstructWorldPos(float depth, mat4 inverseViewproj)
+vec3 reconstruct_world_pos(float depth, mat4 inverse_view_proj)
 {
-	vec2 ndc = gl_FragCoord.xy / pc.screenSize;
+	vec2 ndc = gl_FragCoord.xy / screen_size;
 	ndc = ndc * 2.0 - 1.0;
 	ndc.y *= -1.0; // flip as window coords are top down
-	vec4 worldPos = inverseViewproj * vec4(ndc, depth, 1.0);
+	vec4 world_pos = inverse_view_proj * vec4(ndc, depth, 1.0);
 	
-	return worldPos.xyz / worldPos.w;
+	return world_pos.xyz / world_pos.w;
 }
 
 #define PBR
@@ -157,36 +157,36 @@ vec3 reconstructWorldPos(float depth, mat4 inverseViewproj)
 
 void main()
 {
-	uint albedo_id = pc.gbuffer_id;
-	uint normal_id = pc.gbuffer_id + 1;
-	uint metalroughness_id = pc.gbuffer_id + 2;
+	uint albedo_id = gbuffer_id;
+	uint normal_id = gbuffer_id + 1;
+	uint metalroughness_id = gbuffer_id + 2;
 
-	vec3 N = texture(sampler2D(textures[normal_id], samplers[NEAREST_SAMPLER]), inUV).xyz;
+	vec3 N = texture(sampler2D(textures[normal_id], samplers[NEAREST_SAMPLER]), in_uv).xyz;
 	N = normalize(N); // necessary to remove banding, RGB32 does not need this
 
-	if (pc.debugMeshlets == 1)
+	if (debug_meshlets == 1)
 	{
-		outFragColor = vec4(N, 1.0);
+		out_color = vec4(N, 1.0);
 		return;
 	}
 	
-	vec4 albedo = vec4(texture(sampler2D(textures[albedo_id], samplers[NEAREST_SAMPLER]), inUV).xyz, 1.0);
-	float depth = texture(sampler2D(textures[pc.depth_id], samplers[NEAREST_SAMPLER]), inUV).r;
-	vec3 worldPos = reconstructWorldPos(depth, sceneData.inverseViewproj);
+	vec4 albedo = vec4(texture(sampler2D(textures[albedo_id], samplers[NEAREST_SAMPLER]), in_uv).xyz, 1.0);
+	float depth = texture(sampler2D(textures[depth_id], samplers[NEAREST_SAMPLER]), in_uv).r;
+	vec3 world_pos = reconstruct_world_pos(depth, uniforms.inverse_view_proj);
 	
 	vec3 color = vec3(0.0);
 	vec3 ambient = albedo.xyz * 0.1; // when GI is off, likely going to look physically incorrect
 	
 #ifdef PBR
-	vec2 metalRoughness = texture(sampler2D(textures[metalroughness_id], samplers[NEAREST_SAMPLER]), inUV).xy;
-	float metallic = metalRoughness.x;
-	float perceptualRoughness = metalRoughness.y;
-	float roughness = perceptualRoughness * perceptualRoughness;
+	vec2 metal_roughness = texture(sampler2D(textures[metalroughness_id], samplers[NEAREST_SAMPLER]), in_uv).xy;
+	float metallic = metal_roughness.x;
+	float perceptual_roughness = metal_roughness.y;
+	float roughness = perceptual_roughness * perceptual_roughness;
 	
 	vec3 Fr = vec3(0.0);
 	
-	vec3 L = normalize(sceneData.sunlightDir.xyz); 
-	vec3 V = normalize(sceneData.cameraPos.xyz - worldPos);
+	vec3 L = normalize(uniforms.sunlight_dir.xyz);
+	vec3 V = normalize(uniforms.camera_pos.xyz - world_pos);
 	vec3 H = normalize(L + V);
 	
 	float NdotL = max(dot(N, L), 0.0);
@@ -209,27 +209,27 @@ void main()
 	float G = V_SmithGGXCorrelated(NdotV, NdotL, roughness);
 	Fr = D * G * F;
 	
-	vec3 lightColor = sceneData.sunlightColor.xyz;
-	color = (Fd + Fr) * lightColor * NdotL; 
+	vec3 light_color = uniforms.sunlight_color.xyz;
+	color = (Fd + Fr) * light_color * NdotL; 
 	
 	#ifdef GI
-		//perceptualRoughness = pc.roughness; // sphere test
-		//metallic = pc.metallic; // sphere test
+		//perceptual_roughness = roughness; // sphere test
+		//metallic = metallic; // sphere test
 		
 		vec3 R = reflect(-V, N);
-		float prefilteredMip = pc.maxPrefilteredLod * perceptualRoughness;
+		float prefiltered_mip = max_prefiltered_lod * perceptual_roughness;
 		
 		{
-			vec3 irradiance = evaluateSH(pc.shBuffer.rCoefficients, pc.shBuffer.gCoefficients, pc.shBuffer.bCoefficients, N);
-			vec3 prefiltered = textureLod(samplerCube(textures_cube[uint(sceneData.textures[2])], samplers[CUBE_SAMPLER]), R, prefilteredMip).xyz;
-			vec2 brdf = texture(sampler2D(textures[uint(sceneData.textures[3])], samplers[LINEAR_CLAMP_SAMPLER]), vec2(NdotV, perceptualRoughness)).rg;
+			vec3 irradiance = evaluate_sh(sh_buffer.r_coefficients, sh_buffer.g_coefficients, sh_buffer.b_coefficients, N);
+			vec3 prefiltered = textureLod(samplerCube(textures_cube[uint(uniforms.textures[2])], samplers[CUBE_SAMPLER]), R, prefiltered_mip).xyz;
+			vec2 brdf = texture(sampler2D(textures[uint(uniforms.textures[3])], samplers[LINEAR_CLAMP_SAMPLER]), vec2(NdotV, perceptual_roughness)).rg;
 			
 			//vec3 white = vec3(1.0); // sphere test
 			//f0 = vec3(0.04); // sphere test
 			f0 = mix(f0, albedo.xyz, metallic);
 			//f0 = mix(f0, white, metallic); // sphere test
 			
-			F = F_SchlickRoughness(NdotV, f0, perceptualRoughness);
+			F = F_SchlickRoughness(NdotV, f0, perceptual_roughness);
 			kS = F;
 			kD = vec3(1.0) - kS;
 			kD *= 1.0 - metallic;
@@ -238,7 +238,7 @@ void main()
 			vec3 diffuse = kD * irradiance * (1.0 / PI) * albedo.xyz;
 			vec3 specular = prefiltered * (F * brdf.x + brdf.y);
 			ambient = diffuse + specular;
-			//outFragColor = vec4(ambient, 1.0); // sphere test
+			//out_color = vec4(ambient, 1.0); // sphere test
 			//return; // sphere test
 		}
 	#endif
@@ -246,16 +246,16 @@ void main()
 	color += albedo.xyz;
 #endif
 	
-	uint cascadeIdx = 0;
-	if (pc.shadows == 1)
+	uint cascade_index = 0;
+	if (shadows == 1)
 	{
-		float occluded = calculateShadow(worldPos, cascadeIdx);
+		float occluded = calculate_shadow(world_pos, cascade_index);
 		
 		color *= occluded;
 		
-		if (pc.debugCascades == 1)
+		if (debug_cascades == 1)
 		{
-			switch (cascadeIdx)
+			switch (cascade_index)
 			{
 				case 0:
 					color *= vec3(1, 0, 0);
@@ -275,36 +275,36 @@ void main()
 	
 	color += ambient;
 	
-	if (pc.lightCulling == 1)
+	if (light_culling == 1)
 	{
-		vec2 screenPos = vec2(gl_FragCoord.xy);
-		screenPos.y = pc.screenSize.y - screenPos.y;
+		vec2 screen_pos = vec2(gl_FragCoord.xy);
+		screen_pos.y = screen_size.y - screen_pos.y;
 		
-		ivec4 clusterDim = ivec4(pc.clusterSize);
-		ivec2 clusterXY = ivec2(floor(screenPos.xy / clusterDim.w));
-		clusterXY.x = clamp(clusterXY.x, 0, clusterDim.x - 1);
-		clusterXY.y = clamp(clusterXY.y, 0, clusterDim.y - 1);
+		ivec4 cluster_dim = ivec4(cluster_size);
+		ivec2 cluster_xy = ivec2(floor(screen_pos.xy / cluster_dim.w));
+		cluster_xy.x = clamp(cluster_xy.x, 0, cluster_dim.x - 1);
+		cluster_xy.y = clamp(cluster_xy.y, 0, cluster_dim.y - 1);
 		
-		float viewZ = linearizeDepthInfiniteReverse(depth); // implicitly flipped
+		float viewz = linearize_depth(near, depth); // implicitly flipped
 		
 		// equation (3): https://www.aortiz.me/2018/12/21/CG.html#part-2 
 		// slide 5: https://advances.realtimerendering.com/s2016/Siggraph2016_idTech6.pdf
-		uint slice = uint(floor(log(viewZ) * pc.scale - pc.bias));
-		slice = clamp(slice, 0, clusterDim.z - 1);
+		uint slice = uint(floor(log(viewz) * scale - bias));
+		slice = clamp(slice, 0, cluster_dim.z - 1);
 		
-		uint clusterIndex = clusterXY.x + clusterDim.x * clusterXY.y + slice * clusterDim.x * clusterDim.y; 
+		uint cluster_index = cluster_xy.x + cluster_dim.x * cluster_xy.y + slice * cluster_dim.x * cluster_dim.y; 
 		
-		uint offset = pc.lightGridBuffer.grid[clusterIndex].offset;
-		uint count = pc.lightGridBuffer.grid[clusterIndex].count;
+		uint offset = light_grid_buffer.grid[cluster_index].offset;
+		uint count = light_grid_buffer.grid[cluster_index].count;
 		
 		for (int i = 0; i < count; i++)
 		{
-			uint index = pc.lightIndexBuffer.indices[offset + i];
-			vec3 lightPos = pc.lightBuffer.lights[index].pos.xyz;
-			lightPos = vec3(sceneData.lightRot * vec4(lightPos, 1.0));
-			float lightRadius = pc.lightBuffer.lights[index].pos.w;
-			vec3 lightColor = pc.lightBuffer.lights[index].color.xyz;
-			vec3 distance = lightPos - worldPos;
+			uint index = light_index_buffer.indices[offset + i];
+			vec3 light_pos = light_buffer.lights[index].pos.xyz;
+			light_pos = vec3(uniforms.light_rot * vec4(light_pos, 1.0));
+			float light_radius = light_buffer.lights[index].pos.w;
+			vec3 light_color = light_buffer.lights[index].color.xyz;
+			vec3 distance = light_pos - world_pos;
 			vec3 L = normalize(distance); 
 			float NdotL = max(dot(N, L), 0.0);
 #ifdef PBR
@@ -319,36 +319,35 @@ void main()
 			float G = V_SmithGGXCorrelated(NdotV, NdotL, roughness);
 			Fr = D * G * F;
 			
-			float attenuation = getSquareFalloffAttenuation(distance, lightRadius);
-			color += (Fd + Fr) * lightColor * attenuation * NdotL; 
+			float attenuation = get_square_falloff_attenuation(distance, light_radius);
+			color += (Fd + Fr) * light_color * attenuation * NdotL; 
 #else
-			float attenuation = getSquareFalloffAttenuation(distance, lightRadius);
-			color += (albedo.xyz * lightColor * attenuation * NdotL);
+			float attenuation = get_square_falloff_attenuation(distance, light_radius);
+			color += (albedo.xyz * light_color * attenuation * NdotL);
 #endif
 		}
 	}
 	
-	// TODO: refactor and use depth/stencil buffer to reject pixels in future
 	if (depth == 0.0)
 	{
-		vec2 ndc = inUV * 2.0 - 1.0;
+		vec2 ndc = in_uv * 2.0 - 1.0;
 		ndc.y *= -1.0;
-		vec3 sampleDir = vec3(sceneData.inverseViewproj * vec4(ndc, 0.0, 1.0));
-		color = texture(samplerCube(textures_cube[uint(sceneData.textures[0])], samplers[CUBE_SAMPLER]), sampleDir).xyz;
+		vec3 sample_dir = vec3(uniforms.inverse_view_proj * vec4(ndc, 0.0, 1.0));
+		color = texture(samplerCube(textures_cube[uint(uniforms.textures[0])], samplers[CUBE_SAMPLER]), sample_dir).xyz;
 	}
 	
-	if (pc.resolveTransparent == 1)
+	if (resolve_transparent == 1)
 	{
-		color = compositeTransparent(color);
+		color = composite_transparent(color);
 	}
 	
-	outFragColor = vec4(color, 1.0);
+	out_color = vec4(color, 1.0);
 	
-	if (pc.debugShadowmap != 0)
+	if (debug_shadowmap != 0)
 	{
-		vec2 uv = gl_FragCoord.xy / pc.screenSize;
-		uint idx = pc.debugShadowmap - 1;
-		vec3 depth = vec3(texture(sampler2D(textures[pc.shadowmap_id + idx], samplers[NEAREST_SAMPLER]), uv).r);
-		outFragColor.xyz = depth;
+		vec2 uv = gl_FragCoord.xy / screen_size;
+		uint idx = debug_shadowmap - 1;
+		vec3 depth = vec3(texture(sampler2D(textures[shadowmap_id + idx], samplers[NEAREST_SAMPLER]), uv).r);
+		out_color.xyz = depth;
 	}
 }

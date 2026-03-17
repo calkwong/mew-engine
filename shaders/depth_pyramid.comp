@@ -8,23 +8,23 @@ layout (local_size_x = 32, local_size_y = 32) in;
 
 layout(push_constant) uniform constants
 {
-	ivec2 imageSize;
+	ivec2 image_size;
 	uint texture_id;
 	uint image_id;
 	uint lod;
-} pc;
+};
 
 void main()
 {
 	ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
 	
-	if (pos.x < int(pc.imageSize.x) || pos.y < int(pc.imageSize.y))
+	if (pos.x < int(image_size.x) || pos.y < int(image_size.y))
 	{
 		vec2 uv = vec2(pos) + vec2(0.5);
-		uv = uv / pc.imageSize;
+		uv = uv / image_size;
 		
-		float depth = textureLod(sampler2D(textures[pc.texture_id], samplers[DEPTH_REDUCTION_SAMPLER]), uv, pc.lod).r; 
+		float depth = textureLod(sampler2D(textures[texture_id], samplers[DEPTH_REDUCTION_SAMPLER]), uv, lod).r; 
 	
-		imageStore(images_r32f[pc.image_id], pos, vec4(depth));
+		imageStore(images_r32f[image_id], pos, vec4(depth));
 	}
 }

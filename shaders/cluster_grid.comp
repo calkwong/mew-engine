@@ -9,28 +9,28 @@ layout (local_size_x = 27, local_size_y = 15, local_size_z = 1) in;
 
 layout( push_constant ) uniform constants
 {
-	mat4 inverseProj;
-	ClusterBuffer clusterBuffer;
-	vec2 screenSize;
-	float clusterDim; // width == height
-	float nearZ;
-	float farZ;
-} pc;
+	mat4 inverse_proj;
+	ClusterBuffer cluster_buffer;
+	vec2 screen_size;
+	float cluster_dim; // width == height
+	float nearz;
+	float farz;
+};
 
-vec3 screen2View(vec2 screenPos)
+vec3 screen_to_view(vec2 screen_pos, vec2 screen_size, mat4 inverse_proj)
 {
-	vec2 pos = min(screenPos, pc.screenSize); // clamp to screenSize
-	vec4 ndc = vec4(vec2(pos / pc.screenSize), 1.0, 1.0); // reverse z
+	vec2 pos = min(screen_pos, screen_size); // clamp to screen_size
+	vec4 ndc = vec4(vec2(pos / screen_size), 1.0, 1.0); // reverse z
 	ndc.xy = ndc.xy * 2.0 - 1.0;
 
-	vec4 viewPos = pc.inverseProj * ndc;
-	viewPos.xyz /= viewPos.w;
+	vec4 view_pos = inverse_proj * ndc;
+	view_pos.xyz /= view_pos.w;
 	
-	return viewPos.xyz;
+	return view_pos.xyz;
 }
 
 // calculates view space position of one of the cluster's corners
-vec3 lineIntersectionToZPlane(vec3 point, float z) 
+vec3 line_intersection_to_zplane(vec3 point, float z) 
 {
 	float t = z / point.z;
 	
@@ -40,32 +40,32 @@ vec3 lineIntersectionToZPlane(vec3 point, float z)
 void main()
 {
 	// left-bot & right-top cluster corners in screen space 
-	vec2 minScreenPos = vec2(gl_LocalInvocationID.x, gl_LocalInvocationID.y) * pc.clusterDim;
-	vec2 maxScreenPos = vec2(gl_LocalInvocationID.x + 1, gl_LocalInvocationID.y + 1) * pc.clusterDim;
+	vec2 min_screen_pos = vec2(gl_LocalInvocationID.x, gl_LocalInvocationID.y) * cluster_dim;
+	vec2 max_screen_pos = vec2(gl_LocalInvocationID.x + 1, gl_LocalInvocationID.y + 1) * cluster_dim;
 	
 	// left-bot & right-top cluster corners in view space
-	vec3 minViewPos = screen2View(minScreenPos);
-	vec3 maxViewPos = screen2View(maxScreenPos);
+	vec3 min_view_pos = screen_to_view(min_screen_pos, screen_size, inverse_proj);
+	vec3 max_view_pos = screen_to_view(max_screen_pos, screen_size, inverse_proj);
 	
 	uint slice = gl_WorkGroupID.z;
-	uint numSlices = gl_NumWorkGroups.z;
+	uint num_slices = gl_NumWorkGroups.z;
 	
 	// negation necessary as our z is negative when pointing into the screen
-	float nearZ = -pc.nearZ * pow(pc.farZ / pc.nearZ, float(slice) / float(numSlices));
-	float farZ = -pc.nearZ * pow(pc.farZ / pc.nearZ, float(slice + 1) / float(numSlices));
+	float cluster_nearz = -nearz * pow(farz / nearz, float(slice) / float(num_slices));
+	float cluster_farz = -nearz * pow(farz / nearz, float(slice + 1) / float(num_slices));
 	
 	// determine min max of tile
-	vec3 minNear = lineIntersectionToZPlane(minViewPos, nearZ);
-	vec3 minFar  = lineIntersectionToZPlane(minViewPos, farZ);
-	vec3 maxNear = lineIntersectionToZPlane(maxViewPos, nearZ);
-	vec3 maxFar  = lineIntersectionToZPlane(maxViewPos, farZ);
+	vec3 min_near = line_intersection_to_zplane(min_view_pos, cluster_nearz);
+	vec3 min_far  = line_intersection_to_zplane(min_view_pos, cluster_farz);
+	vec3 max_near = line_intersection_to_zplane(max_view_pos, cluster_nearz);
+	vec3 max_far  = line_intersection_to_zplane(max_view_pos, cluster_farz);
 	
-	vec3 aabbMin = min(min(minNear, minFar), min(maxNear, maxFar));
-	vec3 aabbMax = max(max(minNear, minFar), max(maxNear, maxFar));
+	vec3 aabb_min = min(min(min_near, min_far), min(max_near, max_far));
+	vec3 aabb_max = max(max(min_near, min_far), max(max_near, max_far));
 	
-	uint clustersPerSlice = gl_WorkGroupSize.x * gl_WorkGroupSize.y;
-	uint clusterIndex = gl_WorkGroupID.z * clustersPerSlice + gl_LocalInvocationIndex; 
+	uint clusters_per_slice = gl_WorkGroupSize.x * gl_WorkGroupSize.y;
+	uint cluster_index = gl_WorkGroupID.z * clusters_per_slice + gl_LocalInvocationIndex; 
 		
-	pc.clusterBuffer.aabb[clusterIndex].min = vec4(aabbMin, 1.0);
-	pc.clusterBuffer.aabb[clusterIndex].max = vec4(aabbMax, 1.0);
+	cluster_buffer.aabb[cluster_index].min = vec4(aabb_min, 1.0);
+	cluster_buffer.aabb[cluster_index].max = vec4(aabb_max, 1.0);
 }

@@ -9,69 +9,69 @@ layout (local_size_x = 16, local_size_y = 16) in;
 
 layout( push_constant ) uniform constants
 {
-	LuminanceBuffer luminanceBuffer;
-	LuminanceAvgBuffer luminanceAvgBuffer;
-	vec2 screenSize;
-	uint imageId; 
-	float minLogLuminance;
-	float oneOverLogLuminanceRange;
-	uint pixelCount;
+	LuminanceBuffer luminance_buffer;
+	LuminanceAvgBuffer luminance_avg_buffer;
+	vec2 screen_size;
+	uint image_id; 
+	float min_log_luminance;
+	float one_over_log_luminance_range;
+	uint pixel_count;
 	float tau;
-	float deltaTime;
-} pc;
+	float delta_time;
+};
 
-shared uint sharedBins[256];
+shared uint shared_bins[256];
 
 void main()
 {
-	uint threadIndex = gl_LocalInvocationIndex;
+	uint thread_index = gl_LocalInvocationIndex;
 
-	uint countForThisBin = pc.luminanceBuffer.bins[threadIndex];
-	sharedBins[threadIndex] = countForThisBin * threadIndex; // bin 0 is set to 0, intentional?
+	uint count_for_this_bin = luminance_buffer.bins[thread_index];
+	shared_bins[thread_index] = count_for_this_bin * thread_index; // bin 0 is set to 0, intentional?
 	
 	barrier();
 	
 	// reset buffer
-	pc.luminanceBuffer.bins[threadIndex] = 0; 
+	luminance_buffer.bins[thread_index] = 0; 
 	
 	// TODO: reconsider placing in a for loop, dont think we actually have UB issue here
 	// manual unrolling to prevent barrier UB
-	if (threadIndex < 128)
-		sharedBins[threadIndex] += sharedBins[threadIndex + 128];
+	if (thread_index < 128)
+		shared_bins[thread_index] += shared_bins[thread_index + 128];
 	barrier();
-	if (threadIndex < 64)
-		sharedBins[threadIndex] += sharedBins[threadIndex + 64];
+	if (thread_index < 64)
+		shared_bins[thread_index] += shared_bins[thread_index + 64];
 	barrier();
-	if (threadIndex < 32)
-		sharedBins[threadIndex] += sharedBins[threadIndex + 32];
+	if (thread_index < 32)
+		shared_bins[thread_index] += shared_bins[thread_index + 32];
 	barrier();
-	if (threadIndex < 16)
-		sharedBins[threadIndex] += sharedBins[threadIndex + 16];
+	if (thread_index < 16)
+		shared_bins[thread_index] += shared_bins[thread_index + 16];
 	barrier();
-	if (threadIndex < 8)
-		sharedBins[threadIndex] += sharedBins[threadIndex + 8];
+	if (thread_index < 8)
+		shared_bins[thread_index] += shared_bins[thread_index + 8];
 	barrier();
-	if (threadIndex < 4)
-		sharedBins[threadIndex] += sharedBins[threadIndex + 4];
+	if (thread_index < 4)
+		shared_bins[thread_index] += shared_bins[thread_index + 4];
 	barrier();
-	if (threadIndex < 2)
-		sharedBins[threadIndex] += sharedBins[threadIndex + 2];
+	if (thread_index < 2)
+		shared_bins[thread_index] += shared_bins[thread_index + 2];
 	barrier();
-	if (threadIndex < 1)
-		sharedBins[threadIndex] += sharedBins[threadIndex + 1];
+	if (thread_index < 1)
+		shared_bins[thread_index] += shared_bins[thread_index + 1];
 	barrier();
 		
-	if (threadIndex == 0)
+	if (thread_index == 0)
 	{
 		// reversing colorToBin from luminance_histogram.comp
-		// weightedAverage for black pixels were effectively 0 as we multiplied black pixel count by threadIndex 0; below compensates for it
-		float weightedAvgLog = (float(sharedBins[0]) / max(float(pc.pixelCount) - countForThisBin, 1.0)) - 1.0;
+		// weightedAverage for black pixels were effectively 0 as we multiplied black pixel count by thread_index 0; below compensates for it
+		float weighted_avg_log = (float(shared_bins[0]) / max(float(pixel_count) - count_for_this_bin, 1.0)) - 1.0;
 		
 		// map from histogram to luminance
-		float weightedAvgLuminance = exp2(((weightedAvgLog / 254.0) * 1.0 / pc.oneOverLogLuminanceRange) + pc.minLogLuminance);
+		float weighted_avg_luminance = exp2(((weighted_avg_log / 254.0) * 1.0 / one_over_log_luminance_range) + min_log_luminance);
 		
-		float lastLuminanceAvg = pc.luminanceAvgBuffer.luminanceAvg;
-		float adaptedLuminance = lastLuminanceAvg + (weightedAvgLuminance - lastLuminanceAvg) * (1.0 - exp(-pc.deltaTime * pc.tau));
-		pc.luminanceAvgBuffer.luminanceAvg = adaptedLuminance;
+		float last_luminance_avg = luminance_avg_buffer.luminance_avg;
+		float adapted_luminance = last_luminance_avg + (weighted_avg_luminance - last_luminance_avg) * (1.0 - exp(-delta_time * tau));
+		luminance_avg_buffer.luminance_avg = adapted_luminance;
 	}
 }

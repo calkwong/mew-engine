@@ -11,61 +11,61 @@
 #include "sh.glsl"
 #include "util.glsl"
 
-layout (location = 0) in vec2 inUV;
+layout (location = 0) in vec2 in_uv;
 
-layout (location = 0) out vec4 outFragColor;
+layout (location = 0) out vec4 out_color;
 
 layout( push_constant ) uniform constants
 {
-	vec4 clusterSize; // xyz is cluster data struct dim, w is single cluster dim where width==height
-	vec2 screenSize;
-	LightBuffer lightBuffer;
-	LightIndexBuffer lightIndexBuffer;
-	LightGridBuffer lightGridBuffer;
-	OITBuffer oitBuffer;
-	MeshletIndicesBuffer meshletIndicesBuffer;
-	MeshletBuffer meshletBuffer;
-	VertexBuffer vertexBuffer;
-	ObjectBuffer objectBuffer;
-	MaterialBuffer materialBuffer;
-	SHBuffer shBuffer;
+	vec4 cluster_size; // xyz is cluster data struct dim, w is single cluster dim where width==height
+	vec2 screen_size;
+	LightBuffer light_buffer;
+	LightIndexBuffer light_index_buffer;
+	LightGridBuffer light_grid_buffer;
+	OITBuffer oit_buffer;
+	MeshletIndicesBuffer meshlet_indices_buffer;
+	MeshletBuffer meshlet_buffer;
+	VertexBuffer vertex_buffer;
+	ObjectBuffer object_buffer;
+	MaterialBuffer material_buffer;
+	SHBuffer sh_buffer;
 	uint depth_id;
 	uint gbuffer_id;    
 	uint shadowmap_id;
-	uint lightCulling;
+	uint light_culling;
 	float near;
 	float scale;
 	float bias;
-	uint debugMeshlets;
-	uint resolveTransparent;
+	uint debug_meshlets;
+	uint resolve_transparent;
 	uint shadows;
 	uint pcf;
-	uint debugShadowmap;
-	uint debugCascades;
+	uint debug_shadowmap;
+	uint debug_cascades;
 	// gi
-	float maxPrefilteredLod;
+	float max_prefiltered_log;
 	float metallic; // unused, for debugging
 	float roughness; // unused, for debugging
 	uint debug;
-} pc;
+};
 
 // formula is for infinite far plane, reverse-z
 // returns positive z, negate depending on usage
-float linearizeDepthInfiniteReverse(float depth)
+float linearize_depth(float near, float depth)
 {
-	return pc.near / depth;
+	return near / depth;
 }
 
 const int CASCADE_COUNT = 4;
 const int MLAB_NODES = 4;
 
-vec3 compositeTransparent(vec3 inputColor)
+vec3 composite_transparent(vec3 input_color)
 {
-	vec3 color = inputColor;
+	vec3 color = input_color;
 	
-		uvec2 screenCoords = uvec2(floor(gl_FragCoord.xy));
-		uint index = screenCoords.x + screenCoords.y * uint(pc.screenSize.x);
-		OITData frags = pc.oitBuffer.frags[index];
+		uvec2 screen_coords = uvec2(floor(gl_FragCoord.xy));
+		uint index = screen_coords.x + screen_coords.y * uint(screen_size.x);
+		OITData frags = oit_buffer.frags[index];
 		
 		// early return if nothing stored
 		if (frags.transmissions[0] == 1.0)
@@ -73,60 +73,60 @@ vec3 compositeTransparent(vec3 inputColor)
 			return color;
 		}
 		
-		pc.oitBuffer.frags[index].transmissions = vec4(1.0); // reset so we can skip vkcmdfillbuffer
+		oit_buffer.frags[index].transmissions = vec4(1.0); // reset so we can skip vkcmdfillbuffer
 		
 		vec3 composite = vec3(0.);
-		float accumT = 1.0;
+		float t_accum = 1.0;
 		for (int i = 0; i < MLAB_NODES; i++)
 		{
 			float t = frags.transmissions[i];
-			composite = t != 1.0 ? unpackUnorm4x8(frags.colors[i]).xyz * accumT + composite : composite;
-			accumT *= t;
+			composite = t != 1.0 ? unpackUnorm4x8(frags.colors[i]).xyz * t_accum + composite : composite;
+			t_accum *= t;
 		}
 		
-		color *= accumT;
+		color *= t_accum;
 		color += composite;
 	
 	return color;
 }
 
-float calculateShadow(vec3 worldPos, inout uint cascadeIdx)
+float calculate_shadow(vec3 world_pos, inout uint cascade_index)
 {
-	float d = (sceneData.view * vec4(worldPos, 1.0)).z; // view space z
+	float d = (uniforms.view * vec4(world_pos, 1.0)).z; // view space z
 	for (uint i = 0; i < CASCADE_COUNT; i++)
 	{
-		if (d > sceneData.cascadeSplits[i])
+		if (d > uniforms.cascade_splits[i])
 		{	
-			cascadeIdx = i;
+			cascade_index = i;
 			break;
 		}
 	}
-	vec3 lightFragPos = vec3(sceneData.shadowTransforms[cascadeIdx] * vec4(worldPos, 1.0)); // ortho, no division by w needed 
+	vec3 light_frag_pos = vec3(uniforms.shadow_transforms[cascade_index] * vec4(world_pos, 1.0)); // ortho, no division by w needed
 	
-	float currentDepth = lightFragPos.z;
+	float current_depth = light_frag_pos.z;
 	
-	if (currentDepth < 0.0) // this is possible
+	if (current_depth < 0.0) // this is possible
 		return 1.0;
 	
-	vec2 uv = vec2(lightFragPos.x, lightFragPos.y);
+	vec2 uv = vec2(light_frag_pos.x, light_frag_pos.y);
 	uv = uv * 0.5 + 0.5;
 	uv.y = 1.0 - uv.y;
 	
-	vec2 offset = 1.0 / textureSize(sampler2D(textures[pc.shadowmap_id + cascadeIdx], samplers[NEAREST_SAMPLER]), 0);
+	vec2 offset = 1.0 / textureSize(sampler2D(textures[shadowmap_id + cascade_index], samplers[NEAREST_SAMPLER]), 0);
 	
 	float shadow = 0.0;
-	float closestDepth = 0.0;
+	float closest_depth = 0.0;
 
-	if (pc.pcf == 1)
+	if (pcf == 1)
 	{
 		for (int y = -1; y <= 1; y++)
 		{
 			for (int x = -1; x <= 1; x++)
 			{
 				vec2 sample_uv = vec2(uv.x + x * offset.x, uv.y + y * offset.y);
-				closestDepth = texture(sampler2D(textures[pc.shadowmap_id + cascadeIdx], samplers[NEAREST_SAMPLER]), sample_uv).r;
+				closest_depth = texture(sampler2D(textures[shadowmap_id + cascade_index], samplers[NEAREST_SAMPLER]), sample_uv).r;
 				
-				if (closestDepth > currentDepth)
+				if (closest_depth > current_depth)
 					shadow += 0.0;
 				else
 					shadow += 1.0;
@@ -137,10 +137,10 @@ float calculateShadow(vec3 worldPos, inout uint cascadeIdx)
 	}
 	else
 	{
-		closestDepth = texture(sampler2D(textures[pc.shadowmap_id + cascadeIdx], samplers[LINEAR_SAMPLER]), uv).r;
+		closest_depth = texture(sampler2D(textures[shadowmap_id + cascade_index], samplers[LINEAR_SAMPLER]), uv).r;
 		
 		float bias = 0.0;
-		if (closestDepth > currentDepth + bias)
+		if (closest_depth > current_depth + bias)
 			shadow = 0.0;
 		else
 			shadow = 1.0;
@@ -154,130 +154,130 @@ float calculateShadow(vec3 worldPos, inout uint cascadeIdx)
 void main()
 {
 	//// HANDLE LATER, NOT SUPPORTED ON VISIBILITY PATH
-	//if (pc.debugMeshlets == 1)
+	//if (debug_meshlets == 1)
 	//{
-	//	vec3 normal = texture(sampler2D(textures[pc.normal_id], samplers[NEAREST_SAMPLER]), inUV).xyz;
-	//	outFragColor = vec4(normal, 1.0);
+	//	vec3 normal = texture(sampler2D(textures[normal_id], samplers[NEAREST_SAMPLER]), in_uv).xyz;
+	//	out_color = vec4(normal, 1.0);
 	//	return; 
 	//}
 	
-	uvec2 data = texture(usampler2D(textures_u[pc.gbuffer_id], samplers[NEAREST_SAMPLER]), inUV).rg; 
+	uvec2 data = texture(usampler2D(textures_u[gbuffer_id], samplers[NEAREST_SAMPLER]), in_uv).rg; 
 	
-	uint drawID = data.x; 
-	uint packedID = data.y;
-	uint triangleID = bitfieldExtract(packedID, 25, 7);
-	uint meshletID = bitfieldExtract(packedID, 0, 25);
+	uint draw_id = data.x; 
+	uint packed_id = data.y;
+	uint triangle_id = bitfieldExtract(packed_id, 25, 7);
+	uint meshlet_id = bitfieldExtract(packed_id, 0, 25);
 	
-	Meshlet meshlet = pc.meshletBuffer.meshlets[meshletID];
-	uint triangleOffset = meshlet.dataOffset + meshlet.vertexCount;
+	Meshlet meshlet = meshlet_buffer.meshlets[meshlet_id];
+	uint triangle_offset = meshlet.data_offset + meshlet.vertex_count;
 	
-	uint idx0 = pc.meshletIndicesBuffer.indices[triangleOffset + triangleID * 3 + 0];
-	uint idx1 = pc.meshletIndicesBuffer.indices[triangleOffset + triangleID * 3 + 1];
-	uint idx2 = pc.meshletIndicesBuffer.indices[triangleOffset + triangleID * 3 + 2];
+	uint idx0 = meshlet_indices_buffer.indices[triangle_offset + triangle_id * 3 + 0];
+	uint idx1 = meshlet_indices_buffer.indices[triangle_offset + triangle_id * 3 + 1];
+	uint idx2 = meshlet_indices_buffer.indices[triangle_offset + triangle_id * 3 + 2];
 	
-	uint vertexIndex0 = pc.meshletIndicesBuffer.indices[meshlet.dataOffset + idx0]; 
-	uint vertexIndex1 = pc.meshletIndicesBuffer.indices[meshlet.dataOffset + idx1]; 
-	uint vertexIndex2 = pc.meshletIndicesBuffer.indices[meshlet.dataOffset + idx2]; 
+	uint vertex_index0 = meshlet_indices_buffer.indices[meshlet.data_offset + idx0];
+	uint vertex_index1 = meshlet_indices_buffer.indices[meshlet.data_offset + idx1];
+	uint vertex_index2 = meshlet_indices_buffer.indices[meshlet.data_offset + idx2];
 	
-	Vertex v0 = pc.vertexBuffer.vertices[vertexIndex0];
-	Vertex v1 = pc.vertexBuffer.vertices[vertexIndex1];
-	Vertex v2 = pc.vertexBuffer.vertices[vertexIndex2];
+	Vertex v0 = vertex_buffer.vertices[vertex_index0];
+	Vertex v1 = vertex_buffer.vertices[vertex_index1];
+	Vertex v2 = vertex_buffer.vertices[vertex_index2];
 
-	ObjectData obj = pc.objectBuffer.objects[drawID];
+	ObjectData obj = object_buffer.objects[draw_id];
 
-	vec3 wp0 = rotateQuat(vec3(v0.px, v0.py, v0.pz), obj.orientation) * obj.scale + obj.translation;
-	vec3 wp1 = rotateQuat(vec3(v1.px, v1.py, v1.pz), obj.orientation) * obj.scale + obj.translation;
-	vec3 wp2 = rotateQuat(vec3(v2.px, v2.py, v2.pz), obj.orientation) * obj.scale + obj.translation;
+	vec3 wp0 = rotate_quat(vec3(v0.px, v0.py, v0.pz), obj.orientation) * obj.scale + obj.translation;
+	vec3 wp1 = rotate_quat(vec3(v1.px, v1.py, v1.pz), obj.orientation) * obj.scale + obj.translation;
+	vec3 wp2 = rotate_quat(vec3(v2.px, v2.py, v2.pz), obj.orientation) * obj.scale + obj.translation;
 
-	vec4 p0 = sceneData.viewproj * vec4(wp0, 1.0);
-	vec4 p1 = sceneData.viewproj * vec4(wp1, 1.0);
-	vec4 p2 = sceneData.viewproj * vec4(wp2, 1.0);
+	vec4 p0 = uniforms.view_proj * vec4(wp0, 1.0);
+	vec4 p1 = uniforms.view_proj * vec4(wp1, 1.0);
+	vec4 p2 = uniforms.view_proj * vec4(wp2, 1.0);
 	
 	// vulkan top left origin, hence flipping y is necessary
-	vec2 pNdc = gl_FragCoord.xy / pc.screenSize; 
+	vec2 pNdc = gl_FragCoord.xy / screen_size; 
 	pNdc = pNdc * 2.0 - 1.0;
 	pNdc.y = -pNdc.y; 
 	
-	BarycentricDeriv bary = calculateBarycentric(p0, p1, p2, pNdc, pc.screenSize);
+	BarycentricDeriv bary = calculate_barycentric(p0, p1, p2, pNdc, screen_size);
 	vec2 uv;
-	vec2 uvDdx;
-	vec2 uvDdy;
-	interpolateWithDeriv(bary, vec2(v0.uv_x, v0.uv_y), vec2(v1.uv_x, v1.uv_y), vec2(v2.uv_x, v2.uv_y), uv, uvDdx, uvDdy);
+	vec2 uv_ddx;
+	vec2 uv_ddy;
+	interpolate_with_deriv(bary, vec2(v0.uv_x, v0.uv_y), vec2(v1.uv_x, v1.uv_y), vec2(v2.uv_x, v2.uv_y), uv, uv_ddx, uv_ddy);
 	
-	vec3 debugUV = vec3(uv, 0.0);
+	vec3 debug_uv = vec3(uv, 0.0);
 	
-	vec3 worldPos = interpolate(bary, wp0, wp1, wp2);
+	vec3 world_pos = interpolate(bary, wp0, wp1, wp2);
 	
 	vec3 np0, np1, np2;
 	vec4 tp0, tp1, tp2;
-	unpackTBN(v0.normal, uint(v0.tangent), np0, tp0);
-	unpackTBN(v1.normal, uint(v1.tangent), np1, tp1);
-	unpackTBN(v2.normal, uint(v2.tangent), np2, tp2);
+	unpack_tbn(v0.normal, uint(v0.tangent), np0, tp0);
+	unpack_tbn(v1.normal, uint(v1.tangent), np1, tp1);
+	unpack_tbn(v2.normal, uint(v2.tangent), np2, tp2);
 	
-	vec3 V = normalize(sceneData.cameraPos.xyz - worldPos);
+	vec3 V = normalize(uniforms.camera_pos.xyz - world_pos);
 	
 	// alternative: store triangle face bit in visibility buffer
 	vec3 e1 = wp1 - wp0;
 	vec3 e2 = wp2 - wp0;
 	vec3 gN = cross(e1, e2);
-	bool isBackFace = dot(gN, V) < 0.0;
+	bool is_back_face = dot(gN, V) < 0.0;
 	
-	vec3 n0 = rotateQuat(np0, obj.orientation);
-	vec3 n1 = rotateQuat(np1, obj.orientation);
-	vec3 n2 = rotateQuat(np2, obj.orientation);
+	vec3 n0 = rotate_quat(np0, obj.orientation);
+	vec3 n1 = rotate_quat(np1, obj.orientation);
+	vec3 n2 = rotate_quat(np2, obj.orientation);
 	
 	vec3 N = normalize(interpolate(bary, n0, n1, n2)); // TODO: mikktspace convention is NOT to normalize. we normalize here as khronos sponza breaks iirc?
 	
-	N = isBackFace ? -N : N;
+	N = is_back_face ? -N : N;
 	
-	uint materialID = pc.objectBuffer.objects[drawID].materialID;
-	MaterialData m = pc.materialBuffer.materials[materialID];
+	uint material_id = object_buffer.objects[draw_id].material_id;
+	MaterialData m = material_buffer.materials[material_id];
 	
-	vec4 albedo = m.baseColorFactor;
+	vec4 albedo = m.base_color_factor;
 	
-	if (m.diffuseID != 0)
+	if (m.diffuse_id != 0)
 	{
-		albedo.xyz *= textureGrad(sampler2D(textures[m.diffuseID], samplers[LINEAR_SAMPLER]), uv, uvDdx, uvDdy).xyz;
+		albedo.xyz *= textureGrad(sampler2D(textures[m.diffuse_id], samplers[LINEAR_SAMPLER]), uv, uv_ddx, uv_ddy).xyz;
 	}
 	
 	vec3 color = vec3(0.0);
 	vec3 ambient = albedo.xyz * 0.1; // when GI is off, likely going to look physically incorrect
 	
-	vec4 t0 = vec4(rotateQuat(tp0.xyz, obj.orientation), tp0.w);
-	vec4 t1 = vec4(rotateQuat(tp1.xyz, obj.orientation), tp1.w);
-	vec4 t2 = vec4(rotateQuat(tp2.xyz, obj.orientation), tp2.w);
+	vec4 t0 = vec4(rotate_quat(tp0.xyz, obj.orientation), tp0.w);
+	vec4 t1 = vec4(rotate_quat(tp1.xyz, obj.orientation), tp1.w);
+	vec4 t2 = vec4(rotate_quat(tp2.xyz, obj.orientation), tp2.w);
 	
 	vec4 T = interpolate(bary, t0, t1, t2);
 	T.xyz = normalize(T.xyz); // TODO: mikktspace convention is NOT to normalize. we normalize here as khronos sponza breaks iirc?
 	float sign = T.w; // sign is flipped during tangent generation so mikktspace is consistent with glTF handedness
 		
-	sign = isBackFace ? -sign : sign;	
+	sign = is_back_face ? -sign : sign;	
 		
 #ifdef PBR
-	if (m.normalID != 0)
+	if (m.normal_id != 0)
 	{
 		vec3 B = sign * cross(N, T.xyz);
-		vec3 shadingNormal = textureGrad(sampler2D(textures[m.normalID], samplers[LINEAR_SAMPLER]), uv, uvDdx, uvDdy).xyz;
-		shadingNormal = shadingNormal * 2.0 - 1.0;
-		N = normalize(shadingNormal.x * T.xyz + shadingNormal.y * B + shadingNormal.z * N);
+		vec3 shading_normal = textureGrad(sampler2D(textures[m.normal_id], samplers[LINEAR_SAMPLER]), uv, uv_ddx, uv_ddy).xyz;
+		shading_normal = shading_normal * 2.0 - 1.0;
+		N = normalize(shading_normal.x * T.xyz + shading_normal.y * B + shading_normal.z * N);
 	}
 	
-	float metallic = m.metallicFactor;
-	float perceptualRoughness = m.roughnessFactor;
-	vec2 metalRoughness = vec2(0.0);
-	if (m.metalRoughnessID != 0)
+	float metallic = m.metallic_factor;
+	float perceptual_roughness = m.roughness_factor;
+	vec2 metal_roughness = vec2(0.0);
+	if (m.metalroughness_id != 0)
 	{
-		metalRoughness = textureGrad(sampler2D(textures[m.metalRoughnessID], samplers[LINEAR_SAMPLER]), uv, uvDdx, uvDdy).bg;
-		metallic *= metalRoughness.x;
-		perceptualRoughness *= metalRoughness.y;
+		metal_roughness = textureGrad(sampler2D(textures[m.metalroughness_id], samplers[LINEAR_SAMPLER]), uv, uv_ddx, uv_ddy).bg;
+		metallic *= metal_roughness.x;
+		perceptual_roughness *= metal_roughness.y;
 	}
 
-	perceptualRoughness = max(perceptualRoughness, 0.045); // frostbite engine clamp value for analytical lights (fp32)
-	float roughness = perceptualRoughness * perceptualRoughness;
+	perceptual_roughness = max(perceptual_roughness, 0.045); // frostbite engine clamp value for analytical lights (fp32)
+	float roughness = perceptual_roughness * perceptual_roughness;
 	
 	vec3 Fr = vec3(0.0);
 	
-	vec3 L = normalize(sceneData.sunlightDir.xyz); 
+	vec3 L = normalize(uniforms.sunlight_dir.xyz);
 	vec3 H = normalize(L + V);
 	
 	float NdotL = max(dot(N, L), 0.0);
@@ -300,20 +300,20 @@ void main()
 	float G = V_SmithGGXCorrelated(NdotV, NdotL, roughness);
 	Fr = D * G * F;
 	
-	vec3 lightColor = sceneData.sunlightColor.xyz;
-	color = (Fd + Fr) * lightColor * NdotL; 
+	vec3 light_color = uniforms.sunlight_color.xyz;
+	color = (Fd + Fr) * light_color * NdotL; 
 	
 	#ifdef GI
-		//perceptualRoughness = pc.roughness; // sphere test
-		//metallic = pc.metallic; // sphere test
+		//perceptual_roughness = roughness; // sphere test
+		//metallic = metallic; // sphere test
 		
 		vec3 R = reflect(-V, N);
-		float prefilteredMip = pc.maxPrefilteredLod * perceptualRoughness;
+		float prefiltered_mip = max_prefiltered_log * perceptual_roughness;
 		
 		{
-			vec3 irradiance = evaluateSH(pc.shBuffer.rCoefficients, pc.shBuffer.gCoefficients, pc.shBuffer.bCoefficients, N);
-			vec3 prefiltered = textureLod(samplerCube(textures_cube[uint(sceneData.textures[2])], samplers[CUBE_SAMPLER]), R, prefilteredMip).xyz;
-			vec2 brdf = texture(sampler2D(textures[uint(sceneData.textures[3])], samplers[LINEAR_CLAMP_SAMPLER]), vec2(NdotV, perceptualRoughness)).rg;
+			vec3 irradiance = evaluate_sh(sh_buffer.r_coefficients, sh_buffer.g_coefficients, sh_buffer.b_coefficients, N);
+			vec3 prefiltered = textureLod(samplerCube(textures_cube[uint(uniforms.textures[2])], samplers[CUBE_SAMPLER]), R, prefiltered_mip).xyz;
+			vec2 brdf = texture(sampler2D(textures[uint(uniforms.textures[3])], samplers[LINEAR_CLAMP_SAMPLER]), vec2(NdotV, perceptual_roughness)).rg;
 			
 			//vec3 white = vec3(1.0); // sphere test
 			//f0 = vec3(0.04); // sphere test
@@ -321,7 +321,7 @@ void main()
 			//f0 = mix(f0, white, metallic); // sphere test
 
 			// try normal schlick and visualize difference, remove comment after
-			F = F_SchlickRoughness(NdotV, f0, perceptualRoughness); 
+			F = F_SchlickRoughness(NdotV, f0, perceptual_roughness); 
 			
 			kS = F;
 			kD = vec3(1.0) - kS;
@@ -331,7 +331,7 @@ void main()
 			vec3 diffuse = kD * irradiance * (1.0 / PI) * albedo.xyz;
 			vec3 specular = prefiltered * (F * brdf.x + brdf.y);
 			ambient = diffuse + specular;
-			//outFragColor = vec4(ambient, 1.0); // sphere test
+			//out_color = vec4(ambient, 1.0); // sphere test
 			//return; // sphere test
 		}
 	#endif
@@ -339,16 +339,16 @@ void main()
 	color += vec4(albedo);
 #endif
 	
-	uint cascadeIdx = 0;
-	if (pc.shadows == 1)
+	uint cascade_index = 0;
+	if (shadows == 1)
 	{
-		float occluded = calculateShadow(worldPos, cascadeIdx);
+		float occluded = calculate_shadow(world_pos, cascade_index);
 		
 		color *= occluded;
 		
-		if (pc.debugCascades == 1)
+		if (debug_cascades == 1)
 		{
-			switch (cascadeIdx)
+			switch (cascade_index)
 			{
 				case 0:
 					color *= vec3(1, 0, 0);
@@ -368,38 +368,38 @@ void main()
 	
 	color += ambient;
 	
-	float depth = texture(sampler2D(textures[pc.depth_id], samplers[NEAREST_SAMPLER]), inUV).r;
+	float depth = texture(sampler2D(textures[depth_id], samplers[NEAREST_SAMPLER]), in_uv).r;
 	
-	if (pc.lightCulling == 1)
+	if (light_culling == 1)
 	{
-		vec2 screenPos = vec2(gl_FragCoord.xy);
-		screenPos.y = pc.screenSize.y - screenPos.y;
+		vec2 screen_pos = vec2(gl_FragCoord.xy);
+		screen_pos.y = screen_size.y - screen_pos.y;
 		
-		ivec4 clusterDim = ivec4(pc.clusterSize);
-		ivec2 clusterXY = ivec2(floor(screenPos.xy / clusterDim.w));
-		clusterXY.x = clamp(clusterXY.x, 0, clusterDim.x - 1);
-		clusterXY.y = clamp(clusterXY.y, 0, clusterDim.y - 1);
+		ivec4 cluster_dim = ivec4(cluster_size);
+		ivec2 cluster_xy = ivec2(floor(screen_pos.xy / cluster_dim.w));
+		cluster_xy.x = clamp(cluster_xy.x, 0, cluster_dim.x - 1);
+		cluster_xy.y = clamp(cluster_xy.y, 0, cluster_dim.y - 1);
 		
-		float viewZ = linearizeDepthInfiniteReverse(depth); // alternative: calculate via matrix multiply, likely more expensive?
+		float viewZ = linearize_depth(near, depth); // alternative: calculate via matrix multiply, likely more expensive?
 		
 		// equation (3): https://www.aortiz.me/2018/12/21/CG.html#part-2 
 		// slide 5: https://advances.realtimerendering.com/s2016/Siggraph2016_idTech6.pdf
-		uint slice = uint(floor(log(viewZ) * pc.scale - pc.bias));
-		slice = clamp(slice, 0, clusterDim.z - 1);
+		uint slice = uint(floor(log(viewZ) * scale - bias));
+		slice = clamp(slice, 0, cluster_dim.z - 1);
 		
-		uint clusterIndex = clusterXY.x + clusterDim.x * clusterXY.y + slice * clusterDim.x * clusterDim.y; 
+		uint cluster_index = cluster_xy.x + cluster_dim.x * cluster_xy.y + slice * cluster_dim.x * cluster_dim.y; 
 		
-		uint offset = pc.lightGridBuffer.grid[clusterIndex].offset;
-		uint count = pc.lightGridBuffer.grid[clusterIndex].count;
+		uint offset = light_grid_buffer.grid[cluster_index].offset;
+		uint count = light_grid_buffer.grid[cluster_index].count;
 		
 		for (int i = 0; i < count; i++)
 		{
-			uint index = pc.lightIndexBuffer.indices[offset + i];
-			vec3 lightPos = pc.lightBuffer.lights[index].pos.xyz;
-			lightPos = vec3(sceneData.lightRot * vec4(lightPos, 1.0));
-			float lightRadius = pc.lightBuffer.lights[index].pos.w;
-			vec3 lightColor = pc.lightBuffer.lights[index].color.xyz;
-			vec3 distance = lightPos - worldPos;
+			uint index = light_index_buffer.indices[offset + i];
+			vec3 light_pos = light_buffer.lights[index].pos.xyz;
+			light_pos = vec3(uniforms.light_rot * vec4(light_pos, 1.0));
+			float light_radius = light_buffer.lights[index].pos.w;
+			vec3 light_color = light_buffer.lights[index].color.xyz;
+			vec3 distance = light_pos - world_pos;
 			vec3 L = normalize(distance); 
 			float NdotL = max(dot(N, L), 0.0);
 #ifdef PBR
@@ -414,11 +414,11 @@ void main()
 			float G = V_SmithGGXCorrelated(NdotV, NdotL, roughness);
 			Fr = D * G * F;
 			
-			float attenuation = getSquareFalloffAttenuation(distance, lightRadius);
-			color += (Fd + Fr) * lightColor * attenuation * NdotL; 
+			float attenuation = get_square_falloff_attenuation(distance, light_radius);
+			color += (Fd + Fr) * light_color * attenuation * NdotL; 
 #else
-			float attenuation = getSquareFalloffAttenuation(distance, lightRadius);
-			color += albedo.xyz * lightColor * attenuation * NdotL;
+			float attenuation = get_square_falloff_attenuation(distance, light_radius);
+			color += albedo.xyz * light_color * attenuation * NdotL;
 #endif
 		}
 	}
@@ -426,52 +426,52 @@ void main()
 	// TODO: refactor and use depth/stencil buffer to reject pixels in future
 	if (depth == 0.0)
 	{
-		vec2 ndc = inUV * 2.0 - 1.0;
+		vec2 ndc = in_uv * 2.0 - 1.0;
 		ndc.y *= -1.0;
-		vec3 sampleDir = vec3(sceneData.inverseViewproj * vec4(ndc, 0.0, 1.0));
-		color = texture(samplerCube(textures_cube[uint(sceneData.textures[0])], samplers[CUBE_SAMPLER]), sampleDir).xyz;
+		vec3 sample_dir = vec3(uniforms.inverse_view_proj * vec4(ndc, 0.0, 1.0));
+		color = texture(samplerCube(textures_cube[uint(uniforms.textures[0])], samplers[CUBE_SAMPLER]), sample_dir).xyz;
 	}
 	
-	if (pc.resolveTransparent == 1)
+	if (resolve_transparent == 1)
 	{
-		color = compositeTransparent(color);
+		color = composite_transparent(color);
 	}
 	
-	outFragColor = vec4(color, 1.0);
+	out_color = vec4(color, 1.0);
 	
-	if (pc.debugShadowmap != 0)
+	if (debug_shadowmap != 0)
 	{
-		vec2 uv = gl_FragCoord.xy / pc.screenSize;
-		uint idx = pc.debugShadowmap - 1;
-		vec3 depth = vec3(texture(sampler2D(textures[pc.shadowmap_id + idx], samplers[NEAREST_SAMPLER]), uv).r);
-		outFragColor.xyz = depth;
+		vec2 uv = gl_FragCoord.xy / screen_size;
+		uint idx = debug_shadowmap - 1;
+		vec3 depth = vec3(texture(sampler2D(textures[shadowmap_id + idx], samplers[NEAREST_SAMPLER]), uv).r);
+		out_color.xyz = depth;
 	}
 	
-	if (pc.debug != 0)
+	if (debug != 0)
 	{
-		switch (pc.debug)
+		switch (debug)
 		{
 		case 1: // geometry normals
 			N = N * 0.5 + 0.5;
-			N = srgbToLinear(N);
-			outFragColor = vec4(N, 1.0);
+			N = srgb_to_linear(N);
+			out_color = vec4(N, 1.0);
 			break;
 		case 2: // tangents
 			T.xyz = T.xyz * 0.5 + 0.5;
-			T.xyz = srgbToLinear(T.xyz);
-			outFragColor = vec4(T.xyz, 1.0);
+			T.xyz = srgb_to_linear(T.xyz);
+			out_color = vec4(T.xyz, 1.0);
 			break;
 		case 3: // tangent w
 		    vec3 w = T.w > 0.0 ? vec3(1.0) : vec3(0.0);
-		    w = srgbToLinear(w);
-		    outFragColor = vec4(w, 1.0);
+		    w = srgb_to_linear(w);
+		    out_color = vec4(w, 1.0);
             break;
 		case 4: // uv
-			debugUV = srgbToLinear(debugUV);
-			outFragColor = vec4(debugUV, 1.0);
+			debug_uv = srgb_to_linear(debug_uv);
+			out_color = vec4(debug_uv, 1.0);
 			break;
 		}
 		
-		outFragColor = depth != 0.0 ? outFragColor : vec4(0,0,0,1);
+		out_color = depth != 0.0 ? out_color : vec4(0,0,0,1);
 	}
 }

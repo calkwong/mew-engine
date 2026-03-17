@@ -8,26 +8,25 @@
 
 layout (push_constant) uniform constants
 {
-	mat4 viewproj;
-	//MaterialBuffer materialBuffer;
-	uint padding[1 * 2];
-	ObjectBuffer objectBuffer;
-	VertexBuffer vertexBuffer;
-} pc;
+	mat4 view_proj;
+	MaterialBuffer material_buffer;
+	ObjectBuffer object_buffer;
+	VertexBuffer vertex_buffer;
+};
 
-layout (location = 0) out vec2 outUV;
-layout (location = 1) flat out uint outMaterialID;
+layout (location = 0) out vec2 out_uv;
+layout (location = 1) flat out uint out_material_id;
 
 void main()
 {
-	ObjectData o = pc.objectBuffer.objects[gl_InstanceIndex]; // gl_InstanceIndex from drawIndirectCommand
-	Vertex v = pc.vertexBuffer.vertices[gl_VertexIndex];
+	ObjectData o = object_buffer.objects[gl_InstanceIndex]; // gl_InstanceIndex from drawIndirectCommand
+	Vertex v = vertex_buffer.vertices[gl_VertexIndex];
 	
 	vec3 pos = vec3(v.px, v.py, v.pz);
-	vec4 worldPos = vec4(rotateQuat(pos, o.orientation) * o.scale + o.translation, 1.0);
+	vec4 world_pos = vec4(rotate_quat(pos, o.orientation) * o.scale + o.translation, 1.0);
 	
-	gl_Position = pc.viewproj * worldPos;
+	gl_Position = view_proj * world_pos;
 	
-	outUV = vec2(v.uv_x, v.uv_y);
-	outMaterialID = o.materialID;
+	out_uv = vec2(v.uv_x, v.uv_y);
+	out_material_id = o.material_id;
 }

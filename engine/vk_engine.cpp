@@ -2292,6 +2292,10 @@ void VulkanEngine::register_object(const Node* node, const glm::mat4& top_matrix
 
 			obj.translation = translation;
 			obj.scale = std::max(std::max(scale.x, scale.y), scale.z);
+
+			// if ((scale.x == scale.y) && (scale.y == scale.z))
+			// 	fmt::println("non uniform scaling! {} {} {}", scale.x, scale.y, scale.z);
+
 			obj.orientation = glm::quat(rotation.w, rotation.x, rotation.y, rotation.z);
 
 			if (found)

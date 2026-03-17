@@ -6,48 +6,47 @@
 #include "buffer_references.glsl"
 #include "util.glsl"
 
-layout (location = 0) out vec3 outNormal;
-layout (location = 1) out vec2 outUV;
-layout (location = 2) out vec4 outTangent;
-layout (location = 3) out flat uint outMaterialID;
-layout (location = 4) out vec4 outClipPos;
-layout (location = 5) out vec4 outPrevClipPos;
+layout (location = 0) out vec3 out_normal;
+layout (location = 1) out vec2 out_uv;
+layout (location = 2) out vec4 out_tangent;
+layout (location = 3) out flat uint out_material_id;
+layout (location = 4) out vec4 out_clip_pos;
+layout (location = 5) out vec4 out_prev_clip_pos;
 
 layout( push_constant ) uniform constants
 {
-	ObjectBuffer objectBuffer;
-	VertexBuffer vertexBuffer;
-	//MeshTaskBuffer meshTaskBuffer;
-	//MeshletBuffer meshletBuffer;
-	//MeshletIndicesBuffer meshletIndicesBuffer;
-	//ClusterIndicesBuffer clusterIndicesBuffer; 
-	//MaterialBuffer materialBuffer;
-	//OITBuffer oitBuffer;
-	uint padding[6 * 2];
-	uint debugMeshlets;
-	vec2 jitterOffset;
-} pc;
+	ObjectBuffer object_buffer;
+	VertexBuffer vertex_buffer;
+	MeshTaskBuffer mesh_task_buffer;
+	MeshletBuffer meshlet_buffer;
+	MeshletIndicesBuffer meshlet_indices_buffer;
+	ClusterIndicesBuffer cluster_indices_buffer; 
+	MaterialBuffer material_buffer;
+	OITBuffer oit_buffer;
+	uint debug_meshlets;
+	vec2 jitter_offset;
+};
 
 void main() 
 {
-	ObjectData o = pc.objectBuffer.objects[gl_InstanceIndex]; // gl_InstanceIndex from drawIndirectCommand
-	Vertex v = pc.vertexBuffer.vertices[gl_VertexIndex];
+	ObjectData o = object_buffer.objects[gl_InstanceIndex]; // gl_InstanceIndex from drawIndirectCommand
+	Vertex v = vertex_buffer.vertices[gl_VertexIndex];
 	
 	vec3 pos = vec3(v.px, v.py, v.pz);
-	vec4 worldPos = vec4(rotateQuat(pos, o.orientation) * o.scale + o.translation, 1.0);
+	vec4 worldPos = vec4(rotate_quat(pos, o.orientation) * o.scale + o.translation, 1.0);
 
 	vec3 normal;
 	vec4 tangent;
-	unpackTBN(v.normal, uint(v.tangent), normal, tangent);
+	unpack_tbn(v.normal, uint(v.tangent), normal, tangent);
 	
-	outNormal = rotateQuat(normal, o.orientation);
-	outTangent = vec4(rotateQuat(tangent.xyz, o.orientation), tangent.w);
+	out_normal = rotate_quat(normal, o.orientation);
+	out_tangent = vec4(rotate_quat(tangent.xyz, o.orientation), tangent.w);
 	
-	outUV = vec2(v.uv_x, v.uv_y);
-	outMaterialID = o.materialID;
+	out_uv = vec2(v.uv_x, v.uv_y);
+	out_material_id = o.material_id;
 
-    outClipPos = sceneData.viewproj * worldPos;
-    outPrevClipPos = sceneData.previousViewproj * worldPos;
+    out_clip_pos = uniforms.view_proj * worldPos;
+    out_prev_clip_pos = uniforms.prev_view_proj * worldPos;
 
-	gl_Position =  sceneData.viewproj * worldPos;
+	gl_Position =  uniforms.view_proj * worldPos;
 }

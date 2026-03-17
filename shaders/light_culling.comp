@@ -11,110 +11,109 @@ layout (local_size_x = 128) in;
 layout( push_constant ) uniform constants
 {
 	mat4 view;
-	mat4 lightRot;
-	ClusterBuffer clusterBuffer;
-	LightBuffer lightBuffer;
-	LightIndexBuffer lightIndexBuffer;
-	LightGridBuffer lightGridBuffer;
-	LightCountBuffer lightCountBuffer;
-} pc;
+	mat4 light_rot;
+	ClusterBuffer cluster_buffer;
+	LightBuffer light_buffer;
+	LightIndexBuffer light_index_buffer;
+	LightGridBuffer light_grid_buffer;
+	LightCountBuffer light_count_buffer;
+};
 
-float distanceSquared(vec3 a, vec3 b)
+float distance_squared(vec3 a, vec3 b)
 {
 	vec3 d = a - b;
 	return dot(d, d);
 }
 
-bool sphereAABBIntersect(AABB aabb, vec3 center, float radius)
+bool sphere_aabb_intersect(ClusterAABB aabb, vec3 center, float radius)
 {
-	vec3 lightCenter = vec3(pc.view * pc.lightRot * vec4(center, 1.0));
-	vec3 closest = clamp(lightCenter, aabb.min.xyz, aabb.max.xyz);
+	vec3 light_center = vec3(view * light_rot * vec4(center, 1.0));
+	vec3 closest = clamp(light_center, aabb.min.xyz, aabb.max.xyz);
 	
-	float d = distanceSquared(closest, lightCenter);
+	float d = distance_squared(closest, light_center);
 	return d <= (radius * radius);
 }
 
 // TODO: move this to a config file
 #define MAX_LIGHTS 1000
 
-// workgroup shared
-shared uint sharedOffset; 
-shared uint sharedCount[gl_WorkGroupSize.x];
-shared uint sharedLightList[MAX_LIGHTS];
+shared uint shared_offset;
+shared uint shared_count[gl_WorkGroupSize.x];
+shared uint shared_light_list[MAX_LIGHTS];
 
-shared uint clusterLightCount;
-shared uint clusterOffset;
+shared uint shared_cluster_light_count;
+shared uint shared_cluster_offset;
 	
 void main()
 {
-	uint clusterIndex = 
+	uint cluster_index = 
 		gl_WorkGroupID.x 
 		+ gl_NumWorkGroups.x * gl_WorkGroupID.y 
 		+ gl_NumWorkGroups.x * gl_NumWorkGroups.y * gl_WorkGroupID.z;
 		
-	ClusterAABB clusterAABB = pc.clusterBuffer.aabb[clusterIndex];
+	ClusterAABB clusterAABB = cluster_buffer.aabb[cluster_index];
 	
 	const uint batches = (MAX_LIGHTS + gl_WorkGroupSize.x - 1) / gl_WorkGroupSize.x;
-	uint localLightList[batches];
-	uint localLightCount = 0;
+	uint local_light_list[batches];
+	uint local_light_count = 0;
 	
 	// each thread performs approx MAX_LIGHTS/threads light intersection test
 	for (uint batch = 0; batch < batches; batch++)
 	{
-		uint lightIndex = min(batch * gl_WorkGroupSize.x + gl_LocalInvocationIndex, MAX_LIGHTS);
-		if (lightIndex == MAX_LIGHTS)
+		uint light_index = min(batch * gl_WorkGroupSize.x + gl_LocalInvocationIndex, MAX_LIGHTS);
+		if (light_index == MAX_LIGHTS)
 			break;
 		
-		PointLight light = pc.lightBuffer.lights[lightIndex];
-		vec3 lightPos = light.pos.xyz;
-		float lightRadius = light.pos.w;
-		bool intersect = sphereAABBIntersect(clusterAABB, lightPos, lightRadius);
+		PointLight light = light_buffer.lights[light_index];
+		vec3 light_pos = light.pos.xyz;
+		float light_radius = light.pos.w;
+		bool intersect = sphere_aabb_intersect(clusterAABB, light_pos, light_radius);
 		
 		if (intersect)
 		{	
-			localLightList[localLightCount++] = lightIndex; // record light index
+			local_light_list[local_light_count++] = light_index; // record light index
 		}
 	}
 	
-	sharedOffset = 0;
+	shared_offset = 0;
 	barrier(); 
 	
 	uint offset;
-	if (localLightCount > 0)
-		offset = atomicAdd(sharedOffset, localLightCount); // TODO: potentially slow per thread atomic
+	if (local_light_count > 0)
+		offset = atomicAdd(shared_offset, local_light_count); // TODO: potentially slow per thread atomic
 	
-	for (uint i = 0; i < localLightCount; i++)
+	for (uint i = 0; i < local_light_count; i++)
 	{
-		sharedLightList[offset + i] = localLightList[i];
+		shared_light_list[offset + i] = local_light_list[i];
 	}
 	
-	sharedCount[gl_LocalInvocationIndex] = localLightCount;
+	shared_count[gl_LocalInvocationIndex] = local_light_count;
 	
 	barrier(); 
 	
 	if (gl_LocalInvocationIndex == 0)
 	{
 	
-		clusterLightCount = 0;
+		shared_cluster_light_count = 0;
 		
 		// sum up total lights affecting cluster
 		// TODO: use ballot
 		for (int i = 0; i < gl_WorkGroupSize.x; i++)
 		{
-			clusterLightCount += sharedCount[i];
+			shared_cluster_light_count += shared_count[i];
 		}
 	
-		clusterOffset = atomicAdd(pc.lightCountBuffer.count, clusterLightCount);
+		shared_cluster_offset = atomicAdd(light_count_buffer.count, shared_cluster_light_count);
 		
-		pc.lightGridBuffer.grid[clusterIndex].offset = clusterOffset;
-		pc.lightGridBuffer.grid[clusterIndex].count = clusterLightCount;
+		light_grid_buffer.grid[cluster_index].offset = shared_cluster_offset;
+		light_grid_buffer.grid[cluster_index].count = shared_cluster_light_count;
 	}
 	
 	barrier();
 	
 	// update global light index list
-	for (uint i = gl_LocalInvocationIndex; i < clusterLightCount; i = i + gl_WorkGroupSize.x)
+	for (uint i = gl_LocalInvocationIndex; i < shared_cluster_light_count; i = i + gl_WorkGroupSize.x)
 	{
-		pc.lightIndexBuffer.indices[clusterOffset + i] = sharedLightList[i];
+		light_index_buffer.indices[shared_cluster_offset + i] = shared_light_list[i];
 	}
 }

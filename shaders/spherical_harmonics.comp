@@ -10,42 +10,42 @@ layout (local_size_x = 32) in;
 
 layout (push_constant) uniform constants
 {
-	SHBuffer shBuffer;
+	SHBuffer sh_buffer;
 	uint cubemap_id;
-} pc;
+};
 
-shared SH9 sharedR[gl_WorkGroupSize.x];
-shared SH9 sharedG[gl_WorkGroupSize.x];
-shared SH9 sharedB[gl_WorkGroupSize.x];
+shared SH9 shared_r[gl_WorkGroupSize.x];
+shared SH9 shared_g[gl_WorkGroupSize.x];
+shared SH9 shared_b[gl_WorkGroupSize.x];
 
 const int samples = 100;
 
 void main()
 {
-	SH9 R = shZero();
-	SH9 G = shZero();
-	SH9 B = shZero();
+	SH9 R = sh_zero();
+	SH9 G = sh_zero();
+	SH9 B = sh_zero();
 
 	// TODO: use more workgroups
 	for (float phi = gl_LocalInvocationIndex + 0.5; phi < samples; phi = phi + gl_WorkGroupSize.x)
 	{
 		for (float theta = 0.5; theta < samples; theta++) 
 		{
-			vec3 dir = uniformSampleSphere(phi * (1.0 / samples), theta * (1.0 / samples));
+			vec3 dir = uniform_sample_sphere(phi * (1.0 / samples), theta * (1.0 / samples));
 			
-			SH9 base = shBasis(dir);
+			SH9 base = sh_basis(dir);
 			
-			vec3 color = texture(samplerCube(textures_cube[pc.cubemap_id], samplers[CUBE_SAMPLER]), dir).xyz;
+			vec3 color = texture(samplerCube(textures_cube[cubemap_id], samplers[CUBE_SAMPLER]), dir).xyz;
 			
-			R = shSum(R, shScale(base, color.r));
-			G = shSum(G, shScale(base, color.g));
-			B = shSum(B, shScale(base, color.b));
+			R = sh_sum(R, sh_scale(base, color.r));
+			G = sh_sum(G, sh_scale(base, color.g));
+			B = sh_sum(B, sh_scale(base, color.b));
 		}
 	}
 	
-	sharedR[gl_LocalInvocationIndex] = R;
-	sharedG[gl_LocalInvocationIndex] = G;
-	sharedB[gl_LocalInvocationIndex] = B;
+	shared_r[gl_LocalInvocationIndex] = R;
+	shared_g[gl_LocalInvocationIndex] = G;
+	shared_b[gl_LocalInvocationIndex] = B;
 	
 	// TODO: technically not required for single workgroup single warp - to modify if using more workgroups/warps
 	//memoryBarrier();
@@ -53,21 +53,21 @@ void main()
 	
 	if (gl_LocalInvocationIndex == 0)
 	{
-		R = sharedR[0];
-		G = sharedG[0];
-		B = sharedB[0];
+		R = shared_r[0];
+		G = shared_g[0];
+		B = shared_b[0];
 		
 		for (int i = 1; i < gl_WorkGroupSize.x; i++)
 		{
-			R = shSum(sharedR[i], R);
-			G = shSum(sharedG[i], G);
-			B = shSum(sharedB[i], B);
+			R = sh_sum(shared_r[i], R);
+			G = sh_sum(shared_g[i], G);
+			B = sh_sum(shared_b[i], B);
 		}
 		
 		float factor = (4 * PI) / (samples * samples);
-		R = shScale(R, factor);
-		G = shScale(G, factor);
-		B = shScale(B, factor);
+		R = sh_scale(R, factor);
+		G = sh_scale(G, factor);
+		B = sh_scale(B, factor);
 		
 		SH9 coefficients;
 		coefficients.c[0] = 3.141593 * 0.282095; 
@@ -80,12 +80,12 @@ void main()
 		coefficients.c[7] = 0.785398 * -1.092548;
 		coefficients.c[8] = 0.785398 * 0.546274;
 		
-		R = shMul(R, coefficients);
-		G = shMul(G, coefficients);
-		B = shMul(B, coefficients);
+		R = sh_mul(R, coefficients);
+		G = sh_mul(G, coefficients);
+		B = sh_mul(B, coefficients);
 		
-		pc.shBuffer.rCoefficients = R;
-		pc.shBuffer.gCoefficients = G;
-		pc.shBuffer.bCoefficients = B;
+		sh_buffer.r_coefficients = R;
+		sh_buffer.g_coefficients = G;
+		sh_buffer.b_coefficients = B;
 	}
 }

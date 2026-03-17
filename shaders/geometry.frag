@@ -7,17 +7,17 @@
 #include "bindings.glsl"
 #include "buffer_references.glsl"
 
-layout (location = 0) in vec3 inNormal;
-layout (location = 1) in vec2 inUV;
-layout (location = 2) in vec4 inTangent;
-layout (location = 3) in flat uint inMaterialID;
-layout (location = 4) in vec4 inClipPos;
-layout (location = 5) in vec4 inPrevClipPos;
+layout (location = 0) in vec3 in_normal;
+layout (location = 1) in vec2 in_uv;
+layout (location = 2) in vec4 in_tangent;
+layout (location = 3) in flat uint in_material_id;
+layout (location = 4) in vec4 in_clip_pos;
+layout (location = 5) in vec4 in_prev_clip_pos;
 
-layout (location = 0) out vec4 outAlbedo;
-layout (location = 1) out vec4 outNormal;
-layout (location = 2) out vec2 outMetalRoughness;
-layout (location = 3) out vec2 outVelocity;
+layout (location = 0) out vec4 out_albedo;
+layout (location = 1) out vec4 out_normal;
+layout (location = 2) out vec2 out_metal_roughness;
+layout (location = 3) out vec2 out_velocity;
 
 // 1 - OPAQUE
 // 0 - MASK
@@ -25,93 +25,91 @@ layout (constant_id = 0) const int OPAQUE = 1;
 
 layout( push_constant ) uniform constants
 {
-	//ObjectBuffer objectBuffer;
-	//VertexBuffer vertexBuffer;
-	//MeshTaskBuffer meshTaskBuffer;
-	//MeshletBuffer meshletBuffer;
-	//MeshletIndicesBuffer meshletIndicesBuffer;
-	//ClusterIndicesBuffer clusterIndicesBuffer; 
-	uint padding[6 * 2];
-	MaterialBuffer materialBuffer;
-	//OITBuffer oitBuffer;
-	uint padding2[1 * 2];
-	uint debugMeshlets;
-	vec2 jitterOffset;
-} pc;
+	ObjectBuffer object_buffer;
+	VertexBuffer vertex_buffer;
+	MeshTaskBuffer mesh_task_buffer;
+	MeshletBuffer meshlet_buffer;
+	MeshletIndicesBuffer meshlet_indices_buffer;
+	ClusterIndicesBuffer cluster_indices_buffer; 
+	MaterialBuffer material_buffer;
+	OITBuffer oit_buffer;
+	uint debug_meshlets;
+	vec2 jitter_offset;
+};
 
 #define PBR
 
 void main() 
 {	
-	MaterialData m = pc.materialBuffer.materials[inMaterialID];
+	MaterialData m = material_buffer.materials[in_material_id];
 	
-	vec4 albedo = m.baseColorFactor;
-	if (m.diffuseID != 0)
+	vec4 albedo = m.base_color_factor;
+	if (m.diffuse_id != 0)
 	{
-		vec4 sampledAlbedo = texture(sampler2D(textures[m.diffuseID], samplers[LINEAR_SAMPLER]), inUV);
+		vec4 sampled_albedo = texture(sampler2D(textures[m.diffuse_id], samplers[LINEAR_SAMPLER]), in_uv);
 		
 		if (OPAQUE == 0)
 		{
-			if (sampledAlbedo.a < 0.5)
+			if (sampled_albedo.a < 0.5)
 				discard;
 		}
 		
-		albedo *= sampledAlbedo;
+		albedo *= sampled_albedo;
 	}
 	
 	vec3 N;
 	float metallic;
 	float roughness;
 #ifdef PBR
-	//N = inNormal; 
-	N = normalize(inNormal); // TODO: mikktspace convention is NOT to normalize. we normalize here as khronos sponza breaks iirc?
+	//N = in_normal; 
+	N = normalize(in_normal); // TODO: mikktspace convention is NOT to normalize. we normalize here as khronos sponza breaks iirc?
 	
 	if (OPAQUE == 0)
 	{
 		N = gl_FrontFacing ? N : -N;
 	}
 	
-	if (m.normalID != 0)
+	if (m.normal_id != 0)
 	{
-		vec3 T = normalize(inTangent.xyz); // TODO: mikktspace convention is NOT to normalize. we normalize here as khronos sponza breaks iirc?
-		//vec3 T = inTangent.xyz;
-		float sign = inTangent.w; // sign is flipped during tangent generation so mikktspace is consistent with glTF handedness
+		vec3 T = normalize(in_tangent.xyz); // TODO: mikktspace convention is NOT to normalize. we normalize here as khronos sponza breaks iirc?
+		//vec3 T = in_tangent.xyz;
+		float sign = in_tangent.w; // sign is flipped during tangent generation so mikktspace is consistent with glTF handedness
 		
 		if (OPAQUE == 0)
 			sign = gl_FrontFacing ? sign : -sign;
 		
 		vec3 B = sign * cross(N, T);
 		
-		vec3 shadingNormal = texture(sampler2D(textures[m.normalID], samplers[LINEAR_SAMPLER]), inUV).xyz;
-		shadingNormal = shadingNormal * 2.0 - 1.0;
-		N = normalize(shadingNormal.x * T.xyz + shadingNormal.y * B + shadingNormal.z * N);
+		vec3 shading_normal = texture(sampler2D(textures[m.normal_id], samplers[LINEAR_SAMPLER]), in_uv).xyz;
+		shading_normal = shading_normal * 2.0 - 1.0;
+		N = normalize(shading_normal.x * T.xyz + shading_normal.y * B + shading_normal.z * N);
 	}
 	
-	metallic = m.metallicFactor;
-	float perceptualRoughness = m.roughnessFactor;
-	vec2 metalRoughness = vec2(0.0);
-	if (m.metalRoughnessID != 0)
+	metallic = m.metallic_factor;
+	float perceptual_roughness = m.roughness_factor;
+	vec2 metal_roughness = vec2(0.0);
+	if (m.metalroughness_id != 0)
 	{
-		metalRoughness = texture(sampler2D(textures[m.metalRoughnessID], samplers[LINEAR_SAMPLER]), inUV).bg;
-		metallic *= metalRoughness.x;
-		perceptualRoughness *= metalRoughness.y;
+		metal_roughness = texture(sampler2D(textures[m.metalroughness_id], samplers[LINEAR_SAMPLER]), in_uv).bg;
+		metallic *= metal_roughness.x;
+		perceptual_roughness *= metal_roughness.y;
 	}
-	perceptualRoughness = max(perceptualRoughness, 0.045); // frostbite engine clamp value for analytical lights (fp32)
+	perceptual_roughness = max(perceptual_roughness, 0.045); // frostbite engine clamp value for analytical lights (fp32)
 #else
-	N = normalize(inNormal); 
+	N = normalize(in_normal); 
 #endif
 
-    vec2 currentNdc = inClipPos.xy / inClipPos.w;
-    vec2 previousNdc = inPrevClipPos.xy / inPrevClipPos.w;
+    vec2 current_ndc = in_clip_pos.xy / in_clip_pos.w;
+    vec2 previous_ndc = in_prev_clip_pos.xy / in_prev_clip_pos.w;
 
-    vec2 velocity = currentNdc - previousNdc;
+    vec2 velocity = current_ndc - previous_ndc;
     velocity = velocity * 0.5 + 0.5;
     velocity.y *= -1.0; // flip for velocity in uv space
 
-    velocity -= pc.jitterOffset;
+    velocity -= jitter_offset;
 
-    outAlbedo = albedo;
-    outNormal = vec4(N, 1);
-    outMetalRoughness = vec2(metallic, perceptualRoughness);
-    outVelocity = vec2(velocity);
+    out_albedo = albedo;
+    out_normal = vec4(N, 1);
+    out_metal_roughness = vec2(metallic, perceptual_roughness);
+    out_velocity = vec2(velocity);
 }

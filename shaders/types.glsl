@@ -32,10 +32,10 @@ struct ObjectData
 	float scale;
 	vec4 orientation;
 	
-	uint meshID;
-	uint materialID;
-	uint meshletBitOffset;
-	uint postPass;
+	uint mesh_id;
+	uint material_id;
+	uint meshlet_bit_offset;
+	uint post_pass;
 };
 
 struct Meshlet
@@ -43,19 +43,19 @@ struct Meshlet
 	float16_t cx, cy, cz;
 	float16_t radius;
 	
-	uint dataOffset; // index into MeshletIndices
-	uint8_t vertexCount; 
-	uint8_t triangleCount; 
+	uint data_offset; // index into MeshletIndices
+	uint8_t vertex_count;
+	uint8_t triangle_count;
 	uint8_t padding[2];
 };
 
 struct MeshLod
 {
-	uint firstIndex;
+	uint first_index;
 	uint count;
 	float error;
-	uint meshletOffset; // index into Meshlets, which has triangle count, vertices count and offset into Meshlet indices buffer
-	uint meshletCount;
+	uint meshlet_offset; // index into Meshlets, which has triangle count, vertices count and offset into Meshlet indices buffer
+	uint meshlet_count;
 };
 
 struct MeshData
@@ -65,26 +65,26 @@ struct MeshData
 	
 	MeshLod lods[8];
 	
-	uint lodCount;
-	uint vertexOffset;
+	uint lod_count;
+	uint vertex_offset;
 	uint padding[2];
 };
 
 struct DrawCommand
 {
-	uint indexCount;
-	uint instanceCount;
-	uint firstIndex;
-	uint vertexOffset;
-	uint firstInstance;
+	uint index_count;
+	uint instance_count;
+	uint first_index;
+	uint vertex_offset;
+	uint first_instance;
 };
 
 struct MeshTaskCommand
 {
-	uint meshletOffset;
-	uint objectId;
-	uint meshletVisibilityOffset;
-	uint meshletCount;
+	uint meshlet_offset;
+	uint object_id;
+	uint meshlet_visibility_offset;
+	uint meshlet_count;
 };
 
 struct Vertex
@@ -103,14 +103,14 @@ struct Vertex
 
 struct MaterialData
 {
-	vec4 baseColorFactor;
-	float metallicFactor;
-	float roughnessFactor;
-	uint diffuseID;
-	uint metalRoughnessID;
-	uint normalID;
-	uint occlusionID;
-	uint emissiveID;
+	vec4 base_color_factor;
+	float metallic_factor;
+	float roughness_factor;
+	uint diffuse_id;
+	uint metalroughness_id;
+	uint normal_id;
+	uint occlusion_id;
+	uint emissive_id;
 };
 
 #ifdef SHADOW_CULL
@@ -120,8 +120,8 @@ struct MaterialData
 #endif
 struct DrawCommands
 {
-	uint opaqueCount;
-	uint alphaClipCount;
+	uint opaque_count;
+	uint alpha_clip_count;
 	DrawCommand commands[MAX_DRAW_COMMANDS]; // shadow_cull is using 400000 as we cull then render opaque & alphaclip together. main view implements alphaclip as third pass (late only).
 };
 

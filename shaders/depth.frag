@@ -8,15 +8,14 @@
 
 layout (push_constant) uniform constants
 {
-	mat4 viewproj;
-	MaterialBuffer materialBuffer;
-//	ObjectBuffer objectBuffer;
-//	VertexBuffer vertexBuffer;
-	uint padding[2 * 2];
-} pc;
+	mat4 view_proj;
+	MaterialBuffer material_buffer;
+	ObjectBuffer object_buffer;
+	VertexBuffer vertex_buffer;
+};
 
-layout (location = 0) in vec2 inUV;
-layout (location = 1) flat in uint inMaterialID;
+layout (location = 0) in vec2 in_uv;
+layout (location = 1) flat in uint in_material_id;
 
 // 1 - OPAQUE
 // 0 - MASK
@@ -26,11 +25,11 @@ void main()
 {
 	if (OPAQUE == 0)
 	{
-		MaterialData m = pc.materialBuffer.materials[inMaterialID];
+		MaterialData m = material_buffer.materials[in_material_id];
 			
-		vec4 albedo = m.baseColorFactor;
-		if (m.diffuseID != 0)
-			albedo *= texture(sampler2D(textures[m.diffuseID], samplers[LINEAR_SAMPLER]), inUV);
+		vec4 albedo = m.base_color_factor;
+		if (m.diffuse_id != 0)
+			albedo *= texture(sampler2D(textures[m.diffuse_id], samplers[LINEAR_SAMPLER]), in_uv);
 			
 		if (albedo.a < 0.5)
 			discard;

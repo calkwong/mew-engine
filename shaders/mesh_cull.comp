@@ -11,20 +11,20 @@ layout (local_size_x = 256) in;
 layout(push_constant) uniform constants
 {
 	mat4 view;
-	vec4 frustumPlanes;
+	vec4 frustum_planes;
 	
-	ObjectBuffer objectBuffer;
-	MeshBuffer meshBuffer;
-	IndicesBuffer indicesBuffer;
-	DrawCommandsBuffer drawBuffer;
-	DispatchBuffer dispatchBuffer;
-	VisibilityBuffer visBuffer;
-	MeshTaskBuffer meshTaskBuffer;
+	ObjectBuffer object_buffer;
+	MeshBuffer mesh_buffer;
+	MeshIndicesBuffer mesh_indices_buffer;
+	DrawCommandsBuffer draw_buffer;
+	DispatchBuffer dispatch_buffer;
+	VisibilityBuffer vis_buffer;
+	MeshTaskBuffer mesh_task_buffer;
 	
 	uint count;
 	uint late;
-	uint textureId;
-	uint occlusionEnabled;
+	uint texture_id;
+	uint occlusion_enabled;
 	
 	float p00;
 	float p11;
@@ -32,16 +32,16 @@ layout(push_constant) uniform constants
 	float zfar; // this is draw distance
 	
 	vec2 resolution;
-	float textureLod;
-	float lodDistanceFactor;
-	uint lodEnabled;
-	uint taskSubmit;
-	uint postPass;
-} pc;
+	float texture_lod;
+	float lod_distance_factor;
+	uint lod_enabled;
+	uint task_submit;
+	uint post_pass;
+};
 
 // 2D Polyhedral Bounds of a Clipped, Perspective-Projected 3D Sphere. Michael Mara, Morgan McGuire. 2013
 // https://zeux.io/2023/01/12/approximate-projected-bounds/
-bool projectSphere(vec3 c, float r, float znear, float P00, float P11, out vec4 aabb)
+bool project_sphere(vec3 c, float r, float znear, float P00, float P11, out vec4 aabb)
 {
 	if (c.z < r + znear)
 		return false;
@@ -64,65 +64,65 @@ bool projectSphere(vec3 c, float r, float znear, float P00, float P11, out vec4 
     return true;
 }
 
-bool frustumCulled(vec3 center, float radius)
+bool frustum_culled(vec3 center, float radius)
 {
 	bool visible = true;
 	
 	// symmetrical sphere-plane distance test
-	visible = visible && (center.z * pc.frustumPlanes.y - abs(center.x) * pc.frustumPlanes.x) >= -radius;
-	visible = visible && (center.z * pc.frustumPlanes.w - abs(center.y) * pc.frustumPlanes.z) >= -radius;
-	visible = visible && (center.z - radius <= -pc.znear) && (center.z + radius >= -pc.zfar);	
+	visible = visible && (center.z * frustum_planes.y - abs(center.x) * frustum_planes.x) >= -radius;
+	visible = visible && (center.z * frustum_planes.w - abs(center.y) * frustum_planes.z) >= -radius;
+	visible = visible && (center.z - radius <= -znear) && (center.z + radius >= -zfar);	
 		
 	return !visible;
 }
 
-bool occlusionCulled(vec3 center, float radius)
+bool occlusion_culled(vec3 center, float radius)
 {
 	vec4 aabb;
 	
-	if (projectSphere(vec3(center.x, center.y, -center.z), radius, pc.znear, pc.p00, pc.p11, aabb))
+	if (project_sphere(vec3(center.x, center.y, -center.z), radius, znear, p00, p11, aabb))
 	{
-		vec2 pixelSize = (aabb.zw - aabb.xy) * pc.resolution; 
+		vec2 pixel_size = (aabb.zw - aabb.xy) * resolution; 
 		
-		float max_dim = max(pixelSize.x, pixelSize.y);
+		float max_dim = max(pixel_size.x, pixel_size.y);
 		
 		float mip = ceil(log2(max_dim));
-		mip = min(mip, pc.textureLod); // TODO: PC
+		mip = min(mip, texture_lod); 
 		
-		float depth = textureLod(sampler2D(textures[pc.textureId], samplers[DEPTH_REDUCTION_SAMPLER]), (aabb.zw + aabb.xy) * 0.5, mip).r;
+		float depth = textureLod(sampler2D(textures[texture_id], samplers[DEPTH_REDUCTION_SAMPLER]), (aabb.zw + aabb.xy) * 0.5, mip).r;
 		
-		float depthSphere = pc.znear / (-center.z - radius); 
+		float depth_sphere = znear / (-center.z - radius); 
 		
-		return depthSphere < depth; // reverse depth
+		return depth_sphere < depth; // reverse depth
 	}
 }
 
 void main()
 {
-	uint globalId = gl_GlobalInvocationID.x;
+	uint global_id = gl_GlobalInvocationID.x;
 	
-	if (globalId >= pc.count)
+	if (global_id >= count)
 		return;
 		
-	uint id = pc.indicesBuffer.indices[globalId];
+	uint id = mesh_indices_buffer.indices[global_id];
 	
-	bool late = pc.late == 1;
+	bool late = late == 1;
 	
-	// TODO: visBuffer using 4 bytes instead of 1 bit for visibility
-	// TODO: can potentially skip this for pc.postPass != 0 (masked, transparent)
-	bool visibleLastFrame = pc.visBuffer.visible[id] == 1;
+	// TODO: vis_buffer using 4 bytes instead of 1 bit for visibility
+	// TODO: can potentially skip this for post_pass != 0 (masked, transparent)
+	bool visible_last_frame = vis_buffer.visible[id] == 1;
 	
-	if (!late && !visibleLastFrame)
+	if (!late && !visible_last_frame)
 		return;
 		
-	ObjectData obj = pc.objectBuffer.objects[id];
+	ObjectData obj = object_buffer.objects[id];
 
-	uint meshID = obj.meshID;
-	MeshData mesh = pc.meshBuffer.meshes[meshID];
+	uint mesh_id = obj.mesh_id;
+	MeshData mesh = mesh_buffer.meshes[mesh_id];
 
 	vec3 mpos = mesh.center;
-	vec3 center = rotateQuat(mpos, obj.orientation) * obj.scale + obj.translation; // world space
-	center = vec3(pc.view * vec4(center, 1.0)); // view space
+	vec3 center = rotate_quat(mpos, obj.orientation) * obj.scale + obj.translation; // world space
+	center = vec3(view * vec4(center, 1.0)); // view space
 
 	float radius = mesh.radius;
 	
@@ -138,69 +138,69 @@ void main()
 	float maxScale = obj.scale;
 	radius = radius * maxScale;
 	
-	bool visible = !frustumCulled(center, radius);
-	bool shouldDraw = visible;
+	bool visible = !frustum_culled(center, radius);
+	bool should_draw = visible;
 	
 	if (late && visible)
 	{
-		if (pc.occlusionEnabled == 1)
-			visible = visible && !occlusionCulled(center, radius);
-		shouldDraw = (pc.taskSubmit == 0) ? visible && (!visibleLastFrame || pc.postPass != 0) : visible; // TODO: verify we can remove postpass check here as we dispatch by geometry type?
+		if (occlusion_enabled == 1)
+			visible = visible && !occlusion_culled(center, radius);
+		should_draw = (task_submit == 0) ? visible && (!visible_last_frame || post_pass != 0) : visible; // TODO: verify we can remove postpass check here as we dispatch by geometry type?
 	}
 	
-	if (shouldDraw)
+	if (should_draw)
 	{
 		// automatic LOD selection - at distance d, how many world space units does each pixel cover? 
 		// is the absolute error computed (simplifyscale * result_error) less visible than error above? if so, move onto higher LOD
 		float d = max(0.0, length(center) - radius);
-		float e = d * pc.lodDistanceFactor / maxScale;
+		float e = d * lod_distance_factor / maxScale;
 		
 		uint index = 0;
-		if (pc.lodEnabled == 1) // TODO: move above into this block?
+		if (lod_enabled == 1) // TODO: move above into this block?
 		{
-			for (uint i = 0; i < mesh.lodCount; i++)
+			for (uint i = 0; i < mesh.lod_count; i++)
 			{
 				index = e >= mesh.lods[i].error ? i : index;
 			}
 		}
 		
 		// TODO: inspired by https://github.com/expenses/lighthugger/blob/main/src/shaders/common/prefix_sum.glsl
-		// - prefixSum buffer storing instanceId, inclusive sum of meshletCount, and another new variable to account for LOD offsets to correctly index into meshlet buffer
-		// - dispatchBuffer needs to be handled in a new compute shader
+		// - prefixSum buffer storing instanceId, inclusive sum of meshlet_count, and another new variable to account for LOD offsets to correctly index into meshlet buffer
+		// - dispatch_buffer needs to be handled in a new compute shader
 		// - meshletBitOffset/meshletVisibilityOffset obsolete as we can look into object/instanceBuffer for buffer offset + local offset computed from prefixSum?
 		// - so 4 uints down to 3 uints per meshtask, on top of 1 meshtask command PER mesh?
 		// - meshtask buffer replaced by prefixSum buffer, and each entry maps to a single visible mesh, no longer ceil(meshlets/32) entries
 		
-		if (pc.taskSubmit == 1)
+		if (task_submit == 1)
 		{
-			uint meshletCount = mesh.lods[index].meshletCount;
-			uint meshletOffset = mesh.lods[index].meshletOffset;
+			uint meshlet_count = mesh.lods[index].meshlet_count;
+			uint meshlet_offset = mesh.lods[index].meshlet_offset;
 
 			// experiment 32 meshlets per workgroup, each workgroup limited to meshlets from a single mesh
-			uint tasks = (meshletCount + 31) / 32;
-			uint count = atomicAdd(pc.dispatchBuffer.workgroupX, tasks); 
-			pc.dispatchBuffer.workgroupY = 1;
-			pc.dispatchBuffer.workgroupZ = 1;
+			uint tasks = (meshlet_count + 31) / 32;
+			uint count = atomicAdd(dispatch_buffer.workgroup_x, tasks);
+			dispatch_buffer.workgroup_y = 1;
+			dispatch_buffer.workgroup_z = 1;
 			for (uint i = 0; i < tasks; i++)
 			{
-				pc.meshTaskBuffer.commands[count + i].meshletOffset = meshletOffset + i * 32;
-				pc.meshTaskBuffer.commands[count + i].objectId = id;
-				pc.meshTaskBuffer.commands[count + i].meshletVisibilityOffset = obj.meshletBitOffset + i * 32;
-				pc.meshTaskBuffer.commands[count + i].meshletCount = min(32, meshletCount - i * 32);
+				mesh_task_buffer.commands[count + i].meshlet_offset = meshlet_offset + i * 32;
+				mesh_task_buffer.commands[count + i].object_id = id;
+				mesh_task_buffer.commands[count + i].meshlet_visibility_offset = obj.meshlet_bit_offset + i * 32;
+				mesh_task_buffer.commands[count + i].meshlet_count = min(32, meshlet_count - i * 32);
 			}
 		}
 		else
 		{
 			// TODO: currently, third pass for masked geometry is only culling for late==1. it is incremented in opaqueCount. make a proper distinction when we cull masked geometry in early and late?
-			uint count = atomicAdd(pc.drawBuffer.draws[0].opaqueCount, 1);
-			pc.drawBuffer.draws[0].commands[count].indexCount = mesh.lods[index].count;
-			pc.drawBuffer.draws[0].commands[count].instanceCount = 1;
-			pc.drawBuffer.draws[0].commands[count].firstIndex = mesh.lods[index].firstIndex;
-			pc.drawBuffer.draws[0].commands[count].vertexOffset = mesh.vertexOffset;
-			pc.drawBuffer.draws[0].commands[count].firstInstance = id;
+			uint count = atomicAdd(draw_buffer.draws[0].opaque_count, 1);
+			draw_buffer.draws[0].commands[count].index_count = mesh.lods[index].count;
+			draw_buffer.draws[0].commands[count].instance_count = 1;
+			draw_buffer.draws[0].commands[count].first_index = mesh.lods[index].first_index;
+			draw_buffer.draws[0].commands[count].vertex_offset = mesh.vertex_offset;
+			draw_buffer.draws[0].commands[count].first_instance = id;
 		}
 	}
 	
 	if (late)
-		pc.visBuffer.visible[id] = uint(visible); 
+		vis_buffer.visible[id] = uint(visible); 
 }

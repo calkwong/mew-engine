@@ -2,7 +2,7 @@
 #define PI 3.14159265359
 #endif
 
-SH9 shMul(SH9 a, SH9 b)
+SH9 sh_mul(SH9 a, SH9 b)
 {
 	for (int i = 0; i < 9; i++)
 	{
@@ -12,7 +12,7 @@ SH9 shMul(SH9 a, SH9 b)
 	return a;
 }
 
-SH9 shSum(SH9 a, SH9 b)
+SH9 sh_sum(SH9 a, SH9 b)
 {
 	for (int i = 0; i < 9; i++)
 	{
@@ -22,7 +22,7 @@ SH9 shSum(SH9 a, SH9 b)
 	return a;
 }
 
-SH9 shScale(SH9 a, float value)
+SH9 sh_scale(SH9 a, float value)
 {
 	for (int i = 0; i < 9; i++)
 	{
@@ -32,7 +32,7 @@ SH9 shScale(SH9 a, float value)
 	return a;
 }
 
-float shDot(SH9 a, SH9 b)
+float sh_dot(SH9 a, SH9 b)
 {
 	float value = 0.0;
 
@@ -44,7 +44,7 @@ float shDot(SH9 a, SH9 b)
 	return value;
 }
 
-SH9 shBasis(vec3 dir)
+SH9 sh_basis(vec3 dir)
 {
 	float x = dir.x;
 	float y = dir.y;
@@ -64,7 +64,7 @@ SH9 shBasis(vec3 dir)
 	return base;
 }
 
-SH9 shZero()
+SH9 sh_zero()
 {
 	SH9 sh;
 	for (int i = 0; i < 9; i++)
@@ -76,7 +76,7 @@ SH9 shZero()
 }
 
 // https://www.pbr-book.org/3ed-2018/Monte_Carlo_Integration/2D_Sampling_with_Multidimensional_Transformations#fragment-SamplingFunctionDefinitions-6
-vec3 uniformSampleSphere(float az, float ze)
+vec3 uniform_sample_sphere(float az, float ze)
 {
 	float phi = 2.0 * PI * az;
 	float z = 1.0 - 2.0 * ze; // mapping from hemisphere -> sphere
@@ -85,7 +85,7 @@ vec3 uniformSampleSphere(float az, float ze)
 	return vec3(r * cos(phi), z, r * sin(phi));
 }
 
-vec3 evaluateSH(SH9 rCoefficients, SH9 gCoefficients, SH9 bCoefficients, vec3 direction)
+vec3 evaluate_sh(SH9 r_coefficients, SH9 g_coefficients, SH9 b_coefficients, vec3 direction)
 {
 	SH9 coefficients;
 	coefficients.c[0] = 0.282095; 
@@ -98,13 +98,13 @@ vec3 evaluateSH(SH9 rCoefficients, SH9 gCoefficients, SH9 bCoefficients, vec3 di
 	coefficients.c[7] = -1.092548;
 	coefficients.c[8] = 0.546274;
 
-	SH9 base = shBasis(direction);
+	SH9 base = sh_basis(direction);
 	
-	base = shMul(coefficients, base);
+	base = sh_mul(coefficients, base);
 	
-	float r = max(shDot(rCoefficients, base), 0.0);
-	float g = max(shDot(gCoefficients, base), 0.0);
-	float b = max(shDot(bCoefficients, base), 0.0);
+	float r = max(sh_dot(r_coefficients, base), 0.0);
+	float g = max(sh_dot(g_coefficients, base), 0.0);
+	float b = max(sh_dot(b_coefficients, base), 0.0);
 	
 	return vec3(r, g, b);
 }

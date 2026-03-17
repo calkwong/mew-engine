@@ -8,13 +8,13 @@ layout (local_size_x = 32, local_size_y = 32) in;
 
 layout (push_constant) uniform constants
 {
-	vec2 imageSize;
+	vec2 image_size;
 	uint texture_id;
 	uint image_id;
 	float roughness;
-} pc;
+};
 
-const float sampleDelta = 0.025; 
+const float sample_delta = 0.025; 
 const float PI = 3.14159265359;
 
 void main()
@@ -23,8 +23,8 @@ void main()
 
 	vec3 direction = vec3(0.0);
 
-	vec2 texelCoord = vec2(gl_GlobalInvocationID.xy);
-	vec2 uv = (texelCoord + vec2(0.5)) / pc.imageSize;
+	vec2 texel_coord = vec2(gl_GlobalInvocationID.xy);
+	vec2 uv = (texel_coord + vec2(0.5)) / image_size;
 	uv = uv * 2.0 - 1.0;
 
 	uint face = gl_WorkGroupID.z;
@@ -45,20 +45,20 @@ void main()
 	vec3 T = normalize(cross(up, N));
 	vec3 B = cross(N, T);
 
-	uint sampleCount = 0;
-	for (float phi = 0.0; phi < (PI * 2.0); phi += sampleDelta)
+	uint sample_count = 0;
+	for (float phi = 0.0; phi < (PI * 2.0); phi += sample_delta)
 	{
-		for (float theta = 0.0; theta < (PI * 0.5); theta += sampleDelta)
+		for (float theta = 0.0; theta < (PI * 0.5); theta += sample_delta)
 		{
-			vec3 tempVec = cos(phi) * T + sin(phi) * B;
-			vec3 sampleVec = cos(theta) * N + sin(theta) * tempVec;
+			vec3 temp_vec = cos(phi) * T + sin(phi) * B;
+			vec3 sample_vec = cos(theta) * N + sin(theta) * temp_vec;
 
-			irradiance += texture(samplerCube(textures_cube[pc.texture_id], samplers[CUBE_SAMPLER]), sampleVec).xyz * cos(theta) * sin(theta); 
-			sampleCount++;
+			irradiance += texture(samplerCube(textures_cube[texture_id], samplers[CUBE_SAMPLER]), sample_vec).xyz * cos(theta) * sin(theta); 
+			sample_count++;
 		}
 	}
 
-	irradiance = PI * irradiance / float(sampleCount);
+	irradiance = PI * irradiance / float(sample_count);
 	
-	imageStore(images_array_rgba32f[pc.image_id], ivec3(texelCoord, face), vec4(irradiance, 1));
+	imageStore(images_array_rgba32f[image_id], ivec3(texel_coord, face), vec4(irradiance, 1));
 }

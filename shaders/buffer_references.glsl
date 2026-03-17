@@ -29,9 +29,9 @@ layout(buffer_reference, std430) buffer LightCountBuffer
 
 layout(buffer_reference, std430) buffer SHBuffer
 {
-	SH9 rCoefficients;
-	SH9 gCoefficients;
-	SH9 bCoefficients;
+	SH9 r_coefficients;
+	SH9 g_coefficients;
+	SH9 b_coefficients;
 };
 
 layout(buffer_reference, std430) buffer LuminanceBuffer
@@ -41,7 +41,7 @@ layout(buffer_reference, std430) buffer LuminanceBuffer
 
 layout(buffer_reference, std430) buffer LuminanceAvgBuffer
 {
-	float luminanceAvg;
+	float luminance_avg;
 };
 
 layout(buffer_reference, std430) readonly buffer VertexBuffer
@@ -59,7 +59,7 @@ layout(buffer_reference, std430) buffer MeshBuffer
 	MeshData meshes[];
 };
 
-layout(buffer_reference, std430) buffer IndicesBuffer
+layout(buffer_reference, std430) buffer MeshIndicesBuffer
 { 
 	uint indices[];
 };
@@ -71,9 +71,9 @@ layout(buffer_reference, std430) buffer DrawCommandsBuffer
 
 layout(buffer_reference, std430) buffer DispatchBuffer
 {
-	uint workgroupX;
-	uint workgroupY;
-	uint workgroupZ;
+	uint workgroup_x;
+	uint workgroup_y;
+	uint workgroup_z;
 };
 
 layout(buffer_reference, std430) buffer MeshTaskBuffer
@@ -93,9 +93,9 @@ layout(buffer_reference, std430) buffer ClusterIndicesBuffer
 
 layout(buffer_reference, std430) buffer ClusterCountBuffer
 {
-	uint workgroupX;
-	uint workgroupY;
-	uint workgroupZ;
+	uint workgroup_x;
+	uint workgroup_y;
+	uint workgroup_z;
 };
 
 layout(buffer_reference, std430) buffer MeshletBuffer

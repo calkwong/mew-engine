@@ -10,19 +10,19 @@ layout (local_size_x = 32, local_size_y = 32) in;
 
 layout( push_constant ) uniform constants
 {
-	LuminanceAvgBuffer luminanceAvgBuffer;
-	vec2 screenSize;
-	uint imageId;
+	LuminanceAvgBuffer luminance_avg_buffer;
+	vec2 screen_size;
+	uint image_id;
 	uint autoexpose; 
-	uint tonemapFunc;
-} pc;
+	uint tonemap_func;
+};
 
 // http://filmicworlds.com/blog/filmic-tonemapping-operators/
-vec3 filmicOptimized(vec3 c)
+vec3 filmic_optimized(vec3 c)
 {
 	vec3 x = max(vec3(0.0), c - 0.004);
 	vec3 color = (x * ( 6.2 * x + 0.5)) / (x * (6.2 * x +1.7) + 0.06);
-	color = srgbToLinear(color);
+	color = srgb_to_linear(color);
 	return color;
 }
 
@@ -33,30 +33,30 @@ vec3 reinhard(vec3 c)
 
 void main()
 {
-	ivec2 texelCoord = ivec2(gl_GlobalInvocationID.xy);
+	ivec2 texel_coord = ivec2(gl_GlobalInvocationID.xy);
 	
-	if (texelCoord.x < pc.screenSize.x && texelCoord.y < pc.screenSize.y)
+	if (texel_coord.x < screen_size.x && texel_coord.y < screen_size.y)
 	{
-		vec3 color = imageLoad(images_rgba32f[pc.imageId], texelCoord).rgb;
+		vec3 color = imageLoad(images_rgba32f[image_id], texel_coord).rgb;
 
 		float exposure = 1.0;
 		
 		// automatic exposure, see eq. 112: https://google.github.io/filament/Filament.md.html#imagingpipeline/physicallybasedcamera/automaticexposure
 		// also, https://bruop.github.io/exposure/
-		if (pc.autoexpose == 1.0)
+		if (autoexpose == 1.0)
 		{
-			float Lavg = pc.luminanceAvgBuffer.luminanceAvg;
+			float Lavg = luminance_avg_buffer.luminance_avg;
 			float Lmax = 9.6 * Lavg;
 			exposure = 1.0 / Lmax;
 		}
 		
-		switch (pc.tonemapFunc)
+		switch (tonemap_func)
 		{
 			case 0: color.xyz = reinhard(color.xyz * exposure); break;
-			case 1: color.xyz = filmicOptimized(color.xyz * exposure); break;
+			case 1: color.xyz = filmic_optimized(color.xyz * exposure); break;
 			default: break; // clamp
 		}
 		
-		imageStore(images_rgba32f[pc.imageId], texelCoord, vec4(color, 1.0));
+		imageStore(images_rgba32f[image_id], texel_coord, vec4(color, 1.0));
 	}
 }

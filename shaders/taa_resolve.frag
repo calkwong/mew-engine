@@ -11,14 +11,14 @@
 
 #include "bindings.glsl"
 
-layout (location = 0) in vec2 inUV;
+layout (location = 0) in vec2 in_uv;
 
-layout (location = 0) out vec4 outFragColor;
+layout (location = 0) out vec4 out_color;
 
 layout( push_constant ) uniform constants
 {
-	vec2 screenSize;
-	vec2 currentJitter;
+	vec2 screen_size;
+	vec2 current_jitter;
 	uint color_id;
 	uint accum_id;
 	uint depth_id;
@@ -29,11 +29,11 @@ layout( push_constant ) uniform constants
 	uint ycocg;
 	uint depth_dilation;
 	uint weigh_luminance;
-} pc;
+};
 
 /*
 // https://github.com/TheRealMJP/MSAAFilter/blob/master/MSAAFilter/Resolve.hlsl
-float filterCubic(float x, float B, float C)
+float filter_cubic(float x, float B, float C)
 {
     float y = 0.0f;
     float x2 = x * x;
@@ -46,9 +46,9 @@ float filterCubic(float x, float B, float C)
     return y / 6.0f;
 }
 
-float filterMitchell(float value)
+float filter_mitchell(float value)
 {
-	return filterCubic(value, 1.0 / 3.0, 1.0 / 3.0);
+	return filter_cubic(value, 1.0 / 3.0, 1.0 / 3.0);
 }
 */
 
@@ -80,7 +80,7 @@ vec3 sample_color(uint texture_index, uint sampler_index, vec2 uv)
 {
     vec3 color = texture(sampler2D(textures[texture_index], samplers[sampler_index]), uv).xyz;
 
-    if (pc.ycocg == 1)
+    if (ycocg == 1)
         color = rgb_to_ycocg(color);
 
     return color;
@@ -132,7 +132,7 @@ vec3 sample_texture_catmull_rom(vec2 uv, uint texture_index, vec2 resolution) {
     result += texture(sampler2D(textures[texture_index], samplers[LINEAR_SAMPLER]), vec2(tex_pos_12.x, tex_pos_3.y)).rgb * w12.x * w3.y;
     result += texture(sampler2D(textures[texture_index], samplers[LINEAR_SAMPLER]), vec2(tex_pos_3.x, tex_pos_3.y)).rgb * w3.x * w3.y;
 
-    if (pc.ycocg == 1)
+    if (ycocg == 1)
         result = rgb_to_ycocg(result);
 
     return result;
@@ -158,100 +158,100 @@ vec4 clip_aabb(vec3 aabb_min, vec3 aabb_max, vec4 q, float average_alpha)
 
 void main()
 {
-	vec2 uv = inUV;
+	vec2 uv = in_uv;
 	
 	// depth dilation
-	vec2 velocityUV;
-	if (pc.depth_dilation == 1)
+	vec2 velocity_uv;
+	if (depth_dilation == 1)
 	{
-		float closestDepth = 0.0;
-		vec2 closestUVOffset;
+		float closest_depth = 0.0;
+		vec2 closest_uv_offset;
 		for (int x = -1; x <= 1; x++)
 		{
 			for (int y = -1; y <= 1; y++)
 			{
-				vec2 uvOffset = vec2(x, y) / pc.screenSize;
-				float neighbourDepth = texture(sampler2D(textures[pc.depth_id], samplers[NEAREST_SAMPLER]), uv + uvOffset).r;
-				if (neighbourDepth > closestDepth)
+				vec2 uv_offset = vec2(x, y) / screen_size;
+				float neighbour_depth = texture(sampler2D(textures[depth_id], samplers[NEAREST_SAMPLER]), uv + uv_offset).r;
+				if (neighbour_depth > closest_depth)
 				{
-					closestDepth = neighbourDepth;
-					closestUVOffset = uvOffset;
+					closest_depth = neighbour_depth;
+					closest_uv_offset = uv_offset;
 				}
 			}
 		}
 	
-		velocityUV = texture(sampler2D(textures[pc.velocity_id], samplers[NEAREST_SAMPLER]), uv + closestUVOffset).rg;
+		velocity_uv = texture(sampler2D(textures[velocity_id], samplers[NEAREST_SAMPLER]), uv + closest_uv_offset).rg;
 	}
 	else
 	{
-		velocityUV = texture(sampler2D(textures[pc.velocity_id], samplers[NEAREST_SAMPLER]), uv).rg; 
+		velocity_uv = texture(sampler2D(textures[velocity_id], samplers[NEAREST_SAMPLER]), uv).rg; 
 	}
 	
 	// alternative: blend this with a 5 taps '+' pattern per Karis UE4
 	// no need max(sample, 0.0) to ensure no garbage values?
-	vec3 ctl = sample_color(pc.color_id, NEAREST_SAMPLER, uv + (vec2(-1, 1) / pc.screenSize));
-	vec3 ctc = sample_color(pc.color_id, NEAREST_SAMPLER, uv + (vec2( 0, 1) / pc.screenSize));
-	vec3 ctr = sample_color(pc.color_id, NEAREST_SAMPLER, uv + (vec2( 1, 1) / pc.screenSize));
-	vec3 cml = sample_color(pc.color_id, NEAREST_SAMPLER, uv + (vec2(-1, 0) / pc.screenSize));
-	vec3 cmc = sample_color(pc.color_id, NEAREST_SAMPLER, uv + (vec2( 0, 0) / pc.screenSize));
-	vec3 cmr = sample_color(pc.color_id, NEAREST_SAMPLER, uv + (vec2( 1, 0) / pc.screenSize));
-	vec3 cbl = sample_color(pc.color_id, NEAREST_SAMPLER, uv + (vec2(-1,-1) / pc.screenSize));
-	vec3 cbc = sample_color(pc.color_id, NEAREST_SAMPLER, uv + (vec2( 0,-1) / pc.screenSize));
-	vec3 cbr = sample_color(pc.color_id, NEAREST_SAMPLER, uv + (vec2( 1,-1) / pc.screenSize));
-	vec3 minColor = vec3(9999.0);
-	vec3 maxColor = vec3(-9999.0);
-	minColor = min(ctl, min(ctc, min(ctr, min(cml, min(cmc, min(cmr, min(cbl, min(cbc, cbr))))))));
-	maxColor = max(ctl, max(ctc, max(ctr, max(cml, max(cmc, max(cmr, max(cbl, max(cbc, cbr))))))));
+	vec3 ctl = sample_color(color_id, NEAREST_SAMPLER, uv + (vec2(-1, 1) / screen_size));
+	vec3 ctc = sample_color(color_id, NEAREST_SAMPLER, uv + (vec2( 0, 1) / screen_size));
+	vec3 ctr = sample_color(color_id, NEAREST_SAMPLER, uv + (vec2( 1, 1) / screen_size));
+	vec3 cml = sample_color(color_id, NEAREST_SAMPLER, uv + (vec2(-1, 0) / screen_size));
+	vec3 cmc = sample_color(color_id, NEAREST_SAMPLER, uv + (vec2( 0, 0) / screen_size));
+	vec3 cmr = sample_color(color_id, NEAREST_SAMPLER, uv + (vec2( 1, 0) / screen_size));
+	vec3 cbl = sample_color(color_id, NEAREST_SAMPLER, uv + (vec2(-1,-1) / screen_size));
+	vec3 cbc = sample_color(color_id, NEAREST_SAMPLER, uv + (vec2( 0,-1) / screen_size));
+	vec3 cbr = sample_color(color_id, NEAREST_SAMPLER, uv + (vec2( 1,-1) / screen_size));
+	vec3 min_color = vec3(9999.0);
+	vec3 max_color = vec3(-9999.0);
+	min_color = min(ctl, min(ctc, min(ctr, min(cml, min(cmc, min(cmr, min(cbl, min(cbc, cbr))))))));
+	max_color = max(ctl, max(ctc, max(ctr, max(cml, max(cmc, max(cmr, max(cbl, max(cbc, cbr))))))));
 
 	// alternative: blackman, mitchell filter or average/weighted neighbourhood?
-    vec3 currentColor = cmc;
+    vec3 current_color = cmc;
 
 	// alternative: catmull 5-taps from COD?
-	vec2 reprojectedUV = uv - velocityUV;
-	vec3 previousColor;
-	if (pc.history_filter == 1)
-		previousColor = sample_texture_catmull_rom(reprojectedUV, pc.accum_id, pc.screenSize);
+	vec2 reprojected_uv = uv - velocity_uv;
+	vec3 previous_color;
+	if (history_filter == 1)
+		previous_color = sample_texture_catmull_rom(reprojected_uv, accum_id, screen_size);
 	else
-		previousColor = sample_color(pc.accum_id, LINEAR_SAMPLER, reprojectedUV);
-	vec3 previousColorClamped;
+		previous_color = sample_color(accum_id, LINEAR_SAMPLER, reprojected_uv);
+	vec3 previous_color_clamped;
 	
 	// https://developer.download.nvidia.com/gameworks/events/GDC2016/msalvi_temporal_supersampling.pdf
-	if (pc.variance_clipping == 1)
+	if (variance_clipping == 1)
 	{
 		vec3 m1 = ctl + ctc + ctr + cml + cmc + cmr + cbl + cbc + cbr;
 		vec3 m2 = ctl * ctl + ctc * ctc + ctr * ctr + cml * cml + cmc * cmc + cmr * cmr + cbl * cbl + cbc * cbc + cbr * cbr;
 
-		float rcpSamples = 1.0 / 9.0;
+		float rcp_samples = 1.0 / 9.0;
 		// large gamma - temporally stable results at the cost of increased ghosting; small gamma - lose ability to integrate data over time
 		float gamma = 1.0;
-		vec3 mu = m1 * rcpSamples;
-		vec3 sigma = sqrt(abs((m2 * rcpSamples) - (mu * mu)));
+		vec3 mu = m1 * rcp_samples;
+		vec3 sigma = sqrt(abs((m2 * rcp_samples) - (mu * mu)));
 		vec3 minc = mu - gamma * sigma;
 		vec3 maxc = mu + gamma * sigma;
-		previousColorClamped = clip_aabb(minc, maxc, vec4(clamp(previousColor, minColor, maxColor), 1.0), 1.0).xyz; 
+		previous_color_clamped = clip_aabb(minc, maxc, vec4(clamp(previous_color, min_color, max_color), 1.0), 1.0).xyz; 
 	}
 	else
 	{
-		previousColorClamped = clamp(previousColor, minColor, maxColor);
+		previous_color_clamped = clamp(previous_color, min_color, max_color);
 	}
 
     // TODO: fix flickering
-	float srcWeight = 0.1;
-	float historyWeight = 0.9;
+	float src_weight = 0.1;
+	float history_weight = 0.9;
 	
-	if (pc.weigh_luminance == 1)
+	if (weigh_luminance == 1)
 	{
-		float luminanceSrc = luminance(currentColor);
-		float luminanceHistory = luminance(previousColorClamped);
+		float luminance_src = luminance(current_color);
+		float luminance_history = luminance(previous_color_clamped);
 
-		srcWeight *= 1.0 / (1.0 + luminanceSrc);
-		historyWeight *= 1.0 / (1.0 + luminanceHistory);
+		src_weight *= 1.0 / (1.0 + luminance_src);
+		history_weight *= 1.0 / (1.0 + luminance_history);
 	}
 	
-	vec3 finalColor = (currentColor * srcWeight + previousColorClamped * historyWeight) / max(srcWeight + historyWeight, 0.00001);
+	vec3 final_color = (current_color * src_weight + previous_color_clamped * history_weight) / max(src_weight + history_weight, 0.00001);
 
-	if (pc.ycocg == 1)
-	    finalColor = ycocg_to_rgb(finalColor);
+	if (ycocg == 1)
+	    final_color = ycocg_to_rgb(final_color);
 
-	outFragColor = vec4(finalColor, 1.0);
+	out_color = vec4(final_color, 1.0);
 }

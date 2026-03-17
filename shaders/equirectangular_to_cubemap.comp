@@ -10,13 +10,13 @@ layout (local_size_x = 32, local_size_y = 32) in;
 
 layout (push_constant) uniform constants
 {
-	vec2 imageSize;
+	vec2 image_size;
 	uint texture_id;
 	uint image_id;
 	float roughness;
-} pc;
+};
 
-vec2 sampleSphericalMap(vec3 dir)
+vec2 sample_equirectangular_map(vec3 dir)
 {
 	float u = atan(dir.z, dir.x);
 	float v = asin(dir.y);
@@ -34,8 +34,8 @@ void main()
 {
 	vec3 direction = vec3(0.0);
 
-	vec2 texelCoord = vec2(gl_GlobalInvocationID.xy);
-	vec2 uv = (texelCoord + vec2(0.5)) / pc.imageSize;
+	vec2 texel_coord = vec2(gl_GlobalInvocationID.xy);
+	vec2 uv = (texel_coord + vec2(0.5)) / image_size;
 	uv = uv * 2.0 - 1.0;
 	uv.y *= -1.0; 
 	
@@ -52,7 +52,7 @@ void main()
 		default: direction = vec3(0.0); break; // Should not happen
 	}
 
-	vec2 sample_uv = sampleSphericalMap(direction);
-	vec4 color = texture(sampler2D(textures[pc.texture_id], samplers[LINEAR_SAMPLER]), sample_uv);
-	imageStore(images_array_rgba32f[pc.image_id], ivec3(texelCoord, face), color);
+	vec2 sample_uv = sample_equirectangular_map(direction);
+	vec4 color = texture(sampler2D(textures[texture_id], samplers[LINEAR_SAMPLER]), sample_uv);
+	imageStore(images_array_rgba32f[image_id], ivec3(texel_coord, face), color);
 }

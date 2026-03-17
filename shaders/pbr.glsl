@@ -31,11 +31,11 @@ vec3 F_SchlickRoughness(float u, vec3 f0, float roughness)
 	return f0 + (max(vec3(1.0 - roughness), f0) - f0) * pow(1.0 - u, 5.0);
 }
 
-float getSquareFalloffAttenuation(vec3 distance, float radius)
+float get_square_falloff_attenuation(vec3 distance, float radius)
 {
-	float distanceSquare = dot(distance, distance);
-	float lightInvRadius = 1.0 / radius;
-	float factor = distanceSquare * lightInvRadius * lightInvRadius;
-	float smoothFactor = max(1.0 - factor * factor, 0.0);
-	return (smoothFactor * smoothFactor) / max(distanceSquare, 1e-4);
+	float distance_square = dot(distance, distance);
+	float light_inv_radius = 1.0 / radius;
+	float factor = distance_square * light_inv_radius * light_inv_radius;
+	float smooth_factor = max(1.0 - factor * factor, 0.0);
+	return (smooth_factor * smooth_factor) / max(distance_square, 1e-4);
 }

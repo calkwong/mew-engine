@@ -1,22 +1,22 @@
 #extension GL_EXT_nonuniform_qualifier : require
 
-layout(set = 0, binding = 0) uniform SceneData
+layout(set = 0, binding = 0) uniform Uniforms
 {   
 	mat4 view;
 	mat4 proj;
-	mat4 viewproj;
-	mat4 inverseViewproj;
-	mat4 previousViewproj; 
-	mat4 lightRot; 
-	mat4 shadowTransforms[4];
-	vec4 cascadeSplits;
-	vec4 cameraPos;
-	vec4 sunlightColor;
-	vec4 sunlightDir; //w for sun power
+	mat4 view_proj;
+	mat4 inverse_view_proj;
+	mat4 prev_view_proj;
+	mat4 light_rot;
+	mat4 shadow_transforms[4];
+	vec4 cascade_splits;
+	vec4 camera_pos;
+	vec4 sunlight_color;
+	vec4 sunlight_dir; //w for sun power
 	vec4 textures; // cubemap/skybox, irradiance, prefiltered, brdf
- 	mat4 shadowViews[4]; // for shadow cull
-	vec4 shadowWidths; // for shadow cull, each channel for a diff cascade; TODO: move to pc?
-} sceneData;
+ 	mat4 shadow_views[4]; // for shadow cull
+	vec4 shadow_widths; // for shadow cull, each channel for a diff cascade; TODO: move to pc?
+} uniforms;
 
 layout(set = 1, binding = 0, r32f) uniform image2D images_r32f[];
 layout(set = 1, binding = 0, rgba32f) uniform image2DArray images_array_rgba32f[];
