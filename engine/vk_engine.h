@@ -202,7 +202,7 @@ public:
 	// tracy::VkCtx* tracy_ctx{};
 	RenderScene render_scene{};
 
-	VkPhysicalDeviceProperties props{};
+	VkPhysicalDeviceProperties device_properties{};
 
 	static VulkanEngine& get();
 

@@ -8,7 +8,7 @@
 #include "buffer_references.glsl"
 #include "util.glsl"
 
-layout (local_size_x = 256) in;
+layout (local_size_x = 256, local_size_y = 4) in;
 
 layout(push_constant) uniform constants
 {
@@ -19,32 +19,43 @@ layout(push_constant) uniform constants
 	uint count; 
 	uint lod_enabled;
 	uint map;
+	uint cull;
 };
 
-bool partially_inside_cascade(vec3 center, uint cascade, float radius, float cascade_radius)
+bool partially_inside_cascade(vec3 center_world, float radius, uint cascade_index)
 {
+	vec3 center_view = vec3(uniforms.shadow_views[cascade_index] * vec4(center_world, 1.0)); // light space
+	float cascade_radius = uniforms.shadow_widths[cascade_index];
+
 	bool visible = true;
-	
-	visible = visible && (-abs(center.x) + cascade_radius) >= -radius; 
-	visible = visible && (-abs(center.y) + cascade_radius) >= -radius; 
-	visible = visible && (center.z + radius >= (-2.0 * cascade_radius));// && (center.z - radius <= 0.0);	// disable near plane check for pancaking
-		
+
+	visible = visible && ( (abs(center_view.x) - radius) <= cascade_radius );
+    visible = visible && ( (abs(center_view.y) - radius) <= cascade_radius );
+	visible = visible && (center_view.z + radius >= (-2.0 * cascade_radius)); // no near plane check as we have depthclamp==true
+
 	return visible;
 }
 
 // idea from: https://github.com/expenses/lighthugger/blob/9d6c46b3e339e9673b69b7d9933d6a439051232c/src/shaders/cull_instances.comp
-bool completely_inside_cascade(vec3 world_pos, uint cascade_index, float radius, float cascade_radius)
+// TODO: is this even worth it? unsure if implementation is robust, requires more testing
+bool completely_inside_cascade(vec3 center_world, float radius, uint cascade_index)
 {
-    // view space center
-    vec3 center = vec3(uniforms.shadow_views[cascade_index] * vec4(world_pos, 1.0)); // light space
+    vec3 center_view = vec3(uniforms.shadow_views[cascade_index] * vec4(center_world, 1.0));
+    float cascade_radius = uniforms.shadow_widths[cascade_index];
 
 	bool visible = true;
-	
-	visible = visible && (-abs(center.x) + cascade_radius) >= radius; 
-	visible = visible && (-abs(center.y) + cascade_radius) >= radius; 
-	visible = visible && (center.z - radius >= (-2.0 * cascade_radius));// && (center.z + radius <= 0.0);	// disable near plane check for pancaking
-		
-	return visible;
+
+	visible = visible && ( (abs(center_view.x) + radius) <= cascade_radius );
+    visible = visible && ( (abs(center_view.y) + radius) <= cascade_radius );
+    visible = visible && (center_view.z - radius >= (-2.0 * cascade_radius)); // no near plane check as we have depthclamp==true
+
+    if (visible)
+    {
+        bool inside = center_view.z + radius <= (-2.0 * cascade_radius); // tailored to depthclamp==true
+        return inside;
+    }
+
+    return visible;
 }
 
 const int CASCADE_COUNT = 4;
@@ -70,55 +81,51 @@ void main()
 	float max_scale = obj.scale;
 	radius = radius * max_scale;
 	
-	// TODO: remove the loop and split this into more threads
-	//bool early_out = false;
-	float last_cascade_radius;
-	//for (int cascade_index = 0; cascade_index < CASCADE_COUNT && !early_out; cascade_index++)
-	for (int cascade_index = 0; cascade_index < CASCADE_COUNT; cascade_index++)
-	{
-		float cascade_radius = uniforms.shadow_widths[cascade_index];
-		
-		vec3 mpos = mesh.center;
-		vec3 center = rotate_quat(mpos, obj.orientation) * obj.scale + obj.translation; // world space
-		center = vec3(uniforms.shadow_views[cascade_index] * vec4(center, 1.0)); // light space
-		
-		if (!partially_inside_cascade(center, cascade_index, radius, cascade_radius))
-            continue;
-		
-		// https://learn.microsoft.com/en-us/windows/win32/dxtecharts/cascaded-shadow-maps
-		// this optimization complements map-based selection and is incompatible with interval-based map selection
-		// comment to use interval-based map selection
-		if (map == 1)
-		{
-		    //if (cascade_index != 0 && completely_inside_cascade(mpos, cascade_index - 1, radius, last_cascade_radius))
-			    //early_out = true;
+	uint cascade_index = gl_LocalInvocationID.y;
 
+    float cascade_radius = uniforms.shadow_widths[cascade_index];
+
+    vec3 mpos = mesh.center;
+    vec3 center = rotate_quat(mpos, obj.orientation) * obj.scale + obj.translation; // world space
+
+    if (!partially_inside_cascade(center, radius, cascade_index))
+        return;
+
+    // https://learn.microsoft.com/en-us/windows/win32/dxtecharts/cascaded-shadow-maps
+    // incompatible with interval-based map selection?
+    if (map == 1 && cull == 1)
+    {
+        if (cascade_index > 0 && completely_inside_cascade(center, radius, 0))
+            return;
+
+        if (cascade_index > 1 && completely_inside_cascade(center, radius, 1))
+            return;
+
+        if (cascade_index > 2 && completely_inside_cascade(center, radius, 2))
+            return;
+    }
+
+    // TODO: might be broken, review lod selection code
+    uint lod_index = 0;
+    if (lod_enabled == 1)
+    {
+        // automatic LOD selection - at distance d, how many world space units does each pixel cover?
+        // is the absolute error computed (simplifyscale * result_error) less visible than error above? if so, move onto higher LOD
+        float d = max(0.0, length(center) - radius);
+        float lod_distance_factor = cascade_radius / 4096.0; // TODO: hardcoded; move to pc or use textureSize based on cascade
+        float e = lod_distance_factor / max_scale;
+
+        for (uint i = 0; i < mesh.lod_count; i++)
+        {
+            lod_index = e >= mesh.lods[i].error ? i : lod_index;
         }
+    }
 
-		// TODO: verify that below is ok to go after completely_inside_cascade check
-		uint lod_index = 0;
-		if (lod_enabled == 1) 
-		{
-			// automatic LOD selection - at distance d, how many world space units does each pixel cover? 
-			// is the absolute error computed (simplifyscale * result_error) less visible than error above? if so, move onto higher LOD
-			float d = max(0.0, length(center) - radius);
-			float lod_distance_factor = cascade_radius / 4096.0; // TODO: hardcoded; consider moving to PC to account for varying cascade resolution in the future
-			float e = lod_distance_factor / max_scale;
-
-			for (uint i = 0; i < mesh.lod_count; i++)
-			{
-				lod_index = e >= mesh.lods[i].error ? i : lod_index;
-			}
-		}
-		
-		uint count = alpha_clip ? atomicAdd(draw_buffer.draws[cascade_index].alpha_clip_count, 1) : atomicAdd(draw_buffer.draws[cascade_index].opaque_count, 1);
-		uint index = alpha_clip ? count + 200000 : count;
-		draw_buffer.draws[cascade_index].commands[index].index_count = mesh.lods[lod_index].count; 
-		draw_buffer.draws[cascade_index].commands[index].instance_count = 1;
-		draw_buffer.draws[cascade_index].commands[index].first_index = mesh.lods[lod_index].first_index;
-		draw_buffer.draws[cascade_index].commands[index].vertex_offset = mesh.vertex_offset;
-		draw_buffer.draws[cascade_index].commands[index].first_instance = id;
-
-		last_cascade_radius = cascade_radius;
-	}
+    uint count = alpha_clip ? atomicAdd(draw_buffer.draws[cascade_index].alpha_clip_count, 1) : atomicAdd(draw_buffer.draws[cascade_index].opaque_count, 1);
+    uint index = alpha_clip ? count + 200000 : count;
+    draw_buffer.draws[cascade_index].commands[index].index_count = mesh.lods[lod_index].count;
+    draw_buffer.draws[cascade_index].commands[index].instance_count = 1;
+    draw_buffer.draws[cascade_index].commands[index].first_index = mesh.lods[lod_index].first_index;
+    draw_buffer.draws[cascade_index].commands[index].vertex_offset = mesh.vertex_offset;
+    draw_buffer.draws[cascade_index].commands[index].first_instance = id;
 }

@@ -53,7 +53,7 @@ constexpr bool USE_VALIDATION_LAYERS = true;
 AutoCVar_Int CVAR_DRAW_DISTANCE{ "Draw distance", 1000, 1000, CVarFlags::EditSliderInt, 100, 1000, 100 };
 AutoCVar_Int CVAR_TOGGLE_MESH_SHADING{ "Mesh shading", 1, 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TOGGLE_OCCLUSION{ "Occlusion", 1, 1, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_TOGGLE_LOD{ "LOD", 1, 1, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_TOGGLE_LOD{ "LOD", 1, 0, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TOGGLE_FREEZE{ "Freeze rendering", 0, 0, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TOGGLE_VIEW_MESHLETS{ "Visualize meshlets", 0, 0, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TOGGLE_LIGHT_CULLING{ "Light clustered culling", 0, 0, CVarFlags::EditCheckbox };
@@ -83,6 +83,7 @@ AutoCVar_Int CVAR_TOGGLE_TONEMAPFUNC{ "Tonemap function", 0, 0, CVarFlags::EditS
 AutoCVar_Int CVAR_DEBUG_TEXTURE{ "Debug", 0, 0, CVarFlags::EditSliderInt, 0, 4, 1 };
 // testing CSM map-basedselection
 AutoCVar_Int CVAR_TOGGLE_CSM_SELECTION{ "Map based CSM selection", 1, 1, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_TOGGLE_SHADOW_CULL{ "Aggresive shadow cull", 1, 1, CVarFlags::EditCheckbox };
 
 uint32_t CUBEMAP_ID = 0;
 
@@ -471,7 +472,7 @@ void VulkanEngine::draw()
 		for (size_t i = 0; i < timestamp_results.size(); i = i + 2)
 		{
 			{
-				auto time = static_cast<double>(timestamp_results[i + 1] - timestamp_results[i]) * props.limits.timestampPeriod * 1e-6;
+				auto time = static_cast<double>(timestamp_results[i + 1] - timestamp_results[i]) * device_properties.limits.timestampPeriod * 1e-6;
 				*stats_ref[i / 2] = time;
 			}
 		}
@@ -1252,6 +1253,13 @@ void VulkanEngine::run()
 					else
 						CVAR_TOGGLE_CSM_SELECTION.set(1);
 				}
+				if (e.key.repeat == 0 && e.key.key == SDLK_Y)
+				{
+					if (CVAR_TOGGLE_SHADOW_CULL.get() == 1)
+						CVAR_TOGGLE_SHADOW_CULL.set(0);
+					else
+						CVAR_TOGGLE_SHADOW_CULL.set(1);
+				}
 			}
 
 			if (!stop_movement)
@@ -1424,8 +1432,8 @@ void VulkanEngine::init_vulkan()
 	main_deletion_queue.push_function([&]()
 	                                  { vmaDestroyAllocator(allocator); });
 
-	vkGetPhysicalDeviceProperties(chosen_gpu, &props);
-	assert(props.limits.timestampComputeAndGraphics);
+	vkGetPhysicalDeviceProperties(chosen_gpu, &device_properties);
+	assert(device_properties.limits.timestampComputeAndGraphics);
 }
 
 void VulkanEngine::init_swapchain()
@@ -3014,6 +3022,7 @@ void VulkanEngine::execute_shadow_cull(VkCommandBuffer cmd)
 	pc.count = cull_count;
 	pc.lod_enabled = CVAR_TOGGLE_LOD.get();
 	pc.map = CVAR_TOGGLE_CSM_SELECTION.get();
+	pc.cull = CVAR_TOGGLE_SHADOW_CULL.get();
 
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ShadowCullPushConstants), &pc);
 	auto groupcount_x = get_groupcount(cull_count, CULL_WGSIZE);
