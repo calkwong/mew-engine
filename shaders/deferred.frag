@@ -41,6 +41,7 @@ layout( push_constant ) uniform constants
 	float metallic; // unused, for debugging
 	float roughness; // unused, for debugging
 	uint debug; // unused, only in vis_deferred
+	uint map;
 };
 
 // IMPORTANT! formula is for infinite far plane, reverse-z

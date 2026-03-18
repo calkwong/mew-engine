@@ -48,7 +48,7 @@ constexpr bool USE_VALIDATION_LAYERS = false;
 constexpr bool USE_VALIDATION_LAYERS = true;
 #endif
 
-// #define SINGLE // uncomment if loading a proper scene
+#define SINGLE // uncomment if loading a proper scene
 
 AutoCVar_Int CVAR_DRAW_DISTANCE{ "Draw distance", 1000, 1000, CVarFlags::EditSliderInt, 100, 1000, 100 };
 AutoCVar_Int CVAR_TOGGLE_MESH_SHADING{ "Mesh shading", 1, 1, CVarFlags::EditCheckbox };
@@ -59,7 +59,7 @@ AutoCVar_Int CVAR_TOGGLE_VIEW_MESHLETS{ "Visualize meshlets", 0, 0, CVarFlags::E
 AutoCVar_Int CVAR_TOGGLE_LIGHT_CULLING{ "Light clustered culling", 0, 0, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TOGGLE_MASK{ "Render masked geometry", 1, 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TOGGLE_TRANSPARENT{ "Render transparent geometry", 0, 0, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_TOGGLE_SHADOW{ "Render shadows", 0, 0, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_TOGGLE_SHADOW{ "Render shadows", 0, 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TOGGLE_SOFT_SHADOWS{ "PCF", 1, 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TOGGLE_DEBUG_SHADOWMAP{ "Debug shadows", 0, 0, CVarFlags::EditSliderInt, 0, 4, 1 };
 AutoCVar_Int CVAR_TOGGLE_DEBUG_CASCADES{ "Debug cascades", 0, 0, CVarFlags::EditCheckbox };
@@ -81,6 +81,8 @@ AutoCVar_Int CVAR_TOGGLE_AUTOEXPOSE{ "Auto exposure", 1, 1, CVarFlags::EditCheck
 AutoCVar_Int CVAR_TOGGLE_TONEMAPFUNC{ "Tonemap function", 0, 0, CVarFlags::EditSliderInt, 0, 1, 1 };
 // DEBUG settings
 AutoCVar_Int CVAR_DEBUG_TEXTURE{ "Debug", 0, 0, CVarFlags::EditSliderInt, 0, 4, 1 };
+// testing CSM map-basedselection
+AutoCVar_Int CVAR_TOGGLE_CSM_SELECTION{ "Map based CSM selection", 1, 1, CVarFlags::EditCheckbox };
 
 uint32_t CUBEMAP_ID = 0;
 
@@ -1243,6 +1245,13 @@ void VulkanEngine::run()
 					else
 						CVAR_TOGGLE_AUTOEXPOSE.set(1);
 				}
+				if (e.key.repeat == 0 && e.key.key == SDLK_T)
+				{
+					if (CVAR_TOGGLE_CSM_SELECTION.get() == 1)
+						CVAR_TOGGLE_CSM_SELECTION.set(0);
+					else
+						CVAR_TOGGLE_CSM_SELECTION.set(1);
+				}
 			}
 
 			if (!stop_movement)
@@ -1912,13 +1921,12 @@ void VulkanEngine::init_default_data()
 	vkCreateSampler(device, &sampler_info, nullptr, &sampler); // 2 cube map sampling
 	sampler_cache.add_sampler(sampler);
 
-	sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
-	sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
-	sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
-	sampler_info.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK;
+	sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE; // tailored to our PCF sampling; manual OOB rejection required in shader
+	sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+	sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 	sampler_info.maxLod = 1.0;
 
-	vkCreateSampler(device, &sampler_info, nullptr, &sampler); // 3 shadow map sampler - potentially problematic, clamp to edge?
+	vkCreateSampler(device, &sampler_info, nullptr, &sampler); // 3 shadow map sampler
 	sampler_cache.add_sampler(sampler);
 
 	sampler_info.magFilter = VK_FILTER_LINEAR;
@@ -2485,6 +2493,7 @@ void VulkanEngine::execute_deferred_shading(VkCommandBuffer cmd, VkImageView vie
 	pc.metallic = CVAR_GI_METALLIC.get();
 	pc.roughness = CVAR_GI_ROUGHNESS.get();
 	pc.debug = CVAR_DEBUG_TEXTURE.get();
+	pc.map = CVAR_TOGGLE_CSM_SELECTION.get();
 
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(DeferredPushConstants), &pc);
 	vkCmdDraw(cmd, 3, 1, 0, 0);
@@ -3004,6 +3013,7 @@ void VulkanEngine::execute_shadow_cull(VkCommandBuffer cmd)
 	}
 	pc.count = cull_count;
 	pc.lod_enabled = CVAR_TOGGLE_LOD.get();
+	pc.map = CVAR_TOGGLE_CSM_SELECTION.get();
 
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ShadowCullPushConstants), &pc);
 	auto groupcount_x = get_groupcount(cull_count, CULL_WGSIZE);

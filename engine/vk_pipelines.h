@@ -88,6 +88,7 @@ struct DeferredPushConstants
 	float metallic{};
 	float roughness{};
 	uint32_t debug{};
+	uint32_t map{};
 };
 
 // rasteroze shadows
@@ -107,6 +108,7 @@ struct ShadowCullPushConstants
 	VkDeviceAddress draw_buffer_address{};
 	uint32_t count{};
 	uint32_t lod_enabled{};
+	uint32_t map{};
 };
 
 struct SkyboxPushConstants

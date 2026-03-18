@@ -18,6 +18,7 @@ layout(push_constant) uniform constants
 	ShadowDrawCommandsBuffer draw_buffer;
 	uint count; 
 	uint lod_enabled;
+	uint map;
 };
 
 bool partially_inside_cascade(vec3 center, uint cascade, float radius, float cascade_radius)
@@ -32,8 +33,11 @@ bool partially_inside_cascade(vec3 center, uint cascade, float radius, float cas
 }
 
 // idea from: https://github.com/expenses/lighthugger/blob/9d6c46b3e339e9673b69b7d9933d6a439051232c/src/shaders/cull_instances.comp
-bool completely_inside_cascade(vec3 center, uint cascade, float radius, float cascade_radius)
+bool completely_inside_cascade(vec3 world_pos, uint cascade_index, float radius, float cascade_radius)
 {
+    // view space center
+    vec3 center = vec3(uniforms.shadow_views[cascade_index] * vec4(world_pos, 1.0)); // light space
+
 	bool visible = true;
 	
 	visible = visible && (-abs(center.x) + cascade_radius) >= radius; 
@@ -67,7 +71,10 @@ void main()
 	radius = radius * max_scale;
 	
 	// TODO: remove the loop and split this into more threads
-	for (int cascade_index = 0; cascade_index < CASCADE_COUNT; cascade_index++) 
+	//bool early_out = false;
+	float last_cascade_radius;
+	//for (int cascade_index = 0; cascade_index < CASCADE_COUNT && !early_out; cascade_index++)
+	for (int cascade_index = 0; cascade_index < CASCADE_COUNT; cascade_index++)
 	{
 		float cascade_radius = uniforms.shadow_widths[cascade_index];
 		
@@ -76,14 +83,18 @@ void main()
 		center = vec3(uniforms.shadow_views[cascade_index] * vec4(center, 1.0)); // light space
 		
 		if (!partially_inside_cascade(center, cascade_index, radius, cascade_radius))
-			continue;
+            continue;
 		
 		// https://learn.microsoft.com/en-us/windows/win32/dxtecharts/cascaded-shadow-maps
 		// this optimization complements map-based selection and is incompatible with interval-based map selection
 		// comment to use interval-based map selection
-		//if (cascade_index != 0 && completely_inside_cascade(center, cascade_index - 1, radius, cascade_radius))
-		//	break;
-		
+		if (map == 1)
+		{
+		    //if (cascade_index != 0 && completely_inside_cascade(mpos, cascade_index - 1, radius, last_cascade_radius))
+			    //early_out = true;
+
+        }
+
 		// TODO: verify that below is ok to go after completely_inside_cascade check
 		uint lod_index = 0;
 		if (lod_enabled == 1) 
@@ -107,5 +118,7 @@ void main()
 		draw_buffer.draws[cascade_index].commands[index].first_index = mesh.lods[lod_index].first_index;
 		draw_buffer.draws[cascade_index].commands[index].vertex_offset = mesh.vertex_offset;
 		draw_buffer.draws[cascade_index].commands[index].first_instance = id;
+
+		last_cascade_radius = cascade_radius;
 	}
 }
