@@ -53,7 +53,7 @@ constexpr bool USE_VALIDATION_LAYERS = true;
 AutoCVar_Int CVAR_DRAW_DISTANCE{ "Draw distance", 1000, 1000, CVarFlags::EditSliderInt, 100, 1000, 100 };
 AutoCVar_Int CVAR_TOGGLE_MESH_SHADING{ "Mesh shading", 1, 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TOGGLE_OCCLUSION{ "Occlusion", 1, 1, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_TOGGLE_LOD{ "LOD", 1, 0, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_TOGGLE_LOD{ "LOD", 1, 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TOGGLE_FREEZE{ "Freeze rendering", 0, 0, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TOGGLE_VIEW_MESHLETS{ "Visualize meshlets", 0, 0, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TOGGLE_LIGHT_CULLING{ "Light clustered culling", 0, 0, CVarFlags::EditCheckbox };
@@ -2884,7 +2884,7 @@ void VulkanEngine::ready_mesh_cull(RenderScene::MeshPass& pass, CullData& cull_d
 	cull_data.occlusion_enabled = CVAR_TOGGLE_OCCLUSION.get();
 
 	cull_data.p00 = proj[0][0];
-	cull_data.p11 = proj[1][1];
+	cull_data.p11 = proj[1][1]; // equivalent to 1 / tan(fovy/2)
 	cull_data.near = main_camera.far;
 	cull_data.far = main_camera.near;
 

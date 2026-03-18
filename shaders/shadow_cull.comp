@@ -105,14 +105,15 @@ void main()
             return;
     }
 
-    // TODO: might be broken, review lod selection code
     uint lod_index = 0;
     if (lod_enabled == 1)
     {
-        // automatic LOD selection - at distance d, how many world space units does each pixel cover?
-        // is the absolute error computed (simplifyscale * result_error) less visible than error above? if so, move onto higher LOD
         float d = max(0.0, length(center) - radius);
-        float lod_distance_factor = cascade_radius / 4096.0; // TODO: hardcoded; move to pc or use textureSize based on cascade
+
+        // for orthographic, p11 = 2 / (top - bottom)
+        // lod_distance_factor = 2 / (p11 * height);
+        // we can factor out both the 2s, then top-bottom == 2*top
+        float lod_distance_factor = 2 * cascade_radius / 4096.0;
         float e = lod_distance_factor / max_scale;
 
         for (uint i = 0; i < mesh.lod_count; i++)

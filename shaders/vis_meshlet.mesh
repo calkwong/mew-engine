@@ -25,12 +25,12 @@ layout( push_constant ) uniform constants
 	vec2 jitter_offset;
 };
 
-layout (location = 0) perprimitiveEXT out uint outDrawID[];
-layout (location = 1) perprimitiveEXT out uint outTriangleID[];
-layout (location = 2) out vec2 outUV[];
-layout (location = 3) out uint outMaterialID[];
-layout (location = 4) out vec4 outClipPos[];
-layout (location = 5) out vec4 outPrevClipPos[];
+layout (location = 0) perprimitiveEXT out uint out_draw_id[];
+layout (location = 1) perprimitiveEXT out uint out_triangle_id[];
+layout (location = 2) out vec2 out_uv[];
+layout (location = 3) out uint out_material_id[];
+layout (location = 4) out vec4 out_clip_pos[];
+layout (location = 5) out vec4 out_prev_clip_pos[];
 
 uint hash(uint a)
 {
@@ -81,21 +81,21 @@ void main()
 		vec4 clip_pos = uniforms.view_proj * world_pos;
 		vec4 prev_clip_pos = uniforms.prev_view_proj * world_pos;
 		
-		outUV[i] = vec2(v.uv_x, v.uv_y);
-		outMaterialID[i] = o.material_id; // only used for alpha clipping
+		out_uv[i] = vec2(v.uv_x, v.uv_y);
+		out_material_id[i] = o.material_id; // only used for alpha clipping
 		
-		outClipPos[i] = clip_pos;
-		outPrevClipPos[i] = prev_clip_pos;
+		out_clip_pos[i] = clip_pos;
+		out_prev_clip_pos[i] = prev_clip_pos;
 		
 		gl_MeshVerticesEXT[i].gl_Position = clip_pos;
 	}
 	
 	for (uint i = ti; i < triangle_count; i += 32)
 	{
-		outDrawID[i] = object_id;
+		out_draw_id[i] = object_id;
 		
 		// packing meshletID and triangleID
-		outTriangleID[i] = (i << 25) | meshlet_offset; // no error checking yet
+		out_triangle_id[i] = (i << 25) | meshlet_offset; // no error checking yet
 		
 		uint idx0 = meshlet_indices_buffer.indices[m_triangle_offset + i * 3 + 0];
 		uint idx1 = meshlet_indices_buffer.indices[m_triangle_offset + i * 3 + 1];
