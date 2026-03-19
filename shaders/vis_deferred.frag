@@ -163,7 +163,7 @@ float calculate_shadow(vec3 world_pos, inout uint cascade_index)
 }
 
 #define PBR
-#define GI
+#define IBL
 
 void main()
 {
@@ -232,7 +232,7 @@ void main()
 	vec3 n1 = rotate_quat(np1, obj.orientation);
 	vec3 n2 = rotate_quat(np2, obj.orientation);
 
-	vec3 N = normalize(interpolate(bary, n0, n1, n2)); // TODO: mikktspace convention is NOT to normalize. we normalize here as khronos sponza breaks iirc?
+    vec3 N = interpolate(bary, n0, n1, n2); // mikktspace
 
 	N = is_back_face ? -N : N;
 
@@ -247,14 +247,13 @@ void main()
 	}
 
 	vec3 color = vec3(0.0);
-	vec3 ambient = albedo.xyz * 0.1; // when GI is off, likely going to look physically incorrect
+	vec3 ambient = albedo.xyz * 0.1; // when IBL is off, likely going to look physically incorrect
 
 	vec4 t0 = vec4(rotate_quat(tp0.xyz, obj.orientation), tp0.w);
 	vec4 t1 = vec4(rotate_quat(tp1.xyz, obj.orientation), tp1.w);
 	vec4 t2 = vec4(rotate_quat(tp2.xyz, obj.orientation), tp2.w);
 
-	vec4 T = interpolate(bary, t0, t1, t2);
-	T.xyz = normalize(T.xyz); // TODO: mikktspace convention is NOT to normalize. we normalize here as khronos sponza breaks iirc?
+	vec4 T = interpolate(bary, t0, t1, t2); // mikktspace
 	float sign = T.w; // sign is flipped during tangent generation so mikktspace is consistent with glTF handedness
 
 	sign = is_back_face ? -sign : sign;
@@ -267,6 +266,8 @@ void main()
 		shading_normal = shading_normal * 2.0 - 1.0;
 		N = normalize(shading_normal.x * T.xyz + shading_normal.y * B + shading_normal.z * N);
 	}
+	else
+	    N = normalize(N);
 
 	float metallic = m.metallic_factor;
 	float perceptual_roughness = m.roughness_factor;
@@ -309,7 +310,7 @@ void main()
 	vec3 light_color = uniforms.sunlight_color.xyz;
 	color = (Fd + Fr) * light_color * NdotL;
 
-	#ifdef GI
+	#ifdef IBL
 		//perceptual_roughness = roughness; // sphere test
 		//metallic = metallic; // sphere test
 
@@ -456,7 +457,7 @@ void main()
 	{
 		switch (debug)
 		{
-		case 1: // geometry normals
+		case 1: // shading normals
 			N = N * 0.5 + 0.5;
 			N = srgb_to_linear(N);
 			out_color = vec4(N, 1.0);

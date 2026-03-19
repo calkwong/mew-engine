@@ -61,9 +61,8 @@ void main()
 	float metallic;
 	float roughness;
 #ifdef PBR
-	//N = in_normal; 
-	N = normalize(in_normal); // TODO: mikktspace convention is NOT to normalize. we normalize here as khronos sponza breaks iirc?
-	
+	N = in_normal; // mikktspace
+
 	if (OPAQUE == 0)
 	{
 		N = gl_FrontFacing ? N : -N;
@@ -71,8 +70,7 @@ void main()
 	
 	if (m.normal_id != 0)
 	{
-		vec3 T = normalize(in_tangent.xyz); // TODO: mikktspace convention is NOT to normalize. we normalize here as khronos sponza breaks iirc?
-		//vec3 T = in_tangent.xyz;
+		vec3 T = in_tangent.xyz; // mikktspace
 		float sign = in_tangent.w; // sign is flipped during tangent generation so mikktspace is consistent with glTF handedness
 		
 		if (OPAQUE == 0)
@@ -84,6 +82,8 @@ void main()
 		shading_normal = shading_normal * 2.0 - 1.0;
 		N = normalize(shading_normal.x * T.xyz + shading_normal.y * B + shading_normal.z * N);
 	}
+	else
+	    N = normalize(N);
 	
 	metallic = m.metallic_factor;
 	float perceptual_roughness = m.roughness_factor;

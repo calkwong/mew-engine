@@ -48,7 +48,7 @@ constexpr bool USE_VALIDATION_LAYERS = false;
 constexpr bool USE_VALIDATION_LAYERS = true;
 #endif
 
-#define SINGLE // uncomment if loading a proper scene
+// #define SINGLE // uncomment if loading a proper scene
 
 AutoCVar_Int CVAR_DRAW_DISTANCE{ "Draw distance", 1000, 1000, CVarFlags::EditSliderInt, 100, 1000, 100 };
 AutoCVar_Int CVAR_TOGGLE_MESH_SHADING{ "Mesh shading", 1, 1, CVarFlags::EditCheckbox };
@@ -59,7 +59,7 @@ AutoCVar_Int CVAR_TOGGLE_VIEW_MESHLETS{ "Visualize meshlets", 0, 0, CVarFlags::E
 AutoCVar_Int CVAR_TOGGLE_LIGHT_CULLING{ "Light clustered culling", 0, 0, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TOGGLE_MASK{ "Render masked geometry", 1, 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TOGGLE_TRANSPARENT{ "Render transparent geometry", 0, 0, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_TOGGLE_SHADOW{ "Render shadows", 0, 1, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_TOGGLE_SHADOW{ "Render shadows", 0, 0, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TOGGLE_SOFT_SHADOWS{ "PCF", 1, 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TOGGLE_DEBUG_SHADOWMAP{ "Debug shadows", 0, 0, CVarFlags::EditSliderInt, 0, 4, 1 };
 AutoCVar_Int CVAR_TOGGLE_DEBUG_CASCADES{ "Debug cascades", 0, 0, CVarFlags::EditCheckbox };
@@ -1055,7 +1055,7 @@ void VulkanEngine::draw()
 	}
 
 	// tonemapping pass
-	if (CVAR_DEBUG_TEXTURE.get() == 0)
+	// if (CVAR_DEBUG_TEXTURE.get() == 0)
 	{
 		ShaderPass current_pass = *shader_passes["tonemap"];
 		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);

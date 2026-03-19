@@ -8,6 +8,7 @@
 #include "buffer_references.glsl"
 #include "pbr.glsl"
 #include "sh.glsl"
+#include "util.glsl"
 
 layout (location = 0) in vec2 in_uv;
 
@@ -40,7 +41,7 @@ layout( push_constant ) uniform constants
 	float max_prefiltered_lod;
 	float metallic; // unused, for debugging
 	float roughness; // unused, for debugging
-	uint debug; // unused, only in vis_deferred
+	uint debug;
 	uint map;
 };
 
@@ -167,7 +168,7 @@ vec3 reconstruct_world_pos(float depth, mat4 inverse_view_proj)
 }
 
 #define PBR
-#define GI
+#define IBL
 
 void main()
 {
@@ -189,7 +190,7 @@ void main()
 	vec3 world_pos = reconstruct_world_pos(depth, uniforms.inverse_view_proj);
 	
 	vec3 color = vec3(0.0);
-	vec3 ambient = albedo.xyz * 0.1; // when GI is off, likely going to look physically incorrect
+	vec3 ambient = albedo.xyz * 0.1; // when IBL is off, likely going to look physically incorrect
 	
 #ifdef PBR
 	vec2 metal_roughness = texture(sampler2D(textures[metalroughness_id], samplers[NEAREST_SAMPLER]), in_uv).xy;
@@ -226,7 +227,7 @@ void main()
 	vec3 light_color = uniforms.sunlight_color.xyz;
 	color = (Fd + Fr) * light_color * NdotL; 
 	
-	#ifdef GI
+	#ifdef IBL
 		//perceptual_roughness = roughness; // sphere test
 		//metallic = metallic; // sphere test
 		
@@ -364,4 +365,28 @@ void main()
 		vec3 depth = vec3(texture(sampler2D(textures[shadowmap_id + idx], samplers[NEAREST_SAMPLER]), uv).r);
 		out_color.xyz = depth;
 	}
+
+
+	if (debug != 0)
+    {
+        switch (debug)
+        {
+        case 1: // shading normals
+            N = N * 0.5 + 0.5;
+            N = srgb_to_linear(N);
+            out_color = vec4(N, 1.0);
+            break;
+        case 2: // tangents - not applicable
+            out_color = vec4(0.0, 0.0, 0.0, 1.0);
+            break;
+        case 3: // tangent w - not applicable
+            out_color = vec4(0.0, 0.0, 0.0, 1.0);
+            break;
+        case 4: // uv - not applicable
+            out_color = vec4(0.0, 0.0, 0.0, 1.0);
+            break;
+        }
+
+        out_color = depth != 0.0 ? out_color : vec4(0,0,0,1);
+    }
 }
