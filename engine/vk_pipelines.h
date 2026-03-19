@@ -108,8 +108,6 @@ struct ShadowCullPushConstants
 	VkDeviceAddress draw_buffer_address{};
 	uint32_t count{};
 	uint32_t lod_enabled{};
-	uint32_t map{};
-	uint32_t cull{};
 };
 
 struct SkyboxPushConstants

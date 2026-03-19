@@ -43,7 +43,7 @@ layout( push_constant ) uniform constants
 	uint debug_shadowmap;
 	uint debug_cascades;
 	// gi
-	float max_prefiltered_log;
+	float max_prefiltered_lod;
 	float metallic; // unused, for debugging
 	float roughness; // unused, for debugging
 	uint debug;
@@ -314,7 +314,7 @@ void main()
 		//metallic = metallic; // sphere test
 
 		vec3 R = reflect(-V, N);
-		float prefiltered_mip = max_prefiltered_log * perceptual_roughness;
+		float prefiltered_mip = max_prefiltered_lod * perceptual_roughness;
 
 		{
 			vec3 irradiance = evaluate_sh(sh_buffer.r_coefficients, sh_buffer.g_coefficients, sh_buffer.b_coefficients, N);
@@ -349,7 +349,6 @@ void main()
 	if (shadows == 1)
 	{
 		float occluded = calculate_shadow(world_pos, cascade_index);
-		//color *= occluded;
 
 		if (debug_cascades == 1)
 		{

@@ -3021,8 +3021,6 @@ void VulkanEngine::execute_shadow_cull(VkCommandBuffer cmd)
 	}
 	pc.count = cull_count;
 	pc.lod_enabled = CVAR_TOGGLE_LOD.get();
-	pc.map = CVAR_TOGGLE_CSM_SELECTION.get();
-	pc.cull = CVAR_TOGGLE_SHADOW_CULL.get();
 
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ShadowCullPushConstants), &pc);
 	auto groupcount_x = get_groupcount(cull_count, CULL_WGSIZE);

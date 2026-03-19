@@ -18,8 +18,6 @@ layout(push_constant) uniform constants
 	ShadowDrawCommandsBuffer draw_buffer;
 	uint count; 
 	uint lod_enabled;
-	uint map;
-	uint cull;
 };
 
 bool partially_inside_cascade(vec3 center_world, float radius, uint cascade_index)
@@ -37,7 +35,7 @@ bool partially_inside_cascade(vec3 center_world, float radius, uint cascade_inde
 }
 
 // idea from: https://github.com/expenses/lighthugger/blob/9d6c46b3e339e9673b69b7d9933d6a439051232c/src/shaders/cull_instances.comp
-// TODO: is this even worth it? unsure if implementation is robust, requires more testing
+// TODO: is this even worth it? unsure if implementation is robust, requires more testing. disabled for now.
 bool completely_inside_cascade(vec3 center_world, float radius, uint cascade_index)
 {
     vec3 center_view = vec3(uniforms.shadow_views[cascade_index] * vec4(center_world, 1.0));
@@ -93,17 +91,17 @@ void main()
 
     // https://learn.microsoft.com/en-us/windows/win32/dxtecharts/cascaded-shadow-maps
     // incompatible with interval-based map selection?
-    if (map == 1 && cull == 1)
-    {
-        if (cascade_index > 0 && completely_inside_cascade(center, radius, 0))
-            return;
-
-        if (cascade_index > 1 && completely_inside_cascade(center, radius, 1))
-            return;
-
-        if (cascade_index > 2 && completely_inside_cascade(center, radius, 2))
-            return;
-    }
+    //if (map == 1 && cull == 1)
+    //{
+    //    if (cascade_index > 0 && completely_inside_cascade(center, radius, 0))
+    //        return;
+    //
+    //    if (cascade_index > 1 && completely_inside_cascade(center, radius, 1))
+    //        return;
+    //
+    //    if (cascade_index > 2 && completely_inside_cascade(center, radius, 2))
+    //        return;
+    //}
 
     uint lod_index = 0;
     if (lod_enabled == 1)

@@ -88,30 +88,52 @@ vec3 composite_transparent(vec3 input_color)
 float calculate_shadow(vec3 world_pos, inout uint cascade_index)
 {
 	float d = (uniforms.view * vec4(world_pos, 1.0)).z; // view space z
-	for (uint i = 0; i < CASCADE_COUNT; i++)
-	{
-		if (d > uniforms.cascade_splits[i])
-		{	
-			cascade_index = i;
-			break;
-		}
-	}
-	vec3 light_frag_pos = vec3(uniforms.shadow_transforms[cascade_index] * vec4(world_pos, 1.0)); // ortho, no division by w needed
-	
-	float current_depth = light_frag_pos.z;
-	
-	if (current_depth < 0.0) // this is possible
-		return 1.0;
-	
-	vec2 uv = vec2(light_frag_pos.x, light_frag_pos.y);
-	uv = uv * 0.5 + 0.5;
+
+    for (uint i = 0; i < CASCADE_COUNT; i++)
+    {
+        if (d > uniforms.cascade_splits[i])
+        {
+            cascade_index = i;
+            break;
+        }
+    }
+
+    vec3 ndc;
+    float current_depth;
+    if (map == 1)
+    {
+        cascade_index = 0;
+
+        for (int i = 0; i < CASCADE_COUNT; i++)
+        {
+            ndc = vec3(uniforms.shadow_transforms[i] * vec4(world_pos, 1.0));
+            // z plane check is dependent on cascade selection strategy and potentially if we're doing pancaking?
+            if (abs(ndc.x) < 1.0 && abs(ndc.y) < 1.0 && ndc.z > 0.0 && ndc.z < 1.0)
+            {
+                cascade_index = i;
+                break;
+            }
+        }
+    }
+    else // interval-based selection
+    {
+        ndc = vec3(uniforms.shadow_transforms[cascade_index] * vec4(world_pos, 1.0));
+    }
+
+	current_depth = ndc.z;
+
+	if (current_depth < 0.0) // necessary
+        return 1.0;
+
+	vec2 uv = ndc.xy * 0.5 + 0.5;
 	uv.y = 1.0 - uv.y;
-	
-	vec2 offset = 1.0 / textureSize(sampler2D(textures[shadowmap_id + cascade_index], samplers[NEAREST_SAMPLER]), 0);
-	
+
+	vec2 offset = 1.0 / textureSize(sampler2D(textures[shadowmap_id + cascade_index], samplers[SHADOW_SAMPLER]), 0);
+
 	float shadow = 0.0;
 	float closest_depth = 0.0;
 
+    // TODO: bias
 	if (pcf == 1)
 	{
 		for (int y = -1; y <= 1; y++)
@@ -119,27 +141,18 @@ float calculate_shadow(vec3 world_pos, inout uint cascade_index)
 			for (int x = -1; x <= 1; x++)
 			{
 				vec2 sample_uv = vec2(uv.x + x * offset.x, uv.y + y * offset.y);
-				closest_depth = texture(sampler2D(textures[shadowmap_id + cascade_index], samplers[NEAREST_SAMPLER]), sample_uv).r;
-				
+				closest_depth = texture(sampler2D(textures[shadowmap_id + cascade_index], samplers[SHADOW_SAMPLER]), sample_uv).r;
+
 				if (closest_depth > current_depth)
 					shadow += 0.0;
 				else
 					shadow += 1.0;
 			}
 		}
-		
+
 		shadow /= 9.0;
 	}
-	else
-	{
-		closest_depth = texture(sampler2D(textures[shadowmap_id + cascade_index], samplers[LINEAR_SAMPLER]), uv).r;
-		
-		float bias = 0.0;
-		if (closest_depth > current_depth + bias)
-			shadow = 0.0;
-		else
-			shadow = 1.0;
-	}
+
 	return shadow;
 }
 
@@ -252,8 +265,6 @@ void main()
 	{
 		float occluded = calculate_shadow(world_pos, cascade_index);
 		
-		color *= occluded;
-		
 		if (debug_cascades == 1)
 		{
 			switch (cascade_index)
@@ -272,6 +283,8 @@ void main()
 					break;
 			}
 		}
+		else
+		    color *= occluded;
 	}
 	
 	color += ambient;
