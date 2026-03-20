@@ -260,8 +260,6 @@ void CVarSystemImpl::draw_imgui_editor()
 	{
 		edit_parameters(get_cvar("debug.textures"));
 		edit_parameters(get_cvar("debug.meshlets"));
-		edit_parameters(get_cvar("debug.shadowmap"));
-		edit_parameters(get_cvar("debug.cascades"));
 
 		ImGui::TreePop();
 	}

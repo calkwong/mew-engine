@@ -82,8 +82,6 @@ struct DeferredPushConstants
 	uint32_t resolve_transparent{};
 	uint32_t shadows{};
 	uint32_t pcf{};
-	uint32_t debug_shadowmap{};
-	uint32_t debug_cascades{};
 	float max_prefiltered_lod{};
 	float metallic{};
 	float roughness{};

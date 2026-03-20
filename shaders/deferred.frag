@@ -9,6 +9,7 @@
 #include "pbr.glsl"
 #include "sh.glsl"
 #include "util.glsl"
+#include "debug.glsl"
 
 layout (location = 0) in vec2 in_uv;
 
@@ -35,12 +36,9 @@ layout( push_constant ) uniform constants
 	uint resolve_transparent;
 	uint shadows;
 	uint pcf;
-	uint debug_shadowmap;
-	uint debug_cascades;
-	// gi
 	float max_prefiltered_lod;
-	float metallic; // unused, for debugging
-	float roughness; // unused, for debugging
+	float metallic; // unused, for furnace test
+	float roughness; // unused, for furnace test
 	uint debug;
 	uint map;
 };
@@ -265,27 +263,7 @@ void main()
 	if (shadows == 1)
 	{
 		float occluded = calculate_shadow(world_pos, cascade_index);
-		
-		if (debug_cascades == 1)
-		{
-			switch (cascade_index)
-			{
-				case 0:
-					color *= vec3(1, 0, 0);
-					break;
-				case 1:
-					color *= vec3(0, 1, 0);
-					break;
-				case 2:
-					color *= vec3(0, 0, 1);
-					break;
-				case 3:
-					color *= vec3(1, 1, 0);
-					break;
-			}
-		}
-		else
-		    color *= occluded;
+        color *= occluded;
 	}
 	
 	color += ambient;
@@ -358,35 +336,60 @@ void main()
 	
 	out_color = vec4(color, 1.0);
 	
-	if (debug_shadowmap != 0)
-	{
-		vec2 uv = gl_FragCoord.xy / screen_size;
-		uint idx = debug_shadowmap - 1;
-		vec3 depth = vec3(texture(sampler2D(textures[shadowmap_id + idx], samplers[NEAREST_SAMPLER]), uv).r);
-		out_color.xyz = depth;
-	}
-
+    bool valid = depth != 0.0;
 
 	if (debug != 0)
     {
         switch (debug)
         {
-        case 1: // shading normals
+        case DEBUG_SHADING_NORMALS:
             N = N * 0.5 + 0.5;
             N = srgb_to_linear(N);
             out_color = vec4(N, 1.0);
             break;
-        case 2: // tangents - not applicable
-            out_color = vec4(0.0, 0.0, 0.0, 1.0);
+        case DEBUG_TANGENTS:
+        case DEBUG_TANGENT_SIGN:
+        case DEBUG_UV:
+            valid = false;
             break;
-        case 3: // tangent w - not applicable
-            out_color = vec4(0.0, 0.0, 0.0, 1.0);
+        case DEBUG_SHADOWMAP:
+            vec2 uv = gl_FragCoord.xy / screen_size;
+
+            if (uv.x < 0.5 && uv.y < 0.5)
+            {
+                uint cascade = 0;
+                cascade = uv.x < 0.25 ? cascade : cascade + 1;
+                cascade = uv.y < 0.25 ? cascade : cascade + 2;
+
+                vec2 shadow_uv = uv * 4.0;
+                shadow_uv = mod(shadow_uv, vec2(1.0));
+
+                out_color.xyz = vec3(texture(sampler2D(textures[shadowmap_id + cascade], samplers[NEAREST_SAMPLER]), shadow_uv).rrr);
+                valid = true; // overwrite skybox
+            }
             break;
-        case 4: // uv - not applicable
-            out_color = vec4(0.0, 0.0, 0.0, 1.0);
+        case DEBUG_CASCADES:
+            switch (cascade_index)
+            {
+            case 0:
+                out_color.xyz *= vec3(1, 0, 0);
+                break;
+            case 1:
+                out_color.xyz *= vec3(0, 1, 0);
+                break;
+            case 2:
+                out_color.xyz *= vec3(0, 0, 1);
+                break;
+            case 3:
+                out_color.xyz *= vec3(1, 1, 0);
+                break;
+            }
+            break;
+        default:
             break;
         }
 
-        out_color = depth != 0.0 ? out_color : vec4(0,0,0,1);
+        if (!valid)
+            out_color = vec4(0,0,0,1);
     }
 }

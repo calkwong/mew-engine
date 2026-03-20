@@ -65,10 +65,8 @@ AutoCVar_Float CVAR_SHADOWS_CASCADE_SPLIT{ "shadows.cascade_split", "Cascades lo
 AutoCVar_Int CVAR_SHADOWS_DISTANCE{ "shadows.distance", "Shadow draw distance", 48, CVarFlags::EditSliderInt, 20, 200, 5 };
 AutoCVar_Int CVAR_SHADOWS_CASCADE_SELECTION{ "shadows.cascade_selection", "Map based cascade selection", 1, CVarFlags::EditCheckbox };
 
-AutoCVar_Int CVAR_DEBUG_TEXTURES{ "debug.textures", "Debug textures", 0, CVarFlags::EditSliderInt, 0, 4, 1 };
+AutoCVar_Int CVAR_DEBUG_TEXTURES{ "debug.textures", "Debug textures", 0, CVarFlags::EditSliderInt, 0, DEBUG_COUNT, 1 };
 AutoCVar_Int CVAR_DEBUG_MESHLETS{ "debug.meshlets", "Meshlets", 0, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_DEBUG_SHADOWMAP{ "debug.shadowmap", "Shadowmap", 0, CVarFlags::EditSliderInt, 0, 4, 1 };
-AutoCVar_Int CVAR_DEBUG_CASCADES{ "debug.cascades", "Cascades", 0, CVarFlags::EditCheckbox };
 
 AutoCVar_Int CVAR_MISC_DRAW_DISTANCE{ "misc.draw_distance", "Draw distance", 1000, CVarFlags::EditSliderInt, 100, 1000, 100 };
 AutoCVar_Int CVAR_MISC_AUTOEXPOSURE{ "misc.autoexposure", "Autoexposure", 1, CVarFlags::EditCheckbox };
@@ -121,7 +119,6 @@ void VulkanEngine::init(std::vector<std::string>& file_paths)
 	main_camera.position = glm::vec3(0, 0, 5);
 	main_camera.near = static_cast<float>(CVAR_MISC_DRAW_DISTANCE.get());
 	main_camera.far = 0.5f;
-	// main_camera.far = 0.01f;
 	main_camera.fov = 70.0f;
 	// TODO: refactor if window resize
 	main_camera.set_perspective_matrix(glm::radians(main_camera.fov), static_cast<float>(draw_extent.width) / static_cast<float>(draw_extent.height), main_camera.far);
@@ -2479,10 +2476,6 @@ void VulkanEngine::execute_deferred_shading(VkCommandBuffer cmd, VkImageView vie
 	pc.resolve_transparent = CVAR_RENDER_TRANSPARENT.get();
 	pc.shadows = CVAR_RENDER_SHADOWS.get();
 	pc.pcf = CVAR_SHADOWS_PCF.get();
-	pc.debug_shadowmap = CVAR_DEBUG_SHADOWMAP.get();
-	pc.debug_cascades = CVAR_DEBUG_CASCADES.get();
-
-	// gi
 	pc.max_prefiltered_lod = static_cast<float>(std::floor(std::log2(static_cast<float>(std::max(prefiltered_envmap.extent.width, prefiltered_envmap.extent.height))))) + 1;
 	pc.metallic = CVAR_PBR_METALLIC.get();
 	pc.roughness = CVAR_PBR_ROUGHNESS.get();

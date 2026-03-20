@@ -4,6 +4,8 @@
 #define NUMBER_OF_CASCADES 4
 #define GBUFFER_COUNT 4
 
+#define DEBUG_COUNT 6
+
 // for shadow pass, we set to 200000; for geometry pass, raised to 1000000 to allow testing millions of mesh instances
 #define MAX_OPAQUE_DRAWS 200000
 #define MAX_ALPHACLIP_DRAWS 200000
