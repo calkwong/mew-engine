@@ -32,7 +32,7 @@ struct TonemapPC
 	VkDeviceAddress luminance_avg_buffer{};
 	glm::vec2 screen_size{};
 	uint32_t image_id{};
-	uint32_t autoexpose{};
+	uint32_t autoexposure{};
 	uint32_t tonemap_func{};
 };
 

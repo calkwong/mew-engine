@@ -4,6 +4,7 @@
 
 #include <memory>
 #include <string>
+#include <algorithm>
 
 enum class CVarType : char
 {
@@ -11,26 +12,29 @@ enum class CVarType : char
 	FLOAT,
 };
 
+CVarFlags operator|(CVarFlags a, CVarFlags b)
+{
+	return static_cast<CVarFlags>(static_cast<uint32_t>(a) | static_cast<uint32_t>(b));
+}
+
 class CVarParameter
 {
 public:
-	friend class CVarSystemImpl;
-
 	uint32_t array_index{};
 
 	CVarType type{};
 	CVarFlags flags{};
 	std::string name{};
+	std::string description{};
+	union { int i; float f; } min;
+	union { int i; float f; } max;
+	union { int i; float f; } step_size;
 };
 
 template <typename T>
 struct CVarStorage
 {
-	T initial{}; // keep or remove?
 	T current{};
-	T min{}; // TODO: may not be applicable for some types - reevaluate in the future
-	T max{}; // TODO: may not be applicable for some types - reevaluate in the future
-	T step_size{}; // TODO: may not be applicable for some types - reevaluate in the future
 	CVarParameter* param{};
 };
 
@@ -50,14 +54,14 @@ struct CVarArray
 		return cvars[index].current;
 	}
 
-	T* get_current_ptr(int index)
-	{
-		return &cvars[index].current;
-	}
-
-	CVarStorage<T>* get_current_storage(int index)
+	CVarStorage<T>* get_storage_ptr(int index)
 	{
 		return &cvars[index];
+	}
+
+	CVarParameter* get_param(int index)
+	{
+		return &cvars[index].param;
 	}
 
 	void set_current(const T& value, int index)
@@ -65,16 +69,12 @@ struct CVarArray
 		cvars[index].current = value;
 	}
 
-	int add(const T& default_value, const T& current_value, CVarParameter* param, T min, T max, T step_size)
+	int add(const T& value, CVarParameter* param)
 	{
 		int index = size;
 
-		cvars[index].initial = default_value;
-		cvars[index].current = current_value;
+		cvars[index].current = value;
 		cvars[index].param = param;
-		cvars[index].min = min;
-		cvars[index].max = max;
-		cvars[index].step_size = step_size;
 
 		param->array_index = index;
 		size++;
@@ -96,13 +96,9 @@ public:
 	CVarArray<T>* get_cvars_array();
 
 	CVarParameter* get_cvar(const std::string& str) override;
-	CVarParameter* create_int_cvar(const char* name, int default_value, int current_value, int min, int max, int step_size) override;
-	int* get_int_cvar(const std::string&) override;
-	void set_int_cvar(const std::string&, int value) override;
 
-	CVarParameter* create_float_cvar(const char* name, float default_value, float current_value, float min, float max, float step_size) override;
-	float* get_float_cvar(const std::string&) override;
-	void set_float_cvar(const std::string&, float value) override;
+	CVarParameter* create_int_cvar(const char* name, const char* description, int value, CVarFlags flags, int min, int max, int step_size) override;
+	CVarParameter* create_float_cvar(const char* name, const char* description, float value, CVarFlags flags, float min, float max, float step_size) override;
 
 	void draw_imgui_editor() override;
 	void edit_parameters(CVarParameter* param);
@@ -117,8 +113,6 @@ private:
 		saved_cvars[name] = CVarParameter{};
 
 		CVarParameter& param = saved_cvars[name];
-
-		param.name = name;
 
 		return &param;
 	}
@@ -147,112 +141,6 @@ CVarParameter* CVarSystemImpl::get_cvar(const std::string& str)
 	return nullptr;
 }
 
-CVarParameter* CVarSystemImpl::create_int_cvar(const char* name, int default_value, int current_value, int min, int max, int step_size)
-{
-	CVarParameter* param = init_cvar(name);
-	if (!param)
-		return nullptr; // param already exists
-
-	param->type = CVarType::INT;
-
-	get_cvars_array<int>()->add(default_value, current_value, param, min, max, step_size);
-
-	return param;
-}
-
-int* CVarSystemImpl::get_int_cvar(const std::string& name)
-{
-	CVarParameter* param = get_cvar(name);
-	if (!param)
-		return nullptr;
-
-	int* value = get_cvars_array<int>()->get_current_ptr(static_cast<int>(param->array_index));
-	return value;
-}
-
-void CVarSystemImpl::set_int_cvar(const std::string& name, int value)
-{
-	CVarParameter* param = get_cvar(name);
-	if (!param)
-		return; // do nothing
-
-	get_cvars_array<int>()->set_current(value, static_cast<int>(param->array_index));
-}
-
-void CVarSystemImpl::draw_imgui_editor()
-{
-	ImGui::Begin("Console Variables");
-
-	std::vector<CVarParameter*> params{};
-	for (uint32_t i = 0; i < get_cvars_array<int>()->size; i++)
-	{
-		const auto p = get_cvars_array<int>()->get_current_storage(static_cast<int>(i));
-		params.push_back(p->param);
-	}
-
-	for (uint32_t i = 0; i < get_cvars_array<float>()->size; i++)
-	{
-		const auto p = get_cvars_array<float>()->get_current_storage(static_cast<int>(i));
-		params.push_back(p->param);
-	}
-
-	for (auto& p : params)
-	{
-		edit_parameters(p);
-	}
-
-	ImGui::End();
-}
-
-void CVarSystemImpl::edit_parameters(CVarParameter* param)
-{
-	const bool checkbox_flag = static_cast<uint32_t>(CVarFlags::EditCheckbox) & static_cast<uint32_t>(param->flags);
-	const bool slider_int_flag = static_cast<uint32_t>(CVarFlags::EditSliderInt) & static_cast<uint32_t>(param->flags);
-	const bool slider_float_flag = static_cast<uint32_t>(CVarFlags::EditSliderFloat) & static_cast<uint32_t>(param->flags);
-
-	switch (param->type)
-	{
-	case CVarType::INT:
-		if (checkbox_flag)
-		{
-			bool flag = get_cvars_array<int>()->get_current(static_cast<int>(param->array_index)) == 1;
-			if (ImGui::Checkbox(param->name.c_str(), &flag))
-			{
-				get_cvars_array<int>()->set_current(flag, static_cast<int>(param->array_index));
-			}
-		}
-		if (slider_int_flag)
-		{
-			auto storage = get_cvars_array<int>()->get_current_storage(static_cast<int>(param->array_index));
-			if (ImGui::SliderInt(param->name.c_str(), &storage->current, storage->min, storage->max)) // TODO: step size not supported?
-			{
-				get_cvars_array<int>()->set_current(storage->current, static_cast<int>(param->array_index));
-			}
-		}
-		break;
-	case CVarType::FLOAT:
-		if (checkbox_flag)
-		{
-			bool flag = get_cvars_array<float>()->get_current(static_cast<int>(param->array_index)) == 1;
-			if (ImGui::Checkbox(param->name.c_str(), &flag))
-			{
-				get_cvars_array<float>()->set_current(static_cast<float>(flag), static_cast<int>(param->array_index));
-			}
-		}
-		if (slider_float_flag)
-		{
-			auto storage = get_cvars_array<float>()->get_current_storage(static_cast<int>(param->array_index));
-			if (ImGui::SliderFloat(param->name.c_str(), &storage->current, storage->min, storage->max)) // TODO: step size not supported?
-			{
-				get_cvars_array<float>()->set_current(storage->current, static_cast<int>(param->array_index));
-			}
-		}
-		break;
-	default:
-		break;
-	}
-}
-
 CVarSystemImpl* CVarSystemImpl::get()
 {
 	return static_cast<CVarSystemImpl*>(CVarSystem::get());
@@ -264,15 +152,35 @@ CVarSystem* CVarSystem::get()
 	return &cvar_system;
 }
 
-AutoCVar_Int::AutoCVar_Int(const char* name, int default_value, int current_value, CVarFlags flags, int min, int max, int step_size)
+// if param already exists, will intentionally fail as we deference below
+CVarParameter* CVarSystemImpl::create_int_cvar(const char* name, const char* description, int value, CVarFlags flags, int min, int max, int step_size)
 {
-	CVarParameter* param = CVarSystem::get()->create_int_cvar(name, default_value, current_value, min, max, step_size);
+	CVarParameter* param = init_cvar(name);
+	if (!param)
+		return nullptr;
 
-	param->flags = flags; // fail the program
+	param->type = CVarType::INT;
+	param->flags = flags;
+	param->name = name;
+	param->description = description;
+	param->min.i = min;
+	param->max.i = max;
+	param->step_size.i = step_size;
+
+	get_cvars_array<int>()->add(value, param);
+
+	return param;
+}
+
+// will attempt to deference nullptr if cvar already exists, failing the program
+AutoCVar_Int::AutoCVar_Int(const char* name, const char* description, int value, CVarFlags flags, int min, int max, int step_size)
+{
+	CVarParameter* param = CVarSystem::get()->create_int_cvar(name, description, value, flags, min, max, step_size);
+
 	index = static_cast<int>(param->array_index);
 }
 
-int AutoCVar_Int::get()
+int AutoCVar_Int::get() const
 {
 	return CVarSystemImpl::get()->get_cvars_array<int>()->get_current(index);
 }
@@ -282,15 +190,34 @@ void AutoCVar_Int::set(int value)
 	CVarSystemImpl::get()->get_cvars_array<int>()->set_current(value, index);
 }
 
-AutoCVar_Float::AutoCVar_Float(const char* name, float default_value, float current_value, CVarFlags flags, float min, float max, float step_size)
+CVarParameter* CVarSystemImpl::create_float_cvar(const char* name, const char* description, float value, CVarFlags flags, float min, float max, float step_size)
 {
-	CVarParameter* param = CVarSystem::get()->create_float_cvar(name, default_value, current_value, min, max, step_size);
+	CVarParameter* param = init_cvar(name);
+	if (!param)
+		return nullptr;
 
-	param->flags = flags; // fail the program
+	param->type = CVarType::FLOAT;
+	param->flags = flags;
+	param->name = name;
+	param->description = description;
+	param->min.f = min;
+	param->max.f = max;
+	param->step_size.f = step_size;
+
+	get_cvars_array<float>()->add(value, param);
+
+	return param;
+}
+
+// will attempt to deference nullptr if cvar already exists, failing the program
+AutoCVar_Float::AutoCVar_Float(const char* name, const char* description, float value, CVarFlags flags, float min, float max, float step_size)
+{
+	CVarParameter* param = CVarSystem::get()->create_float_cvar(name, description, value, flags, min, max, step_size);
+
 	index = static_cast<int>(param->array_index);
 }
 
-float AutoCVar_Float::get()
+float AutoCVar_Float::get() const
 {
 	return CVarSystemImpl::get()->get_cvars_array<float>()->get_current(index);
 }
@@ -300,34 +227,141 @@ void AutoCVar_Float::set(float value)
 	CVarSystemImpl::get()->get_cvars_array<float>()->set_current(value, index);
 }
 
-CVarParameter* CVarSystemImpl::create_float_cvar(const char* name, float default_value, float current_value, float min, float max, float step_size)
+void CVarSystemImpl::draw_imgui_editor()
 {
-	CVarParameter* param = init_cvar(name);
-	if (!param)
-		return nullptr; // param already exists
+	ImGui::Begin("Settings");
 
-	param->type = CVarType::FLOAT;
+	if (ImGui::TreeNodeEx("Render", ImGuiTreeNodeFlags_DefaultOpen))
+	{
+		edit_parameters(get_cvar("render.vbuffer"));
+		edit_parameters(get_cvar("render.mesh_shaders"));
+		edit_parameters(get_cvar("render.alphaclip"));
+		edit_parameters(get_cvar("render.transparent"));
+		edit_parameters(get_cvar("render.point_lights"));
+		edit_parameters(get_cvar("render.occlusion_cull"));
+		edit_parameters(get_cvar("render.lod"));
+		edit_parameters(get_cvar("render.shadows"));
+		edit_parameters(get_cvar("render.taa"));
 
-	get_cvars_array<float>()->add(default_value, current_value, param, min, max, step_size);
+		ImGui::TreePop();
+	}
 
-	return param;
+	if (ImGui::TreeNodeEx("Shadows", ImGuiTreeNodeFlags_DefaultOpen))
+	{
+		edit_parameters(get_cvar("shadows.pcf"));
+		edit_parameters(get_cvar("shadows.cascade_split"));
+		edit_parameters(get_cvar("shadows.distance"));
+		edit_parameters(get_cvar("shadows.cascade_selection"));
+
+		ImGui::TreePop();
+	}
+
+	if (ImGui::TreeNodeEx("Debug", ImGuiTreeNodeFlags_DefaultOpen))
+	{
+		edit_parameters(get_cvar("debug.textures"));
+		edit_parameters(get_cvar("debug.meshlets"));
+		edit_parameters(get_cvar("debug.shadowmap"));
+		edit_parameters(get_cvar("debug.cascades"));
+
+		ImGui::TreePop();
+	}
+
+	if (ImGui::TreeNodeEx("Misc", ImGuiTreeNodeFlags_DefaultOpen))
+	{
+		edit_parameters(get_cvar("misc.draw_distance"));
+		edit_parameters(get_cvar("misc.autoexposure"));
+		edit_parameters(get_cvar("misc.tonemap"));
+		edit_parameters(get_cvar("misc.freeze_camera"));
+
+		ImGui::TreePop();
+	}
+
+	// if (ImGui::CollapsingHeader("TAA"))
+	// {
+	//
+	// }
+	//
+	// if (ImGui::CollapsingHeader("PBR"))
+	// {
+	//
+	// }
+
+	/*
+	std::vector<CVarParameter*> params{};
+
+	for (uint32_t i = 0; i < get_cvars_array<int>()->size; i++)
+	{
+		const auto p = get_cvars_array<int>()->get_storage_ptr(static_cast<int>(i));
+		params.push_back(p->param);
+	}
+
+	for (uint32_t i = 0; i < get_cvars_array<float>()->size; i++)
+	{
+		const auto p = get_cvars_array<float>()->get_storage_ptr(static_cast<int>(i));
+		params.push_back(p->param);
+	}
+
+	for (auto& p : params)
+	{
+		edit_parameters(p);
+	}
+	*/
+
+	ImGui::End();
 }
 
-float* CVarSystemImpl::get_float_cvar(const std::string& name)
+void CVarSystemImpl::edit_parameters(CVarParameter* param)
 {
-	CVarParameter* param = get_cvar(name);
 	if (!param)
-		return nullptr;
+		return;
 
-	float* value = get_cvars_array<float>()->get_current_ptr(static_cast<int>(param->array_index));
-	return value;
-}
+	const bool checkbox_flag = static_cast<uint32_t>(CVarFlags::EditCheckbox) & static_cast<uint32_t>(param->flags);
+	const bool slider_int_flag = static_cast<uint32_t>(CVarFlags::EditSliderInt) & static_cast<uint32_t>(param->flags);
+	const bool slider_float_flag = static_cast<uint32_t>(CVarFlags::EditDragFloat) & static_cast<uint32_t>(param->flags);
+	const bool hide_flag = static_cast<uint32_t>(CVarFlags::EditHide) & static_cast<uint32_t>(param->flags);
 
-void CVarSystemImpl::set_float_cvar(const std::string& name, float value)
-{
-	const CVarParameter* param = get_cvar(name);
-	if (!param)
-		return; // do nothing
+	if (hide_flag)
+		return;
 
-	get_cvars_array<float>()->set_current(value, static_cast<int>(param->array_index));
+	switch (param->type)
+	{
+	case CVarType::INT:
+		if (checkbox_flag)
+		{
+			bool flag = get_cvars_array<int>()->get_current(static_cast<int>(param->array_index)) == 1;
+			if (ImGui::Checkbox(param->description.c_str(), &flag))
+			{
+				get_cvars_array<int>()->set_current(flag, static_cast<int>(param->array_index));
+			}
+		}
+		if (slider_int_flag)
+		{
+			auto storage = get_cvars_array<int>()->get_storage_ptr(static_cast<int>(param->array_index));
+			if (ImGui::SliderInt(param->description.c_str(), &storage->current, param->min.i, param->max.i))
+			{
+				get_cvars_array<int>()->set_current(storage->current, static_cast<int>(param->array_index));
+			}
+		}
+		break;
+	case CVarType::FLOAT:
+		if (checkbox_flag)
+		{
+			bool flag = get_cvars_array<float>()->get_current(static_cast<int>(param->array_index)) == 1;
+			if (ImGui::Checkbox(param->description.c_str(), &flag))
+			{
+				get_cvars_array<float>()->set_current(flag, static_cast<int>(param->array_index));
+			}
+		}
+		if (slider_float_flag)
+		{
+			auto storage = get_cvars_array<float>()->get_storage_ptr(param->array_index);
+			if (ImGui::DragFloat(param->description.c_str(), &storage->current, param->step_size.f, param->min.f, param->max.f))
+			{
+				get_cvars_array<float>()->set_current(storage->current, static_cast<int>(param->array_index));
+			}
+		}
+		break;
+	default:
+		break;
+	}
 }
