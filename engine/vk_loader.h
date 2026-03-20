@@ -2,13 +2,14 @@
 
 #include "vk_scene.h"
 
-#include <mikktspace.h>
-
 #include <memory>
 #include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
+
+// upadte
+#include <string>
 
 struct GeoSurface // rename this
 {
@@ -79,9 +80,9 @@ struct LoadedGLTF
 	std::unordered_map<std::string, AllocatedImage> images{};
 
 	std::vector<std::shared_ptr<Node>> top_nodes{};
-	std::vector<VkSampler> samplers{};
 
 	VulkanEngine* creator{};
+	std::string asset_path{};
 
 	~LoadedGLTF() { clear(); }
 
@@ -90,19 +91,3 @@ private:
 };
 
 std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, Loader& loader, std::string& file_path);
-
-struct MikkMesh
-{
-	std::vector<Vertex>* vertices{};
-	std::vector<uint32_t>* indices{};
-};
-
-void calculateTangents(MikkMesh& m);
-
-int mikk_getNumFaces(const SMikkTSpaceContext* context);
-int mikk_getNumVerticesOfFace(const SMikkTSpaceContext* context, int faceIndex);
-void mikk_getPosition(const SMikkTSpaceContext* context, float outPosition[3], int faceIndex, int vertIndex);
-void mikk_getNormal(const SMikkTSpaceContext* context, float outNormal[3], int faceIndex, int vertIndex);
-void mikk_getTexCoord(const SMikkTSpaceContext* context, float outUV[2], int faceIndex, int vertIndex);
-void mikk_setTSpaceBasic(const SMikkTSpaceContext* context, const float outTangent[3], float sign, int faceIndex, int vertIndex);
-void mikk_encodeOct(float& x, float& y, float z);

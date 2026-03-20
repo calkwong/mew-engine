@@ -119,43 +119,45 @@ AllocatedImage upload_image(VkDevice device, VkQueue queue, VkCommandBuffer cmd,
 	AllocatedImage new_image = create_image(device, allocator, extent, format, usage | VK_IMAGE_USAGE_TRANSFER_DST_BIT, aspect, flags, mipmapped);
 
 	immediate_submit(device, queue, cmd, fence, [&](VkCommandBuffer cmd_buf)
-	                 {
-		vkutil::transition_image(
-			cmd_buf, new_image.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-			0,
-			VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-			0,
-			VK_ACCESS_2_TRANSFER_WRITE_BIT
-		);
-
-		VkBufferImageCopy copy_region{};
-		copy_region.bufferOffset = 0;
-		copy_region.bufferRowLength = 0;
-		copy_region.bufferImageHeight = 0;
-
-		copy_region.imageSubresource.aspectMask = aspect;
-		copy_region.imageSubresource.mipLevel = 0;
-		copy_region.imageSubresource.baseArrayLayer = 0;
-		copy_region.imageSubresource.layerCount = 1;
-
-		copy_region.imageExtent = extent;
-
-		vkCmdCopyBufferToImage(cmd_buf, upload_buffer.buffer, new_image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy_region);
-
-		if (mipmapped)
-		{
-			vkutil::generate_mipmaps(cmd_buf, new_image.image, VkExtent2D{ new_image.extent.width, new_image.extent.height });
-		}
-		else
-		{
+	    {
 			vkutil::transition_image(
-				cmd_buf, new_image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+				cmd_buf, new_image.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+				0,
 				VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-				VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-				VK_ACCESS_2_TRANSFER_WRITE_BIT,
-				VK_ACCESS_2_SHADER_READ_BIT
+				0,
+				VK_ACCESS_2_TRANSFER_WRITE_BIT
 			);
-		} });
+
+			VkBufferImageCopy copy_region{};
+			copy_region.bufferOffset = 0;
+			copy_region.bufferRowLength = 0;
+			copy_region.bufferImageHeight = 0;
+
+			copy_region.imageSubresource.aspectMask = aspect;
+			copy_region.imageSubresource.mipLevel = 0;
+			copy_region.imageSubresource.baseArrayLayer = 0;
+			copy_region.imageSubresource.layerCount = 1;
+
+			copy_region.imageExtent = extent;
+
+			vkCmdCopyBufferToImage(cmd_buf, upload_buffer.buffer, new_image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy_region);
+
+			if (mipmapped)
+			{
+				vkutil::generate_mipmaps(cmd_buf, new_image.image, VkExtent2D{ new_image.extent.width, new_image.extent.height });
+			}
+			else
+			{
+				vkutil::transition_image(
+					cmd_buf, new_image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+					VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+					VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+					VK_ACCESS_2_TRANSFER_WRITE_BIT,
+					VK_ACCESS_2_SHADER_READ_BIT
+				);
+			}
+	    }
+	);
 
 	destroy_buffer(allocator, upload_buffer);
 
