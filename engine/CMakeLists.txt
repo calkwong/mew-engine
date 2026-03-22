@@ -66,7 +66,7 @@ target_link_libraries(engine PUBLIC
 	vk-bootstrap::vk-bootstrap
 	fastgltf::fastgltf
 	mikktspace
-	#Tracy::TracyClient
+	Tracy::TracyClient
 	basis_universal
 	meshoptimizer
 	volk_headers

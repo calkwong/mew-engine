@@ -26,9 +26,9 @@ target_sources(mikktspace PRIVATE
 	)
 
 # tracy
-#option(TRACY_ENABLE "" ON)
-#option(TRACY_ON_DEMAND "" ON)
-#add_subdirectory(tracy)
+option(TRACY_ENABLE "" ON)
+option(TRACY_ON_DEMAND "" ON)
+add_subdirectory(tracy)
 
 # basis_universal
 target_include_directories(basis_universal PUBLIC basis_universal/transcoder basis_universal/zstd)

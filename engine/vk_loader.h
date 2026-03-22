@@ -61,25 +61,18 @@ struct Node
 
 class VulkanEngine;
 
-// handles each LoadedGLTF
-struct Loader
-{
-	std::vector<uint32_t> combined_indices{};
-	std::vector<Vertex> combined_vertices{};
-
-	std::vector<uint32_t> meshlet_indices{};
-	std::vector<Meshlet> meshlets{};
-
-	std::vector<MaterialData> materials{};
-};
-
 struct LoadedGLTF
 {
 	std::unordered_map<std::string, std::shared_ptr<MeshAsset>> meshes{};
 	std::unordered_map<std::string, std::shared_ptr<Node>> nodes{};
 	std::unordered_map<std::string, AllocatedImage> images{};
-
 	std::vector<std::shared_ptr<Node>> top_nodes{};
+
+	std::vector<uint32_t> indices{};
+	std::vector<Vertex> vertices{};
+	std::vector<uint32_t> meshlet_indices{};
+	std::vector<Meshlet> meshlets{};
+	std::vector<MaterialData> materials{};
 
 	VulkanEngine* creator{};
 	std::string asset_path{};
@@ -90,4 +83,4 @@ private:
 	void clear();
 };
 
-std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, Loader& loader, std::string& file_path);
+std::optional<std::unique_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const std::string& file_path);

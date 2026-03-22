@@ -31,6 +31,7 @@
 #include <execution>
 #include <cassert>
 #include <cstddef>
+#include <tracy/Tracy.hpp>
 
 namespace
 {
@@ -306,7 +307,7 @@ namespace
 			if (scratch.info.size < buffer_offset + image_upload_info.back().size)
 			{
 				destroy_buffer(engine->allocator, scratch);
-				scratch = create_buffer(engine->allocator, buffer_offset * 1.5, VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT, VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
+				scratch = create_buffer(engine->allocator, static_cast<size_t>(buffer_offset * 1.5), VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT, VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
 			}
 
 			// copy to staging in parallel
@@ -393,8 +394,9 @@ namespace
 
 	// meshlet_indices stores meshlet vertices & triangles, meshlet stores offset into meshlet_indices, and triangle/vertices count
 	void optimize_mesh(
-	    std::vector<Vertex>& vertices, std::vector<uint32_t>& indices, std::vector<uint32_t>& meshlet_indices, std::vector<Meshlet>& meshlets,
-	    GeoSurface& surface, std::vector<Vertex>& combined_vertices, std::vector<uint32_t>& combined_indices
+		std::vector<Vertex>& vertices, std::vector<uint32_t>& indices,
+		std::vector<uint32_t>& meshlet_indices, std::vector<Meshlet>& meshlets,
+		GeoSurface& surface, std::vector<Vertex>& combined_vertices, std::vector<uint32_t>& combined_indices
 	)
 	{
 		// indexing
@@ -665,14 +667,12 @@ namespace
 }
 
 // TODO: refactor - try to decouple loader and engine
-std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, Loader& loader, std::string& file_path)
+std::optional<std::unique_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const std::string& file_path)
 {
-	auto& materials_data = loader.materials;
-	auto initial_materials_size = materials_data.size();
-	file_path = "assets/" + file_path;
-	fmt::println("Loading GLTF: {}", file_path);
+	auto asset_path = "assets/" + file_path;
+	fmt::println("loading glTF: {}", file_path);
 
-	std::shared_ptr<LoadedGLTF> scene = std::make_shared<LoadedGLTF>();
+	std::unique_ptr<LoadedGLTF> scene = std::make_unique<LoadedGLTF>();
 	scene->creator = engine;
 	LoadedGLTF& file = *scene;
 
@@ -691,7 +691,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, Loade
 		fastgltf::Options::LoadExternalBuffers
 	};
 
-	std::filesystem::path path = file_path;
+	std::filesystem::path path = asset_path;
 	file.asset_path = path.parent_path().string();
 	auto gltf_file = fastgltf::GltfDataBuffer::FromPath(path);
 
@@ -738,14 +738,19 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, Loade
 
 	// note: handle another way
 	assert(!asset.materials.empty());
+	auto& materials_data = scene->materials;
 
 	size_t texture_cache_offset = engine->texture_cache.image_infos.size(); // important! do this before loading images
 
 	// TODO: currently supports ktx2 in URI only
 	std::vector<AllocatedImage> images{};
 	auto start = std::chrono::system_clock::now();
-	if (!asset.images.empty())
-		images = load_images(asset, engine, file.asset_path);
+
+	{
+		if (!asset.images.empty())
+			images = load_images(asset, engine, file.asset_path);
+	}
+
 	auto end = std::chrono::system_clock::now();
 	auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
 	float ret = static_cast<float>(elapsed.count()) / 1000.0f;
@@ -821,10 +826,10 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, Loade
 		materials_data.push_back(mat_data);
 	}
 
-	auto& combined_indices = loader.combined_indices;
-	auto& combined_vertices = loader.combined_vertices;
-	auto& meshlet_indices = loader.meshlet_indices;
-	auto& meshlets = loader.meshlets;
+	auto& combined_indices = scene->indices;
+	auto& combined_vertices = scene->vertices;
+	auto& meshlet_indices = scene->meshlet_indices;
+	auto& meshlets = scene->meshlets;
 
 	auto mesh_idx = 0;
 	for (fastgltf::Mesh& mesh : asset.meshes)
@@ -966,17 +971,10 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, Loade
 				default:
 					break;
 				}
-				// auto [pass_type, double_sided] = materials[idx];
-				new_surface.material_id = static_cast<uint32_t>(idx + initial_materials_size);
-				// new_surface.pass = pass_type;
+				new_surface.material_id = static_cast<uint32_t>(idx);
 			}
 			else
 			{
-				// TODO: refactor - mesh has no material, assign first material
-				// auto [pass_type, double_sided] = materials[0];
-				// new_surface.material_id = 0;
-				// new_surface.pass = pass_type;
-
 				assert(0);
 			}
 

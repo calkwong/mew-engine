@@ -12,7 +12,7 @@
 #include "cache.h"
 
 #include <vk_mem_alloc.h>
-// #include <tracy/Tracy.hpp>
+#include <tracy/Tracy.hpp>
 // #include <tracy/TracyVulkan.hpp>
 // #include <glm/gtx/string_cast.hpp>
 #include "stb_image.h"
@@ -37,6 +37,10 @@
 #include <span>
 #include <thread>
 #include <utility>
+
+// test
+#include <execution>
+#include <algorithm>
 
 VulkanEngine* loaded_engine{};
 
@@ -83,7 +87,7 @@ AutoCVar_Int CVAR_TAA_LUMINANCE_WEIGHING{ "taa.luminance_weighing", "Luminance w
 AutoCVar_Float CVAR_PBR_METALLIC{ "pbr.metallic", "Metallic", 0.0f, CVarFlags::EditDragFloat, 0.f, 1.f, 0.05f };
 AutoCVar_Float CVAR_PBR_ROUGHNESS{ "pbr.roughness", "Roughness", 0.5f, CVarFlags::EditDragFloat, 0.f, 1.f, 0.05f };
 
-void VulkanEngine::init(std::vector<std::string>& file_paths)
+void VulkanEngine::init(const std::string& file_path)
 {
 	assert(loaded_engine == nullptr);
 	loaded_engine = this;
@@ -125,7 +129,7 @@ void VulkanEngine::init(std::vector<std::string>& file_paths)
 
 	init_default_data();
 
-	init_renderables(file_paths);
+	init_renderables(file_path);
 
 	init_bindless();
 
@@ -186,7 +190,7 @@ void VulkanEngine::cleanup()
 
 		// TracyVkDestroy(tracy_ctx);
 
-		loaded_scenes.clear();
+		loaded_scene.reset();
 
 		for (const auto& info : sampler_cache.image_infos)
 		{
@@ -234,7 +238,7 @@ void VulkanEngine::cleanup()
 
 		// TODO: possibly destroy loadedgltf resources here instead?
 
-		for (const auto& shader : std::views::values(shader_passes))
+		for (const auto& [_, shader] : shader_passes)
 		{
 			vkDestroyPipeline(device, shader->pipeline, nullptr);
 			vkDestroyPipelineLayout(device, shader->layout, nullptr);
@@ -1866,9 +1870,9 @@ void VulkanEngine::init_pipelines()
 	shader_passes["mlab_vert"] = vkutil::build_shader(device, builder, { shader_cache["mesh.vert"], shader_cache["mlab.frag"] }, descriptor_layouts, sizeof(GPUPushConstants));
 	shader_passes["mlab_mesh"] = vkutil::build_shader(device, builder, { shader_cache["meshlet.mesh"], shader_cache["mlab.frag"] }, descriptor_layouts, sizeof(GPUPushConstants));
 
-	for (const auto& v : std::views::values(shader_cache.data))
+	for (const auto& [_, shader_program] : shader_cache.data)
 	{
-		vkDestroyShaderModule(device, v.get()->module, nullptr);
+		vkDestroyShaderModule(device, shader_program.get()->module, nullptr);
 	}
 }
 
@@ -2149,39 +2153,36 @@ void VulkanEngine::init_default_data()
 	}
 }
 
-void VulkanEngine::init_renderables(std::vector<std::string>& file_paths)
+void VulkanEngine::init_renderables(const std::string& file_path)
 {
 	auto start = std::chrono::system_clock::now();
-	Loader loader{};
-	for (std::string& file_path : file_paths)
+
 	{
-		auto asset_file = load_gltf(this, loader, file_path);
+		auto asset_file = load_gltf(this, file_path);
 		assert(asset_file.has_value());
-		loaded_scenes[file_path] = *asset_file;
+		loaded_scene = std::move(*asset_file);
 	}
+
 	auto end = std::chrono::system_clock::now();
 	auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
 	float ret = static_cast<float>(elapsed.count()) / 1000.0f;
 	fmt::println("load gltf: {}ms", ret);
 
-	render_scene.vertex_buffer = upload_buffer(device, graphics_queue, imm_command_buffer, imm_fence, allocator, loader.combined_vertices.data(), loader.combined_vertices.size() * sizeof(Vertex));
-	render_scene.index_buffer = upload_buffer(device, graphics_queue, imm_command_buffer, imm_fence, allocator, loader.combined_indices.data(), loader.combined_indices.size() * sizeof(uint32_t), VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
-	render_scene.meshlet_indices = upload_buffer(device, graphics_queue, imm_command_buffer, imm_fence, allocator, loader.meshlet_indices.data(), loader.meshlet_indices.size() * sizeof(uint32_t));
-	render_scene.meshlet_buffer = upload_buffer(device, graphics_queue, imm_command_buffer, imm_fence, allocator, loader.meshlets.data(), loader.meshlets.size() * sizeof(Meshlet));
-	render_scene.material_buffer = upload_buffer(device, graphics_queue, imm_command_buffer, imm_fence, allocator, loader.materials.data(), loader.materials.size() * sizeof(MaterialData));
+	render_scene.vertex_buffer = upload_buffer(device, graphics_queue, imm_command_buffer, imm_fence, allocator, loaded_scene->vertices.data(), loaded_scene->vertices.size() * sizeof(Vertex));
+	render_scene.index_buffer = upload_buffer(device, graphics_queue, imm_command_buffer, imm_fence, allocator, loaded_scene->indices.data(), loaded_scene->indices.size() * sizeof(uint32_t), VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+	render_scene.meshlet_indices = upload_buffer(device, graphics_queue, imm_command_buffer, imm_fence, allocator, loaded_scene->meshlet_indices.data(), loaded_scene->meshlet_indices.size() * sizeof(uint32_t));
+	render_scene.meshlet_buffer = upload_buffer(device, graphics_queue, imm_command_buffer, imm_fence, allocator, loaded_scene->meshlets.data(), loaded_scene->meshlets.size() * sizeof(Meshlet));
+	render_scene.material_buffer = upload_buffer(device, graphics_queue, imm_command_buffer, imm_fence, allocator, loaded_scene->materials.data(), loaded_scene->materials.size() * sizeof(MaterialData));
 	fmt::println("vertex_buffer: {}mb", size_in_bytes(render_scene.vertex_buffer.info.size));
 	fmt::println("index_buffer: {}mb", size_in_bytes(render_scene.index_buffer.info.size));
 	fmt::println("meslet_indices: {}mb", size_in_bytes(render_scene.meshlet_indices.info.size));
 	fmt::println("meshlet_buffer: {}mb", size_in_bytes(render_scene.meshlet_buffer.info.size));
 	fmt::println("material_buffer: {}mb", size_in_bytes(render_scene.material_buffer.info.size));
 
-	for (const auto& scene : loaded_scenes | std::views::values)
-	{
-		for (const auto& n : scene->top_nodes)
+		for (const auto& n : loaded_scene->top_nodes)
 		{
 			register_object(n.get(), glm::translate(glm::mat4(1.0f), glm::vec3(0, 0, 2)));
 		}
-	}
 
 #ifndef SINGLE
 	std::mt19937 mt(42);

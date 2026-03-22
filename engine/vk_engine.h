@@ -179,7 +179,7 @@ public:
 	ImageCache image_cache{};
 	ShaderCache shader_cache{};
 
-	std::unordered_map<std::string, std::shared_ptr<LoadedGLTF>> loaded_scenes{};
+	std::unique_ptr<LoadedGLTF> loaded_scene{};
 
 	VkDescriptorSetLayout scene_descriptor_layout{};
 	VkDescriptorSetLayout bindless_tex_layout{};
@@ -206,7 +206,7 @@ public:
 
 	static VulkanEngine& get();
 
-	void init(std::vector<std::string>& file_paths);
+	void init(const std::string& file_path);
 	void cleanup();
 	void draw();
 	void run();
@@ -238,7 +238,7 @@ private:
 	void init_descriptors();
 	void init_pipelines();
 	void init_default_data();
-	void init_renderables(std::vector<std::string>& file_paths);
+	void init_renderables(const std::string& file_path);
 	void init_bindless();
 	void init_gi();
 	void init_imgui();
