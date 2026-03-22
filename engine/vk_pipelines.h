@@ -52,8 +52,6 @@ struct GPUPushConstants // temporarily shared by vertex and mesh shading path
 	VkDeviceAddress cluster_indices_address{};
 	VkDeviceAddress material_buffer_address{};
 	VkDeviceAddress oit_buffer_address{};
-	uint32_t debug_meshlets{};
-	uint32_t padding{};
 	glm::vec2 jitter_offset{}; // last + current frame jitter; should move this up but i am too lazy to edit shaders
 };
 
@@ -78,7 +76,6 @@ struct DeferredPushConstants
 	float near{};
 	float scale{};
 	float bias{};
-	uint32_t debug_meshlets{};
 	uint32_t resolve_transparent{};
 	uint32_t shadows{};
 	uint32_t pcf{};

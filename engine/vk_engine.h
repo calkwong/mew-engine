@@ -208,6 +208,7 @@ public:
 	void render_shadows(VkCommandBuffer cmd, uint32_t cascade_idx, uint32_t query);
 	void build_depth_pyramid(VkCommandBuffer cmd);
 	void execute_light_culling(VkCommandBuffer cmd);
+	void resolve_shading(VkCommandBuffer cmd);
 
 private:
 	void init_vulkan();

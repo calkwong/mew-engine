@@ -33,7 +33,6 @@ layout( push_constant ) uniform constants
 	ClusterIndicesBuffer cluster_indices_buffer; 
 	MaterialBuffer material_buffer;
 	OITBuffer oit_buffer;
-	uint debug_meshlets;
 };
 
 void swap_node(inout uint color_a, inout uint depth_a, inout float transmission_a, inout uint color_b, inout uint depth_b, inout float transmission_b)

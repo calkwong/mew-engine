@@ -4,3 +4,4 @@
 #define DEBUG_UV 4
 #define DEBUG_SHADOWMAP 5
 #define DEBUG_CASCADES 6
+#define DEBUG_MESHLETS 7

@@ -259,7 +259,6 @@ void CVarSystemImpl::draw_imgui_editor()
 	if (ImGui::TreeNodeEx("Debug", ImGuiTreeNodeFlags_DefaultOpen))
 	{
 		edit_parameters(get_cvar("debug.textures"));
-		edit_parameters(get_cvar("debug.meshlets"));
 
 		ImGui::TreePop();
 	}
