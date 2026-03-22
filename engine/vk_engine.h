@@ -104,10 +104,13 @@ public:
 	VkInstance instance{}; // vulkan library handle
 	VkDebugUtilsMessengerEXT debug_messenger{}; // vulkan debug output handle
 	VkPhysicalDevice chosen_gpu{};
-	VkDevice device{};
 	VkSurfaceKHR surface{}; // vulkan window surface
-
 	SDL_Window* window{};
+
+	VkQueue graphics_queue{};
+	uint32_t graphics_queue_family{};
+	VkPhysicalDeviceProperties device_properties{};
+	VkDevice device{};
 
 	VkSwapchainKHR swapchain{};
 	VkFormat swapchain_image_format{};
@@ -115,40 +118,59 @@ public:
 	std::vector<VkImage> swapchain_images{};
 	std::vector<VkImageView> swapchain_image_views{};
 	VkExtent2D swapchain_extent{};
+	VkExtent2D draw_extent{};
 
 	FrameData frames[FRAME_OVERLAP]{};
 	FrameData& get_current_frame() { return frames[frame_number % FRAME_OVERLAP]; }
-	FrameData& get_last_frame() { return frames[(frame_number - 1) % FRAME_OVERLAP]; }
 	DeletionQueue main_deletion_queue{};
+
+	DescriptorAllocatorGrowable global_descriptor_allocator{};
+	VkDescriptorSetLayout scene_descriptor_layout{};
+	VkDescriptorSetLayout bindless_tex_layout{};
+	VkDescriptorSetLayout bindless_sampler_layout{};
+	VkDescriptorSetLayout bindless_image_layout{};
 
 	VmaAllocator allocator{};
 
+	VkFence imm_fence{};
+	VkCommandBuffer imm_command_buffer{};
+	VkCommandPool imm_command_pool{};
+
+	std::unique_ptr<LoadedGLTF> loaded_scene{};
+
+	Camera main_camera{};
+	SceneData scene_data{};
+	std::array<CascadeData, 4> cascade_data{};
+	std::array<float, 4> jx{};
+	std::array<float, 4> jy{};
+	EngineStats stats{};
+
+	SamplerCache sampler_cache{};
+	TextureCache texture_cache{};
+	ImageCache image_cache{};
+	ShaderCache shader_cache{};
+
+	VkDescriptorSet bindless_tex_descriptor{};
+	VkDescriptorSet bindless_sampler_descriptor{};
+	VkDescriptorSet bindless_image_descriptor{};
+
+	std::unordered_map<std::string, std::unique_ptr<ShaderPass>> shader_passes{};
+
+	std::vector<VkImageMemoryBarrier2> image_barriers{};
+	std::vector<VkMemoryBarrier2> buffer_barriers{};
+
 	AllocatedImage draw_image{};
+	AllocatedImage depth_image{};
 	AllocatedImage visibility_buffer{};
 	AllocatedImage velocity_buffer{};
 	std::array<AllocatedImage, 2> accumulation_buffers{};
 	std::vector<AllocatedImage> gbuffers{};
-	VkExtent2D draw_extent{};
-
-	AllocatedImage depth_image{};
 	AllocatedImage depth_pyramid{};
-
-	VkExtent3D ibl_extent{};
-
-	AllocatedImage white_image{};
-	AllocatedImage black_image{};
-	AllocatedImage default_mr_image{};
-	AllocatedImage default_normal_image{};
-	AllocatedImage error_image{};
-	AllocatedImage offscreen_image{};
-
-	// GI
 	AllocatedImage hdri{};
 	AllocatedImage hdri_cubemap{};
 	AllocatedImage irradiance_cubemap{}; // for SH reference
 	AllocatedImage prefiltered_envmap{};
 	AllocatedImage brdf_lut{};
-
 	AllocatedImage shadow_map{};
 
 	AllocatedBuffer light_buffer{};
@@ -157,51 +179,9 @@ public:
 	AllocatedBuffer light_grid_buffer{};
 	AllocatedBuffer light_count_buffer{};
 
-	VkSampler default_linear_sampler{};
-	VkSampler default_cube_sampler{};
-	VkSampler default_nearest_sampler{};
-
-	DescriptorAllocatorGrowable global_descriptor_allocator{};
-
-	VkFence imm_fence{};
-	VkCommandBuffer imm_command_buffer{};
-	VkCommandPool imm_command_pool{};
-
-	VkQueue graphics_queue{};
-	uint32_t graphics_queue_family{};
-
-	Camera main_camera{};
-	EngineStats stats{};
-
-	SamplerCache sampler_cache{};
-	TextureCache texture_cache{};
-	ImageCache image_cache{};
-	ShaderCache shader_cache{};
-
-	std::unique_ptr<LoadedGLTF> loaded_scene{};
-
-	VkDescriptorSetLayout scene_descriptor_layout{};
-	VkDescriptorSetLayout bindless_tex_layout{};
-	VkDescriptorSetLayout bindless_sampler_layout{};
-	VkDescriptorSetLayout bindless_image_layout{};
-
-	VkDescriptorSet bindless_tex_descriptor{};
-	VkDescriptorSet bindless_sampler_descriptor{};
-	VkDescriptorSet bindless_image_descriptor{};
-
-	std::unordered_map<std::string, std::unique_ptr<ShaderPass>> shader_passes{};
-
-	SceneData scene_data{};
-	std::array<CascadeData, 4> cascade_data{};
-	std::array<float, 4> jx{};
-	std::array<float, 4> jy{};
-	std::vector<VkImageMemoryBarrier2> image_barriers{};
-	std::vector<VkMemoryBarrier2> buffer_barriers{};
-
-	// tracy::VkCtx* tracy_ctx{};
 	RenderScene render_scene{};
 
-	VkPhysicalDeviceProperties device_properties{};
+	// tracy::VkCtx* tracy_ctx{};
 
 	static VulkanEngine& get();
 
@@ -218,8 +198,8 @@ public:
 	void update_cascade();
 	void draw_imgui(VkCommandBuffer cmd, VkImageView swapchain_view);
 	void upload_buffers();
-	void ready_mesh_cull(RenderScene::MeshPass& pass, CullData& cull_data, glm::mat4& proj, bool orthographic = false);
-	void ready_meshlet_cull(RenderScene::MeshPass& pass, ClusterCullData& cull_data, glm::mat4& proj, bool orthographic = false);
+	void ready_mesh_cull(RenderScene::MeshPass& pass, CullData& cull_data, glm::mat4& proj);
+	void ready_meshlet_cull(RenderScene::MeshPass& pass, ClusterCullData& cull_data, glm::mat4& proj);
 	void execute_compute_cull(VkCommandBuffer cmd, const RenderScene::MeshPass& pass, CullData& cull_data, bool late, uint32_t post_pass);
 	void execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPass& pass, ClusterCullData& cull_data, VkBuffer count_buffer, uint32_t offset, bool late, uint32_t post_pass);
 	void execute_shadow_cull(VkCommandBuffer cmd);
@@ -246,10 +226,3 @@ private:
 	void create_swapchain(uint32_t width, uint32_t height);
 	void destroy_swapchain();
 };
-
-// TODO: move these to math/utility haeder
-uint32_t nearest_pow2(uint32_t extent);
-float Halton(uint32_t i, uint32_t b);
-uint32_t get_groupcount(uint32_t size, uint32_t threads);
-float size_in_bytes(uint64_t size);
-void decompose_transform(const glm::mat4& m, glm::vec3& translation, glm::vec3& scale, glm::vec4& rotation);

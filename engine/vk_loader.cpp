@@ -1056,7 +1056,7 @@ void LoadedGLTF::clear()
 	const VkDevice device = creator->device;
 	const VmaAllocator allocator = creator->allocator;
 
-	for (auto& img : images | std::views::values)
+	for (auto& [_, img] : images)
 	{
 		destroy_image(device, allocator, img);
 	}

@@ -14,7 +14,6 @@
 #include <vk_mem_alloc.h>
 #include <tracy/Tracy.hpp>
 // #include <tracy/TracyVulkan.hpp>
-// #include <glm/gtx/string_cast.hpp>
 #include "stb_image.h"
 
 #include <SDL3/SDL_events.h>
@@ -33,7 +32,6 @@
 #include <functional>
 #include <memory>
 #include <random>
-#include <ranges>
 #include <span>
 #include <thread>
 #include <utility>
@@ -48,7 +46,7 @@ constexpr bool USE_VALIDATION_LAYERS = false;
 constexpr bool USE_VALIDATION_LAYERS = true;
 #endif
 
-#define SINGLE // uncomment if loading a proper scene
+// #define SINGLE // uncomment if loading a proper scene
 
 AutoCVar_Int CVAR_RENDER_VBUFFER{ "render.vbuffer", "Vbuffer path", 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_MESH_SHADERS{ "render.mesh_shaders", "Mesh shaders path", 1, CVarFlags::EditCheckbox };
@@ -69,7 +67,7 @@ AutoCVar_Int CVAR_DEBUG_TEXTURES{ "debug.textures", "Debug textures", 0, CVarFla
 AutoCVar_Int CVAR_DEBUG_MESHLETS{ "debug.meshlets", "Meshlets", 0, CVarFlags::EditCheckbox };
 
 AutoCVar_Int CVAR_MISC_DRAW_DISTANCE{ "misc.draw_distance", "Draw distance", 1000, CVarFlags::EditSliderInt, 100, 1000, 100 };
-AutoCVar_Int CVAR_MISC_AUTOEXPOSURE{ "misc.autoexposure", "Autoexposure", 1, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_MISC_AUTOEXPOSURE{ "misc.autoexposure", "Autoexposure", 0, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_MISC_TONEMAP{ "misc.tonemap", "Tonemapping", 0, CVarFlags::EditSliderInt, 0, 1, 1 };
 AutoCVar_Int CVAR_MISC_FREEZE_CAMERA{ "misc.freeze_camera", "Freeze camera", 0, CVarFlags::EditCheckbox };
 
@@ -82,6 +80,78 @@ AutoCVar_Int CVAR_TAA_LUMINANCE_WEIGHING{ "taa.luminance_weighing", "Luminance w
 
 AutoCVar_Float CVAR_PBR_METALLIC{ "pbr.metallic", "Metallic", 0.0f, CVarFlags::EditDragFloat, 0.f, 1.f, 0.05f };
 AutoCVar_Float CVAR_PBR_ROUGHNESS{ "pbr.roughness", "Roughness", 0.5f, CVarFlags::EditDragFloat, 0.f, 1.f, 0.05f };
+
+namespace
+{
+	uint32_t nearest_pow2(uint32_t extent)
+	{
+		return 1 << static_cast<uint32_t>(std::floor(std::log2(static_cast<float>(extent))));
+	}
+
+	float Halton(uint32_t i, uint32_t b)
+	{
+		float f = 1.0f;
+		float r = 0.0f;
+
+		while (i > 0)
+		{
+			f /= static_cast<float>(b);
+			r = r + f * static_cast<float>(i % b);
+			auto ratio = static_cast<float>(i) / static_cast<float>(b);
+			i = static_cast<uint32_t>(std::floor(ratio));
+		}
+
+		return r;
+	}
+
+	uint32_t get_groupcount(uint32_t size, uint32_t threads)
+	{
+		return (size + threads - 1) / threads;
+	}
+
+	float size_in_bytes(uint64_t size)
+	{
+		return static_cast<float>(size) * 1e-6f;
+	}
+
+	// taken directly from https://github.com/zeux/niagara/blob/master/src/scene.cpp
+	void decompose_transform(const glm::mat4& m, glm::vec3& t, glm::vec3& s, glm::vec4& rotation)
+	{
+		t.x = m[3][0];
+		t.y = m[3][1];
+		t.z = m[3][2];
+
+		float det = glm::determinant(glm::mat3(m));
+		float sign = (det < 0.0f) ? -1.0f : 1.0f;
+
+		s.x = std::sqrt(m[0][0] * m[0][0] + m[0][1] * m[0][1] + m[0][2] * m[0][2]) * sign;
+		s.y = std::sqrt(m[1][0] * m[1][0] + m[1][1] * m[1][1] + m[1][2] * m[1][2]) * sign;
+		s.z = std::sqrt(m[2][0] * m[2][0] + m[2][1] * m[2][1] + m[2][2] * m[2][2]) * sign;
+
+		float rsx = (s[0] == 0.f) ? 0.f : 1.f / s[0];
+		float rsy = (s[1] == 0.f) ? 0.f : 1.f / s[1];
+		float rsz = (s[2] == 0.f) ? 0.f : 1.f / s[2];
+
+		// mat = rotation * scale, we want a pure rotation matrix hence normalize axes
+		float r00 = m[0][0] * rsx, r10 = m[1][0] * rsy, r20 = m[2][0] * rsz;
+		float r01 = m[0][1] * rsx, r11 = m[1][1] * rsy, r21 = m[2][1] * rsz;
+		float r02 = m[0][2] * rsx, r12 = m[1][2] * rsy, r22 = m[2][2] * rsz;
+
+		// "branchless" version of Mike Day's matrix to quaternion conversion, no attempt was made to understand quats :)
+		int qc = r22 < 0 ? (r00 > r11 ? 0 : 1) : (r00 < -r11 ? 2 : 3);
+		float qs1 = qc & 2 ? -1.f : 1.f;
+		float qs2 = qc & 1 ? -1.f : 1.f;
+		float qs3 = (qc - 1) & 2 ? -1.f : 1.f;
+
+		float qt = 1.f - qs3 * r00 - qs2 * r11 - qs1 * r22;
+		float qs = 0.5f / sqrtf(qt);
+
+		rotation[qc ^ 0] = qs * qt;
+		rotation[qc ^ 1] = qs * (r01 + qs1 * r10);
+		rotation[qc ^ 2] = qs * (r20 + qs2 * r02);
+		rotation[qc ^ 3] = qs * (r12 + qs3 * r21);
+	}
+}
 
 void VulkanEngine::init(const std::string& file_path)
 {
@@ -231,8 +301,6 @@ void VulkanEngine::cleanup()
 		destroy_buffer(allocator, render_scene.sh_buffer);
 		destroy_buffer(allocator, render_scene.luminance_buffer);
 		destroy_buffer(allocator, render_scene.luminance_avg_buffer);
-
-		// TODO: possibly destroy loadedgltf resources here instead?
 
 		for (const auto& [_, shader] : shader_passes)
 		{
@@ -456,16 +524,25 @@ void VulkanEngine::draw()
 		    VK_QUERY_RESULT_64_BIT
 		);
 
-		// TODO: hardcoded - refactor
-		std::vector<double*> stats_ref = { &stats.early_cull, &stats.early_indirect, &stats.late_cull, &stats.late_indirect, &stats.mask_cull, &stats.mask_indirect,
-			                               &stats.light_culling, &stats.deferred_shading, &stats.transparent_cull, &stats.transparent_render, &stats.shadow_cull, &stats.shadow_render, &stats.taa_resolve };
-		for (size_t i = 0; i < timestamp_results.size(); i = i + 2)
+		double timestamp_period = device_properties.limits.timestampPeriod;
+		auto get_time = [&](size_t start, size_t end) -> double
 		{
-			{
-				auto time = static_cast<double>(timestamp_results[i + 1] - timestamp_results[i]) * device_properties.limits.timestampPeriod * 1e-6;
-				*stats_ref[i / 2] = time;
-			}
-		}
+			return static_cast<double>(end - start) * timestamp_period * 1e-6;
+		};
+
+		stats.early_cull = get_time(0, 1);
+		stats.early_indirect = get_time(2, 3);
+		stats.late_cull = get_time(4, 5);
+		stats.late_indirect = get_time(6, 7);
+		stats.mask_cull = get_time(8, 9);
+		stats.mask_indirect = get_time(10, 11);
+		stats.light_culling = get_time(12, 13);
+		stats.deferred_shading = get_time(14, 15);
+		stats.transparent_cull = get_time(16, 17);
+		stats.transparent_render = get_time(18, 19);
+		stats.shadow_cull = get_time(20, 21);
+		stats.shadow_render = get_time(22, 23);
+		stats.taa_resolve = get_time(24, 25);
 
 		stats.triangle_count = 0;
 		// for (size_t i = 0; i < pipeline_results.size() - 1; i++)
@@ -1003,7 +1080,7 @@ void VulkanEngine::draw()
 	buffer_barriers.clear();
 	image_barriers.clear();
 
-	// TODO: frame n applies exposure from frame n's luminance avg instead of previous frame's, correct this in the future
+	// TODO: frame n applies exposure from frame n's luminance avg instead of previous frame's, correct this in the future?
 	// build luminance histogram & luminance avg
 	if (CVAR_MISC_AUTOEXPOSURE.get())
 	{
@@ -1885,10 +1962,6 @@ void VulkanEngine::init_default_data()
 		}
 	}
 
-	error_image = upload_image(this, device, allocator, static_cast<void*>(pixels.data()), VkExtent3D{ 16, 16, 1 }, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
-
-	texture_cache.add_texture(error_image.view);
-
 	VkSampler sampler{};
 	VkSamplerCreateInfo sampler_info{};
 	sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
@@ -1978,8 +2051,6 @@ void VulkanEngine::init_default_data()
 
 	main_deletion_queue.push_function([&]()
 		{
-			destroy_image(device, allocator, error_image);
-
 			for (auto& cascade : cascade_data)
 			{
 				destroy_image(device, allocator, cascade.shadow_map);
@@ -2362,10 +2433,10 @@ void VulkanEngine::update_scene()
 		auto jitter_index = frame_number % 8;
 		float halton_x = 2.0f * Halton(jitter_index + 1, 2) - 1.0f;
 		float halton_y = 2.0f * Halton(jitter_index + 1, 3) - 1.0f;
-		float jx = halton_x / static_cast<float>(draw_extent.width);
-		float jy = halton_y / static_cast<float>(draw_extent.height);
+		float x = halton_x / static_cast<float>(draw_extent.width);
+		float y = halton_y / static_cast<float>(draw_extent.height);
 
-		auto offset_projection = glm::translate(glm::mat4(1.0f), glm::vec3(jx, jy, 0.0));
+		auto offset_projection = glm::translate(glm::mat4(1.0f), glm::vec3(x, y, 0.0));
 		scene_data.proj = offset_projection * scene_data.proj;
 	}
 	// TODO: how we handling frame 0?
@@ -2540,9 +2611,9 @@ void VulkanEngine::execute_taa_resolve(VkCommandBuffer cmd, VkImageView view)
 	auto jitter_index = frame_number % 8;
 	float halton_x = 2.0f * Halton(jitter_index + 1, 2) - 1.0f;
 	float halton_y = 2.0f * Halton(jitter_index + 1, 3) - 1.0f;
-	float jx = halton_x / static_cast<float>(draw_extent.width);
-	float jy = halton_y / static_cast<float>(draw_extent.height);
-	pc.current_jitter = glm::vec2(jx, jy); // current jitter only
+	float x = halton_x / static_cast<float>(draw_extent.width);
+	float y = halton_y / static_cast<float>(draw_extent.height);
+	pc.current_jitter = glm::vec2(x, y); // current jitter only
 	pc.accum_id = texture_cache.get_accumulation_buffer((frame_number + 1) % 2);
 	pc.color_id = texture_cache.get_accumulation_buffer(frame_number % 2);
 	pc.depth_id = texture_cache.get_depth_image();
@@ -2584,10 +2655,9 @@ void VulkanEngine::update_cascade()
 
 	auto light_dir = glm::normalize(glm::vec3(scene_data.sunlight_dir));
 
-	// TODO: currently does not work with frozen camera
-	// TODO: refactor when implementing window resize
 	glm::mat4 view = main_camera.get_view_matrix();
 
+	// TODO: refactor when implementing window resize
 	glm::mat4 proj = glm::perspective(glm::radians(main_camera.fov), static_cast<float>(draw_extent.width) / static_cast<float>(draw_extent.height), static_cast<float>(CVAR_SHADOWS_DISTANCE.get()), main_camera.far);
 	glm::mat4 inv_viewproj = glm::inverse(proj * view);
 
@@ -2623,7 +2693,7 @@ void VulkanEngine::update_cascade()
 		}
 		last_split = current_split;
 
-		// TODO: try ritter's for tighter stable cascades?
+		// note: try ritter's for tighter stable cascades?
 		glm::vec3 center{};
 		for (auto transformed_corner : transformed_corners)
 		{
@@ -2826,8 +2896,8 @@ void VulkanEngine::upload_buffers()
 	// clang-format on
 }
 
-// late & post_pass set in executecomputecull
-void VulkanEngine::ready_mesh_cull(RenderScene::MeshPass& pass, CullData& cull_data, glm::mat4& proj, bool orthographic /*= false*/)
+// indices address, count, late & post_pass set in executecomputecull
+void VulkanEngine::ready_mesh_cull(RenderScene::MeshPass& pass, CullData& cull_data, glm::mat4& proj)
 {
 	auto projT = glm::transpose(proj);
 
@@ -2835,13 +2905,6 @@ void VulkanEngine::ready_mesh_cull(RenderScene::MeshPass& pass, CullData& cull_d
 	auto m1 = projT[1];
 	// auto m2 = projT[2];
 	auto m3 = projT[3];
-
-	//	m3, // near, if orthographic, m3 - m2
-	//	m2, // far, if orthographic, m3 + m2
-	//	m3 + m1, // bottom
-	//	m3 - m1,
-	//	m3 + m0, // left
-	//	m3 - m0
 
 	auto left_plane = m3 + m0;
 	auto bottom_plane = m3 + m1;
@@ -2854,13 +2917,6 @@ void VulkanEngine::ready_mesh_cull(RenderScene::MeshPass& pass, CullData& cull_d
 
 	normalize_plane(left_plane);
 	normalize_plane(bottom_plane);
-
-	// TODO: fix
-	// if (orthographic)
-	//{
-	//	cull_data.frustum_planes[0] = m3 - m2; // near
-	//	cull_data.frustum_planes[1] = m3 + m2; // far
-	//}
 
 	cull_data.view = freeze_camera ? last_view : scene_data.view;
 	cull_data.frustum_planes = glm::vec4(left_plane.x, left_plane.z, bottom_plane.y, bottom_plane.z);
@@ -2889,22 +2945,15 @@ void VulkanEngine::ready_mesh_cull(RenderScene::MeshPass& pass, CullData& cull_d
 	cull_data.task_submit = CVAR_RENDER_MESH_SHADERS.get();
 }
 
-// late & post_pass set in executecomputecull
-void VulkanEngine::ready_meshlet_cull(RenderScene::MeshPass& pass, ClusterCullData& cull_data, glm::mat4& proj, bool orthographic /*= false*/)
+// count, late & post_pass set in executecomputecull
+void VulkanEngine::ready_meshlet_cull(RenderScene::MeshPass& pass, ClusterCullData& cull_data, glm::mat4& proj)
 {
 	auto projT = glm::transpose(proj);
 
 	auto m0 = projT[0];
 	auto m1 = projT[1];
-	auto m2 = projT[2];
+	// auto m2 = projT[2];
 	auto m3 = projT[3];
-
-	//	m3, // near, if orthographic, m3 - m2
-	//	m2, // far, if orthographic, m3 + m2
-	//	m3 + m1, // bottom
-	//	m3 - m1,
-	//	m3 + m0, // left
-	//	m3 - m0
 
 	auto left_plane = m3 + m0;
 	auto bottom_plane = m3 + m1;
@@ -2917,13 +2966,6 @@ void VulkanEngine::ready_meshlet_cull(RenderScene::MeshPass& pass, ClusterCullDa
 
 	normalize_plane(left_plane);
 	normalize_plane(bottom_plane);
-
-	// TODO: fix
-	// if (orthographic)
-	//{
-	//	cull_data.frustum_planes[0] = m3 - m2; // near
-	//	cull_data.frustum_planes[1] = m3 + m2; // far
-	//}
 
 	cull_data.view = freeze_camera ? last_view : scene_data.view;
 	cull_data.frustum_planes = glm::vec4(left_plane.x, left_plane.z, bottom_plane.y, bottom_plane.z);
@@ -3092,12 +3134,12 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass, ui
 		auto jitter_index = (frame_number - (i * -1)) % 8;
 		float halton_x = 2.0f * Halton(jitter_index + 1, 2) - 1.0f;
 		float halton_y = 2.0f * Halton(jitter_index + 1, 3) - 1.0f;
-		float jx = halton_x / static_cast<float>(draw_extent.width);
-		float jy = halton_y / static_cast<float>(draw_extent.height);
+		float x = halton_x / static_cast<float>(draw_extent.width);
+		float y = halton_y / static_cast<float>(draw_extent.height);
 		if (i == 0)
-			pc.jitter_offset += glm::vec2(jx, jy);
+			pc.jitter_offset += glm::vec2(x, y);
 		else
-			pc.jitter_offset -= glm::vec2(jx, jy);
+			pc.jitter_offset -= glm::vec2(x, y);
 	}
 
 	pc.debug_meshlets = CVAR_RENDER_MESH_SHADERS.get() ? CVAR_DEBUG_MESHLETS.get() : 0;
@@ -3407,73 +3449,4 @@ void VulkanEngine::execute_light_culling(VkCommandBuffer cmd)
 	auto groupcount_x = get_groupcount(window_extent.width, CLUSTER_DIM);
 	auto groupcount_y = get_groupcount(window_extent.height, CLUSTER_DIM);
 	vkCmdDispatch(cmd, groupcount_x, groupcount_y, CLUSTER_DIM);
-}
-
-uint32_t nearest_pow2(uint32_t extent)
-{
-	return 1 << static_cast<uint32_t>(std::floor(std::log2(static_cast<float>(extent))));
-}
-
-float Halton(uint32_t i, uint32_t b)
-{
-	float f = 1.0f;
-	float r = 0.0f;
-
-	while (i > 0)
-	{
-		f /= static_cast<float>(b);
-		r = r + f * static_cast<float>(i % b);
-		auto ratio = static_cast<float>(i) / static_cast<float>(b);
-		i = static_cast<uint32_t>(std::floor(ratio));
-	}
-
-	return r;
-}
-
-uint32_t get_groupcount(uint32_t size, uint32_t threads)
-{
-	return (size + threads - 1) / threads;
-}
-
-float size_in_bytes(uint64_t size)
-{
-	return static_cast<float>(size) * 1e-6f;
-}
-
-// taken directly from https://github.com/zeux/niagara/blob/master/src/scene.cpp
-void decompose_transform(const glm::mat4& m, glm::vec3& t, glm::vec3& s, glm::vec4& rotation)
-{
-	t.x = m[3][0];
-	t.y = m[3][1];
-	t.z = m[3][2];
-
-	float det = glm::determinant(glm::mat3(m));
-	float sign = (det < 0.0f) ? -1.0f : 1.0f;
-
-	s.x = std::sqrt(m[0][0] * m[0][0] + m[0][1] * m[0][1] + m[0][2] * m[0][2]) * sign;
-	s.y = std::sqrt(m[1][0] * m[1][0] + m[1][1] * m[1][1] + m[1][2] * m[1][2]) * sign;
-	s.z = std::sqrt(m[2][0] * m[2][0] + m[2][1] * m[2][1] + m[2][2] * m[2][2]) * sign;
-
-	float rsx = (s[0] == 0.f) ? 0.f : 1.f / s[0];
-	float rsy = (s[1] == 0.f) ? 0.f : 1.f / s[1];
-	float rsz = (s[2] == 0.f) ? 0.f : 1.f / s[2];
-
-	// mat = rotation * scale, we want a pure rotation matrix hence normalize axes
-	float r00 = m[0][0] * rsx, r10 = m[1][0] * rsy, r20 = m[2][0] * rsz;
-	float r01 = m[0][1] * rsx, r11 = m[1][1] * rsy, r21 = m[2][1] * rsz;
-	float r02 = m[0][2] * rsx, r12 = m[1][2] * rsy, r22 = m[2][2] * rsz;
-
-	// "branchless" version of Mike Day's matrix to quaternion conversion, no attempt was made to understand quats :)
-	int qc = r22 < 0 ? (r00 > r11 ? 0 : 1) : (r00 < -r11 ? 2 : 3);
-	float qs1 = qc & 2 ? -1.f : 1.f;
-	float qs2 = qc & 1 ? -1.f : 1.f;
-	float qs3 = (qc - 1) & 2 ? -1.f : 1.f;
-
-	float qt = 1.f - qs3 * r00 - qs2 * r11 - qs1 * r22;
-	float qs = 0.5f / sqrtf(qt);
-
-	rotation[qc ^ 0] = qs * qt;
-	rotation[qc ^ 1] = qs * (r01 + qs1 * r10);
-	rotation[qc ^ 2] = qs * (r20 + qs2 * r02);
-	rotation[qc ^ 3] = qs * (r12 + qs3 * r21);
 }
