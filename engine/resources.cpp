@@ -1,32 +1,9 @@
 #include "common.h"
 #include "resources.h"
 #include "vk_initializers.h"
+#include "vk_engine.h"
 
 #include <vk_mem_alloc.h>
-
-#include <functional>
-
-void immediate_submit(VkDevice device, VkQueue queue, VkCommandBuffer cmd, VkFence fence, std::function<void(VkCommandBuffer cmd)>&& func)
-{
-	VK_CHECK(vkResetFences(device, 1, &fence));
-	VK_CHECK(vkResetCommandBuffer(cmd, 0));
-
-	VkCommandBufferBeginInfo cmd_begin_info = vkinit::command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
-
-	VK_CHECK(vkBeginCommandBuffer(cmd, &cmd_begin_info));
-
-	func(cmd);
-
-	VK_CHECK(vkEndCommandBuffer(cmd));
-
-	VkCommandBufferSubmitInfo cmd_submit_info = vkinit::command_buffer_submit_info(cmd);
-
-	VkSubmitInfo2 submit = vkinit::submit_info(&cmd_submit_info, nullptr, nullptr);
-
-	VK_CHECK(vkQueueSubmit2(queue, 1, &submit, fence));
-
-	VK_CHECK(vkWaitForFences(device, 1, &fence, true, 9999999999));
-}
 
 void destroy_buffer(VmaAllocator allocator, const AllocatedBuffer& buffer)
 {
@@ -51,7 +28,7 @@ AllocatedBuffer create_buffer(VmaAllocator allocator, size_t alloc_size, VmaAllo
 	return new_buffer;
 }
 
-AllocatedBuffer upload_buffer(VkDevice device, VkQueue queue, VkCommandBuffer cmd, VkFence fence, VmaAllocator allocator, const void* data, size_t data_size, VkBufferUsageFlags flags /*= 0*/)
+AllocatedBuffer upload_buffer(VulkanEngine* engine, VmaAllocator allocator, const void* data, size_t data_size, VkBufferUsageFlags flags /*= 0*/)
 {
 	AllocatedBuffer buffer = create_buffer(allocator, data_size, 0, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | flags);
 
@@ -60,18 +37,16 @@ AllocatedBuffer upload_buffer(VkDevice device, VkQueue queue, VkCommandBuffer cm
 	void* staging_data = staging.info.pMappedData;
 	memcpy(staging_data, data, data_size);
 
-	// clang-format off
-	immediate_submit(device, queue, cmd, fence, [&](VkCommandBuffer cmd_buf)
+	engine->immediate_submit([&](VkCommandBuffer cmd)
 		{
 			 VkBufferCopy copy{};
 			 copy.dstOffset = 0;
 			 copy.srcOffset = 0;
 			 copy.size = data_size;
 
-			 vkCmdCopyBuffer(cmd_buf, staging.buffer, buffer.buffer, 1, &copy);
+			 vkCmdCopyBuffer(cmd, staging.buffer, buffer.buffer, 1, &copy);
 		}
 	);
-	// clang-format on
 
 	destroy_buffer(allocator, staging);
 
@@ -106,7 +81,7 @@ AllocatedImage create_image(VkDevice device, VmaAllocator allocator, VkExtent3D 
 }
 
 // currently used for HDR, png and jpg, NOT ktx2
-AllocatedImage upload_image(VkDevice device, VkQueue queue, VkCommandBuffer cmd, VkFence fence, VmaAllocator allocator, const void* data, VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspect, VmaAllocationCreateFlags flags, bool mipmapped)
+AllocatedImage upload_image(VulkanEngine* engine, VkDevice device, VmaAllocator allocator, const void* data, VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspect, VmaAllocationCreateFlags flags, bool mipmapped)
 {
 	size_t data_size = extent.depth * extent.width * extent.height * 4; // 4 is # of channels
 	if (format == VK_FORMAT_R32G32B32A32_SFLOAT) // TODO: hdr only?
@@ -118,10 +93,10 @@ AllocatedImage upload_image(VkDevice device, VkQueue queue, VkCommandBuffer cmd,
 	// dst_bit to account for copy from staging buffer
 	AllocatedImage new_image = create_image(device, allocator, extent, format, usage | VK_IMAGE_USAGE_TRANSFER_DST_BIT, aspect, flags, mipmapped);
 
-	immediate_submit(device, queue, cmd, fence, [&](VkCommandBuffer cmd_buf)
+	engine->immediate_submit([&](VkCommandBuffer cmd)
 	    {
 			vkutil::transition_image(
-				cmd_buf, new_image.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+				cmd, new_image.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 				0,
 				VK_PIPELINE_STAGE_2_TRANSFER_BIT,
 				0,
@@ -140,16 +115,16 @@ AllocatedImage upload_image(VkDevice device, VkQueue queue, VkCommandBuffer cmd,
 
 			copy_region.imageExtent = extent;
 
-			vkCmdCopyBufferToImage(cmd_buf, upload_buffer.buffer, new_image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy_region);
+			vkCmdCopyBufferToImage(cmd, upload_buffer.buffer, new_image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy_region);
 
 			if (mipmapped)
 			{
-				vkutil::generate_mipmaps(cmd_buf, new_image.image, VkExtent2D{ new_image.extent.width, new_image.extent.height });
+				vkutil::generate_mipmaps(cmd, new_image.image, VkExtent2D{ new_image.extent.width, new_image.extent.height });
 			}
 			else
 			{
 				vkutil::transition_image(
-					cmd_buf, new_image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+					cmd, new_image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 					VK_PIPELINE_STAGE_2_TRANSFER_BIT,
 					VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
 					VK_ACCESS_2_TRANSFER_WRITE_BIT,

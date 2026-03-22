@@ -2,8 +2,6 @@
 
 #include <vk_mem_alloc.h>
 
-#include <functional>
-
 struct AllocatedImage
 {
 	VkImage image{};
@@ -20,16 +18,15 @@ struct AllocatedBuffer
 	VmaAllocationInfo info{};
 };
 
-// TODO: ideally in engine or device file, leaving here for convenience now as uploads rely on it
-void immediate_submit(VkDevice device, VkQueue queue, VkCommandBuffer cmd, VkFence fence, std::function<void(VkCommandBuffer cmd)>&& func);
+class VulkanEngine;
 
 AllocatedBuffer create_buffer(VmaAllocator allocator, size_t alloc_size, VmaAllocationCreateFlags flags, VkBufferUsageFlags usage);
-AllocatedBuffer upload_buffer(VkDevice device, VkQueue queue, VkCommandBuffer cmd, VkFence fence, VmaAllocator allocator, const void* data, size_t data_size, VkBufferUsageFlags = 0);
+AllocatedBuffer upload_buffer(VulkanEngine* engine, VmaAllocator allocator, const void* data, size_t data_size, VkBufferUsageFlags = 0);
 void destroy_buffer(VmaAllocator allocator, const AllocatedBuffer& buffer);
 
 // view has access to all mip and layers
 AllocatedImage create_image(VkDevice device, VmaAllocator allocator, VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspect, VmaAllocationCreateFlags flags = 0, bool mipmapped = false);
-AllocatedImage upload_image(VkDevice device, VkQueue queue, VkCommandBuffer cmd, VkFence fence, VmaAllocator allocator, const void* data, VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspect, VmaAllocationCreateFlags flags = 0, bool mipmapped = false);
+AllocatedImage upload_image(VulkanEngine* engine, VkDevice device, VmaAllocator allocator, const void* data, VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspect, VmaAllocationCreateFlags flags = 0, bool mipmapped = false);
 AllocatedImage create_cubemap(VkDevice device, VmaAllocator allocator, VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspect, VmaAllocationCreateFlags flags = 0, bool mipmapped = false);
 void destroy_image(VkDevice device, VmaAllocator allocator, const AllocatedImage& image);
 

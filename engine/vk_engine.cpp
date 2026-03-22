@@ -138,10 +138,10 @@ void VulkanEngine::init(const std::string& file_path)
 
 	// first frame transitions to avoid validation errors
 	{
-		immediate_submit(device, graphics_queue, imm_command_buffer, imm_fence, [&](VkCommandBuffer cmd)
+		immediate_submit([&](VkCommandBuffer cmd)
 			{
 				// previous frame's output buffer
-				vkutil::transition_image(imm_command_buffer, accumulation_buffers[(frame_number + 1) % 2].image,
+				vkutil::transition_image(cmd, accumulation_buffers[(frame_number + 1) % 2].image,
 					VK_IMAGE_LAYOUT_UNDEFINED,
 					VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 					0, 0, 0, 0
@@ -1885,7 +1885,7 @@ void VulkanEngine::init_default_data()
 		}
 	}
 
-	error_image = upload_image(device, graphics_queue, imm_command_buffer, imm_fence, allocator, static_cast<void*>(pixels.data()), VkExtent3D{ 16, 16, 1 }, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+	error_image = upload_image(this, device, allocator, static_cast<void*>(pixels.data()), VkExtent3D{ 16, 16, 1 }, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
 
 	texture_cache.add_texture(error_image.view);
 
@@ -2046,7 +2046,7 @@ void VulkanEngine::init_default_data()
 		light_data[i].color = glm::vec4(color_dist(mt), color_dist(mt), color_dist(mt), 1.0);
 	}
 
-	light_buffer = upload_buffer(device, graphics_queue, imm_command_buffer, imm_fence, allocator, light_data.data(), MAX_POINT_LIGHTS * sizeof(PointLight));
+	light_buffer = upload_buffer(this, allocator, light_data.data(), MAX_POINT_LIGHTS * sizeof(PointLight));
 	fmt::println("light_buffer: {}mb", size_in_bytes(light_buffer.info.size));
 
 	auto clusters_x = get_groupcount(window_extent.width, CLUSTER_DIM);
@@ -2070,7 +2070,7 @@ void VulkanEngine::init_default_data()
 
 	auto extent = VkExtent3D(static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1);
 
-	hdri = upload_image(device, graphics_queue, imm_command_buffer, imm_fence, allocator, (void*)data, extent,
+	hdri = upload_image(this, device, allocator, (void*)data, extent,
 		VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT
 	);
 
@@ -2164,11 +2164,11 @@ void VulkanEngine::init_renderables(const std::string& file_path)
 	float ret = static_cast<float>(elapsed.count()) / 1000.0f;
 	fmt::println("load gltf: {}ms", ret);
 
-	render_scene.vertex_buffer = upload_buffer(device, graphics_queue, imm_command_buffer, imm_fence, allocator, loaded_scene->vertices.data(), loaded_scene->vertices.size() * sizeof(Vertex));
-	render_scene.index_buffer = upload_buffer(device, graphics_queue, imm_command_buffer, imm_fence, allocator, loaded_scene->indices.data(), loaded_scene->indices.size() * sizeof(uint32_t), VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
-	render_scene.meshlet_indices = upload_buffer(device, graphics_queue, imm_command_buffer, imm_fence, allocator, loaded_scene->meshlet_indices.data(), loaded_scene->meshlet_indices.size() * sizeof(uint32_t));
-	render_scene.meshlet_buffer = upload_buffer(device, graphics_queue, imm_command_buffer, imm_fence, allocator, loaded_scene->meshlets.data(), loaded_scene->meshlets.size() * sizeof(Meshlet));
-	render_scene.material_buffer = upload_buffer(device, graphics_queue, imm_command_buffer, imm_fence, allocator, loaded_scene->materials.data(), loaded_scene->materials.size() * sizeof(MaterialData));
+	render_scene.vertex_buffer = upload_buffer(this, allocator, loaded_scene->vertices.data(), loaded_scene->vertices.size() * sizeof(Vertex));
+	render_scene.index_buffer = upload_buffer(this, allocator, loaded_scene->indices.data(), loaded_scene->indices.size() * sizeof(uint32_t), VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+	render_scene.meshlet_indices = upload_buffer(this, allocator, loaded_scene->meshlet_indices.data(), loaded_scene->meshlet_indices.size() * sizeof(uint32_t));
+	render_scene.meshlet_buffer = upload_buffer(this, allocator, loaded_scene->meshlets.data(), loaded_scene->meshlets.size() * sizeof(Meshlet));
+	render_scene.material_buffer = upload_buffer(this, allocator, loaded_scene->materials.data(), loaded_scene->materials.size() * sizeof(MaterialData));
 	fmt::println("vertex_buffer: {}mb", size_in_bytes(render_scene.vertex_buffer.info.size));
 	fmt::println("index_buffer: {}mb", size_in_bytes(render_scene.index_buffer.info.size));
 	fmt::println("meslet_indices: {}mb", size_in_bytes(render_scene.meshlet_indices.info.size));
@@ -2397,6 +2397,28 @@ void VulkanEngine::update_scene()
 	auto end = std::chrono::system_clock::now();
 	auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
 	stats.scene_update_time = static_cast<float>(elapsed.count()) / 1000.0f; // milliseconds
+}
+
+void VulkanEngine::immediate_submit(std::function<void(VkCommandBuffer cmd)>&& func) const
+{
+	VK_CHECK(vkResetFences(device, 1, &imm_fence));
+	VK_CHECK(vkResetCommandBuffer(imm_command_buffer, 0));
+
+	VkCommandBufferBeginInfo cmd_begin_info = vkinit::command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
+
+	VK_CHECK(vkBeginCommandBuffer(imm_command_buffer, &cmd_begin_info));
+
+	func(imm_command_buffer);
+
+	VK_CHECK(vkEndCommandBuffer(imm_command_buffer));
+
+	VkCommandBufferSubmitInfo cmd_submit_info = vkinit::command_buffer_submit_info(imm_command_buffer);
+
+	VkSubmitInfo2 submit = vkinit::submit_info(&cmd_submit_info, nullptr, nullptr);
+
+	VK_CHECK(vkQueueSubmit2(graphics_queue, 1, &submit, imm_fence));
+
+	VK_CHECK(vkWaitForFences(device, 1, &imm_fence, true, 9999999999));
 }
 
 void VulkanEngine::execute_deferred_shading(VkCommandBuffer cmd, VkImageView view)
@@ -2714,10 +2736,10 @@ void VulkanEngine::upload_buffers()
 {
 	// clang-format off
 
-	render_scene.object_buffer = upload_buffer(device, graphics_queue, imm_command_buffer, imm_fence, allocator, render_scene.renderables.data(), render_scene.renderables.size() * sizeof(ObjectData), 0);
+	render_scene.object_buffer = upload_buffer(this, allocator, render_scene.renderables.data(), render_scene.renderables.size() * sizeof(ObjectData), 0);
 	fmt::println("object_buffer: {}mb", size_in_bytes(render_scene.object_buffer.info.size));
 
-	render_scene.mesh_buffer = upload_buffer(device, graphics_queue, imm_command_buffer, imm_fence, allocator, render_scene.meshes.data(), render_scene.meshes.size() * sizeof(Mesh), 0);
+	render_scene.mesh_buffer = upload_buffer(this, allocator, render_scene.meshes.data(), render_scene.meshes.size() * sizeof(Mesh), 0);
 	fmt::println("mesh_buffer: {}mb", size_in_bytes(render_scene.mesh_buffer.info.size));
 
 	render_scene.sh_buffer = create_buffer(allocator, 27 * sizeof(float), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
@@ -2744,7 +2766,7 @@ void VulkanEngine::upload_buffers()
 			}
 		}
 
-		render_scene.indices_buffer = upload_buffer(device, graphics_queue, imm_command_buffer, imm_fence, allocator, staging.data(), total * sizeof(uint32_t));
+		render_scene.indices_buffer = upload_buffer(this, allocator, staging.data(), total * sizeof(uint32_t));
 		fmt::println("indices_buffer: {}mb", size_in_bytes(render_scene.indices_buffer.info.size));
 	}
 
@@ -2752,7 +2774,7 @@ void VulkanEngine::upload_buffers()
 	render_scene.vis_buffer = create_buffer(allocator,render_scene.renderables.size() * sizeof(uint32_t), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
 	fmt::println("vis_buffer: {}mb", size_in_bytes(render_scene.vis_buffer.info.size));
 
-	immediate_submit(device, graphics_queue, imm_command_buffer, imm_fence, [&](VkCommandBuffer cmd)
+	immediate_submit([&](VkCommandBuffer cmd)
 		{
 			vkCmdFillBuffer(cmd, render_scene.vis_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
 		}
@@ -2781,7 +2803,7 @@ void VulkanEngine::upload_buffers()
 		render_scene.meshlet_vis_buffer = create_buffer(allocator, meshlet_visibility_size * sizeof(uint32_t), 0, VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
 		fmt::println("meshlet_vis_buffer: {}mb", size_in_bytes(render_scene.meshlet_vis_buffer.info.size));
 
-		immediate_submit(device, graphics_queue, imm_command_buffer, imm_fence, [&](VkCommandBuffer cmd)
+		immediate_submit([&](VkCommandBuffer cmd)
 			{
 				vkCmdFillBuffer(cmd, render_scene.meshlet_vis_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
 			}
@@ -2794,7 +2816,7 @@ void VulkanEngine::upload_buffers()
 		render_scene.oit_buffer = create_buffer(allocator, screen_pixels * sizeof(OITData), 0, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
 		fmt::println("oit_buffer: {}mb", size_in_bytes(render_scene.oit_buffer.info.size));
 
-		immediate_submit(device, graphics_queue, imm_command_buffer, imm_fence, [&](VkCommandBuffer cmd)
+		immediate_submit([&](VkCommandBuffer cmd)
 			{
 				vkCmdFillBuffer(cmd, render_scene.oit_buffer.buffer, 0, VK_WHOLE_SIZE, 0x3F800000);
 			}

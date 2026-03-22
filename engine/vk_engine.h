@@ -9,7 +9,6 @@
 
 #include <VkBootstrap.h>
 #include <ranges>
-// #include <tracy/TracyVulkan.hpp>
 
 #include <array>
 #include <deque>
@@ -212,7 +211,7 @@ public:
 	void run();
 
 	void update_scene();
-
+	void immediate_submit(std::function<void(VkCommandBuffer cmd)>&& func) const;
 	void register_object(const Node* node, const glm::mat4& top_matrix);
 	void execute_deferred_shading(VkCommandBuffer cmd, VkImageView view);
 	void execute_taa_resolve(VkCommandBuffer cmd, VkImageView view);

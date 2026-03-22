@@ -362,7 +362,7 @@ namespace
 			);
 		}
 
-		immediate_submit(engine->device, engine->graphics_queue, engine->imm_command_buffer, engine->imm_fence, [&](VkCommandBuffer cmd)
+		engine->immediate_submit([&](VkCommandBuffer cmd)
 			{
 				pipeline_barrier(engine->imm_command_buffer, nullptr, 0, image_barriers.data(), image_barriers.size());
 
