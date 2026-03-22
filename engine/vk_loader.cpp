@@ -732,9 +732,6 @@ std::optional<std::unique_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const
 		return {};
 	}
 
-	std::vector<std::shared_ptr<MeshAsset>> meshes{};
-	std::vector<std::shared_ptr<Node>> nodes{};
-
 	// note: handle another way
 	assert(!asset.materials.empty());
 	auto& materials_data = scene->materials;
@@ -825,11 +822,7 @@ std::optional<std::unique_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const
 		materials_data.push_back(mat_data);
 	}
 
-	auto& combined_indices = scene->indices;
-	auto& combined_vertices = scene->vertices;
-	auto& meshlet_indices = scene->meshlet_indices;
-	auto& meshlets = scene->meshlets;
-
+	std::vector<std::shared_ptr<MeshAsset>> meshes{};
 	auto mesh_idx = 0;
 	for (fastgltf::Mesh& mesh : asset.meshes)
 	{
@@ -843,8 +836,6 @@ std::optional<std::unique_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const
 		{
 			std::vector<Vertex> vertices{};
 			std::vector<uint32_t> indices{};
-
-			MeshData new_surface{};
 
 			// clang-format off
 			{
@@ -947,11 +938,16 @@ std::optional<std::unique_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const
 			}
 
 			// clang-format on
+			MeshData mesh_data{};
+			mesh_data.vertex_offset = static_cast<uint32_t>(scene->vertices.size());
 
-			new_surface.vertex_offset = static_cast<uint32_t>(combined_vertices.size());
+			auto& combined_indices = scene->indices;
+			auto& combined_vertices = scene->vertices;
+			auto& meshlet_indices = scene->meshlet_indices;
+			auto& meshlets = scene->meshlets;
 
 			// meshoptimizer step
-			optimize_mesh(vertices, indices, meshlet_indices, meshlets, new_surface, combined_vertices,
+			optimize_mesh(vertices, indices, meshlet_indices, meshlets, mesh_data, combined_vertices,
 			              combined_indices);
 			combined_vertices.insert(combined_vertices.end(), vertices.begin(), vertices.end());
 
@@ -962,94 +958,88 @@ std::optional<std::unique_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const
 				switch (alpha_mode)
 				{
 				case fastgltf::AlphaMode::Mask:
-					new_surface.pass = MaterialPass::Mask;
+					mesh_data.pass = MaterialPass::Mask;
 					break;
 				case fastgltf::AlphaMode::Blend:
-					new_surface.pass = MaterialPass::Blend;
+					mesh_data.pass = MaterialPass::Blend;
 					break;
 				default:
 					break;
 				}
-				new_surface.material_id = static_cast<uint32_t>(idx);
+				mesh_data.material_id = static_cast<uint32_t>(idx);
 			}
 			else
 			{
 				assert(0);
 			}
 
-			new_mesh->mesh.push_back(new_surface);
+			new_mesh->mesh.push_back(mesh_data);
 		}
 	}
 
-	// load all nodes and their meshes
-	auto node_idx = 0;
-	for (fastgltf::Node& node : asset.nodes)
+	struct NodeWork
 	{
-		std::shared_ptr<Node> new_node{};
+		std::shared_ptr<Node> node{};
+		size_t index{};
+	};
 
-		if (node.meshIndex.has_value())
-		{
-			new_node = std::make_shared<Node>();
-			new_node->mesh_asset = meshes[*(node.meshIndex)];
-		}
-		else
-		{
-			// fmt::println("node has no mesh: ", node.name.c_str());
-			new_node = std::make_shared<Node>(); // TODO: refactor? absorbing allocation cost for dummy node
-		}
+	std::vector<NodeWork> work{};
 
-		nodes.push_back(new_node);
-		file.nodes[std::to_string(node_idx).c_str()] = new_node;
-		node_idx++;
+	for (auto node_index : asset.scenes[0].nodeIndices) // we handle 1 scene only
+	{
+		auto p = file.top_nodes.emplace_back(std::make_shared<Node>());
+		work.emplace_back(NodeWork{ p, node_index });
+	}
 
-		// clang-format off
+	while (work.size() > 0)
+	{
+		auto [node, node_index] = work.back();
+		work.pop_back();
+		const auto& gltf_node = asset.nodes[node_index];
+		std::string node_name = gltf_node.name.empty() ? std::string("Node_") + std::to_string(node_index) : gltf_node.name.c_str();
+		file.nodes[node_name] = node;
+
 		std::visit(fastgltf::visitor{
 				[&](fastgltf::math::fmat4x4 matrix)
-		        {
-		            memcpy(&new_node->local_transform, matrix.data(), sizeof(matrix));
-		        },
-		        [&](fastgltf::TRS transform)
-		        {
-		            const glm::vec3 tl(transform.translation[0], transform.translation[1], transform.translation[2]);
-		            const glm::quat rot(transform.rotation[3], transform.rotation[0], transform.rotation[1], transform.rotation[2]);
-		            const glm::vec3 sc(transform.scale[0], transform.scale[1], transform.scale[2]);
+				{
+					memcpy(&node->local_transform, matrix.data(), sizeof(matrix));
+				},
+				[&](fastgltf::TRS transform)
+				{
+					const glm::vec3 tl(transform.translation[0], transform.translation[1], transform.translation[2]);
+					const glm::quat rot(transform.rotation[3], transform.rotation[0], transform.rotation[1], transform.rotation[2]);
+					const glm::vec3 sc(transform.scale[0], transform.scale[1], transform.scale[2]);
 
-		            const glm::mat4 tm = glm::translate(glm::mat4(1.f), tl);
-		            const glm::mat4 rm = glm::toMat4(rot);
-		            const glm::mat4 sm = glm::scale(glm::mat4(1.f), sc);
+					const glm::mat4 tm = glm::translate(glm::mat4(1.f), tl);
+					const glm::mat4 rm = glm::toMat4(rot);
+					const glm::mat4 sm = glm::scale(glm::mat4(1.f), sc);
 
-		            new_node->local_transform = tm * rm * sm;
-		        }
+					node->local_transform = tm * rm * sm;
+				}
 			},
-		    node.transform
+			gltf_node.transform
 		);
-		// clang-format on
-	}
 
-	for (int i = 0; i < asset.nodes.size(); i++)
-	{
-		fastgltf::Node& node = asset.nodes[i];
-		std::shared_ptr<Node>& scene_node = nodes[i];
-
-		for (auto& c : node.children)
+		if (gltf_node.meshIndex.has_value())
 		{
-			scene_node->children.push_back(nodes[c]);
-			nodes[c]->parent = scene_node;
+			node->mesh_asset = meshes[*(gltf_node.meshIndex)];
+		}
+
+		for (auto child_index : gltf_node.children)
+		{
+			auto p = node->children.emplace_back(std::make_shared<Node>());
+			work.emplace_back(NodeWork{ p, child_index });
 		}
 	}
 
-	for (auto& node : nodes)
+	for (auto& node : file.top_nodes)
 	{
-		if (node->parent.lock() == nullptr)
-		{
-			file.top_nodes.push_back(node);
-			node->refresh_transform(glm::mat4(1.0f));
-		}
+		node->refresh_transform(glm::mat4(1.0f));
 	}
 
-	// fmt::println("size of topnodes: {}", scene->top_nodes.size());
-	// fmt::println("size of nodes: {}", scene->nodes.size());
-	// fmt::println("size of gltf nodes: {}", asset.nodes.size());
+	fmt::println("size of topnodes: {}", scene->top_nodes.size());
+	fmt::println("size of nodes: {}", scene->nodes.size());
+	fmt::println("size of gltf nodes: {}", asset.nodes.size());
 
 	return scene;
 }
@@ -1065,4 +1055,9 @@ void LoadedGLTF::clear()
 	}
 }
 
-
+void Node::refresh_transform(const glm::mat4& parent_matrix)
+{
+	world_transform = parent_matrix * local_transform;
+	for (auto& c : children)
+		c->refresh_transform(world_transform);
+}

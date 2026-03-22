@@ -24,6 +24,13 @@ struct MeshData
 	uint32_t meshlet_bits{}; // equals # of meshlets for LOD 0, for tracking visibility
 };
 
+struct RawMesh
+{
+	std::vector<Vertex> vertices{};
+	std::vector<uint32_t> indices{};
+	std::vector<MeshData> mesh_data{};
+};
+
 struct MeshAsset
 {
 	std::string name{};
@@ -33,18 +40,13 @@ struct MeshAsset
 struct Node
 {
 	std::shared_ptr<MeshAsset> mesh_asset{};
-	std::weak_ptr<Node> parent{};
+	// std::weak_ptr<Node> parent{};
 	std::vector<std::shared_ptr<Node>> children{};
 
 	glm::mat4 local_transform{};
 	glm::mat4 world_transform{};
 
-	void refresh_transform(const glm::mat4& parent_matrix)
-	{
-		world_transform = parent_matrix * local_transform;
-		for (auto& c : children)
-			c->refresh_transform(world_transform);
-	}
+	void refresh_transform(const glm::mat4& parent_matrix);
 };
 
 class VulkanEngine;
