@@ -38,10 +38,6 @@
 #include <thread>
 #include <utility>
 
-// test
-#include <execution>
-#include <algorithm>
-
 VulkanEngine* loaded_engine{};
 
 VulkanEngine& VulkanEngine::get() { return *loaded_engine; }
@@ -52,7 +48,7 @@ constexpr bool USE_VALIDATION_LAYERS = false;
 constexpr bool USE_VALIDATION_LAYERS = true;
 #endif
 
-#define SINGLE // uncomment if loading a proper scene
+// #define SINGLE // uncomment if loading a proper scene
 
 AutoCVar_Int CVAR_RENDER_VBUFFER{ "render.vbuffer", "Vbuffer path", 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_MESH_SHADERS{ "render.mesh_shaders", "Mesh shaders path", 1, CVarFlags::EditCheckbox };
@@ -2179,10 +2175,10 @@ void VulkanEngine::init_renderables(const std::string& file_path)
 	fmt::println("meshlet_buffer: {}mb", size_in_bytes(render_scene.meshlet_buffer.info.size));
 	fmt::println("material_buffer: {}mb", size_in_bytes(render_scene.material_buffer.info.size));
 
-		for (const auto& n : loaded_scene->top_nodes)
-		{
-			register_object(n.get(), glm::translate(glm::mat4(1.0f), glm::vec3(0, 0, 2)));
-		}
+	for (const auto& n : loaded_scene->top_nodes)
+	{
+		register_object(n.get(), glm::translate(glm::mat4(1.0f), glm::vec3(0, 0, 2)));
+	}
 
 #ifndef SINGLE
 	std::mt19937 mt(42);
@@ -2203,7 +2199,7 @@ void VulkanEngine::init_renderables(const std::string& file_path)
 		glm::mat4 s = glm::scale(glm::mat4(1.0f), glm::vec3(static_cast<float>(mt()) / static_cast<float>(mt.max())) + 1.0f);
 		const auto transform = t * r * s;
 
-		for (const auto& n : loaded_scenes[file_paths[0]]->top_nodes)
+		for (const auto& n : loaded_scene->top_nodes)
 		{
 			register_object(n.get(), transform);
 		}
@@ -2268,19 +2264,18 @@ void VulkanEngine::init_bindless()
 void VulkanEngine::register_object(const Node* node, const glm::mat4& top_matrix)
 {
 	glm::mat4 node_matrix = top_matrix * node->world_transform;
-	if (node->mesh != nullptr)
+	if (node->mesh_asset != nullptr)
 	{
-		auto it = render_scene.mesh_cache.find(node->mesh.get());
+		auto it = render_scene.mesh_cache.find(node->mesh_asset.get());
 		uint32_t handle = -1;
 		bool found = it != render_scene.mesh_cache.end();
 		if (found)
-			handle = it->second.handle;
+			handle = it->second;
 		else
-			render_scene.mesh_cache[node->mesh.get()] = Handle<DrawPrimitive>{ static_cast<uint32_t>(render_scene.primitives.size()) };
+			render_scene.mesh_cache[node->mesh_asset.get()] = static_cast<uint32_t>(render_scene.meshes.size());
 
-		for (size_t i = 0; i < node->mesh->surfaces.size(); i++)
+		for (size_t i = 0; i < node->mesh_asset->mesh.size(); i++)
 		{
-			const GeoSurface& s = node->mesh->surfaces[i];
 
 			RenderObject obj{};
 
@@ -2290,52 +2285,49 @@ void VulkanEngine::register_object(const Node* node, const glm::mat4& top_matrix
 
 			decompose_transform(node_matrix, translation, scale, rotation);
 
+			// TODO: handle non uniform scaling
 			obj.translation = translation;
 			obj.scale = std::max(std::max(scale.x, scale.y), scale.z);
-
-			// if ((scale.x == scale.y) && (scale.y == scale.z))
-			// 	fmt::println("non uniform scaling! {} {} {}", scale.x, scale.y, scale.z);
-
 			obj.orientation = glm::quat(rotation.w, rotation.x, rotation.y, rotation.z);
+
+			const MeshData& mesh = node->mesh_asset->mesh[i];
+			obj.material_id = mesh.material_id;
+			obj.meshlet_bits = mesh.meshlet_bits;
 
 			if (found)
 			{
-				obj.primitive_id.handle = static_cast<uint32_t>(handle + i);
+				obj.mesh_id = static_cast<uint32_t>(handle + i);
 			}
 			else
 			{
-				obj.primitive_id.handle = static_cast<uint32_t>(render_scene.primitives.size());
+				obj.mesh_id = static_cast<uint32_t>(render_scene.meshes.size());
 
-				DrawPrimitive p{};
-				p.center = s.bounds.origin;
-				p.radius = s.bounds.radius;
-				p.mesh_lods = s.mesh_lods;
-				p.lod_count = s.lod_count;
-				p.vertex_offset = s.vertex_offset;
-
-				render_scene.primitives.push_back(p);
+				render_scene.meshes.emplace_back(Mesh{
+					.center = mesh.center,
+					.radius = mesh.radius,
+					.mesh_lods = mesh.mesh_lods,
+					.lod_count = mesh.lod_count,
+					.vertex_offset = mesh.vertex_offset
+				});
 			}
 
-			obj.material_id = s.material_id;
-			obj.meshlet_bits = s.meshlet_bits;
+			switch (mesh.pass)
 			{
-				switch (s.pass)
-				{
-				case MaterialPass::Mask:
-					obj.post_pass = 1;
-					break;
-				case MaterialPass::Blend:
-					obj.post_pass = 2;
-					break;
-				default: // Opaque
-					obj.post_pass = 0;
-				}
+			case MaterialPass::Mask:
+				obj.post_pass = 1;
+				break;
+			case MaterialPass::Blend:
+				obj.post_pass = 2;
+				break;
+			default: // Opaque
+				obj.post_pass = 0;
+				break;
 			}
 
 			auto render_id = static_cast<uint32_t>(render_scene.renderables.size());
 			render_scene.renderables.push_back(obj);
 
-			switch (s.pass)
+			switch (mesh.pass)
 			{
 			case MaterialPass::Opaque:
 				render_scene.opaque_pass.unbatched_objects.push_back(render_id);
@@ -2725,7 +2717,7 @@ void VulkanEngine::upload_buffers()
 	render_scene.object_buffer = upload_buffer(device, graphics_queue, imm_command_buffer, imm_fence, allocator, render_scene.renderables.data(), render_scene.renderables.size() * sizeof(ObjectData), 0);
 	fmt::println("object_buffer: {}mb", size_in_bytes(render_scene.object_buffer.info.size));
 
-	render_scene.mesh_buffer = upload_buffer(device, graphics_queue, imm_command_buffer, imm_fence, allocator, render_scene.primitives.data(), render_scene.primitives.size() * sizeof(DrawPrimitive), 0);
+	render_scene.mesh_buffer = upload_buffer(device, graphics_queue, imm_command_buffer, imm_fence, allocator, render_scene.meshes.data(), render_scene.meshes.size() * sizeof(Mesh), 0);
 	fmt::println("mesh_buffer: {}mb", size_in_bytes(render_scene.mesh_buffer.info.size));
 
 	render_scene.sh_buffer = create_buffer(allocator, 27 * sizeof(float), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);

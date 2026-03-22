@@ -8,43 +8,31 @@
 #include <unordered_map>
 #include <vector>
 
-// upadte
-#include <string>
-
-struct GeoSurface // rename this
+struct MeshData
 {
 	std::array<MeshLod, 8> mesh_lods{};
 	uint32_t lod_count{};
 	uint32_t vertex_offset{};
 
-	uint32_t material{}; // master material handle
-	uint32_t material_id{}; // for bindless material buffer
+	uint32_t material_id{};
 
 	MaterialPass pass{};
-	Bounds bounds{}; // 28 bytes
-	uint32_t meshlet_bits{};
-};
 
-struct MaterialInfo
-{
-	MaterialPass pass_type{};
-	uint32_t double_sided{};
+	glm::vec3 center{};
+	float radius{};
+
+	uint32_t meshlet_bits{}; // equals # of meshlets for LOD 0, for tracking visibility
 };
 
 struct MeshAsset
 {
 	std::string name{};
-	std::vector<GeoSurface> surfaces{};
-	VkBuffer index_buffer{};
-	VkDeviceAddress vertex_buffer_address{};
-
-	// TODO: refactor in the future? added for multiple scenes compatibility
-	// VkDeviceAddress material_buffer_address{};
+	std::vector<MeshData> mesh{};
 };
 
 struct Node
 {
-	std::shared_ptr<MeshAsset> mesh{};
+	std::shared_ptr<MeshAsset> mesh_asset{};
 	std::weak_ptr<Node> parent{};
 	std::vector<std::shared_ptr<Node>> children{};
 

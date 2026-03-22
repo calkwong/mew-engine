@@ -30,12 +30,6 @@ enum class MaterialPass : uint32_t
 	Blend
 };
 
-struct Bounds
-{
-	glm::vec3 origin{};
-	float radius{};
-};
-
 struct MeshLod
 {
 	uint32_t first_index{};
@@ -121,7 +115,7 @@ struct OITData
 	glm::vec4 transmissions{};
 };
 
-struct alignas(16) DrawPrimitive
+struct alignas(16) Mesh
 {
 	glm::vec3 center{};
 	float radius{};
@@ -133,34 +127,16 @@ struct alignas(16) DrawPrimitive
 	uint32_t padding[2];
 };
 
-template <typename T>
-struct Handle
-{
-	uint32_t handle{};
-};
-
-template <>
-struct Handle<DrawPrimitive>
-{
-	uint32_t handle{};
-};
-
 struct RenderObject
 {
 	glm::vec3 translation{};
 	float scale{};
 	glm::quat orientation{};
 
-	Handle<DrawPrimitive> primitive_id{};
+	uint32_t mesh_id{};
 	uint32_t material_id{};
 	uint32_t meshlet_bits{};
 	uint32_t post_pass{};
-};
-
-template <>
-struct Handle<RenderObject>
-{
-	uint32_t handle{};
 };
 
 struct ObjectData
@@ -259,8 +235,8 @@ struct RenderScene
 	};
 
 	std::vector<RenderObject> renderables{};
-	std::vector<DrawPrimitive> primitives{};
-	std::unordered_map<MeshAsset*, Handle<DrawPrimitive>> mesh_cache{};
+	std::vector<Mesh> meshes{};
+	std::unordered_map<MeshAsset*, uint32_t> mesh_cache{};
 
 	AllocatedBuffer vertex_buffer{};
 	AllocatedBuffer index_buffer{};

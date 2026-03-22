@@ -163,7 +163,7 @@ namespace
 					num_blocks_or_pixels = raw_image_data.ktx_info[i].m_total_blocks;
 					uint32_t output_size = bytes_per_block_or_pixel * num_blocks_or_pixels;
 					if (!transcoder.transcode_image_level(i, 0, 0, ktx_data, output_size, target_format))
-						assert(0); // TODO: ?
+						assert(0);
 					ktx_data += output_size;
 					raw_image_data.size += output_size;
 				}
@@ -194,7 +194,6 @@ namespace
 		std::filesystem::path current_path = asset_path;
 		basist::basisu_transcoder_init();
 
-		// TODO: potentially problematic in parallel
 		std::transform(std::execution::par, indices.begin(), indices.end(), raw_images.begin(), [&](size_t index)
 			{
 				const fastgltf::Image& image = asset.images[index];
@@ -396,7 +395,7 @@ namespace
 	void optimize_mesh(
 		std::vector<Vertex>& vertices, std::vector<uint32_t>& indices,
 		std::vector<uint32_t>& meshlet_indices, std::vector<Meshlet>& meshlets,
-		GeoSurface& surface, std::vector<Vertex>& combined_vertices, std::vector<uint32_t>& combined_indices
+		MeshData& surface, std::vector<Vertex>& combined_vertices, std::vector<uint32_t>& combined_indices
 	)
 	{
 		// indexing
@@ -445,8 +444,8 @@ namespace
 			radius = std::max(radius, glm::distance(center, positions[i]));
 		}
 
-		surface.bounds.origin = center;
-		surface.bounds.radius = radius;
+		surface.center = center;
+		surface.radius = radius;
 
 		float lod_error_scale = meshopt_simplifyScale(&positions[0].x, vertex_count, sizeof(glm::vec3));
 		float target_error = 1e-1f;
@@ -845,7 +844,7 @@ std::optional<std::unique_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const
 			std::vector<Vertex> vertices{};
 			std::vector<uint32_t> indices{};
 
-			GeoSurface new_surface{};
+			MeshData new_surface{};
 
 			// clang-format off
 			{
@@ -978,7 +977,7 @@ std::optional<std::unique_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const
 				assert(0);
 			}
 
-			new_mesh->surfaces.push_back(new_surface);
+			new_mesh->mesh.push_back(new_surface);
 		}
 	}
 
@@ -991,7 +990,7 @@ std::optional<std::unique_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const
 		if (node.meshIndex.has_value())
 		{
 			new_node = std::make_shared<Node>();
-			new_node->mesh = meshes[*(node.meshIndex)];
+			new_node->mesh_asset = meshes[*(node.meshIndex)];
 		}
 		else
 		{
