@@ -395,7 +395,7 @@ namespace
 	void optimize_mesh(
 		std::vector<Vertex>& vertices, std::vector<uint32_t>& indices,
 		std::vector<uint32_t>& meshlet_indices, std::vector<Meshlet>& meshlets,
-		MeshData& surface, std::vector<Vertex>& combined_vertices, std::vector<uint32_t>& combined_indices
+		MeshData& mesh_data, std::vector<Vertex>& combined_vertices, std::vector<uint32_t>& combined_indices
 	)
 	{
 		// indexing
@@ -444,8 +444,8 @@ namespace
 			radius = std::max(radius, glm::distance(center, positions[i]));
 		}
 
-		surface.center = center;
-		surface.radius = radius;
+		mesh_data.center = center;
+		mesh_data.radius = radius;
 
 		float lod_error_scale = meshopt_simplifyScale(&positions[0].x, vertex_count, sizeof(glm::vec3));
 		float target_error = 1e-1f;
@@ -460,7 +460,7 @@ namespace
 		constexpr float cone_weight = 0.f;
 		constexpr uint32_t MAX_LOD = 8;
 		float simplify_threshold = 0.6f;
-		while (surface.lod_count < MAX_LOD)
+		while (mesh_data.lod_count < MAX_LOD)
 		{
 			uint32_t first_index = static_cast<uint32_t>(combined_indices.size());
 			uint32_t count = static_cast<uint32_t>(indices.size());
@@ -493,12 +493,12 @@ namespace
 			lod_info.meshlet_offset = meshlet_offset;
 			lod_info.meshlet_count = static_cast<uint32_t>(meshlet_count);
 
-			if (surface.lod_count == 0)
+			if (mesh_data.lod_count == 0)
 			{
-				surface.meshlet_bits = static_cast<uint32_t>(meshlet_count);
+				mesh_data.meshlet_bits = static_cast<uint32_t>(meshlet_count);
 			}
 
-			surface.mesh_lods[surface.lod_count++] = lod_info;
+			mesh_data.mesh_lods[mesh_data.lod_count++] = lod_info;
 			uint32_t meshlet_indices_offset = static_cast<uint32_t>(meshlet_indices.size());
 			for (auto& m : meshopt_meshlets)
 			{
@@ -536,7 +536,7 @@ namespace
 				}
 			}
 
-			if (surface.lod_count < MAX_LOD)
+			if (mesh_data.lod_count < MAX_LOD)
 			{
 				size_t new_size = meshopt_simplifyWithAttributes(indices.data(), indices.data(), indices.size(), &positions[0].x, vertex_count, sizeof(glm::vec3), &normals[0].x, sizeof(glm::vec3), &attr_weights[0], 3, nullptr, target_index_count, target_error, 0, &next_error);
 
@@ -822,64 +822,81 @@ std::optional<std::unique_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const
 		materials_data.push_back(mat_data);
 	}
 
-	std::vector<std::shared_ptr<MeshAsset>> meshes{};
+	std::vector<std::shared_ptr<MeshAsset>> mesh_assets{};
+
 	auto mesh_idx = 0;
 	for (fastgltf::Mesh& mesh : asset.meshes)
 	{
 		std::shared_ptr<MeshAsset> new_mesh{std::make_shared<MeshAsset>()};
-		meshes.push_back(new_mesh);
+		mesh_assets.push_back(new_mesh);
 		file.meshes[std::to_string(mesh_idx).c_str()] = new_mesh;
 		mesh_idx++;
 		new_mesh->name = mesh.name;
 
-		for (auto&& p : mesh.primitives)
+		// rewrite vertex/indices loading
+		for (int i = 0; i < mesh.primitives.size(); ++i)
 		{
-			std::vector<Vertex> vertices{};
+			const auto& p = mesh.primitives[i];
+
 			std::vector<uint32_t> indices{};
-
-			// clang-format off
 			{
-				fastgltf::Accessor& index_accessor = asset.accessors[p.indicesAccessor.value()];
-				indices.reserve(index_accessor.count);
-
-				fastgltf::iterateAccessor<std::uint32_t>(asset, index_accessor, [&](std::uint32_t idx) { indices.push_back(idx);});
-			}
-
-			// load vertex positions
-			{
-				fastgltf::Accessor& pos_accessor = asset.accessors[p.findAttribute("POSITION")->accessorIndex];
-				vertices.resize(pos_accessor.count);
-
-				fastgltf::iterateAccessorWithIndex<glm::vec3>(asset, pos_accessor, [&](glm::vec3 v, size_t index)
-				    {
-						Vertex new_vtx{};
-
-						new_vtx.px = meshopt_quantizeHalf(v.x);
-						new_vtx.py = meshopt_quantizeHalf(v.y);
-						new_vtx.pz = meshopt_quantizeHalf(v.z);
-
-						vertices[index] = new_vtx;
-				    }
-				);
-			}
-
-			// load vertex normals
-			{
-				auto normals = p.findAttribute("NORMAL");
-				if (normals != p.attributes.end())
+				auto& index_accessor = asset.accessors[p.indicesAccessor.value()];
+				indices.resize(index_accessor.count);
+				fastgltf::iterateAccessorWithIndex<std::uint32_t>(asset, index_accessor, [&](std::uint32_t index, size_t idx)
 				{
-					fastgltf::iterateAccessorWithIndex<glm::vec3>(asset, asset.accessors[normals->accessorIndex], [&](glm::vec3 v, size_t index)
-						{
-							uint32_t normal =
-								(meshopt_quantizeSnorm(v.x, 10) + 511) << 20 |
-								(meshopt_quantizeSnorm(v.y, 10) + 511) << 10 |
-								(meshopt_quantizeSnorm(v.z, 10) + 511);
-
-							vertices[index].normal = normal;
-						}
-					);
-				}
+					indices[idx] = index;
+				});
 			}
+
+			using Position = std::array<uint16_t, 3>;
+			using UV = std::array<uint16_t, 2>;
+
+			std::vector<Position> positions{};
+			if (auto it = p.findAttribute("POSITION"); it != p.attributes.end())
+			{
+				auto& position_accessor = asset.accessors[it->accessorIndex];
+				positions.resize(position_accessor.count);
+				fastgltf::iterateAccessorWithIndex<glm::vec3>(asset, position_accessor, [&](glm::vec3 pos, size_t index)
+				{
+					uint16_t px = meshopt_quantizeHalf(pos.x);
+					uint16_t py = meshopt_quantizeHalf(pos.y);
+					uint16_t pz = meshopt_quantizeHalf(pos.z);
+
+					positions[index] = Position{ px, py, pz };
+				});
+			}
+
+			std::vector<uint32_t> normals{};
+			if (auto it = p.findAttribute("NORMAL"); it != p.attributes.end())
+			{
+				auto& normals_accessor = asset.accessors[it->accessorIndex];
+				normals.resize(normals_accessor.count);
+				fastgltf::iterateAccessorWithIndex<glm::vec3>(asset, normals_accessor, [&](glm::vec3 n, size_t index)
+				{
+					uint32_t normal =
+						(meshopt_quantizeSnorm(n.x, 10) + 511) << 20 |
+						(meshopt_quantizeSnorm(n.y, 10) + 511) << 10 |
+						(meshopt_quantizeSnorm(n.z, 10) + 511);
+
+					normals[index] = normal;
+				});
+			}
+
+			std::vector<UV> uvs{};
+			if (auto it = p.findAttribute("TEXCOORD_0"); it != p.attributes.end())
+			{
+				auto& uv_accessor = asset.accessors[it->accessorIndex];
+				uvs.resize(uv_accessor.count);
+				fastgltf::iterateAccessorWithIndex<glm::vec2>(asset, uv_accessor, [&](glm::vec2 uv, size_t index)
+				{
+					uint16_t uv_x = meshopt_quantizeHalf(uv.x);
+					uint16_t uv_y = meshopt_quantizeHalf(uv.y);
+
+					uvs[index] = UV{ uv_x, uv_y };
+				});
+			}
+			else
+				uvs.resize(positions.size());
 
 			auto encode_oct = [&](glm::vec3 n) -> glm::vec2 {
 				n /= (abs(n.x) + abs(n.y) + abs(n.z));
@@ -890,70 +907,54 @@ std::optional<std::unique_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const
 				return glm::vec2(u, v);
 			};
 
-			// load uvs
+			bool generate_mikkt_tangents = false;
+			std::vector<uint16_t> tangents{};
+			if (auto it = p.findAttribute("TANGENT"); it != p.attributes.end())
 			{
-				auto uv = p.findAttribute("TEXCOORD_0");
-				if (uv != p.attributes.end())
+				auto& tangent_accessor = asset.accessors[it->accessorIndex];
+				tangents.resize(tangent_accessor.count);
+				fastgltf::iterateAccessorWithIndex<glm::vec4>(asset, tangent_accessor, [&](glm::vec4 tangent, size_t index)
 				{
-					fastgltf::iterateAccessorWithIndex<glm::vec2>(asset, asset.accessors[uv->accessorIndex], [&](glm::vec2 v, size_t index)
-						{
-						  vertices[index].uv_x = meshopt_quantizeHalf(v.x);
-						  vertices[index].uv_y = meshopt_quantizeHalf(v.y);
-						}
-					);
-				}
+					glm::vec2 t_encoded = encode_oct(glm::vec3(tangent));
+
+					uint16_t t =
+						(meshopt_quantizeSnorm(t_encoded.x, 8) + 127) << 8 |
+						(meshopt_quantizeSnorm(t_encoded.y, 8) + 127);
+
+					tangents[index] = t;
+					normals[index] |= (tangent.w >= 0 ? 1 : 0) << 30;
+				});
+			}
+			else
+			{
+				generate_mikkt_tangents = true;
+				tangents.resize(positions.size());
 			}
 
-			bool generate_tangents{};
-			// load vertex tangents
+			assert(positions.size() == normals.size() && positions.size() == tangents.size() && positions.size() == uvs.size());
+
+			std::vector<Vertex> vertices{};
+			for (size_t idx = 0; idx < positions.size(); ++idx)
 			{
-				auto tangents = p.findAttribute("TANGENT");
-				if (tangents != p.attributes.end())
-				{
-					fastgltf::iterateAccessorWithIndex<glm::vec4>(asset, asset.accessors[tangents->accessorIndex], [&](glm::vec4 v, size_t index)
-						{
-							glm::vec2 t = encode_oct(glm::vec3(v));
-
-							uint16_t tangent =
-								(meshopt_quantizeSnorm(t.x, 8) + 127) << 8 |
-								(meshopt_quantizeSnorm(t.y, 8) + 127);
-
-							vertices[index].tangent = tangent;
-							vertices[index].normal |= (v.w >= 0 ? 1 : 0) << 30;
-						}
-					);
-				}
-				else
-				{
-					generate_tangents = true;
-				}
+				vertices.emplace_back(Vertex{
+					positions[idx][0], positions[idx][1], positions[idx][2],
+					tangents[idx], normals[idx], uvs[idx][0], uvs[idx][1]
+				});
 			}
 
-			// mikk tangent generation
-			if (generate_tangents)
+			if (generate_mikkt_tangents)
 			{
 				fmt::println("generating tangents manually");
 				MikkMesh mikk_mesh{ &vertices, &indices };
 				mikk_calculate_tangents(mikk_mesh);
 			}
 
-			// clang-format on
 			MeshData mesh_data{};
-			mesh_data.vertex_offset = static_cast<uint32_t>(scene->vertices.size());
-
-			auto& combined_indices = scene->indices;
-			auto& combined_vertices = scene->vertices;
-			auto& meshlet_indices = scene->meshlet_indices;
-			auto& meshlets = scene->meshlets;
-
-			// meshoptimizer step
-			optimize_mesh(vertices, indices, meshlet_indices, meshlets, mesh_data, combined_vertices,
-			              combined_indices);
-			combined_vertices.insert(combined_vertices.end(), vertices.begin(), vertices.end());
-
+			mesh_data.vertex_offset = static_cast<uint32_t>(scene->vertices.size()); // note: if we implement multithreading, this likely needs to be computed post meshoptimizing
 			if (p.materialIndex.has_value())
 			{
 				size_t idx = p.materialIndex.value();
+				mesh_data.material_id = static_cast<uint32_t>(idx);
 				auto alpha_mode = asset.materials[idx].alphaMode;
 				switch (alpha_mode)
 				{
@@ -966,12 +967,18 @@ std::optional<std::unique_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const
 				default:
 					break;
 				}
-				mesh_data.material_id = static_cast<uint32_t>(idx);
 			}
 			else
 			{
 				assert(0);
 			}
+
+			auto& meshlet_indices = scene->meshlet_indices;
+			auto& meshlets = scene->meshlets;
+
+			optimize_mesh(vertices, indices, meshlet_indices, meshlets, mesh_data, scene->vertices,
+						  scene->indices);
+			scene->vertices.insert(scene->vertices.end(), vertices.begin(), vertices.end());
 
 			new_mesh->mesh.push_back(mesh_data);
 		}
@@ -1022,7 +1029,7 @@ std::optional<std::unique_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const
 
 		if (gltf_node.meshIndex.has_value())
 		{
-			node->mesh_asset = meshes[*(gltf_node.meshIndex)];
+			node->mesh_asset = mesh_assets[*(gltf_node.meshIndex)];
 		}
 
 		for (auto child_index : gltf_node.children)

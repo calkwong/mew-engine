@@ -24,13 +24,6 @@ struct MeshData
 	uint32_t meshlet_bits{}; // equals # of meshlets for LOD 0, for tracking visibility
 };
 
-struct RawMesh
-{
-	std::vector<Vertex> vertices{};
-	std::vector<uint32_t> indices{};
-	std::vector<MeshData> mesh_data{};
-};
-
 struct MeshAsset
 {
 	std::string name{};
