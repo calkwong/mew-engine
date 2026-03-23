@@ -4,8 +4,7 @@ project ("mewengine")
 
 find_package(Vulkan REQUIRED)
 
-#set (CMAKE_RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/bin")
-#set (CMAKE_LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/bin")
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 add_subdirectory(external)
 add_subdirectory(engine)
@@ -36,7 +35,7 @@ foreach(GLSL ${GLSL_SOURCE_FILES})
 endforeach(GLSL)
 
 add_custom_target(
-    Shaders 
+    Shaders
     DEPENDS ${SPIRV_BINARY_FILES}
     )
 

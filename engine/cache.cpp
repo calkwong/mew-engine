@@ -53,10 +53,6 @@ uint32_t TextureCache::get_hdri() const
 
 uint32_t TextureCache::get_accumulation_buffer(uint32_t flip) const
 {
-	// accum_pp = flip ? accum_pp * -1 : accum_pp;
-	// accum_id = flip ? accum_id + accum_pp : accum_id;
-	// accum_pp *= -1;
-	// accum_id += accum_pp;
 	return accum_id + flip;
 }
 

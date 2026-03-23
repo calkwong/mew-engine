@@ -28,7 +28,6 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
-#include <filesystem>
 #include <functional>
 #include <memory>
 #include <random>
@@ -224,7 +223,6 @@ void VulkanEngine::init(const std::string& file_path)
 			}
 		);
 	}
-
 	VkQueryPoolCreateInfo query_pool_info{};
 	query_pool_info.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
 	query_pool_info.queryType = VK_QUERY_TYPE_TIMESTAMP;
@@ -3079,9 +3077,9 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass, ui
 	vkCmdBeginQuery(cmd, get_current_frame().query_pool_pipelines, query, 0);
 
 	// deferred
-	VkClearColorValue clear_color_value{ 0.f, 0.f, 0.f, 1.0f };
+	VkClearColorValue clear_color_value{{ 0.f, 0.f, 0.f, 1.0f }};
 	VkClearValue clear_value{ .color = clear_color_value };
-	VkClearColorValue clear_color_value2{ 1.f, 1.f, 0.f, 1.0f };
+	VkClearColorValue clear_color_value2{{ 1.f, 1.f, 0.f, 1.0f }};
 	VkClearValue clear_value2{ .color = clear_color_value2 };
 
 	std::vector<VkRenderingAttachmentInfo> rendering_attachment_infos{};

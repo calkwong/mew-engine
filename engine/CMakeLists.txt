@@ -1,6 +1,6 @@
 add_executable(engine)
 
-set(imgui_sources 
+set(imgui_sources
 	"${PROJECT_SOURCE_DIR}/external/imgui/imconfig.h"
 	"${PROJECT_SOURCE_DIR}/external/imgui/imgui.cpp"
 	"${PROJECT_SOURCE_DIR}/external/imgui/imgui.h"
@@ -47,20 +47,21 @@ target_sources(engine PRIVATE
 	${imgui_sources}
 )
 
-set_property(TARGET engine PROPERTY CXX_STANDARD 20)
+#set_property(TARGET engine PROPERTY CXX_STANDARD 20)
+set_target_properties(engine PROPERTIES CXX_STANDARD 20 RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 target_compile_definitions(engine PUBLIC GLM_FORCE_DEPTH_ZERO_TO_ONE VK_NO_PROTOTYPES IMGUI_IMPL_VULKAN_NO_PROTOTYPE)
 
-target_include_directories(engine PUBLIC 
+target_include_directories(engine PUBLIC
 	"${CMAKE_CURRENT_SOURCE_DIR}"
 	"${PROJECT_SOURCE_DIR}/external/imgui/"
 	"${PROJECT_SOURCE_DIR}/external/imgui/backends/"
 )
 
-target_link_libraries(engine PUBLIC 
-	vma 
+target_link_libraries(engine PUBLIC
+	vma
 	glm
 	# Vulkan::Vulkan
-	fmt::fmt 
+	fmt::fmt
 	stb
 	SDL3::SDL3
 	vk-bootstrap::vk-bootstrap
@@ -91,6 +92,7 @@ target_precompile_headers(engine PRIVATE
 )
 
 add_custom_command(TARGET engine POST_BUILD
-	COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_RUNTIME_DLLS:engine> $<TARGET_FILE_DIR:engine>
+	#COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_RUNTIME_DLLS:engine> $<TARGET_FILE_DIR:engine>
+	COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_RUNTIME_DLLS:engine> ${CMAKE_BINARY_DIR}/$<CONFIG>
 	COMMAND_EXPAND_LISTS
 )
