@@ -12,7 +12,7 @@ layout(push_constant) uniform constants
 {
 	mat4 view;
 	vec4 frustum_planes;
-	
+
 	ObjectBuffer object_buffer;
 	MeshBuffer mesh_buffer;
 	MeshIndicesBuffer mesh_indices_buffer;
@@ -20,23 +20,24 @@ layout(push_constant) uniform constants
 	DispatchBuffer dispatch_buffer;
 	VisibilityBuffer mesh_visibility_buffer;
 	MeshTaskBuffer mesh_task_buffer;
-	
+
 	uint count;
 	uint late;
 	uint texture_id;
 	uint occlusion_enabled;
-	
+
 	float p00;
 	float p11;
 	float znear;
 	float zfar; // this is draw distance
-	
+
 	vec2 resolution;
 	float texture_lod;
 	float lod_distance_factor;
 	uint lod_enabled;
 	uint task_submit;
 	uint post_pass;
+	float min_contribution;
 };
 
 // 2D Polyhedral Bounds of a Clipped, Perspective-Projected 3D Sphere. Michael Mara, Morgan McGuire. 2013
@@ -67,32 +68,38 @@ bool project_sphere(vec3 c, float r, float znear, float P00, float P11, out vec4
 bool frustum_culled(vec3 center, float radius)
 {
 	bool visible = true;
-	
+
 	// symmetrical sphere-plane distance test
 	visible = visible && (center.z * frustum_planes.y - abs(center.x) * frustum_planes.x) >= -radius;
 	visible = visible && (center.z * frustum_planes.w - abs(center.y) * frustum_planes.z) >= -radius;
-	visible = visible && (center.z - radius <= -znear) && (center.z + radius >= -zfar);	
-		
+	visible = visible && (center.z - radius <= -znear) && (center.z + radius >= -zfar);
+
 	return !visible;
 }
 
 bool occlusion_culled(vec3 center, float radius)
 {
 	vec4 aabb;
-	
+
 	if (project_sphere(vec3(center.x, center.y, -center.z), radius, znear, p00, p11, aabb))
 	{
-		vec2 pixel_size = (aabb.zw - aabb.xy) * resolution; 
-		
+		vec2 pixel_size = (aabb.zw - aabb.xy) * resolution;
+
 		float max_dim = max(pixel_size.x, pixel_size.y);
-		
+
+		// TODO: contribution culling - move this out of occlusion cull?
+		// TODO: this works for bistro when viewing from far, but for stress test scene, too large of a value results in worst performance - interference with occlusion cull?
+	    // TODO: AW2 presentation recommendeds separate thresholds for meshes and meshlets
+		if (max_dim < min_contribution)
+		    return true;
+
 		float mip = ceil(log2(max_dim));
-		mip = min(mip, texture_lod); 
-		
+		mip = min(mip, texture_lod);
+
 		float depth = textureLod(sampler2D(textures[texture_id], samplers[DEPTH_REDUCTION_SAMPLER]), (aabb.zw + aabb.xy) * 0.5, mip).r;
-		
-		float depth_sphere = znear / (-center.z - radius); 
-		
+
+		float depth_sphere = znear / (-center.z - radius);
+
 		return depth_sphere < depth; // reverse depth
 	}
 }
@@ -100,21 +107,21 @@ bool occlusion_culled(vec3 center, float radius)
 void main()
 {
 	uint global_id = gl_GlobalInvocationID.x;
-	
+
 	if (global_id >= count)
 		return;
-		
+
 	uint id = mesh_indices_buffer.indices[global_id];
-	
+
 	bool late = late == 1;
-	
+
 	// TODO: mesh_visibility_buffer using 4 bytes instead of 1 bit for visibility
 	// TODO: can potentially skip this for post_pass != 0 (masked, transparent)
 	bool visible_last_frame = mesh_visibility_buffer.visible[id] == 1;
-	
+
 	if (!late && !visible_last_frame)
 		return;
-		
+
 	ObjectData obj = object_buffer.objects[id];
 
 	uint mesh_id = obj.mesh_id;
@@ -129,41 +136,41 @@ void main()
     // non uniform scaling not support
 	float maxScale = obj.scale;
 	radius = radius * maxScale;
-	
+
 	bool visible = !frustum_culled(center, radius);
 	bool should_draw = visible;
-	
+
 	if (late && visible)
 	{
 		if (occlusion_enabled == 1)
 			visible = visible && !occlusion_culled(center, radius);
 		should_draw = (task_submit == 0) ? visible && (!visible_last_frame || post_pass != 0) : visible; // TODO: verify we can remove postpass check here as we dispatch by geometry type?
 	}
-	
+
 	if (should_draw)
 	{
-		
+
 		uint index = 0;
 		if (lod_enabled == 1) // TODO: move above into this block?
 		{
-			// automatic LOD selection - at distance d, how many world space units does each pixel cover? 
+			// automatic LOD selection - at distance d, how many world space units does each pixel cover?
 			// is the absolute error computed (simplifyscale * result_error) less visible than error above? if so, move onto higher LOD
 			float d = max(0.0, length(center) - radius);
 			float e = d * lod_distance_factor / maxScale;
-			
+
 			for (uint i = 0; i < mesh.lod_count; i++)
 			{
 				index = e >= mesh.lods[i].error ? i : index;
 			}
 		}
-		
+
 		// TODO: inspired by https://github.com/expenses/lighthugger/blob/main/src/shaders/common/prefix_sum.glsl
 		// - prefixSum buffer storing instanceId, inclusive sum of meshlet_count, and another new variable to account for LOD offsets to correctly index into meshlet buffer
 		// - dispatch_buffer needs to be handled in a new compute shader
 		// - meshletBitOffset/meshletVisibilityOffset obsolete as we can look into object/instanceBuffer for buffer offset + local offset computed from prefixSum?
 		// - so 4 uints down to 3 uints per meshtask, on top of 1 meshtask command PER mesh?
 		// - meshtask buffer replaced by prefixSum buffer, and each entry maps to a single visible mesh, no longer ceil(meshlets/32) entries
-		
+
 		if (task_submit == 1)
 		{
 			uint meshlet_count = mesh.lods[index].meshlet_count;
@@ -193,7 +200,7 @@ void main()
 			draw_buffer.draws.commands[count].first_instance = id;
 		}
 	}
-	
+
 	if (late)
-		mesh_visibility_buffer.visible[id] = uint(visible); 
+		mesh_visibility_buffer.visible[id] = uint(visible);
 }

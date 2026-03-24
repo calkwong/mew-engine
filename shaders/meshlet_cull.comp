@@ -87,8 +87,9 @@ bool occlusion_culled(vec3 center, float radius)
 		float max_dim = max(pixel_size.x, pixel_size.y);
 
 		// TODO: contribution culling - move this out of occlusion cull?
-		// TODO: this works well for bistro, but for stress test scene, too large of a value results in worst performance - interference with occlusion cull?
-		if (max_dim < min_contribution) // AW2 presentation: recommended to use separate min_contribution for meshes and meshlets
+		// TODO: this works for bistro when viewing from far, but for stress test scene, too large of a value results in worst performance - interference with occlusion cull?
+	    // TODO: AW2 presentation recommendeds separate thresholds for meshes and meshlets
+		if (max_dim < min_contribution)
 		    return true;
 
 		float mip = ceil(log2(max_dim));
