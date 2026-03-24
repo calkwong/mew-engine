@@ -164,6 +164,6 @@ void ShaderCache::add_shader(VkDevice device, const char* path, VkShaderStageFla
 		VkShaderModule module{};
 		vkutil::load_shader_module(shader_path.c_str(), device, &module);
 
-		data[path] = std::make_unique<ShaderProgram>(module, stage);
+		data[path] = std::make_unique<ShaderProgram>(module, stage, path);
 	}
 }

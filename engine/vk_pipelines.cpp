@@ -28,6 +28,8 @@ VkPipeline ComputePipelineBuilder::build_pipeline(VkDevice device) const
 void ComputePipelineBuilder::set_shaders(const ShaderProgram* program)
 {
 	shader_stages[0] = vkinit::pipeline_shader_stage_create_info(program->stage, program->module);
+	name = "";
+	name += program->name;
 }
 
 void PipelineBuilder::clear()
@@ -105,11 +107,15 @@ void PipelineBuilder::set_shaders(std::initializer_list<ShaderProgram*> programs
 {
     shader_stages.clear();
 
+    name = "";
+
     for (const auto program : programs)
     {
         shader_stages.push_back(
             vkinit::pipeline_shader_stage_create_info(program->stage, program->module)
         );
+
+        name += program->name + '/';
     }
 }
 
@@ -257,6 +263,16 @@ std::unique_ptr<ShaderPass> vkutil::build_shader(VkDevice device, ComputePipelin
 
     shader->pipeline = builder.build_pipeline(device);
 
+    if (vkSetDebugUtilsObjectNameEXT)
+    {
+        VkDebugUtilsObjectNameInfoEXT name_info{};
+        name_info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT;
+        name_info.objectType = VK_OBJECT_TYPE_PIPELINE;
+        name_info.objectHandle = (uint64_t)shader->pipeline;
+        name_info.pObjectName = builder.name.c_str();
+        vkSetDebugUtilsObjectNameEXT(device, &name_info);
+    }
+
     return shader;
 }
 
@@ -294,6 +310,17 @@ std::unique_ptr<ShaderPass> vkutil::build_shader(VkDevice device, PipelineBuilde
     builder.pipeline_layout = shader->layout;
 
     shader->pipeline = builder.build_pipeline(device);
+
+    // TODO: fix duplicated names for spec constants
+    if (vkSetDebugUtilsObjectNameEXT)
+    {
+        VkDebugUtilsObjectNameInfoEXT name_info{};
+        name_info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT;
+        name_info.objectType = VK_OBJECT_TYPE_PIPELINE;
+        name_info.objectHandle = (uint64_t)shader->pipeline;
+        name_info.pObjectName = builder.name.c_str();
+        vkSetDebugUtilsObjectNameEXT(device, &name_info);
+    }
 
     return shader;
 }
@@ -342,4 +369,15 @@ bool vkutil::load_shader_module(const char* path, VkDevice device, VkShaderModul
 	}
 	*out_shader_module = shader_module;
 	return true;
+}
+
+void PipelineBuilder::set_shader_specialization(VkSpecializationInfo* spec_info, size_t index)
+{
+    assert(index < shader_stages.size());
+    shader_stages[index].pSpecializationInfo = spec_info;
+}
+
+void ComputePipelineBuilder::set_shader_specialization(VkSpecializationInfo* spec_info)
+{
+    shader_stages[0].pSpecializationInfo = spec_info;
 }

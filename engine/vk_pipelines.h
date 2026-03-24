@@ -172,6 +172,7 @@ struct ShaderProgram
 {
 	VkShaderModule module{};
 	VkShaderStageFlagBits stage{};
+	std::string name{};
 };
 
 struct PipelineBuilder
@@ -187,6 +188,7 @@ struct PipelineBuilder
 	VkPipelineLayout pipeline_layout{};
 	VkPipelineDepthStencilStateCreateInfo depth_stencil{};
 	VkPipelineRenderingCreateInfo render_info{};
+	std::string name{};
 
 	PipelineBuilder() { clear(); }
 
@@ -203,6 +205,7 @@ struct PipelineBuilder
 	void set_depth_format(VkFormat format);
 	void disable_depth();
 	void enable_depth(bool depth_write_enable, VkCompareOp op);
+	void set_shader_specialization(VkSpecializationInfo* spec_info, size_t index);
 
 	// TODO: refactor into free functions
 	VkPipelineColorBlendAttachmentState disable_blending();
@@ -214,15 +217,19 @@ struct ComputePipelineBuilder
 {
 	std::array<VkPipelineShaderStageCreateInfo, 1> shader_stages{};
 	VkPipelineLayout pipeline_layout{};
+	std::string name{};
 
 	VkPipeline build_pipeline(VkDevice device) const;
 	void set_shaders(const ShaderProgram* program);
+	void set_shader_specialization(VkSpecializationInfo* spec_info);
 };
 
 namespace vkutil
 {
 	bool load_shader_module(const char* path, VkDevice device, VkShaderModule* out_shader_module);
 
-	std::unique_ptr<ShaderPass> build_shader(VkDevice device, PipelineBuilder& builder, std::initializer_list<ShaderProgram*> programs, const std::vector<VkDescriptorSetLayout>& layouts, uint32_t pc_size);
-	std::unique_ptr<ShaderPass> build_shader(VkDevice device, ComputePipelineBuilder& builder, const ShaderProgram* program, const std::vector<VkDescriptorSetLayout>& layouts, uint32_t pc_size);
+	std::unique_ptr<ShaderPass> build_shader(VkDevice device, PipelineBuilder& builder, std::initializer_list<ShaderProgram*> programs,
+	    const std::vector<VkDescriptorSetLayout>& layouts, uint32_t pc_size);
+	std::unique_ptr<ShaderPass> build_shader(VkDevice device, ComputePipelineBuilder& builder, const ShaderProgram* program,
+	    const std::vector<VkDescriptorSetLayout>& layouts, uint32_t pc_size);
 } // namespace vkutil
