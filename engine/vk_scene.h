@@ -206,6 +206,7 @@ struct ClusterCullData
 	uint32_t lod_enabled{};
 	uint32_t task_submit{};
 	uint32_t post_pass{};
+	float min_contribution{};
 };
 
 struct MeshTaskCommand

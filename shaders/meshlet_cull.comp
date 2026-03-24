@@ -12,30 +12,31 @@ layout(push_constant) uniform constants
 {
 	mat4 view;
 	vec4 frustumPlanes;
-	
+
 	ObjectBuffer object_buffer;
 	MeshletBuffer meshlet_buffer;
 	ClusterIndicesBuffer cluster_indices_buffer;
-	ClusterCountBuffer cluster_count_buffer; 
+	ClusterCountBuffer cluster_count_buffer;
 	VisibilityBuffer meshlet_visibility_buffer;
 	MeshTaskBuffer mesh_task_buffer;
-	
+
 	uint count; // unused?
 	uint late;
 	uint texture_id;
 	uint occlusion_enabled;
-	
+
 	float p00;
 	float p11;
 	float znear;
 	float zfar; // this is draw distance
-	
+
 	vec2 resolution;
 	float texture_lod;
 	float lod_distance_factor;
 	uint lod_enabled;
 	uint task_submit;
 	uint post_pass;
+	float min_contribution;
 };
 
 // 2D Polyhedral Bounds of a Clipped, Perspective-Projected 3D Sphere. Michael Mara, Morgan McGuire. 2013
@@ -66,31 +67,36 @@ bool project_sphere(vec3 c, float r, float znear, float P00, float P11, out vec4
 bool frustum_culled(vec3 center, float radius)
 {
 	bool visible = true;
-	
+
 	// symmetrical sphere-plane distance test
 	visible = visible && (center.z * frustumPlanes.y - abs(center.x) * frustumPlanes.x) >= -radius;
 	visible = visible && (center.z * frustumPlanes.w - abs(center.y) * frustumPlanes.z) >= -radius;
-	visible = visible && (center.z - radius <= -znear) && (center.z + radius >= -zfar);	
-		
+	visible = visible && (center.z - radius <= -znear) && (center.z + radius >= -zfar);
+
 	return !visible;
 }
 
 bool occlusion_culled(vec3 center, float radius)
 {
 	vec4 aabb;
-	
+
 	if (project_sphere(vec3(center.x, center.y, -center.z), radius, znear, p00, p11, aabb))
 	{
-		vec2 pixel_size = (aabb.zw - aabb.xy) * resolution; 
-		
+		vec2 pixel_size = (aabb.zw - aabb.xy) * resolution;
+
 		float max_dim = max(pixel_size.x, pixel_size.y);
-		
+
+		// TODO: contribution culling - move this out of occlusion cull?
+		// TODO: this works well for bistro, but for stress test scene, too large of a value results in worst performance - interference with occlusion cull?
+		if (max_dim < min_contribution) // AW2 presentation: recommended to use separate min_contribution for meshes and meshlets
+		    return true;
+
 		float mip = ceil(log2(max_dim));
 		mip = min(mip, texture_lod);
-		
+
 		float depth = textureLod(sampler2D(textures[texture_id], samplers[DEPTH_REDUCTION_SAMPLER]), (aabb.zw + aabb.xy) * 0.5, mip).r;
-		
-		float depth_sphere = znear / (-center.z - radius); 
+
+		float depth_sphere = znear / (-center.z - radius);
 		return depth_sphere < depth; // reverse depth
 	}
 }
@@ -105,67 +111,67 @@ void main()
 	// - id no longer indexes into meshTask, but used as binary search to get correct PrefixSumValue
 	// - meshlet_id from binary search for indexing into meshlet buffer should add meshlet_offset to account for LODs?
 	// - result from binary search needs to be adjusted for LOD meshlet offset for correct indexing of meshlet buffer
-	// - yet to figure out how clusterIndices will change. 
+	// - yet to figure out how clusterIndices will change.
 	//     - could compute inclusiveSum value for a specific meshlet as the index, at the cost of binary searching all over again in mesh shader
 	// - in a perfect world, task shader is efficient and we can forget storing all these intermediate buffers
-	
+
 	uint meshlet_offset = mesh_task_buffer.commands[id].meshlet_offset + ti;
 	uint object_id = mesh_task_buffer.commands[id].object_id;
 	uint meshlet_visibility_offset = mesh_task_buffer.commands[id].meshlet_visibility_offset + ti;
 	uint meshlet_count = mesh_task_buffer.commands[id].meshlet_count;
-	
+
 	if (ti < meshlet_count)
 	{
 		bool late = late == 1;
-		
+
 		// bit shift in place of floor division, then bit& to extract the relevant bit
 		uint meshlet_visibility_bit = meshlet_visibility_buffer.visible[meshlet_visibility_offset >> 5] & (1u << (meshlet_visibility_offset & 31));
-		
-		bool visible_last_frame = meshlet_visibility_bit != 0; 
-		
+
+		bool visible_last_frame = meshlet_visibility_bit != 0;
+
 		if (!late && !visible_last_frame)
 			return;
-		
+
 		bool skip = false; // always false for early pass
-		if (late && visible_last_frame) 
+		if (late && visible_last_frame)
 			skip = true;
 		if (post_pass != 0) // TODO: update this when we start culling postpass > 0 for late==0
 			skip = false; // we never skip mask and transparent (postpass != 0) regardless of visibility last frame as they only run for late==1
-			
-		// reprocess all meshlets of visible meshes	
-		Meshlet meshlet = meshlet_buffer.meshlets[meshlet_offset]; 
-		
+
+		// reprocess all meshlets of visible meshes
+		Meshlet meshlet = meshlet_buffer.meshlets[meshlet_offset];
+
 		ObjectData obj = object_buffer.objects[object_id];
-	
+
 		vec3 mpos = vec3(meshlet.cx, meshlet.cy, meshlet.cz);
 		vec3 center = rotate_quat(mpos, obj.orientation) * obj.scale + obj.translation; // world space
 		center = vec3(view * vec4(center, 1.0)); // view space
-		
+
 		float radius = meshlet.radius;
-	
+
 		// non uniform scaling not supported
 		float max_scale = obj.scale;
 		radius = radius * max_scale;
-		
+
 		// frustum culling
 		bool visible = !frustum_culled(center, radius);
-		
+
 		if (late && visible)
 		{
 			if (occlusion_enabled == 1)
 				visible = visible && !occlusion_culled(center, radius);
 		}
-		
+
 		// render or not - both pass 1 & 2
 		if (visible && !skip)
 		{
 			uint cluster_index = atomicAdd(cluster_count_buffer.workgroup_x, 1);
 			cluster_count_buffer.workgroup_y = 1;
 			cluster_count_buffer.workgroup_z = 1;
-			
+
 			cluster_indices_buffer.indices[cluster_index] = id | (ti << 27); // no error checking yet
 		}
-		
+
 		if (late)
 		{
 			// TODO: use subgroups and update from a single thread, potentially need to update 2 uints
