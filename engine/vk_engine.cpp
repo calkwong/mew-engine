@@ -57,6 +57,7 @@ AutoCVar_Int CVAR_RENDER_LOD{ "render.lod", "LODs", 1, CVarFlags::EditCheckbox }
 AutoCVar_Int CVAR_RENDER_SHADOWS{ "render.shadows", "Shadows", 0, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_TAA{ "render.taa", "TAA", 0, CVarFlags::EditCheckbox | CVarFlags::EditHide };
 AutoCVar_Float CVAR_RENDER_MIN_CONTRIBUTION{ "render.meshlet_contribution", "Min meshlet contribution", 2.f, CVarFlags::EditDragFloat, 0.f, 4.f, 1.f };
+AutoCVar_Int CVAR_RENDER_TRIANGLE_CULLING{ "render.triangle_culling", "Triangle culling", 1, CVarFlags::EditCheckbox};
 
 AutoCVar_Int CVAR_SHADOWS_PCF{ "shadows.pcf", "PCF", 1, CVarFlags::EditCheckbox };
 AutoCVar_Float CVAR_SHADOWS_CASCADE_SPLIT{ "shadows.cascade_split", "Cascades log factor", 0.95f, CVarFlags::EditDragFloat, 0.f, 1.f, 0.005f };
@@ -3154,6 +3155,8 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass, ui
 		else
 			pc.jitter_offset -= glm::vec2(x, y);
 	}
+
+	pc.cull = CVAR_RENDER_TRIANGLE_CULLING.get();
 
 	if (!CVAR_RENDER_MESH_SHADERS.get())
 	{

@@ -21,6 +21,7 @@ layout(push_constant) uniform constants
     MaterialBuffer material_buffer;
     OITBuffer oit_buffer;
     vec2 jitter_offset;
+    uint cull;
 };
 
 layout(location = 0) perprimitiveEXT out uint out_draw_id[];
@@ -29,6 +30,8 @@ layout(location = 2) out vec2 out_uv[];
 layout(location = 3) out uint out_material_id[];
 layout(location = 4) out vec4 out_clip_pos[];
 layout(location = 5) out vec4 out_prev_clip_pos[];
+
+shared vec2 vertex_clip[64];
 
 void main()
 {
@@ -73,6 +76,13 @@ void main()
         out_clip_pos[i] = clip_pos;
         out_prev_clip_pos[i] = prev_clip_pos;
 
+        // TODO: only account for screen size and a z component if doing small primitive culling
+        // backface + zero area culling
+        if (cull == 1)
+        {
+           vertex_clip[i] = vec2(clip_pos.xy / clip_pos.w * 0.5 + 0.5);
+        }
+
         gl_MeshVerticesEXT[i].gl_Position = clip_pos;
     }
 
@@ -88,5 +98,24 @@ void main()
         uint idx2 = meshlet_indices_buffer.indices[m_triangle_offset + i * 3 + 2];
 
         gl_PrimitiveTriangleIndicesEXT[i] = uvec3(idx0, idx1, idx2);
+
+        bool culled = false;
+        if (cull == 1)
+        {
+            vec2 va = vertex_clip[idx0];
+            vec2 vb = vertex_clip[idx1];
+            vec2 vc = vertex_clip[idx2];
+
+            vec2 eb = vb - va;
+            vec2 ec = vc - va;
+
+            culled = culled || (eb.x * ec.y <= eb.y * ec.x);
+
+        }
+
+        // this cannot be in a branch! compiler likely sets this to a default value after dead code removal if it cannot find gl_CullPrimitiveEXT
+        // if it exists and we place it in a branch, we get flickering artifacts all over
+        // seems fine if its a compile time branch (cc niagara)?
+        gl_MeshPrimitivesEXT[i].gl_CullPrimitiveEXT = culled;
     }
 }
