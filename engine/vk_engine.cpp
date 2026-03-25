@@ -68,7 +68,7 @@ AutoCVar_Int CVAR_DEBUG_TEXTURES{ "debug.textures", "Debug textures", 0, CVarFla
 
 AutoCVar_Int CVAR_MISC_DRAW_DISTANCE{ "misc.draw_distance", "Draw distance", 1000, CVarFlags::EditSliderInt, 100, 1000, 100 };
 AutoCVar_Int CVAR_MISC_AUTOEXPOSURE{ "misc.autoexposure", "Autoexposure", 0, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_MISC_TONEMAP{ "misc.tonemap", "Tonemapping", 0, CVarFlags::EditSliderInt, 0, 1, 1 };
+AutoCVar_Int CVAR_MISC_TONEMAP{ "misc.tonemap", "Tonemapping", 0, CVarFlags::EditSliderInt, 0, 2, 1 };
 AutoCVar_Int CVAR_MISC_FREEZE_CAMERA{ "misc.freeze_camera", "Freeze camera", 0, CVarFlags::EditCheckbox };
 
 AutoCVar_Int CVAR_TAA_VARIANCE_CLIP{ "taa.variance_clip", "Variance clipping", 1, CVarFlags::EditCheckbox };
