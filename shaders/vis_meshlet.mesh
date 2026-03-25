@@ -79,10 +79,12 @@ void main()
         out_prev_clip_pos[i] = prev_clip_pos;
 
         // TODO: only account for screen size if doing small primitive culling
-        // backface + zero area culling
-        if (cull == 1)
+        if (OPAQUE == 1)
         {
-           vertex_clip[i] = vec3(clip_pos.xy / clip_pos.w * 0.5 + 0.5, clip_pos.w);
+            if (cull == 1)
+            {
+                vertex_clip[i] = vec3(clip_pos.xy / clip_pos.w * 0.5 + 0.5, clip_pos.w);
+            }
         }
 
         gl_MeshVerticesEXT[i].gl_Position = clip_pos;
@@ -101,9 +103,11 @@ void main()
 
         gl_PrimitiveTriangleIndicesEXT[i] = uvec3(idx0, idx1, idx2);
 
-        bool culled = false;
+        // backface + zero area culling
         if (OPAQUE == 1)
         {
+            bool culled = false;
+
             if (cull == 1)
             {
                 vec2 va = vertex_clip[idx0].xy;
@@ -118,11 +122,11 @@ void main()
                 // triangle culling only works if all triangles are in front of camera
                 culled = culled && (vertex_clip[idx0].z > 0 && vertex_clip[idx1].z > 0 && vertex_clip[idx2].z > 0);
             }
+
+            // this cannot be in a runtime branch! compiler likely sets this to a default value after dead code removal if it cannot find gl_CullPrimitiveEXT
+            // if it exists and we place it in a branch, we get flickering artifacts all over
+            gl_MeshPrimitivesEXT[i].gl_CullPrimitiveEXT = culled;
         }
 
-        // this cannot be in a branch! compiler likely sets this to a default value after dead code removal if it cannot find gl_CullPrimitiveEXT
-        // if it exists and we place it in a branch, we get flickering artifacts all over
-        // seems fine if its a compile time branch (cc niagara)?
-        gl_MeshPrimitivesEXT[i].gl_CullPrimitiveEXT = culled;
     }
 }

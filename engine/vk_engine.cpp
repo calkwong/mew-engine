@@ -45,11 +45,11 @@ constexpr bool USE_VALIDATION_LAYERS = false;
 constexpr bool USE_VALIDATION_LAYERS = true;
 #endif
 
-#define SINGLE // uncomment if loading a proper scene
+// #define SINGLE // uncomment if loading a proper scene
 
 AutoCVar_Int CVAR_RENDER_VBUFFER{ "render.vbuffer", "Vbuffer path", 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_MESH_SHADERS{ "render.mesh_shaders", "Mesh shaders path", 1, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_RENDER_ALPHACLIP{ "render.alphaclip", "Alphaclip", 1, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_RENDER_ALPHACLIP{ "render.alphaclip", "Alphaclip", 0, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_TRANSPARENT{ "render.transparent", "Transparent", 0, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_POINT_LIGHTS{ "render.point_lights", "Point lights", 0, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_OCCLUSION_CULL{ "render.occlusion_cull", "Occlusion culling", 1, CVarFlags::EditCheckbox };
@@ -1892,7 +1892,6 @@ void VulkanEngine::init_pipelines()
 
 	builder.set_shaders({ shader_cache["meshlet.mesh"], shader_cache["geometry.frag"] });
 	builder.set_shader_specialization(&specialization_info);
-	builder.shader_stages[1].pSpecializationInfo = &specialization_info;
 	specialization_data.opaque = 1;
 	builder.set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
 	shader_passes["geometry_mesh"] = vkutil::build_shader(device, builder, {}, descriptor_layouts, sizeof(GPUPushConstants));
@@ -2293,12 +2292,12 @@ void VulkanEngine::init_renderables(const std::string& file_path)
 	uint32_t meshlet_visibility_offset{};
 	for (auto& renderable : render_scene.renderables)
 	{
-		uint32_t meshlet_count = renderable.meshlet_bits;
+		uint32_t meshlet_count = renderable.meshlet_bits; // meshlet count for LOD 0 only
 		renderable.meshlet_bits = meshlet_visibility_offset; // TODO: rename meshlet_bits
 		render_scene.max_meshtask_commands += (meshlet_count + MESHLETS_PER_MESHTASKCOMMAND - 1) / MESHLETS_PER_MESHTASKCOMMAND;
 		meshlet_visibility_offset += meshlet_count;
 	}
-	render_scene.total_meshlets_bits = meshlet_visibility_offset; // likely obsolete
+	render_scene.total_meshlets_bits = meshlet_visibility_offset;
 }
 
 void VulkanEngine::init_bindless()
@@ -2883,6 +2882,7 @@ void VulkanEngine::upload_buffers()
 	{
 		size_t meshlet_visibility_size = (render_scene.total_meshlets_bits + 31) / 32;
 		render_scene.meshlet_vis_buffer = create_buffer(allocator, meshlet_visibility_size * sizeof(uint32_t), 0, VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+		fmt::println("number of instances: {}", render_scene.renderables.size());
 		fmt::println("meshlet_vis_buffer: {}mb", size_in_bytes(render_scene.meshlet_vis_buffer.info.size));
 
 		immediate_submit([&](VkCommandBuffer cmd)
