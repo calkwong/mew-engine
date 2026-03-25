@@ -32,6 +32,7 @@
 #include <cassert>
 #include <cstddef>
 #include <tracy/Tracy.hpp>
+#include <vulkan/vulkan_core.h>
 
 namespace
 {
@@ -171,8 +172,8 @@ namespace
 			else
 			{
 				raw_image_data.data.reset(stbi_load(full_path.string().c_str(), &raw_image_data.width, &raw_image_data.height, &raw_image_data.components, 4));
-				// raw_image_data.mips = static_cast<uint32_t>(std::floor(std::log2(std::max(raw_image_data.width, raw_image_data.height)))) + 1;
-				raw_image_data.mips = 1;
+				raw_image_data.mips = static_cast<uint32_t>(std::floor(std::log2(std::max(raw_image_data.width, raw_image_data.height)))) + 1;
+				// raw_image_data.mips = 1;
 				raw_image_data.format = VK_FORMAT_R8G8B8A8_UNORM;
 				raw_image_data.size = static_cast<uint32_t>(raw_image_data.width * raw_image_data.height * 4);
 			}
@@ -278,18 +279,18 @@ namespace
 			else
 			{
 				image_upload_info.emplace_back(ImageUploadInfo{
-					.data = static_cast<void*>(raw_image_data.data.get()),
-					.size = raw_image_data.size,
-					.buffer_offset = buffer_offset,
-					.image_index = static_cast<uint32_t>(images.size()),
-					.mips = 0,
-					.extent = VkExtent3D{ static_cast<uint32_t>(raw_image_data.width), static_cast<uint32_t>(raw_image_data.height), 1 }
+   					.data = static_cast<void*>(raw_image_data.data.get()),
+   					.size = raw_image_data.size,
+   					.buffer_offset = buffer_offset,
+   					.image_index = static_cast<uint32_t>(images.size()),
+   					.mips = 0,
+   					.extent = VkExtent3D{ static_cast<uint32_t>(raw_image_data.width), static_cast<uint32_t>(raw_image_data.height), 1 }
 				});
 
 				buffer_offset += raw_image_data.size;
 
 				images.emplace_back(create_image(engine->device, engine->allocator, { static_cast<uint32_t>(raw_image_data.width), static_cast<uint32_t>(raw_image_data.height), 1 },
-					VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT, 0, false
+					VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_IMAGE_ASPECT_COLOR_BIT, 0, true
 				));
 			}
 		}
@@ -346,10 +347,22 @@ namespace
 				info.pRegions = &copy;
 			}
 
-			for (int i = 0; i < image_upload_info.size(); i++)
+			// assumes all textures are either ktx2 or not, otherwise may break
+			if (image_upload_info.size() != raw_images.size())
 			{
-				// TODO: handle mipmaps for non-ktx path
-				vkCmdCopyBufferToImage2(engine->imm_command_buffer, &buffer_to_image_info[i]);
+                for (const auto& info : buffer_to_image_info)
+    			{
+    				vkCmdCopyBufferToImage2(engine->imm_command_buffer, &info);
+    			}
+			}
+			else
+			{
+			    for (const auto& info : buffer_to_image_info)
+    			{
+       				vkCmdCopyBufferToImage2(engine->imm_command_buffer, &info);
+
+                    vkutil::generate_mipmaps(engine->imm_command_buffer, info.dstImage, VkExtent2D{ info.pRegions->imageExtent.width, info.pRegions->imageExtent.height });
+    			}
 			}
 		};
 
@@ -368,9 +381,12 @@ namespace
 
 				flush_uploads();
 
+				// assumes all textures are either ktx2 or not, otherwise may break
+				VkImageLayout src_layout = (image_upload_info.size() != raw_images.size()) ? VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL : VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+
 				for (int i = 0; i < image_barriers.size(); i++)
 				{
-					image_barriers[i] = image_barrier(images[i].image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+					image_barriers[i] = image_barrier(images[i].image, src_layout, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 						VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT
 					);
 				}
