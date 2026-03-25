@@ -24,7 +24,7 @@ layout( push_constant ) uniform constants
 	uint padding[10]; // padding for visibility buffer variant
 	SHBuffer sh_buffer;
 	uint depth_id;
-	uint gbuffer_id;  
+	uint gbuffer_id;
 	uint shadowmap_id;
 	uint light_culling;
 	float near;
@@ -53,18 +53,18 @@ const int MLAB_NODES = 4;
 vec3 composite_transparent(vec3 input_color, uvec2 screen_pos)
 {
 	vec3 color = input_color;
-	
+
 		uint index = screen_pos.x + screen_pos.y * uint(screen_size.x);
 		OITData frags = oit_buffer.frags[index];
-		
+
 		// early return if nothing stored
 		if (frags.transmissions[0] == 1.0)
 		{
 			return color;
 		}
-		
+
 		oit_buffer.frags[index].transmissions = vec4(1.0); // reset so we can skip vkcmdfillbuffer
-		
+
 		vec3 composite = vec3(0.);
 		float t_accum = 1.0;
 		for (int i = 0; i < MLAB_NODES; i++)
@@ -73,10 +73,10 @@ vec3 composite_transparent(vec3 input_color, uvec2 screen_pos)
 			composite = t != 1.0 ? unpackUnorm4x8(frags.colors[i]).xyz * t_accum + composite : composite;
 			t_accum *= t;
 		}
-		
+
 		color *= t_accum;
 		color += composite;
-	
+
 	return color;
 }
 
@@ -157,7 +157,7 @@ vec3 reconstruct_world_pos(float depth, mat4 inverse_view_proj, vec2 uv_pos)
 	vec2 ndc = uv_pos * 2.0 - 1.0;
 	ndc.y *= -1.0; // flip as window coords are top down
 	vec4 world_pos = inverse_view_proj * vec4(ndc, depth, 1.0);
-	
+
 	return world_pos.xyz / world_pos.w;
 }
 
@@ -184,67 +184,67 @@ void main()
 	vec4 albedo = vec4(texture(sampler2D(textures[albedo_id], samplers[NEAREST_SAMPLER]), in_uv).xyz, 1.0);
 	float depth = texture(sampler2D(textures[depth_id], samplers[NEAREST_SAMPLER]), in_uv).r;
 	vec3 world_pos = reconstruct_world_pos(depth, uniforms.inverse_view_proj, in_uv);
-	
+
 	vec3 color = vec3(0.0);
 	vec3 ambient = albedo.xyz * 0.1; // when IBL is off, likely going to look physically incorrect
-	
+
 #ifdef PBR
 	vec2 metal_roughness = texture(sampler2D(textures[metalroughness_id], samplers[NEAREST_SAMPLER]), in_uv).xy;
 	float metallic = metal_roughness.x;
 	float perceptual_roughness = metal_roughness.y;
 	float roughness = perceptual_roughness * perceptual_roughness;
-	
+
 	vec3 Fr = vec3(0.0);
-	
+
 	vec3 L = normalize(uniforms.sunlight_dir.xyz);
 	vec3 V = normalize(uniforms.camera_pos.xyz - world_pos);
 	vec3 H = normalize(L + V);
-	
+
 	float NdotL = max(dot(N, L), 0.0);
 	float NdotH = max(dot(N, H), 0.0);
 	float NdotV = max(dot(N, V), 0.001);
 	float VdotH = max(dot(V, H), 0.0);
-	
+
 	vec3 f0 = vec3(0.04);
 	f0 = mix(f0, albedo.xyz, metallic);
-	
+
 	vec3 F = F_Schlick(VdotH, f0);
-		
+
 	vec3 kS = F;
 	vec3 kD = vec3(1.0) - kS;
-	
+
 	kD *= 1.0 - metallic;
 	vec3 Fd = kD * albedo.xyz / PI;
-	
+
 	float D = D_GGX(NdotH, roughness);
 	float G = V_SmithGGXCorrelated(NdotV, NdotL, roughness);
 	Fr = D * G * F;
-	
+
 	vec3 light_color = uniforms.sunlight_color.xyz;
-	color = (Fd + Fr) * light_color * NdotL; 
-	
+	color = (Fd + Fr) * light_color * NdotL;
+
 	#ifdef IBL
 		//perceptual_roughness = roughness; // sphere test
 		//metallic = metallic; // sphere test
-		
+
 		vec3 R = reflect(-V, N);
 		float prefiltered_mip = max_prefiltered_lod * perceptual_roughness;
-		
+
 		{
 			vec3 irradiance = evaluate_sh(sh_buffer.r_coefficients, sh_buffer.g_coefficients, sh_buffer.b_coefficients, N);
 			vec3 prefiltered = textureLod(samplerCube(textures_cube[uint(uniforms.textures[2])], samplers[CUBE_SAMPLER]), R, prefiltered_mip).xyz;
 			vec2 brdf = texture(sampler2D(textures[uint(uniforms.textures[3])], samplers[LINEAR_CLAMP_SAMPLER]), vec2(NdotV, perceptual_roughness)).rg;
-			
+
 			//vec3 white = vec3(1.0); // sphere test
 			//f0 = vec3(0.04); // sphere test
 			f0 = mix(f0, albedo.xyz, metallic);
 			//f0 = mix(f0, white, metallic); // sphere test
-			
+
 			F = F_SchlickRoughness(NdotV, f0, perceptual_roughness);
 			kS = F;
 			kD = vec3(1.0) - kS;
 			kD *= 1.0 - metallic;
-			
+
 		    // TODO: we could bake the division by PI into SH
 			vec3 diffuse = kD * irradiance * (1.0 / PI) * albedo.xyz;
 			vec3 specular = prefiltered * (F * brdf.x + brdf.y);
@@ -253,38 +253,38 @@ void main()
 			//return; // sphere test
 		}
 	#endif
-#else	
+#else
 	color += albedo.xyz;
 #endif
-	
+
 	uint cascade_index = 0;
 	if (shadows == 1)
 	{
 		float occluded = calculate_shadow(world_pos, cascade_index);
         color *= occluded;
 	}
-	
+
 	color += ambient;
-	
+
 	if (light_culling == 1)
 	{
 		ivec4 cluster_dim = ivec4(cluster_size);
 		ivec2 cluster_xy = ivec2(floor(vec2(screen_pos.x, screen_size.y - screen_pos.y) / cluster_dim.w));
 		cluster_xy.x = clamp(cluster_xy.x, 0, cluster_dim.x - 1);
 		cluster_xy.y = clamp(cluster_xy.y, 0, cluster_dim.y - 1);
-		
+
 		float viewz = linearize_depth(near, depth); // implicitly flipped
-		
-		// equation (3): https://www.aortiz.me/2018/12/21/CG.html#part-2 
+
+		// equation (3): https://www.aortiz.me/2018/12/21/CG.html#part-2
 		// slide 5: https://advances.realtimerendering.com/s2016/Siggraph2016_idTech6.pdf
 		uint slice = uint(floor(log(viewz) * scale - bias));
 		slice = clamp(slice, 0, cluster_dim.z - 1);
-		
-		uint cluster_index = cluster_xy.x + cluster_dim.x * cluster_xy.y + slice * cluster_dim.x * cluster_dim.y; 
-		
+
+		uint cluster_index = cluster_xy.x + cluster_dim.x * cluster_xy.y + slice * cluster_dim.x * cluster_dim.y;
+
 		uint offset = light_grid_buffer.grid[cluster_index].offset;
 		uint count = light_grid_buffer.grid[cluster_index].count;
-		
+
 		for (int i = 0; i < count; i++)
 		{
 			uint index = light_index_buffer.indices[offset + i];
@@ -293,29 +293,29 @@ void main()
 			float light_radius = light_buffer.lights[index].pos.w;
 			vec3 light_color = light_buffer.lights[index].color.xyz;
 			vec3 distance = light_pos - world_pos;
-			vec3 L = normalize(distance); 
+			vec3 L = normalize(distance);
 			float NdotL = max(dot(N, L), 0.0);
 #ifdef PBR
 			vec3 Fr = vec3(0.0);
 
 			vec3 H = normalize(L + V);
-			
+
 			float NdotH = max(dot(N, H), 0.0);
 
 			// some intermediate values taken from dir light as they are unchanged
 			float D = D_GGX(NdotH, roughness);
 			float G = V_SmithGGXCorrelated(NdotV, NdotL, roughness);
 			Fr = D * G * F;
-			
+
 			float attenuation = get_square_falloff_attenuation(distance, light_radius);
-			color += (Fd + Fr) * light_color * attenuation * NdotL; 
+			color += (Fd + Fr) * light_color * attenuation * NdotL;
 #else
 			float attenuation = get_square_falloff_attenuation(distance, light_radius);
 			color += (albedo.xyz * light_color * attenuation * NdotL);
 #endif
 		}
 	}
-	
+
 	if (depth == 0.0)
 	{
 		vec2 ndc = in_uv * 2.0 - 1.0;
@@ -323,14 +323,14 @@ void main()
 		vec3 sample_dir = vec3(uniforms.inverse_view_proj * vec4(ndc, 0.0, 1.0));
 		color = texture(samplerCube(textures_cube[uint(uniforms.textures[0])], samplers[CUBE_SAMPLER]), sample_dir).xyz;
 	}
-	
+
 	if (resolve_transparent == 1)
 	{
 		color = composite_transparent(color, uvec2(screen_pos));
 	}
-	
+
 	out_color = vec4(color, 1.0);
-	
+
     bool valid = depth != 0.0;
 
 	if (debug != 0)
@@ -339,7 +339,6 @@ void main()
         {
         case DEBUG_SHADING_NORMALS:
             N = N * 0.5 + 0.5;
-            N = srgb_to_linear(N);
             out_color = vec4(N, 1.0);
             break;
         case DEBUG_TANGENTS:

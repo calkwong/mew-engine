@@ -1663,8 +1663,8 @@ void VulkanEngine::create_swapchain(uint32_t width, uint32_t height)
 {
 	vkb::SwapchainBuilder swapchainBuilder{ chosen_gpu, device, surface };
 
-	// swapchain_image_format = VK_FORMAT_B8G8R8A8_UNORM;
-	swapchain_image_format = VK_FORMAT_B8G8R8A8_SRGB;
+	swapchain_image_format = VK_FORMAT_B8G8R8A8_UNORM;
+	// swapchain_image_format = VK_FORMAT_B8G8R8A8_SRGB;
 
 	vkb::Swapchain vkbSwapchain = swapchainBuilder
 	                                  //.use_default_format_selection()

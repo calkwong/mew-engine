@@ -22,7 +22,8 @@ vec3 filmic_optimized(vec3 c)
 {
 	vec3 x = max(vec3(0.0), c - 0.004);
 	vec3 color = (x * ( 6.2 * x + 0.5)) / (x * (6.2 * x +1.7) + 0.06);
-	color = srgb_to_linear(color);
+
+	// already non-linear
 	return color;
 }
 
@@ -81,8 +82,8 @@ vec3 agx_eotf(vec3 val)
     // inverse input transform
     val = agx_mat_inv * val;
 
-    // if RT is linear, we cannot skip this
-    val = pow(val, vec3(2.2));
+    // if RT is linear and swapchain is SRGB, uncomment
+    // val = pow(val, vec3(2.2));
 
     return val;
 }
@@ -114,7 +115,7 @@ void main()
 			    color.xyz = agx(color.xyz);
 				color.xyz = agx_eotf(color.xyz);
 				break;
-			case 1: color.xyz = reinhard(color.xyz); break;
+			case 1: color.xyz = linear_to_srgb(reinhard(color.xyz)); break;
 			case 2: color.xyz = filmic_optimized(color.xyz); break;
 			default: break; // clamp
 		}
