@@ -371,10 +371,20 @@ bool vkutil::load_shader_module(const char* path, VkDevice device, VkShaderModul
 	return true;
 }
 
-void PipelineBuilder::set_shader_specialization(VkSpecializationInfo* spec_info, size_t index)
+void PipelineBuilder::set_shader_specialization(VkSpecializationInfo* spec_info, size_t index /* = -1 */)
 {
-    assert(index < shader_stages.size());
-    shader_stages[index].pSpecializationInfo = spec_info;
+    if (index == -1)
+    {
+        for (auto& shader_stage : shader_stages)
+        {
+            shader_stage.pSpecializationInfo = spec_info;
+        }
+    }
+    else
+    {
+        assert(index < shader_stages.size());
+        shader_stages[index].pSpecializationInfo = spec_info;
+    }
 }
 
 void ComputePipelineBuilder::set_shader_specialization(VkSpecializationInfo* spec_info)

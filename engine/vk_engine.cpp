@@ -45,7 +45,7 @@ constexpr bool USE_VALIDATION_LAYERS = false;
 constexpr bool USE_VALIDATION_LAYERS = true;
 #endif
 
-// #define SINGLE // uncomment if loading a proper scene
+#define SINGLE // uncomment if loading a proper scene
 
 AutoCVar_Int CVAR_RENDER_VBUFFER{ "render.vbuffer", "Vbuffer path", 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_MESH_SHADERS{ "render.mesh_shaders", "Mesh shaders path", 1, CVarFlags::EditCheckbox };
@@ -1891,7 +1891,7 @@ void VulkanEngine::init_pipelines()
 	shader_passes["geometry_vert_mask"] = vkutil::build_shader(device, builder, {}, descriptor_layouts, sizeof(GPUPushConstants));
 
 	builder.set_shaders({ shader_cache["meshlet.mesh"], shader_cache["geometry.frag"] });
-	builder.set_shader_specialization(&specialization_info, 1);
+	builder.set_shader_specialization(&specialization_info);
 	builder.shader_stages[1].pSpecializationInfo = &specialization_info;
 	specialization_data.opaque = 1;
 	builder.set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
@@ -1909,7 +1909,7 @@ void VulkanEngine::init_pipelines()
 	color_blend_states.push_back(builder.disable_blending()); // 2 channel texture but RGBA write mask ok? no validation error
 	builder.set_blending_state(color_blend_states);
 	builder.set_shaders({ shader_cache["vis_meshlet.mesh"], shader_cache["vis_buffer.frag"] });
-	builder.set_shader_specialization(&specialization_info, 1);
+	builder.set_shader_specialization(&specialization_info);
 	specialization_data.opaque = 1;
 	builder.set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
 	shader_passes["visibility_mesh"] = vkutil::build_shader(device, builder, {}, descriptor_layouts, sizeof(GPUPushConstants));

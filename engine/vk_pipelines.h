@@ -206,7 +206,7 @@ struct PipelineBuilder
 	void set_depth_format(VkFormat format);
 	void disable_depth();
 	void enable_depth(bool depth_write_enable, VkCompareOp op);
-	void set_shader_specialization(VkSpecializationInfo* spec_info, size_t index);
+	void set_shader_specialization(VkSpecializationInfo* spec_info, size_t index = -1);
 
 	// TODO: refactor into free functions
 	VkPipelineColorBlendAttachmentState disable_blending();
