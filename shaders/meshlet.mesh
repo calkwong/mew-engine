@@ -24,7 +24,6 @@ layout( push_constant ) uniform constants
 	OITBuffer oit_buffer;
 	PrefixSumBuffer prefix_sum_buffer;
 	vec2 jitter_offset;
-	uint cull;
 };
 
 layout (location = 0) out vec3 out_normal[];
@@ -99,10 +98,7 @@ void main()
 		// TODO: only account for screen size if doing small primitive culling
 		if (OPAQUE == 1)
 		{
-    		if (cull == 1)
-            {
-                vertex_clip[i] = vec3(clip_pos.xy / clip_pos.w * 0.5 + 0.5, clip_pos.w);
-            }
+            vertex_clip[i] = vec3(clip_pos.xy / clip_pos.w * 0.5 + 0.5, clip_pos.w);
         }
 #endif
 
@@ -124,22 +120,18 @@ void main()
 		//       No idea why - possibly payload related?
         if (OPAQUE == 1)
         {
+            vec2 va = vertex_clip[idx0].xy;
+            vec2 vb = vertex_clip[idx1].xy;
+            vec2 vc = vertex_clip[idx2].xy;
+
+            vec2 eb = vb - va;
+            vec2 ec = vc - va;
+
             // backface + zero area culling
-            bool culled = false;
-            if (cull == 1)
-            {
-                vec2 va = vertex_clip[idx0].xy;
-                vec2 vb = vertex_clip[idx1].xy;
-                vec2 vc = vertex_clip[idx2].xy;
+            bool culled = eb.x * ec.y <= eb.y * ec.x;
 
-                vec2 eb = vb - va;
-                vec2 ec = vc - va;
-
-                culled = eb.x * ec.y <= eb.y * ec.x;
-
-                // triangle culling only works if all triangles are in front of camera
-                culled = culled && (vertex_clip[idx0].z > 0 && vertex_clip[idx1].z > 0 && vertex_clip[idx2].z > 0);
-            }
+            // triangle culling only works if all triangles are in front of camera
+            culled = culled && (vertex_clip[idx0].z > 0 && vertex_clip[idx1].z > 0 && vertex_clip[idx2].z > 0);
 
             // this cannot be in a runtime branch! compiler likely sets this to a default value after dead code removal if it cannot find gl_CullPrimitiveEXT
             // if it exists and we place it in a branch, we get flickering artifacts all over
