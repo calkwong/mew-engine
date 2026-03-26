@@ -9,8 +9,6 @@ layout (location = 0) flat in uint in_draw_id;
 layout (location = 1) flat in uint in_triangle_id;
 layout (location = 2) in vec2 in_uv;
 layout (location = 3) flat in uint in_material_id;
-layout (location = 4) in vec4 in_clip_pos;
-layout (location = 5) in vec4 in_prev_clip_pos;
 
 //layout (location = 0) out uvec4 out_color;
 layout (location = 0) out uvec2 visibility_id;
@@ -27,34 +25,26 @@ layout( push_constant ) uniform constants
 	MeshTaskBuffer mesh_task_buffer;
 	MeshletBuffer meshlet_buffer;
 	MeshletIndicesBuffer meshlet_indices_buffer;
-	ClusterIndicesBuffer cluster_indices_buffer; 
+	ClusterIndicesBuffer cluster_indices_buffer;
 	MaterialBuffer material_buffer;
 	OITBuffer oit_buffer;
 	vec2 jitter_offset;
 };
 
-void main() 
-{	
-	
+void main()
+{
+
 	if (OPAQUE == 0)
 	{
 		MaterialData m = material_buffer.materials[in_material_id];
 		vec4 albedo = texture(sampler2D(textures[m.diffuse_id], samplers[LINEAR_SAMPLER]), in_uv);
-		
+
 		if (albedo.a < 0.5)
 			discard;
-		
+
 	}
 
 	visibility_id = uvec2(in_draw_id, in_triangle_id);
-	
-	vec2 current_ndc = in_clip_pos.xy / in_clip_pos.w;
-	vec2 previous_ndc = in_prev_clip_pos.xy / in_prev_clip_pos.w;
 
-	// TODO: change to exclude camera motion, we can recompute this later
-	vec2 velocity = current_ndc - previous_ndc;
-	velocity = velocity * 0.5 + 0.5; 
-	velocity.y *= -1.0; // flip for uv space
-	
-	velocity -= jitter_offset;
+	vec2 velocity = vec2(1.);
 }
