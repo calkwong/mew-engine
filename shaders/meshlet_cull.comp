@@ -7,7 +7,6 @@
 #include "util.glsl"
 #include "prefix_sum.glsl"
 
-// layout (local_size_x = 32) in;
 layout (local_size_x = 256) in;
 
 layout(push_constant) uniform constants
@@ -20,11 +19,10 @@ layout(push_constant) uniform constants
 	ClusterIndicesBuffer cluster_indices_buffer;
 	ClusterCountBuffer cluster_count_buffer;
 	VisibilityBuffer meshlet_visibility_buffer;
-	MeshTaskBuffer mesh_task_buffer;
 	PrefixSumBuffer prefix_sum_buffer;
 
 	uint count; // unused?
-	uint late;
+	uint is_late;
 	uint texture_id;
 	uint occlusion_enabled;
 
@@ -102,14 +100,7 @@ bool occlusion_culled(vec3 center, float radius)
 
 void main()
 {
-	// uint id = gl_WorkGroupID.x; // 0 - workgroup_x-1
-	// uint ti = gl_LocalInvocationIndex; // 0 - 31
 	uint ti = gl_WorkGroupID.x * gl_WorkGroupSize.x + gl_LocalInvocationIndex;
-
-	// uint meshlet_offset = mesh_task_buffer.commands[id].meshlet_offset + ti;
-	// uint object_id = mesh_task_buffer.commands[id].object_id;
-	// uint meshlet_visibility_offset = mesh_task_buffer.commands[id].meshlet_visibility_offset + ti;
-	// uint meshlet_count = mesh_task_buffer.commands[id].meshlet_count;
 
 	uint64_t counter = get_prefix_sum_counter(prefix_sum_buffer);
 	uint total_meshlet_count = uint(counter);
@@ -127,13 +118,10 @@ void main()
 
 	// get meshlet index
 	uint local_meshlet_index = ti - (inclusive_sum - local_meshlet_count);
-	// uint local_meshlet_index = ti - (prefix_sum_data.sum - local_meshlet_count);
 
-	// if (ti < meshlet_count)
-	if (ti < total_meshlet_count) // redundant?
+	if (ti < total_meshlet_count)
 	{
-	    bool l = late == 1;
-		bool late = l;
+		bool late = is_late == 1;
 
 		ObjectData obj = object_buffer.objects[object_id];
 		uint meshlet_visibility_offset = obj.meshlet_bit_offset + local_meshlet_index;
@@ -153,9 +141,7 @@ void main()
 			skip = false; // we never skip mask and transparent (postpass != 0) regardless of visibility last frame as they only run for late==1
 
 		// reprocess all meshlets of visible meshes
-		// Meshlet meshlet = meshlet_buffer.meshlets[meshlet_offset];
 		Meshlet meshlet = meshlet_buffer.meshlets[local_meshlet_index + meshlet_lod_offset]; // WRONG?
-
 
 		vec3 mpos = vec3(meshlet.cx, meshlet.cy, meshlet.cz);
 		vec3 center = rotate_quat(mpos, obj.orientation) * obj.scale + obj.translation; // world space
@@ -179,17 +165,19 @@ void main()
 		// render or not - both pass 1 & 2
 		if (visible && !skip)
 		{
+            // similar performance with subgroupops, maybe compiler already optimized this?
 			uint cluster_index = atomicAdd(cluster_count_buffer.workgroup_x, 1);
 			cluster_count_buffer.workgroup_y = 1;
 			cluster_count_buffer.workgroup_z = 1;
 
-			// cluster_indices_buffer.indices[cluster_index] = id | (ti << 27); // no error checking yet
 			cluster_indices_buffer.indices[cluster_index] = ti;
 		}
 
 		if (late)
 		{
-			// TODO: use subgroups and update from a single thread, potentially need to update 2 uints
+		    // TODO: potentially slow atomic
+			// divide offset by 32, producing index in the buffer that holds the bit we want
+			// extract the bit via (offset & 31); equivalent to modulo 32
 			if (visible)
 				atomicOr(meshlet_visibility_buffer.visible[meshlet_visibility_offset >> 5], 1u << (meshlet_visibility_offset & 31));
 			else

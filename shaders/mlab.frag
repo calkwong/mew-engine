@@ -27,10 +27,9 @@ layout( push_constant ) uniform constants
 {
 	ObjectBuffer object_buffer;
 	VertexBuffer vertex_buffer;
-	MeshTaskBuffer mesh_task_buffer;
 	MeshletBuffer meshlet_buffer;
 	MeshletIndicesBuffer meshlet_indices_buffer;
-	ClusterIndicesBuffer cluster_indices_buffer; 
+	ClusterIndicesBuffer cluster_indices_buffer;
 	MaterialBuffer material_buffer;
 	OITBuffer oit_buffer;
 };
@@ -40,11 +39,11 @@ void swap_node(inout uint color_a, inout uint depth_a, inout float transmission_
 	uint colorT = color_a;
 	uint depthT = depth_a;
 	float transmissionT = transmission_a;
-	
+
 	color_a = color_b;
 	depth_a = depth_b;
 	transmission_a = transmission_b;
-	
+
 	color_b = colorT;
 	depth_b = depthT;
 	transmission_b = transmissionT;

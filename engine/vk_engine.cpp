@@ -289,7 +289,6 @@ void VulkanEngine::cleanup()
 		destroy_buffer(allocator, render_scene.draw_indirect_buffer);
 		destroy_buffer(allocator, render_scene.dispatch_buffer);
 		destroy_buffer(allocator, render_scene.vis_buffer);
-		destroy_buffer(allocator, render_scene.meshtask_indirect_buffer);
 		destroy_buffer(allocator, render_scene.meshlet_vis_buffer);
 		destroy_buffer(allocator, render_scene.cluster_count_buffer);
 		destroy_buffer(allocator, render_scene.cluster_indices);
@@ -2323,7 +2322,6 @@ void VulkanEngine::init_renderables(const std::string& file_path)
 	{
 		uint32_t meshlet_count = renderable.meshlet_bits; // meshlet count for LOD 0 only
 		renderable.meshlet_bits = meshlet_visibility_offset; // TODO: rename meshlet_bits
-		render_scene.max_meshtask_commands += (meshlet_count + MESHLETS_PER_MESHTASKCOMMAND - 1) / MESHLETS_PER_MESHTASKCOMMAND;
 		meshlet_visibility_offset += meshlet_count;
 	}
 	render_scene.total_meshlets_bits = meshlet_visibility_offset;
@@ -2884,6 +2882,8 @@ void VulkanEngine::upload_buffers()
 	render_scene.vis_buffer = create_buffer(allocator,render_scene.renderables.size() * sizeof(uint32_t), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
 	fmt::println("vis_buffer: {}mb", size_in_bytes(render_scene.vis_buffer.info.size));
 
+	// TODO: implement limit, currently shader side has 1000000 hardcoded
+	// TODO: modify with shadows in mind
 	render_scene.prefix_sum_buffer = create_buffer(allocator, sizeof(uint64_t) + render_scene.renderables.size() * sizeof(PrefixSumData), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
 	fmt::println("prefix_sum_buffer: {}mb", size_in_bytes(render_scene.prefix_sum_buffer.info.size));
 
@@ -2907,10 +2907,6 @@ void VulkanEngine::upload_buffers()
 	// TODO: implement error handling/limit check in shader; just drop the meshlets?
 	render_scene.cluster_indices = create_buffer( allocator, MESHLET_LIMIT * sizeof(uint32_t), 0, VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT);
 	fmt::println("cluster_indices: {}mb", size_in_bytes(render_scene.cluster_indices.info.size));
-
-	// TODO: impose a limit on this
-	render_scene.meshtask_indirect_buffer = create_buffer(allocator, render_scene.max_meshtask_commands * sizeof(MeshTaskCommand), 0, VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT);
-	fmt::println("meshtask_indirect_buffer: {}mb", size_in_bytes(render_scene.meshtask_indirect_buffer.info.size));
 
 	{
 		size_t meshlet_visibility_size = (render_scene.total_meshlets_bits + 31) / 32;
@@ -2972,7 +2968,6 @@ void VulkanEngine::ready_mesh_cull(RenderScene::MeshPass& pass, CullData& cull_d
 	cull_data.draw_indirect_address = get_buffer_address(device, render_scene.draw_indirect_buffer.buffer);
 	cull_data.count_buffer_address = get_buffer_address(device, render_scene.dispatch_buffer.buffer);;
 	cull_data.vis_buffer_address = get_buffer_address(device, render_scene.vis_buffer.buffer);
-	cull_data.meshtask_buffer_address = get_buffer_address(device, render_scene.meshtask_indirect_buffer.buffer);
 	cull_data.prefix_sum_buffer = get_buffer_address(device, render_scene.prefix_sum_buffer.buffer);
 
 	// cull_data.count = static_cast<uint32_t>(pass.unbatched_objects.size()); // set during execute
@@ -3021,7 +3016,6 @@ void VulkanEngine::ready_meshlet_cull(RenderScene::MeshPass& pass, ClusterCullDa
 	cull_data.cluster_indices_address = get_buffer_address(device, render_scene.cluster_indices.buffer);
 	cull_data.cluster_count_address = get_buffer_address(device, render_scene.cluster_count_buffer.buffer);
 	cull_data.cluster_vis_address = get_buffer_address(device, render_scene.meshlet_vis_buffer.buffer);
-	cull_data.meshtask_buffer_address = get_buffer_address(device, render_scene.meshtask_indirect_buffer.buffer);
 	cull_data.prefix_sum_buffer = get_buffer_address(device, render_scene.prefix_sum_buffer.buffer);
 
 	// cull_data.count = static_cast<uint32_t>(pass.unbatched_objects.size()); // unused
@@ -3186,7 +3180,6 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass, ui
 	GPUPushConstants pc{};
 	pc.object_buffer_address = get_buffer_address(device, render_scene.object_buffer.buffer);
 	pc.vertex_buffer_address = get_buffer_address(device, render_scene.vertex_buffer.buffer);
-	pc.meshtask_buffer_address = get_buffer_address(device, render_scene.meshtask_indirect_buffer.buffer);
 	pc.meshlet_buffer_address = get_buffer_address(device, render_scene.meshlet_buffer.buffer);
 	pc.meshlet_indices_buffer_address = get_buffer_address(device, render_scene.meshlet_indices.buffer);
 	pc.cluster_indices_address = get_buffer_address(device, render_scene.cluster_indices.buffer);
@@ -3290,7 +3283,6 @@ void VulkanEngine::render_transparent(VkCommandBuffer cmd, uint32_t query)
 	GPUPushConstants pc{};
 	pc.object_buffer_address = get_buffer_address(device, render_scene.object_buffer.buffer);
 	pc.vertex_buffer_address = get_buffer_address(device, render_scene.vertex_buffer.buffer);
-	pc.meshtask_buffer_address = get_buffer_address(device, render_scene.meshtask_indirect_buffer.buffer);
 	pc.meshlet_buffer_address = get_buffer_address(device, render_scene.meshlet_buffer.buffer);
 	pc.meshlet_indices_buffer_address = get_buffer_address(device, render_scene.meshlet_indices.buffer);
 	pc.cluster_indices_address = get_buffer_address(device, render_scene.cluster_indices.buffer);

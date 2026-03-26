@@ -1,3 +1,6 @@
+// https://github.com/Devsh-Graphics-Programming/Nabla/blob/8da4b980b5617802ea4e96bf101ddbfe94721a51/include/nbl/builtin/glsl/scanning_append/scanning_append.glsl
+// https://github.com/expenses/lighthugger/blob/main/src/shaders/common/prefix_sum.glsl
+
 #extension GL_EXT_shader_atomic_int64 : require
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 
@@ -11,7 +14,7 @@ struct PrefixSumData
 struct PrefixSum
 {
     uint64_t counter;
-    PrefixSumData data[1000000];
+    PrefixSumData data[1000000]; // TODO: hardcoded
 };
 
 layout(buffer_reference, std430) buffer PrefixSumBuffer
@@ -46,8 +49,7 @@ uint prefix_sum_binary_search(PrefixSumBuffer buf, uint target)
         count = greater ? (count - (step + 1)) : step; // size of left or right path
     }
 
-    // return buf.prefix_sum.data[first];
-    return first - 1;
+    return first - 1; // remove -1 for inclusive
 }
 
 uint64_t get_prefix_sum_counter(PrefixSumBuffer buf)

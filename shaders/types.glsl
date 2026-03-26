@@ -79,14 +79,6 @@ struct DrawCommand
 	uint first_instance;
 };
 
-struct MeshTaskCommand
-{
-	uint meshlet_offset;
-	uint object_id;
-	uint meshlet_visibility_offset;
-	uint meshlet_count;
-};
-
 struct Vertex
 {
 	float16_t px;

@@ -161,7 +161,6 @@ struct CullData
 	VkDeviceAddress draw_indirect_address{};
 	VkDeviceAddress count_buffer_address{};
 	VkDeviceAddress vis_buffer_address{};
-	VkDeviceAddress meshtask_buffer_address{};
 	VkDeviceAddress prefix_sum_buffer{};
 	uint32_t count{};
 	uint32_t late{};
@@ -190,7 +189,6 @@ struct ClusterCullData
 	VkDeviceAddress cluster_indices_address{};
 	VkDeviceAddress cluster_count_address{};
 	VkDeviceAddress cluster_vis_address{};
-	VkDeviceAddress meshtask_buffer_address{};
 	VkDeviceAddress prefix_sum_buffer{};
 	uint32_t count{};
 	uint32_t late{};
@@ -208,14 +206,6 @@ struct ClusterCullData
 	uint32_t lod_enabled{};
 	uint32_t task_submit{};
 	uint32_t post_pass{};
-};
-
-struct MeshTaskCommand
-{
-	uint32_t meshlet_offset{};
-	uint32_t object_id{};
-	uint32_t meshlet_visibility_offset{};
-	uint32_t mesh_visibility{};
 };
 
 struct PrefixSumData
@@ -263,7 +253,6 @@ struct RenderScene
 	AllocatedBuffer material_buffer{};
 
 	AllocatedBuffer draw_indirect_buffer{};
-	AllocatedBuffer meshtask_indirect_buffer{};
 	AllocatedBuffer dispatch_buffer{};
 	AllocatedBuffer vis_buffer{};
 	AllocatedBuffer meshlet_vis_buffer{};
@@ -282,7 +271,6 @@ struct RenderScene
 	MeshPass mask_pass{};
 	MeshPass transparent_pass{};
 	uint32_t total_meshlets_bits{};
-	uint32_t max_meshtask_commands{}; // should be per-pass? or not?
 
 	void init();
 };

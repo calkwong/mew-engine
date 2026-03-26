@@ -29,4 +29,3 @@
 #define MESHLET_MAX_VERTICES 64
 #define MESHLET_MAX_TRIANGLES 124
 #define MESHLET_LIMIT (1 << 24) // max VISIBLE meshlets, ~16.7m meshlets for ~64mb. validate with frame 0 capture for test scenes.
-#define MESHLETS_PER_MESHTASKCOMMAND 32

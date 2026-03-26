@@ -6,6 +6,7 @@
 #include "bindings.glsl"
 #include "buffer_references.glsl"
 #include "util.glsl"
+#include "prefix_sum.glsl"
 
 layout(local_size_x = 128) in;
 layout(triangles, max_vertices = 64, max_primitives = 124) out;
@@ -16,12 +17,12 @@ layout( push_constant ) uniform constants
 {
 	ObjectBuffer object_buffer;
 	VertexBuffer vertex_buffer;
-	MeshTaskBuffer mesh_task_buffer;
 	MeshletBuffer meshlet_buffer;
 	MeshletIndicesBuffer meshlet_indices_buffer;
 	ClusterIndicesBuffer cluster_indices_buffer;
     MaterialBuffer material_buffer;
 	OITBuffer oit_buffer;
+	PrefixSumBuffer prefix_sum_buffer;
 	vec2 jitter_offset;
 	uint cull;
 };
@@ -31,29 +32,42 @@ layout (location = 1) out vec2 out_uv[];
 layout (location = 2) out vec4 out_tangent[];
 layout (location = 3) out flat uint out_material_id[];
 
-
-// shared vec3 vertex_clip[64];
 // #define TRIANGLE_CULLING
+
+#ifdef TRIANGLE_CULLING
+shared vec3 vertex_clip[64];
+#endif
 
 void main()
 {
 	uint id = gl_WorkGroupID.x;
 
-	uint value = cluster_indices_buffer.indices[id];
+	uint64_t counter = get_prefix_sum_counter(prefix_sum_buffer);
+	uint total_meshlet_count = uint(counter);
+	uint target = cluster_indices_buffer.indices[id];
 
-	// extract bits
-	uint offset = bitfieldExtract(value, 27, 5);
-	uint meshtask_id = bitfieldExtract(value, 0, 27);
+	uint prefix_sum_idx = prefix_sum_binary_search(prefix_sum_buffer, target);
+    PrefixSumData prefix_sum_data = prefix_sum_buffer.prefix_sum.data[prefix_sum_idx];
+    uint meshlet_lod_offset = prefix_sum_data.lod_offset;
+    uint object_id = prefix_sum_data.instance_id;
 
-	MeshTaskCommand command = mesh_task_buffer.commands[meshtask_id];
-	uint meshlet_offset = command.meshlet_offset + offset;
+   	bool overflow = prefix_sum_idx == total_meshlet_count;
+
+    uint inclusive_sum = overflow ? total_meshlet_count : prefix_sum_buffer.prefix_sum.data[prefix_sum_idx + 1].sum;
+    uint exclusive_sum = prefix_sum_data.sum;
+    uint local_meshlet_count = inclusive_sum - exclusive_sum;
+
+    // actual meshlet index
+    uint local_meshlet_index = target - (inclusive_sum - local_meshlet_count);
+
+    uint meshlet_offset = local_meshlet_index + meshlet_lod_offset;
 	Meshlet meshlet = meshlet_buffer.meshlets[meshlet_offset];
+
 	uint vertex_count = meshlet.vertex_count;
 	uint triangle_count = meshlet.triangle_count;
 
 	SetMeshOutputsEXT(vertex_count, triangle_count);
 
-	uint object_id = command.object_id;
 	ObjectData o = object_buffer.objects[object_id];
 
 	uint m_vertex_offset = meshlet.data_offset; // offset into meshlet_indices_buffer
@@ -127,6 +141,8 @@ void main()
                 culled = culled && (vertex_clip[idx0].z > 0 && vertex_clip[idx1].z > 0 && vertex_clip[idx2].z > 0);
             }
 
+            // this cannot be in a runtime branch! compiler likely sets this to a default value after dead code removal if it cannot find gl_CullPrimitiveEXT
+            // if it exists and we place it in a branch, we get flickering artifacts all over
             gl_MeshPrimitivesEXT[i].gl_CullPrimitiveEXT = culled;
         }
 #endif

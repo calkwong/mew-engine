@@ -81,11 +81,6 @@ layout(buffer_reference, std430) buffer DispatchBuffer
 	uint workgroup_z;
 };
 
-layout(buffer_reference, std430) buffer MeshTaskBuffer
-{
-	MeshTaskCommand commands[];
-};
-
 layout(buffer_reference, std430) buffer VisibilityBuffer
 {
 	uint visible[];

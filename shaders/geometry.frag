@@ -25,7 +25,6 @@ layout( push_constant ) uniform constants
 {
 	ObjectBuffer object_buffer;
 	VertexBuffer vertex_buffer;
-	MeshTaskBuffer mesh_task_buffer;
 	MeshletBuffer meshlet_buffer;
 	MeshletIndicesBuffer meshlet_indices_buffer;
 	ClusterIndicesBuffer cluster_indices_buffer;

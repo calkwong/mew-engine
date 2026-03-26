@@ -17,7 +17,6 @@ layout(push_constant) uniform constants
 {
     ObjectBuffer object_buffer;
     VertexBuffer vertex_buffer;
-    MeshTaskBuffer mesh_task_buffer;
     MeshletBuffer meshlet_buffer;
     MeshletIndicesBuffer meshlet_indices_buffer;
     ClusterIndicesBuffer cluster_indices_buffer;
@@ -41,9 +40,8 @@ void main()
 
     uint64_t counter = get_prefix_sum_counter(prefix_sum_buffer);
 	uint total_meshlet_count = uint(counter);
-
-    // uint value = cluster_indices_buffer.indices[id];
     uint target = cluster_indices_buffer.indices[id];
+
     uint prefix_sum_idx = prefix_sum_binary_search(prefix_sum_buffer, target);
     PrefixSumData prefix_sum_data = prefix_sum_buffer.prefix_sum.data[prefix_sum_idx];
     uint meshlet_lod_offset = prefix_sum_data.lod_offset;
@@ -55,36 +53,17 @@ void main()
 	uint exclusive_sum = prefix_sum_data.sum;
 	uint local_meshlet_count = inclusive_sum - exclusive_sum;
 
- //    uint local_meshlet_count;
- //   	if (prefix_sum_idx > 0)
-	// {
-	//     local_meshlet_count = prefix_sum_data.sum - prefix_sum_buffer.prefix_sum.data[prefix_sum_idx - 1].sum;
-	// }
-	// else
-	// {
- //        local_meshlet_count = prefix_sum_data.sum;
-	// }
-	//
-	// get meshlet index
-	// uint local_meshlet_index = target - (prefix_sum_data.sum - local_meshlet_count);
+	// actual meshlet index
 	uint local_meshlet_index = target - (inclusive_sum - local_meshlet_count);
 
 	uint meshlet_offset = local_meshlet_index + meshlet_lod_offset;
 	Meshlet meshlet = meshlet_buffer.meshlets[meshlet_offset];
 
-    // extract bits
-    // uint offset = bitfieldExtract(value, 27, 5);
-    // uint meshtask_id = bitfieldExtract(value, 0, 27);
-
-    // MeshTaskCommand command = mesh_task_buffer.commands[meshtask_id];
-    // uint meshlet_offset = command.meshlet_offset + offset;
-    // Meshlet meshlet = meshlet_buffer.meshlets[meshlet_offset];
     uint vertex_count = meshlet.vertex_count;
     uint triangle_count = meshlet.triangle_count;
 
     SetMeshOutputsEXT(vertex_count, triangle_count);
 
-    // uint object_id = command.object_id;
     ObjectData o = object_buffer.objects[object_id];
 
     uint m_vertex_offset = meshlet.data_offset; // offset into meshlet_indices_buffer
@@ -121,8 +100,8 @@ void main()
     {
         out_draw_id[i] = object_id;
 
-        // packing meshletID and triangleID
-        out_triangle_id[i] = (i << 25) | meshlet_offset; // no error checking yet
+        // WARNING: unsafe if meshlet_offset is large
+        out_triangle_id[i] = (i << 25) | meshlet_offset;
 
         uint idx0 = meshlet_indices_buffer.indices[m_triangle_offset + i * 3 + 0];
         uint idx1 = meshlet_indices_buffer.indices[m_triangle_offset + i * 3 + 1];
