@@ -45,27 +45,27 @@ layout(buffer_reference, std430) buffer LuminanceAvgBuffer
 };
 
 layout(buffer_reference, std430) readonly buffer VertexBuffer
-{ 
+{
 	Vertex vertices[];
 };
 
 layout(buffer_reference, std430) buffer ObjectBuffer
-{ 
+{
 	ObjectData objects[];
 };
 
 layout(buffer_reference, std430) buffer MeshBuffer
-{ 
+{
 	MeshData meshes[];
 };
 
 layout(buffer_reference, std430) buffer MeshIndicesBuffer
-{ 
+{
 	uint indices[];
 };
 
 layout(buffer_reference, std430) buffer DrawCommandsBuffer
-{ 
+{
 	DrawCommands draws;
 };
 
@@ -82,17 +82,17 @@ layout(buffer_reference, std430) buffer DispatchBuffer
 };
 
 layout(buffer_reference, std430) buffer MeshTaskBuffer
-{ 
+{
 	MeshTaskCommand commands[];
 };
-	
+
 layout(buffer_reference, std430) buffer VisibilityBuffer
 {
 	uint visible[];
 };
 
 layout(buffer_reference, std430) buffer ClusterIndicesBuffer
-{ 
+{
 	uint indices[];
 };
 
@@ -104,7 +104,7 @@ layout(buffer_reference, std430) buffer ClusterCountBuffer
 };
 
 layout(buffer_reference, std430) buffer MeshletBuffer
-{ 
+{
 	Meshlet meshlets[];
 };
 
@@ -114,16 +114,16 @@ layout(buffer_reference, std430) buffer MeshletBuffer
 #define OIT_QUALIFIER coherent
 #endif
 layout(buffer_reference, std430) OIT_QUALIFIER buffer OITBuffer
-{ 
+{
 	OITData frags[];
 };
 
 layout(buffer_reference, std430) buffer MeshletIndicesBuffer
-{ 
+{
 	uint indices[];
 };
 
 layout(buffer_reference, std430) buffer MaterialBuffer
-{ 
+{
 	MaterialData materials[];
 };

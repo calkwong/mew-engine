@@ -9,7 +9,7 @@ struct ClusterAABB
 	vec4 max;
 };
 
-struct PointLight 
+struct PointLight
 {
 	vec4 pos;
 	vec4 color;
@@ -31,7 +31,7 @@ struct ObjectData
 	vec3 translation;
 	float scale;
 	vec4 orientation;
-	
+
 	uint mesh_id;
 	uint material_id;
 	uint meshlet_bit_offset;
@@ -42,7 +42,7 @@ struct Meshlet
 {
 	float16_t cx, cy, cz;
 	float16_t radius;
-	
+
 	uint data_offset; // index into MeshletIndices
 	uint8_t vertex_count;
 	uint8_t triangle_count;
@@ -62,9 +62,9 @@ struct MeshData
 {
 	vec3 center;
 	float radius;
-	
+
 	MeshLod lods[8];
-	
+
 	uint lod_count;
 	uint vertex_offset;
 	uint padding[2];
@@ -99,7 +99,7 @@ struct Vertex
 
 	float16_t uv_x;
 	float16_t uv_y;
-}; 
+};
 
 struct MaterialData
 {

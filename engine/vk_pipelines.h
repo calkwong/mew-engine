@@ -5,6 +5,13 @@
 #include <initializer_list>
 #include <vector>
 #include <array>
+#include <vulkan/vulkan_core.h>
+
+struct CompactDispatchPC
+{
+    VkDeviceAddress prefix_sum_buffer{};
+    VkDeviceAddress dispatch_buffer{};
+};
 
 struct IBLPushConstants
 {

@@ -34,6 +34,7 @@
 #include <span>
 #include <thread>
 #include <utility>
+#include <vulkan/vulkan_core.h>
 
 VulkanEngine* loaded_engine{};
 
@@ -45,7 +46,7 @@ constexpr bool USE_VALIDATION_LAYERS = false;
 constexpr bool USE_VALIDATION_LAYERS = true;
 #endif
 
-// #define SINGLE // uncomment if loading a proper scene
+#define SINGLE // uncomment if loading a proper scene
 
 AutoCVar_Int CVAR_RENDER_VBUFFER{ "render.vbuffer", "Vbuffer path", 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_MESH_SHADERS{ "render.mesh_shaders", "Mesh shaders path", 1, CVarFlags::EditCheckbox };
@@ -56,7 +57,7 @@ AutoCVar_Int CVAR_RENDER_OCCLUSION_CULL{ "render.occlusion_cull", "Occlusion cul
 AutoCVar_Int CVAR_RENDER_LOD{ "render.lod", "LODs", 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_SHADOWS{ "render.shadows", "Shadows", 0, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_TAA{ "render.taa", "TAA", 0, CVarFlags::EditCheckbox | CVarFlags::EditHide };
-AutoCVar_Float CVAR_RENDER_MIN_CONTRIBUTION{ "render.meshlet_contribution", "Min meshlet contribution", 2.f, CVarFlags::EditDragFloat, 0.f, 4.f, 1.f };
+AutoCVar_Int CVAR_RENDER_PREFIXSUM{ "render.prefix_sum", "Prefix Sum", 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_TRIANGLE_CULLING{ "render.triangle_culling", "Triangle culling", 1, CVarFlags::EditCheckbox};
 
 AutoCVar_Int CVAR_SHADOWS_PCF{ "shadows.pcf", "PCF", 1, CVarFlags::EditCheckbox };
@@ -300,6 +301,8 @@ void VulkanEngine::cleanup()
 		destroy_buffer(allocator, render_scene.sh_buffer);
 		destroy_buffer(allocator, render_scene.luminance_buffer);
 		destroy_buffer(allocator, render_scene.luminance_avg_buffer);
+
+		destroy_buffer(allocator, render_scene.prefix_sum_buffer);
 
 		for (const auto& [_, shader] : shader_passes)
 		{
@@ -586,6 +589,10 @@ void VulkanEngine::draw()
 			vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT);
 
 			execute_compute_cull(cmd, render_scene.opaque_pass, forward_cluster_cull_data, render_scene.dispatch_buffer.buffer, 0, false, 0);
+
+			// compact dispatch
+			vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+			execute_compact_dispatch(cmd);
 		}
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 1);
 
@@ -711,6 +718,10 @@ void VulkanEngine::draw()
 			vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT);
 
 			execute_compute_cull(cmd, render_scene.opaque_pass, forward_cluster_cull_data, render_scene.dispatch_buffer.buffer, 0, true, 0);
+
+			// compact dispatch
+			vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+			execute_compact_dispatch(cmd);
 		}
 
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 5);
@@ -757,6 +768,10 @@ void VulkanEngine::draw()
 			vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT);
 
 			execute_compute_cull(cmd, render_scene.mask_pass, forward_cluster_cull_data, render_scene.dispatch_buffer.buffer, 0, true, 1);
+
+			// compact dispatch
+			vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+			execute_compact_dispatch(cmd);
 		}
 
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 9);
@@ -796,6 +811,10 @@ void VulkanEngine::draw()
 			vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT);
 
 			execute_compute_cull(cmd, render_scene.transparent_pass, forward_cluster_cull_data, render_scene.dispatch_buffer.buffer, 0, true, 2);
+
+			// compact dispatch
+			vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+			execute_compact_dispatch(cmd);
 		}
 
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 17);
@@ -1433,6 +1452,7 @@ void VulkanEngine::init_vulkan()
 	features12.shaderFloat16 = true;
 	features12.shaderInt8 = true;
 	features12.storageBuffer8BitAccess = true;
+	features12.shaderBufferInt64Atomics = true;
 
 	// vulkan 1.1 features
 	VkPhysicalDeviceVulkan11Features features11{};
@@ -1446,6 +1466,7 @@ void VulkanEngine::init_vulkan()
 	// features10.samplerAnisotropy = true;
 	features10.depthClamp = true;
 	features10.shaderInt16 = true;
+	features10.shaderInt64 = true;
 
 	VkPhysicalDeviceMeshShaderFeaturesEXT mesh_shader_features{};
 	mesh_shader_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT;
@@ -1812,6 +1833,9 @@ void VulkanEngine::init_pipelines()
 	shader_cache.add_shader(device, "resolve_vbuffer.comp", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "resolve_gbuffer.comp", VK_SHADER_STAGE_COMPUTE_BIT);
 
+	// prefix sum
+	shader_cache.add_shader(device, "compact_dispatch.comp", VK_SHADER_STAGE_COMPUTE_BIT);
+
 #ifdef NDEBUG
 	fmt::println("running Release mode"); // ensuring no clion shenanigans
 #else
@@ -1841,6 +1865,7 @@ void VulkanEngine::init_pipelines()
 
 	shader_passes["resolve_vbuffer"] = vkutil::build_shader(device, compute_builder, shader_cache["resolve_vbuffer.comp"], descriptor_layouts, sizeof(DeferredPushConstants));
 	shader_passes["resolve_gbuffer"] = vkutil::build_shader(device, compute_builder, shader_cache["resolve_gbuffer.comp"], descriptor_layouts, sizeof(DeferredPushConstants));
+	shader_passes["compact_dispatch"] = vkutil::build_shader(device, compute_builder, shader_cache["compact_dispatch.comp"], descriptor_layouts, sizeof(CompactDispatchPC));
 
 	// mrt
 	builder.set_input_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
@@ -2855,9 +2880,13 @@ void VulkanEngine::upload_buffers()
 	render_scene.vis_buffer = create_buffer(allocator,render_scene.renderables.size() * sizeof(uint32_t), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
 	fmt::println("vis_buffer: {}mb", size_in_bytes(render_scene.vis_buffer.info.size));
 
+	render_scene.prefix_sum_buffer = create_buffer(allocator, sizeof(uint64_t) + render_scene.renderables.size() * sizeof(PrefixSumData), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+	fmt::println("prefix_sum_buffer: {}mb", size_in_bytes(render_scene.prefix_sum_buffer.info.size));
+
 	immediate_submit([&](VkCommandBuffer cmd)
 		{
 			vkCmdFillBuffer(cmd, render_scene.vis_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
+			vkCmdFillBuffer(cmd, render_scene.prefix_sum_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
 		}
 	);
 
@@ -2955,7 +2984,7 @@ void VulkanEngine::ready_mesh_cull(RenderScene::MeshPass& pass, CullData& cull_d
 	cull_data.lod_distance_factor = 2.0f / (cull_data.p11 * static_cast<float>(draw_extent.height));
 	cull_data.lod_enabled = CVAR_RENDER_LOD.get();
 	cull_data.task_submit = CVAR_RENDER_MESH_SHADERS.get();
-	cull_data.min_contribution = CVAR_RENDER_MIN_CONTRIBUTION.get();
+	cull_data.prefix_sum = CVAR_RENDER_PREFIXSUM.get();
 }
 
 // count, late & post_pass set in executecomputecull
@@ -3004,7 +3033,26 @@ void VulkanEngine::ready_meshlet_cull(RenderScene::MeshPass& pass, ClusterCullDa
 	cull_data.lod_distance_factor = 2.0f / (cull_data.p11 * static_cast<float>(draw_extent.height));
 	cull_data.lod_enabled = CVAR_RENDER_LOD.get();
 	cull_data.task_submit = CVAR_RENDER_MESH_SHADERS.get();
-	cull_data.min_contribution = CVAR_RENDER_MIN_CONTRIBUTION.get();
+	cull_data.prefix_sum = CVAR_RENDER_PREFIXSUM.get();
+}
+
+void VulkanEngine::execute_compact_dispatch(VkCommandBuffer cmd)
+{
+    ShaderPass current_pass = *shader_passes["compact_dispatch"];
+
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
+
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
+
+	CompactDispatchPC pc{};
+	pc.prefix_sum_buffer = get_buffer_address(device, render_scene.prefix_sum_buffer.buffer);
+	pc.dispatch_buffer = get_buffer_address(device, render_scene.cluster_count_buffer.buffer);
+
+	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CompactDispatchPC), &pc);
+	vkCmdDispatch(cmd, 1, 1, 1);
 }
 
 void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, const RenderScene::MeshPass& pass, CullData& cull_data, bool late, uint32_t post_pass)

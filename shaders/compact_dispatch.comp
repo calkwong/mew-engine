@@ -1,0 +1,21 @@
+#version 460
+
+#extension GL_GOOGLE_include_directive : require
+
+#include "bindings.glsl"
+#include "buffer_references.glsl"
+
+#include "prefix_sum.glsl"
+
+layout (local_size_x = 1) in;
+
+layout(push_constant) uniform constants
+{
+    PrefixSumBuffer prefix_sum_buffer;
+    ClusterCountBuffer cluster_count_buffer;
+};
+
+void main()
+{
+    atomicAdd(prefix_sum_buffer.prefix_sum.counter, 1);
+}

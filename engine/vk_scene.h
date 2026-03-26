@@ -178,7 +178,7 @@ struct CullData
 	uint32_t lod_enabled{};
 	uint32_t task_submit{};
 	uint32_t post_pass{};
-	float min_contribution{};
+	uint32_t prefix_sum{};
 };
 
 struct ClusterCullData
@@ -207,7 +207,7 @@ struct ClusterCullData
 	uint32_t lod_enabled{};
 	uint32_t task_submit{};
 	uint32_t post_pass{};
-	float min_contribution{};
+	uint32_t prefix_sum{};
 };
 
 struct MeshTaskCommand
@@ -216,6 +216,19 @@ struct MeshTaskCommand
 	uint32_t object_id{};
 	uint32_t meshlet_visibility_offset{};
 	uint32_t mesh_visibility{};
+};
+
+struct PrefixSumData
+{
+    uint32_t instance_id{};
+    uint32_t sum{};
+    uint32_t lod_offset{};
+};
+
+struct PrefixSum
+{
+    uint64_t count{};
+    PrefixSumData* data;
 };
 
 struct MeshAsset;
@@ -262,6 +275,8 @@ struct RenderScene
 	AllocatedBuffer sh_buffer{};
 	AllocatedBuffer luminance_buffer{};
 	AllocatedBuffer luminance_avg_buffer{};
+
+	AllocatedBuffer prefix_sum_buffer{};
 
 	MeshPass opaque_pass{};
 	MeshPass mask_pass{};

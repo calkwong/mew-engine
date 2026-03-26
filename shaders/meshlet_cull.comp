@@ -36,7 +36,7 @@ layout(push_constant) uniform constants
 	uint lod_enabled;
 	uint task_submit;
 	uint post_pass;
-	float min_contribution;
+	uint prefix_sum;
 };
 
 // 2D Polyhedral Bounds of a Clipped, Perspective-Projected 3D Sphere. Michael Mara, Morgan McGuire. 2013
