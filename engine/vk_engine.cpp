@@ -46,7 +46,7 @@ constexpr bool USE_VALIDATION_LAYERS = false;
 constexpr bool USE_VALIDATION_LAYERS = true;
 #endif
 
-// #define SINGLE // uncomment if loading a proper scene
+#define SINGLE // uncomment if loading a proper scene
 
 AutoCVar_Int CVAR_RENDER_VBUFFER{ "render.vbuffer", "Vbuffer path", 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_MESH_SHADERS{ "render.mesh_shaders", "Mesh shaders path", 1, CVarFlags::EditCheckbox };
@@ -749,7 +749,7 @@ void VulkanEngine::draw()
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 7);
 	}
 
-	// third pass - masked geometry; we are still using the same hi-z for culling here. we could build an updated hi-z.
+	// TODO: alphaclip pass; skipped early pass
 	if (CVAR_RENDER_ALPHACLIP.get())
 	{
 		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
@@ -793,7 +793,7 @@ void VulkanEngine::draw()
 		vkCmdEndQuery(cmd, get_current_frame().query_pool_pipelines, 2);
 	}
 
-	// fourth pass - transparent geometry/MLAB
+	// TODO: transparent pass - no early pass, use final depth buffer when we start using final depth buffer for other things?
 	if (CVAR_RENDER_TRANSPARENT.get())
 	{
 		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
@@ -3285,6 +3285,7 @@ void VulkanEngine::render_transparent(VkCommandBuffer cmd, uint32_t query)
 	pc.cluster_indices_address = get_buffer_address(device, render_scene.cluster_indices.buffer);
 	pc.material_buffer_address = get_buffer_address(device, render_scene.material_buffer.buffer);
 	pc.oit_buffer_address = get_buffer_address(device, render_scene.oit_buffer.buffer);
+	pc.prefix_sum_buffer = get_buffer_address(device, render_scene.prefix_sum_buffer.buffer);
 
 	if (!CVAR_RENDER_MESH_SHADERS.get())
 	{

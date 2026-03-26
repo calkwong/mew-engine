@@ -20,6 +20,7 @@ layout( push_constant ) uniform constants
 	ClusterIndicesBuffer cluster_indices_buffer;
 	MaterialBuffer material_buffer;
 	OITBuffer oit_buffer;
+	uint padding[2];
 	vec2 jitter_offset;
 };
 

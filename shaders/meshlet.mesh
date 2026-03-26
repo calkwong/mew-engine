@@ -111,7 +111,7 @@ void main()
 		uint idx1 = meshlet_indices_buffer.indices[m_triangle_offset + i * 3 + 1];
 		uint idx2 = meshlet_indices_buffer.indices[m_triangle_offset + i * 3 + 2];
 
-		gl_PrimitiveTriangleIndicesEXT[i] =  uvec3(idx0, idx1, idx2);
+		gl_PrimitiveTriangleIndicesEXT[i] = uvec3(idx0, idx1, idx2);
 
 #ifdef TRIANGLE_CULLING
 		// TODO: With our stress test scene, triangle culling reduces ~7M (50%) of clipping invocations

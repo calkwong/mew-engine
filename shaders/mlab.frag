@@ -1,9 +1,9 @@
-#version 450
-
 // References
 // https://dl.acm.org/doi/epdf/10.1145/2556700.2556705
 // https://github.com/Devsh-Graphics-Programming/Nabla/blob/master/include/nbl/builtin/glsl/ext/OIT/insert_node.glsl
 // https://interplayoflight.wordpress.com/2022/07/02/order-independent-transparency-part-2/
+
+#version 460
 
 #extension GL_GOOGLE_include_directive : require
 #extension GL_ARB_fragment_shader_interlock : require
@@ -32,6 +32,8 @@ layout( push_constant ) uniform constants
 	ClusterIndicesBuffer cluster_indices_buffer;
 	MaterialBuffer material_buffer;
 	OITBuffer oit_buffer;
+	uint padding[2];
+	vec2 jitter_offset;
 };
 
 void swap_node(inout uint color_a, inout uint depth_a, inout float transmission_a, inout uint color_b, inout uint depth_b, inout float transmission_b)
@@ -51,7 +53,7 @@ void swap_node(inout uint color_a, inout uint depth_a, inout float transmission_
 
 void insert_node(uvec2 coords, uint color, uint depth, float transmission)
 {
-	uint index = coords.x + coords.y * 1700;
+	uint index = coords.x + coords.y * 1700; // TODO: hardcoded
 
 	OITData frag = oit_buffer.frags[index];
 	uvec4 colors = frag.colors;
