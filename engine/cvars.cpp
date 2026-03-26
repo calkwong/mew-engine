@@ -244,7 +244,6 @@ void CVarSystemImpl::draw_imgui_editor()
 		edit_parameters(get_cvar("render.taa"));
 		edit_parameters(get_cvar("render.meshlet_contribution"));
 		edit_parameters(get_cvar("render.triangle_culling"));
-		edit_parameters(get_cvar("render.prefix_sum"));
 
 		ImGui::TreePop();
 	}

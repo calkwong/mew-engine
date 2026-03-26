@@ -162,6 +162,7 @@ struct CullData
 	VkDeviceAddress count_buffer_address{};
 	VkDeviceAddress vis_buffer_address{};
 	VkDeviceAddress meshtask_buffer_address{};
+	VkDeviceAddress prefix_sum_buffer{};
 	uint32_t count{};
 	uint32_t late{};
 	uint32_t texture_id{};
@@ -178,7 +179,6 @@ struct CullData
 	uint32_t lod_enabled{};
 	uint32_t task_submit{};
 	uint32_t post_pass{};
-	uint32_t prefix_sum{};
 };
 
 struct ClusterCullData
@@ -191,6 +191,7 @@ struct ClusterCullData
 	VkDeviceAddress cluster_count_address{};
 	VkDeviceAddress cluster_vis_address{};
 	VkDeviceAddress meshtask_buffer_address{};
+	VkDeviceAddress prefix_sum_buffer{};
 	uint32_t count{};
 	uint32_t late{};
 	uint32_t texture_id{};
@@ -207,7 +208,6 @@ struct ClusterCullData
 	uint32_t lod_enabled{};
 	uint32_t task_submit{};
 	uint32_t post_pass{};
-	uint32_t prefix_sum{};
 };
 
 struct MeshTaskCommand

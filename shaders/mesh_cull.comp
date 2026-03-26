@@ -5,6 +5,7 @@
 #include "bindings.glsl"
 #include "buffer_references.glsl"
 #include "util.glsl"
+#include "prefix_sum.glsl"
 
 layout (local_size_x = 256) in;
 
@@ -20,6 +21,7 @@ layout(push_constant) uniform constants
 	DispatchBuffer dispatch_buffer;
 	VisibilityBuffer mesh_visibility_buffer;
 	MeshTaskBuffer mesh_task_buffer;
+	PrefixSumBuffer prefix_sum_buffer;
 
 	uint count;
 	uint late;
@@ -37,7 +39,6 @@ layout(push_constant) uniform constants
 	uint lod_enabled;
 	uint task_submit;
 	uint post_pass;
-	uint prefix_sum;
 };
 
 // 2D Polyhedral Bounds of a Clipped, Perspective-Projected 3D Sphere. Michael Mara, Morgan McGuire. 2013
@@ -160,30 +161,28 @@ void main()
 			}
 		}
 
-		// TODO: inspired by https://github.com/expenses/lighthugger/blob/main/src/shaders/common/prefix_sum.glsl
-		// - prefixSum buffer storing instanceId, inclusive sum of meshlet_count, and another new variable to account for LOD offsets to correctly index into meshlet buffer
-		// - dispatch_buffer needs to be handled in a new compute shader
-		// - meshletBitOffset/meshletVisibilityOffset obsolete as we can look into object/instanceBuffer for buffer offset + local offset computed from prefixSum?
-		// - so 4 uints down to 3 uints per meshtask, on top of 1 meshtask command PER mesh?
-		// - meshtask buffer replaced by prefixSum buffer, and each entry maps to a single visible mesh, no longer ceil(meshlets/32) entries
-
 		if (task_submit == 1)
 		{
 			uint meshlet_count = mesh.lods[index].meshlet_count;
 			uint meshlet_offset = mesh.lods[index].meshlet_offset;
 
-			// 32 meshlets per workgroup, each workgroup limited to meshlets from the same mesh
-			uint tasks = (meshlet_count + 31) / 32;
-			uint count = atomicAdd(dispatch_buffer.workgroup_x, tasks);
+			// // 32 meshlets per workgroup, each workgroup limited to meshlets from the same mesh
+			// uint tasks = (meshlet_count + 31) / 32;
+			// uint count = atomicAdd(dispatch_buffer.workgroup_x, tasks);
+			uint count = atomicAdd(dispatch_buffer.workgroup_x, meshlet_count);
 			dispatch_buffer.workgroup_y = 1;
 			dispatch_buffer.workgroup_z = 1;
-			for (uint i = 0; i < tasks; i++)
-			{
-				mesh_task_buffer.commands[count + i].meshlet_offset = meshlet_offset + i * 32;
-				mesh_task_buffer.commands[count + i].object_id = id;
-				mesh_task_buffer.commands[count + i].meshlet_visibility_offset = obj.meshlet_bit_offset + i * 32;
-				mesh_task_buffer.commands[count + i].meshlet_count = min(32, meshlet_count - i * 32);
-			}
+			// for (uint i = 0; i < tasks; i++)
+			// {
+			// 	mesh_task_buffer.commands[count + i].meshlet_offset = meshlet_offset + i * 32;
+			// 	mesh_task_buffer.commands[count + i].object_id = id;
+			// 	mesh_task_buffer.commands[count + i].meshlet_visibility_offset = obj.meshlet_bit_offset + i * 32;
+			// 	mesh_task_buffer.commands[count + i].meshlet_count = min(32, meshlet_count - i * 32);
+			// }
+
+			// prefix sum
+			prefix_sum_inclusive_append(prefix_sum_buffer, id, meshlet_count, meshlet_offset);
+
 		}
 		else
 		{

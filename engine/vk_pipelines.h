@@ -59,6 +59,7 @@ struct GPUPushConstants // temporarily shared by vertex and mesh shading path
 	VkDeviceAddress cluster_indices_address{};
 	VkDeviceAddress material_buffer_address{};
 	VkDeviceAddress oit_buffer_address{};
+	VkDeviceAddress prefix_sum_buffer{};
 	glm::vec2 jitter_offset{}; // last + current frame jitter; should move this up but i am too lazy to edit shaders
 	uint32_t cull{};
 };
