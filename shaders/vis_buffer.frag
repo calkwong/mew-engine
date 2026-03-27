@@ -33,7 +33,6 @@ layout( push_constant ) uniform constants
 
 void main()
 {
-
 	if (OPAQUE == 0)
 	{
 		MaterialData m = material_buffer.materials[in_material_id];

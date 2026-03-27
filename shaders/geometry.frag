@@ -76,10 +76,10 @@ void main()
 
 		vec3 shading_normal = texture(sampler2D(textures[m.normal_id], samplers[LINEAR_SAMPLER]), in_uv).xyz;
 		shading_normal = shading_normal * 2.0 - 1.0;
-		N = normalize(shading_normal.x * T.xyz + shading_normal.y * B + shading_normal.z * N);
+		N = shading_normal.x * T.xyz + shading_normal.y * B + shading_normal.z * N; // not yet normalized
 	}
-	else
-	    N = normalize(N);
+
+    N = normalize(N);
 
 	metallic = m.metallic_factor;
 	float perceptual_roughness = m.roughness_factor;

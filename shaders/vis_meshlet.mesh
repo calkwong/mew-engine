@@ -92,6 +92,8 @@ void main()
         gl_MeshVerticesEXT[i].gl_Position = clip_pos;
     }
 
+    barrier();
+
     for (uint i = ti; i < triangle_count; i += gl_WorkGroupSize.x)
     {
         out_draw_id[i] = object_id;

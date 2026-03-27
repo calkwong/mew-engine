@@ -105,6 +105,10 @@ void main()
 		gl_MeshVerticesEXT[i].gl_Position = clip_pos;
 	}
 
+#ifdef TRIANGLE_CULLING
+    barrier();
+#endif
+
 	for (uint i = ti; i < triangle_count; i += gl_WorkGroupSize.x)
 	{
 		uint idx0 = meshlet_indices_buffer.indices[m_triangle_offset + i * 3 + 0];
