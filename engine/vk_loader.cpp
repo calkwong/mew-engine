@@ -473,7 +473,7 @@ namespace
 		// meshlets
 		constexpr size_t max_vertices = MESHLET_MAX_VERTICES;
 		constexpr size_t max_triangles = MESHLET_MAX_TRIANGLES;
-		constexpr float cone_weight = 0.f;
+		constexpr float cone_weight = 0.f; // 0 if not cone culling; 0.25 otherwise for a good default
 		constexpr uint32_t MAX_LOD = 8;
 		float simplify_threshold = 0.6f;
 		while (mesh_data.lod_count < MAX_LOD)
@@ -533,6 +533,11 @@ namespace
 				new_meshlet.data_offset = meshlet_indices_offset;
 				new_meshlet.vertex_count = m.vertex_count;
 				new_meshlet.triangle_count = m.triangle_count;
+
+				// new_meshlet.cone_axis[0] = bounds.cone_axis_s8[0];
+				// new_meshlet.cone_axis[1] = bounds.cone_axis_s8[1];
+				// new_meshlet.cone_axis[2] = bounds.cone_axis_s8[2];
+				// new_meshlet.cone_cutoff = bounds.cone_cutoff_s8;
 
 				meshlets.push_back(new_meshlet);
 

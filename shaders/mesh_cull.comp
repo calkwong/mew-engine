@@ -42,7 +42,7 @@ layout(push_constant) uniform constants
 
 // 2D Polyhedral Bounds of a Clipped, Perspective-Projected 3D Sphere. Michael Mara, Morgan McGuire. 2013
 // https://zeux.io/2023/01/12/approximate-projected-bounds/
-bool project_sphere(vec3 c, float r, float znear, float P00, float P11, out vec4 aabb)
+bool project_sphere(vec3 c, float r, float znear, float p00, float p11, out vec4 aabb)
 {
 	if (c.z < r + znear)
 		return false;
@@ -58,9 +58,9 @@ bool project_sphere(vec3 c, float r, float znear, float P00, float P11, out vec4
     float miny = (vy * c.y - cr.z) / (vy * c.z + cr.y);
     float maxy = (vy * c.y + cr.z) / (vy * c.z - cr.y);
 
-    aabb = vec4(minx * P00, miny * P11, maxx * P00, maxy * P11);
+    aabb = vec4(minx * p00, miny * p11, maxx * p00, maxy * p11);
     // clip space -> uv space
-    aabb = aabb.xwzy * vec4(0.5f, -0.5f, 0.5f, -0.5f) + vec4(0.5f);
+    aabb = aabb.xwzy * vec4(0.5, -0.5, 0.5, -0.5) + vec4(0.5);
 
     return true;
 }
@@ -86,8 +86,6 @@ bool occlusion_culled(vec3 center, float radius)
 		vec2 pixel_size = (aabb.zw - aabb.xy) * resolution;
 
 		float max_dim = max(pixel_size.x, pixel_size.y);
-
-		// TODO: contribution culling
 
 		float mip = ceil(log2(max_dim));
 		mip = min(mip, texture_lod);
@@ -130,8 +128,8 @@ void main()
 	float radius = mesh.radius;
 
     // non uniform scaling not support
-	float maxScale = obj.scale;
-	radius = radius * maxScale;
+	float max_scale = obj.scale;
+	radius = radius * max_scale;
 
 	bool visible = !frustum_culled(center, radius);
 	bool should_draw = visible;
@@ -152,7 +150,7 @@ void main()
 			// automatic LOD selection - at distance d, how many world space units does each pixel cover?
 			// is the absolute error computed (simplifyscale * result_error) less visible than error above? if so, move onto higher LOD
 			float d = max(0.0, length(center) - radius);
-			float e = d * lod_distance_factor / maxScale;
+			float e = d * lod_distance_factor / max_scale;
 
 			for (uint i = 0; i < mesh.lod_count; i++)
 			{

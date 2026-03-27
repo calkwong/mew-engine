@@ -12,7 +12,7 @@ layout (local_size_x = 256) in;
 layout(push_constant) uniform constants
 {
 	mat4 view;
-	vec4 frustumPlanes;
+	vec4 frustum_planes;
 
 	ObjectBuffer object_buffer;
 	MeshletBuffer meshlet_buffer;
@@ -41,7 +41,7 @@ layout(push_constant) uniform constants
 
 // 2D Polyhedral Bounds of a Clipped, Perspective-Projected 3D Sphere. Michael Mara, Morgan McGuire. 2013
 // https://zeux.io/2023/01/12/approximate-projected-bounds/
-bool project_sphere(vec3 c, float r, float znear, float P00, float P11, out vec4 aabb)
+bool project_sphere(vec3 c, float r, float znear, float p00, float p11, out vec4 aabb)
 {
 	if (c.z < r + znear)
 		return false;
@@ -57,9 +57,9 @@ bool project_sphere(vec3 c, float r, float znear, float P00, float P11, out vec4
     float miny = (vy * c.y - cr.z) / (vy * c.z + cr.y);
     float maxy = (vy * c.y + cr.z) / (vy * c.z - cr.y);
 
-    aabb = vec4(minx * P00, miny * P11, maxx * P00, maxy * P11);
+    aabb = vec4(minx * p00, miny * p11, maxx * p00, maxy * p11);
     // clip space -> uv space
-    aabb = aabb.xwzy * vec4(0.5f, -0.5f, 0.5f, -0.5f) + vec4(0.5f);
+    aabb = aabb.xwzy * vec4(0.5, -0.5, 0.5, -0.5) + vec4(0.5);
 
     return true;
 }
@@ -69,8 +69,8 @@ bool frustum_culled(vec3 center, float radius)
 	bool visible = true;
 
 	// symmetrical sphere-plane distance test
-	visible = visible && (center.z * frustumPlanes.y - abs(center.x) * frustumPlanes.x) >= -radius;
-	visible = visible && (center.z * frustumPlanes.w - abs(center.y) * frustumPlanes.z) >= -radius;
+	visible = visible && (center.z * frustum_planes.y - abs(center.x) * frustum_planes.x) >= -radius;
+	visible = visible && (center.z * frustum_planes.w - abs(center.y) * frustum_planes.z) >= -radius;
 	visible = visible && (center.z - radius <= -znear) && (center.z + radius >= -zfar);
 
 	return !visible;
@@ -85,8 +85,6 @@ bool occlusion_culled(vec3 center, float radius)
 		vec2 pixel_size = (aabb.zw - aabb.xy) * resolution;
 
 		float max_dim = max(pixel_size.x, pixel_size.y);
-
-		// TODO: contribution culling
 
 		float mip = ceil(log2(max_dim));
 		mip = min(mip, texture_lod);
@@ -153,13 +151,28 @@ void main()
 		float max_scale = obj.scale;
 		radius = radius * max_scale;
 
+		// meshlet cone culling
+        // vec3 cone_axis = vec3(int(meshlet.cone_axis[0]), int(meshlet.cone_axis[1]), int(meshlet.cone_axis[2]));
+        // cone_axis /= 127.0;
+        // cone_axis = rotate_quat(cone_axis, obj.orientation);
+        // cone_axis = mat3(view) * cone_axis;
+
+        // vec3 bound_sphere_dir = center - camera_pos;
+        // float bound_sphere_distance = length(bound_sphere_dir);
+        // float cone_cutoff = int(meshlet.cone_cutoff) / 127.0;
+        // cone_cutoff = cone_cutoff * bound_sphere_distance + radius;
+
+        // bool visible = dot(bound_sphere_dir, cone_axis) < cone_cutoff;
+
 		// frustum culling
 		bool visible = !frustum_culled(center, radius);
 
 		if (late && visible)
 		{
 			if (occlusion_enabled == 1)
+			{
 				visible = visible && !occlusion_culled(center, radius);
+			}
 		}
 
 		// render or not - both pass 1 & 2

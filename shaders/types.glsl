@@ -43,6 +43,9 @@ struct Meshlet
 	float16_t cx, cy, cz;
 	float16_t radius;
 
+	// int8_t cone_axis[3];
+	// int8_t cone_cutoff;
+
 	uint data_offset; // index into MeshletIndices
 	uint8_t vertex_count;
 	uint8_t triangle_count;

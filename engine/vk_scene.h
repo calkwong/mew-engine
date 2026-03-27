@@ -46,10 +46,14 @@ struct alignas(4) Meshlet
 	uint16_t cz{};
 	uint16_t radius{};
 
+	// int8_t cone_axis[3]{};
+	// int8_t cone_cutoff{};
+
 	uint32_t data_offset{}; // aka index first count
 
 	uint8_t vertex_count{};
 	uint8_t triangle_count{};
+
 };
 
 struct MaterialData
