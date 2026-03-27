@@ -29,8 +29,8 @@ layout(push_constant) uniform constants
 
 	float p00;
 	float p11;
-	float znear;
-	float zfar; // this is draw distance
+	float near;
+	float far; // this is draw distance
 
 	vec2 resolution;
 	float texture_lod;
@@ -42,9 +42,9 @@ layout(push_constant) uniform constants
 
 // 2D Polyhedral Bounds of a Clipped, Perspective-Projected 3D Sphere. Michael Mara, Morgan McGuire. 2013
 // https://zeux.io/2023/01/12/approximate-projected-bounds/
-bool project_sphere(vec3 c, float r, float znear, float p00, float p11, out vec4 aabb)
+bool project_sphere(vec3 c, float r, float near, float p00, float p11, out vec4 aabb)
 {
-	if (c.z < r + znear)
+	if (c.z < r + near)
 		return false;
 
     vec3 cr = c * r;
@@ -72,7 +72,7 @@ bool frustum_culled(vec3 center, float radius)
 	// symmetrical sphere-plane distance test
 	visible = visible && (center.z * frustum_planes.y - abs(center.x) * frustum_planes.x) >= -radius;
 	visible = visible && (center.z * frustum_planes.w - abs(center.y) * frustum_planes.z) >= -radius;
-	visible = visible && (center.z - radius <= -znear) && (center.z + radius >= -zfar);
+	visible = visible && (center.z - radius <= -near) && (center.z + radius >= -far);
 
 	return !visible;
 }
@@ -81,7 +81,7 @@ bool occlusion_culled(vec3 center, float radius)
 {
 	vec4 aabb;
 
-	if (project_sphere(vec3(center.x, center.y, -center.z), radius, znear, p00, p11, aabb))
+	if (project_sphere(vec3(center.x, center.y, -center.z), radius, near, p00, p11, aabb))
 	{
 		vec2 pixel_size = (aabb.zw - aabb.xy) * resolution;
 
@@ -92,7 +92,7 @@ bool occlusion_culled(vec3 center, float radius)
 
 		float depth = textureLod(sampler2D(textures[texture_id], samplers[DEPTH_REDUCTION_SAMPLER]), (aabb.zw + aabb.xy) * 0.5, mip).r;
 
-		float depth_sphere = znear / (-center.z - radius);
+		float depth_sphere = near / (-center.z - radius);
 
 		return depth_sphere < depth; // reverse depth
 	}

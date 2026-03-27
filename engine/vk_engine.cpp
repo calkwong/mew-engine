@@ -186,11 +186,11 @@ void VulkanEngine::init(const std::string& file_path)
 	init_pipelines();
 
 	main_camera.position = glm::vec3(0, 0, 5);
-	main_camera.near = static_cast<float>(CVAR_MISC_DRAW_DISTANCE.get());
-	main_camera.far = 0.5f;
+	main_camera.far = static_cast<float>(CVAR_MISC_DRAW_DISTANCE.get());
+	main_camera.near = 0.5f;
 	main_camera.fov = 70.0f;
 	// TODO: refactor if window resize
-	main_camera.set_perspective_matrix(glm::radians(main_camera.fov), static_cast<float>(draw_extent.width) / static_cast<float>(draw_extent.height), main_camera.far);
+	main_camera.set_perspective_matrix(glm::radians(main_camera.fov), static_cast<float>(draw_extent.width) / static_cast<float>(draw_extent.height), main_camera.near);
 
 	init_default_data();
 
@@ -2460,7 +2460,7 @@ void VulkanEngine::update_scene()
 	stats.draw_count = 0;
 	auto start = std::chrono::system_clock::now();
 
-	main_camera.near = static_cast<float>(CVAR_MISC_DRAW_DISTANCE.get());
+	main_camera.far = static_cast<float>(CVAR_MISC_DRAW_DISTANCE.get());
 	main_camera.update(static_cast<float>(stats.deltatime));
 
 	scene_data.view = main_camera.get_view_matrix();
@@ -2591,11 +2591,11 @@ void VulkanEngine::execute_deferred_shading(VkCommandBuffer cmd, VkImageView vie
 	pc.gbuffer_id = visibility_rendering ? texture_cache.get_visibility_buffer() : texture_cache.get_first_gbuffer();
 	pc.shadow_id = texture_cache.get_shadowmap();
 	pc.light_culling = CVAR_RENDER_POINT_LIGHTS.get();
-	pc.near = main_camera.far;
+	pc.near = main_camera.near;
 
-	const float ratio = main_camera.near / main_camera.far;
+	const float ratio = main_camera.far / main_camera.near;
 	pc.scale = static_cast<float>(CLUSTER_DEPTH_SLICES) / std::log(ratio);
-	pc.bias = static_cast<float>(CLUSTER_DEPTH_SLICES) * std::log(main_camera.far) / std::log(ratio);
+	pc.bias = static_cast<float>(CLUSTER_DEPTH_SLICES) * std::log(main_camera.near) / std::log(ratio);
 	pc.resolve_transparent = CVAR_RENDER_TRANSPARENT.get();
 	pc.shadows = CVAR_RENDER_SHADOWS.get();
 	pc.pcf = CVAR_SHADOWS_PCF.get();
@@ -2673,8 +2673,8 @@ void VulkanEngine::execute_taa_resolve(VkCommandBuffer cmd, VkImageView view)
 void VulkanEngine::update_cascade()
 {
 	// https://developer.nvidia.com/gpugems/gpugems3/part-ii-light-and-shadows/chapter-10-parallel-split-shadow-maps-programmable-gpus
-	float far = static_cast<float>(CVAR_SHADOWS_DISTANCE.get());
-	float near = main_camera.far;
+	float near = static_cast<float>(CVAR_SHADOWS_DISTANCE.get());
+	float far = main_camera.far;
 	float m = static_cast<float>(NUMBER_OF_CASCADES);
 	float range = far - near;
 	float ratio = far / near;
@@ -2695,7 +2695,7 @@ void VulkanEngine::update_cascade()
 	glm::mat4 view = main_camera.get_view_matrix();
 
 	// TODO: refactor when implementing window resize
-	glm::mat4 proj = glm::perspective(glm::radians(main_camera.fov), static_cast<float>(draw_extent.width) / static_cast<float>(draw_extent.height), static_cast<float>(CVAR_SHADOWS_DISTANCE.get()), main_camera.far);
+	glm::mat4 proj = glm::perspective(glm::radians(main_camera.fov), static_cast<float>(draw_extent.width) / static_cast<float>(draw_extent.height), static_cast<float>(CVAR_SHADOWS_DISTANCE.get()), main_camera.near);
 	glm::mat4 inv_viewproj = glm::inverse(proj * view);
 
 	std::array<glm::vec3, 8> frustum_corners{
@@ -2975,8 +2975,8 @@ void VulkanEngine::ready_mesh_cull(RenderScene::MeshPass& pass, CullData& cull_d
 
 	cull_data.p00 = proj[0][0];
 	cull_data.p11 = proj[1][1]; // equivalent to 1 / tan(fovy/2)
-	cull_data.near = main_camera.far;
-	cull_data.far = main_camera.near;
+	cull_data.near = main_camera.near;
+	cull_data.far = main_camera.far;
 
 	cull_data.resolution = glm::vec2(depth_pyramid.extent.width, depth_pyramid.extent.height);
 	cull_data.texture_lod = static_cast<float>(std::floor(std::log2(static_cast<float>(std::max(depth_pyramid.extent.width, depth_pyramid.extent.height)))) + 1);
@@ -3023,8 +3023,8 @@ void VulkanEngine::ready_meshlet_cull(RenderScene::MeshPass& pass, ClusterCullDa
 
 	cull_data.p00 = proj[0][0];
 	cull_data.p11 = proj[1][1];
-	cull_data.near = main_camera.far;
-	cull_data.far = main_camera.near;
+	cull_data.near = main_camera.near;
+	cull_data.far = main_camera.far;
 
 	cull_data.resolution = glm::vec2(depth_pyramid.extent.width, depth_pyramid.extent.height);
 	cull_data.texture_lod = static_cast<float>(std::floor(std::log2(static_cast<float>(std::max(depth_pyramid.extent.width, depth_pyramid.extent.height)))) + 1);
@@ -3470,8 +3470,8 @@ void VulkanEngine::build_cluster_grid()
 	pc.light_cluster_buffer_address = get_buffer_address(device, light_cluster_buffer.buffer);
 	pc.screen_size = glm::vec2(window_extent.width, window_extent.height);
 	pc.cluster_dim = CLUSTER_DIM;
-	pc.near = main_camera.far; // reverse-z
-	pc.far = main_camera.near;
+	pc.near = main_camera.near; // reverse-z
+	pc.far = main_camera.far;
 
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ClusterGridPushConstants), &pc);
 	vkCmdDispatch(cmd, 1, 1, CLUSTER_DEPTH_SLICES);
@@ -3548,11 +3548,11 @@ ShaderPass current_pass{};
 	pc.gbuffer_id = visibility_rendering ? texture_cache.get_visibility_buffer() : texture_cache.get_first_gbuffer();
 	pc.shadow_id = texture_cache.get_shadowmap();
 	pc.light_culling = CVAR_RENDER_POINT_LIGHTS.get();
-	pc.near = main_camera.far;
+	pc.near = main_camera.near;
 
-	const float ratio = main_camera.near / main_camera.far;
+	const float ratio = main_camera.far / main_camera.near;
 	pc.scale = static_cast<float>(CLUSTER_DEPTH_SLICES) / std::log(ratio);
-	pc.bias = static_cast<float>(CLUSTER_DEPTH_SLICES) * std::log(main_camera.far) / std::log(ratio);
+	pc.bias = static_cast<float>(CLUSTER_DEPTH_SLICES) * std::log(main_camera.near) / std::log(ratio);
 	pc.resolve_transparent = CVAR_RENDER_TRANSPARENT.get();
 	pc.shadows = CVAR_RENDER_SHADOWS.get();
 	pc.pcf = CVAR_SHADOWS_PCF.get();
