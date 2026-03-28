@@ -328,7 +328,7 @@ void VulkanEngine::cleanup()
 void VulkanEngine::init_gi()
 {
 	VK_CHECK(vkResetFences(device, 1, &imm_fence));
-	VK_CHECK(vkResetCommandBuffer(imm_command_buffer, 0));
+	VK_CHECK(vkResetCommandPool(device, imm_command_pool, 0));
 	VkCommandBufferBeginInfo cmd_begin_info = vkinit::command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
 	VK_CHECK(vkBeginCommandBuffer(imm_command_buffer, &cmd_begin_info));
 
@@ -563,7 +563,7 @@ void VulkanEngine::draw()
 
 	VkCommandBuffer cmd = get_current_frame().main_command_buffer;
 
-	VK_CHECK(vkResetCommandBuffer(cmd, 0));
+	VK_CHECK(vkResetCommandPool(device, get_current_frame().command_pool, 0));
 
 	VkCommandBufferBeginInfo cmd_begin_info = vkinit::command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
 
@@ -1633,8 +1633,7 @@ void VulkanEngine::init_swapchain()
 void VulkanEngine::init_commands()
 {
 	VkCommandPoolCreateInfo command_pool_info = vkinit::command_pool_create_info(
-	    graphics_queue_family,
-	    VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT
+	    graphics_queue_family
 	);
 
 	for (auto& frame : frames)
@@ -2511,7 +2510,7 @@ void VulkanEngine::update_scene()
 void VulkanEngine::immediate_submit(std::function<void(VkCommandBuffer cmd)>&& func) const
 {
 	VK_CHECK(vkResetFences(device, 1, &imm_fence));
-	VK_CHECK(vkResetCommandBuffer(imm_command_buffer, 0));
+	VK_CHECK(vkResetCommandPool(device, imm_command_pool, 0));
 
 	VkCommandBufferBeginInfo cmd_begin_info = vkinit::command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
 
@@ -3456,7 +3455,7 @@ void VulkanEngine::build_cluster_grid()
 	VkCommandBuffer cmd = imm_command_buffer;
 	VK_CHECK(vkResetFences(device, 1, &imm_fence));
 
-	VK_CHECK(vkResetCommandBuffer(cmd, 0));
+	VK_CHECK(vkResetCommandPool(device, imm_command_pool, 0));
 
 	VkCommandBufferBeginInfo cmd_begin_info = vkinit::command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
 
