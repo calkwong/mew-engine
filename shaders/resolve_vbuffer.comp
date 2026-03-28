@@ -6,7 +6,7 @@
 
 #include "bindings.glsl"
 #include "buffer_references.glsl"
-#include "vbuffer.glsl"
+#include "barycentrics.glsl"
 #include "pbr.glsl"
 #include "sh.glsl"
 #include "util.glsl"

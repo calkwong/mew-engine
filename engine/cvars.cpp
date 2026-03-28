@@ -247,37 +247,44 @@ void CVarSystemImpl::draw_imgui_editor()
 		ImGui::TreePop();
 	}
 
-	if (ImGui::TreeNodeEx("Shadows", ImGuiTreeNodeFlags_DefaultOpen))
-	{
-		edit_parameters(get_cvar("shadows.pcf"));
-		edit_parameters(get_cvar("shadows.cascade_split"));
-		edit_parameters(get_cvar("shadows.distance"));
-		edit_parameters(get_cvar("shadows.cascade_selection"));
-
-		ImGui::TreePop();
-	}
-
-	if (ImGui::TreeNodeEx("Debug", ImGuiTreeNodeFlags_DefaultOpen))
-	{
-		edit_parameters(get_cvar("debug.textures"));
-
-		ImGui::TreePop();
-	}
-
-	if (ImGui::TreeNodeEx("Misc", ImGuiTreeNodeFlags_DefaultOpen))
-	{
-		edit_parameters(get_cvar("misc.draw_distance"));
-		edit_parameters(get_cvar("misc.autoexposure"));
-		edit_parameters(get_cvar("misc.tonemap"));
-		edit_parameters(get_cvar("misc.freeze_camera"));
-
-		ImGui::TreePop();
-	}
-
-	// if (ImGui::CollapsingHeader("TAA"))
+	// if (ImGui::TreeNodeEx("Shadows", ImGuiTreeNodeFlags_DefaultOpen))
 	// {
-	//
+	// 	edit_parameters(get_cvar("shadows.pcf"));
+	// 	edit_parameters(get_cvar("shadows.cascade_split"));
+	// 	edit_parameters(get_cvar("shadows.distance"));
+	// 	edit_parameters(get_cvar("shadows.cascade_selection"));
+
+	// 	ImGui::TreePop();
 	// }
+
+	// if (ImGui::TreeNodeEx("Debug", ImGuiTreeNodeFlags_DefaultOpen))
+	// {
+	// 	edit_parameters(get_cvar("debug.textures"));
+
+	// 	ImGui::TreePop();
+	// }
+
+	// if (ImGui::TreeNodeEx("Misc", ImGuiTreeNodeFlags_DefaultOpen))
+	// {
+	// 	edit_parameters(get_cvar("misc.draw_distance"));
+	// 	edit_parameters(get_cvar("misc.autoexposure"));
+	// 	edit_parameters(get_cvar("misc.tonemap"));
+	// 	edit_parameters(get_cvar("misc.freeze_camera"));
+
+	// 	ImGui::TreePop();
+	// }
+
+	if (ImGui::TreeNodeEx("TAA", ImGuiTreeNodeFlags_DefaultOpen))
+	{
+		edit_parameters(get_cvar("taa.variance_clip"));
+		edit_parameters(get_cvar("taa.catmull_rom"));
+		edit_parameters(get_cvar("taa.mitchell"));
+		edit_parameters(get_cvar("taa.ycogy"));
+		edit_parameters(get_cvar("taa.depth_dilation"));
+		edit_parameters(get_cvar("taa.luminance_weighing"));
+
+		ImGui::TreePop();
+	}
 	//
 	// if (ImGui::CollapsingHeader("PBR"))
 	// {
