@@ -12,11 +12,11 @@ layout (local_size_x = 256, local_size_y = 4) in;
 
 layout(push_constant) uniform constants
 {
-	ObjectBuffer object_buffer; 
-	MeshBuffer mesh_buffer; 
-	MeshIndicesBuffer mesh_indices_buffer; 
+	ObjectBuffer object_buffer;
+	MeshBuffer mesh_buffer;
+	MeshIndicesBuffer mesh_indices_buffer;
 	ShadowDrawCommandsBuffer draw_buffer;
-	uint count; 
+	uint count;
 	uint lod_enabled;
 };
 
@@ -61,24 +61,24 @@ const int CASCADE_COUNT = 4;
 void main()
 {
 	uint global_id = gl_GlobalInvocationID.x;
-	
+
 	if (global_id >= count)
 		return;
-		
+
 	uint id = mesh_indices_buffer.indices[global_id];
-	
+
 	ObjectData obj = object_buffer.objects[id];
 	uint mesh_id = obj.mesh_id;
 	MeshData mesh = mesh_buffer.meshes[mesh_id];
-	
+
 	bool alpha_clip = obj.post_pass != 0;
-	
+
 	float radius = mesh.radius;
-	
+
 	// non uniform scaling not supported
 	float max_scale = obj.scale;
 	radius = radius * max_scale;
-	
+
 	uint cascade_index = gl_LocalInvocationID.y;
 
     float cascade_radius = uniforms.shadow_widths[cascade_index];
@@ -122,9 +122,13 @@ void main()
 
     uint count = alpha_clip ? atomicAdd(draw_buffer.draws[cascade_index].alpha_clip_count, 1) : atomicAdd(draw_buffer.draws[cascade_index].opaque_count, 1);
     uint index = alpha_clip ? count + 200000 : count;
-    draw_buffer.draws[cascade_index].commands[index].index_count = mesh.lods[lod_index].count;
-    draw_buffer.draws[cascade_index].commands[index].instance_count = 1;
-    draw_buffer.draws[cascade_index].commands[index].first_index = mesh.lods[lod_index].first_index;
-    draw_buffer.draws[cascade_index].commands[index].vertex_offset = mesh.vertex_offset;
-    draw_buffer.draws[cascade_index].commands[index].first_instance = id;
+
+    DrawCommand draw;
+	draw.index_count = mesh.lods[lod_index].count;
+	draw.instance_count = 1;
+	draw.first_index = mesh.lods[lod_index].first_index;
+	draw.vertex_offset = mesh.vertex_offset;
+	draw.first_instance = id;
+
+    draw_buffer.draws[cascade_index].commands[index] = draw;
 }

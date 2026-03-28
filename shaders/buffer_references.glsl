@@ -27,6 +27,7 @@ layout(buffer_reference, std430) buffer LightCountBuffer
 	uint count;
 };
 
+// TODO: turn this into a single struct
 layout(buffer_reference, std430) buffer SHBuffer
 {
 	SH9 r_coefficients;

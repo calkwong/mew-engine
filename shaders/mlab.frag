@@ -81,10 +81,12 @@ void insert_node(uvec2 coords, uint color, uint depth, float transmission)
 		transmissions[MLAB_NODES-1] *= transmission;
 	}
 
-	// store
-	oit_buffer.frags[index].colors = colors;
-	oit_buffer.frags[index].depths = depths;
-	oit_buffer.frags[index].transmissions = transmissions;
+	OITData oit_data;
+	oit_data.colors = colors;
+	oit_data.depths = depths;
+	oit_data.transmissions = transmissions;
+
+	oit_buffer.frags[index] = oit_data;
 }
 
 void main()

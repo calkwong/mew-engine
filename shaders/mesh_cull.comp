@@ -164,8 +164,6 @@ void main()
 			uint meshlet_offset = mesh.lods[index].meshlet_offset;
 
 			uint count = atomicAdd(dispatch_buffer.workgroup_x, meshlet_count);
-			dispatch_buffer.workgroup_y = 1;
-			dispatch_buffer.workgroup_z = 1;
 
 			prefix_sum_inclusive_append(prefix_sum_buffer, id, meshlet_count, meshlet_offset);
 
@@ -174,11 +172,15 @@ void main()
 		{
 			// TODO: currently, third pass for masked geometry is only culling for late==1. it is incremented in opaqueCount. make a proper distinction when we cull masked geometry in early and late?
 			uint count = atomicAdd(draw_buffer.draws.opaque_count, 1);
-			draw_buffer.draws.commands[count].index_count = mesh.lods[index].count;
-			draw_buffer.draws.commands[count].instance_count = 1;
-			draw_buffer.draws.commands[count].first_index = mesh.lods[index].first_index;
-			draw_buffer.draws.commands[count].vertex_offset = mesh.vertex_offset;
-			draw_buffer.draws.commands[count].first_instance = id;
+
+			DrawCommand draw;
+			draw.index_count = mesh.lods[index].count;
+			draw.instance_count = 1;
+			draw.first_index = mesh.lods[index].first_index;
+			draw.vertex_offset = mesh.vertex_offset;
+			draw.first_instance = id;
+
+			draw_buffer.draws.commands[count] = draw;
 		}
 	}
 

@@ -25,47 +25,50 @@ vec3 screen_to_view(vec2 screen_pos, vec2 screen_size, mat4 inverse_proj)
 
 	vec4 view_pos = inverse_proj * ndc;
 	view_pos.xyz /= view_pos.w;
-	
+
 	return view_pos.xyz;
 }
 
 // calculates view space position of one of the cluster's corners
-vec3 line_intersection_to_zplane(vec3 point, float z) 
+vec3 line_intersection_to_zplane(vec3 point, float z)
 {
 	float t = z / point.z;
-	
+
 	return t * point;
 }
 
 void main()
 {
-	// left-bot & right-top cluster corners in screen space 
+	// left-bot & right-top cluster corners in screen space
 	vec2 min_screen_pos = vec2(gl_LocalInvocationID.x, gl_LocalInvocationID.y) * cluster_dim;
 	vec2 max_screen_pos = vec2(gl_LocalInvocationID.x + 1, gl_LocalInvocationID.y + 1) * cluster_dim;
-	
+
 	// left-bot & right-top cluster corners in view space
 	vec3 min_view_pos = screen_to_view(min_screen_pos, screen_size, inverse_proj);
 	vec3 max_view_pos = screen_to_view(max_screen_pos, screen_size, inverse_proj);
-	
+
 	uint slice = gl_WorkGroupID.z;
 	uint num_slices = gl_NumWorkGroups.z;
-	
+
 	// negation necessary as our z is negative when pointing into the screen
 	float cluster_nearz = -nearz * pow(farz / nearz, float(slice) / float(num_slices));
 	float cluster_farz = -nearz * pow(farz / nearz, float(slice + 1) / float(num_slices));
-	
+
 	// determine min max of tile
 	vec3 min_near = line_intersection_to_zplane(min_view_pos, cluster_nearz);
 	vec3 min_far  = line_intersection_to_zplane(min_view_pos, cluster_farz);
 	vec3 max_near = line_intersection_to_zplane(max_view_pos, cluster_nearz);
 	vec3 max_far  = line_intersection_to_zplane(max_view_pos, cluster_farz);
-	
+
 	vec3 aabb_min = min(min(min_near, min_far), min(max_near, max_far));
 	vec3 aabb_max = max(max(min_near, min_far), max(max_near, max_far));
-	
+
 	uint clusters_per_slice = gl_WorkGroupSize.x * gl_WorkGroupSize.y;
-	uint cluster_index = gl_WorkGroupID.z * clusters_per_slice + gl_LocalInvocationIndex; 
-		
-	cluster_buffer.aabb[cluster_index].min = vec4(aabb_min, 1.0);
-	cluster_buffer.aabb[cluster_index].max = vec4(aabb_max, 1.0);
+	uint cluster_index = gl_WorkGroupID.z * clusters_per_slice + gl_LocalInvocationIndex;
+
+	ClusterAABB aabb;
+	aabb.min = vec4(aabb_min, 1.0);
+	aabb.max = vec4(aabb_max, 1.0);
+
+	cluster_buffer.aabb[cluster_index] = aabb;
 }

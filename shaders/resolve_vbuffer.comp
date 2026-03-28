@@ -374,19 +374,23 @@ void main()
 
 		uint cluster_index = cluster_xy.x + cluster_dim.x * cluster_xy.y + slice * cluster_dim.x * cluster_dim.y;
 
-		uint offset = light_grid_buffer.grid[cluster_index].offset;
-		uint count = light_grid_buffer.grid[cluster_index].count;
+		LightGrid grid = light_grid_buffer.grid[cluster_index];
+		uint offset = grid.offset;
+		uint count = grid.count;
 
 		for (int i = 0; i < count; i++)
 		{
-			uint index = light_index_buffer.indices[offset + i];
-			vec3 light_pos = light_buffer.lights[index].pos.xyz;
-			light_pos = vec3(uniforms.light_rot * vec4(light_pos, 1.0));
-			float light_radius = light_buffer.lights[index].pos.w;
-			vec3 light_color = light_buffer.lights[index].color.xyz;
-			vec3 distance = light_pos - world_pos;
-			vec3 L = normalize(distance);
-			float NdotL = max(dot(N, L), 0.0);
+    		uint index = light_index_buffer.indices[offset + i];
+
+    		PointLight point_light = light_buffer.lights[index];
+    		vec3 light_pos = point_light.pos.xyz;
+    		float light_radius = point_light.pos.w;
+    		vec3 light_color = point_light.color.xyz;
+
+    		light_pos = vec3(uniforms.light_rot * vec4(light_pos, 1.0));
+    		vec3 distance = light_pos - world_pos;
+    		vec3 L = normalize(distance);
+    		float NdotL = max(dot(N, L), 0.0);
 #ifdef PBR
 			vec3 Fr = vec3(0.0);
 

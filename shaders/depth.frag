@@ -1,7 +1,6 @@
 #version 450
 #extension GL_GOOGLE_include_directive : require
 #extension GL_EXT_buffer_reference : require
-#extension GL_EXT_nonuniform_qualifier : require
 
 #include "bindings.glsl"
 #include "buffer_references.glsl"
@@ -26,11 +25,11 @@ void main()
 	if (OPAQUE == 0)
 	{
 		MaterialData m = material_buffer.materials[in_material_id];
-			
+
 		vec4 albedo = m.base_color_factor;
 		if (m.diffuse_id != 0)
 			albedo *= texture(sampler2D(textures[m.diffuse_id], samplers[LINEAR_SAMPLER]), in_uv);
-			
+
 		if (albedo.a < 0.5)
 			discard;
 	}
