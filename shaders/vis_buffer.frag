@@ -29,7 +29,7 @@ layout( push_constant ) uniform constants
 	MaterialBuffer material_buffer;
 	OITBuffer oit_buffer;
 	uint padding[2];
-	vec2 jitter_offset;
+	vec4 jitter_offset;
 };
 
 void main()
@@ -46,17 +46,12 @@ void main()
 
 	out_visibility_id = uvec2(in_draw_id, in_triangle_id);
 
-	// TODO: leave camera motion here for now until we get things working, then move it out
     vec2 curr_ndc = in_clip_pos.xy / in_clip_pos.w;
+    curr_ndc -= jitter_offset.xy;
     vec2 prev_ndc = in_prev_clip_pos.xy / in_prev_clip_pos.w;
-    vec2 velocity = curr_ndc - prev_ndc;
+    prev_ndc -= jitter_offset.zw;
 
-    // TODO:
-    velocity = velocity * vec2(0.5, -0.5) + 0.5;
-
-    // TODO: bake cpu side possible?
-    // note: take current and previous jitter into account!
-    velocity -= jitter_offset;
+    vec2 velocity = (curr_ndc - prev_ndc) * vec2(0.5, -0.5); // +0.5 cancels out
 
     out_velocity = velocity;
 }

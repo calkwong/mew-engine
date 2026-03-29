@@ -257,12 +257,12 @@ void CVarSystemImpl::draw_imgui_editor()
 	// 	ImGui::TreePop();
 	// }
 
-	// if (ImGui::TreeNodeEx("Debug", ImGuiTreeNodeFlags_DefaultOpen))
-	// {
-	// 	edit_parameters(get_cvar("debug.textures"));
+	if (ImGui::TreeNodeEx("Debug", ImGuiTreeNodeFlags_DefaultOpen))
+	{
+		edit_parameters(get_cvar("debug.textures"));
 
-	// 	ImGui::TreePop();
-	// }
+		ImGui::TreePop();
+	}
 
 	if (ImGui::TreeNodeEx("Misc", ImGuiTreeNodeFlags_DefaultOpen))
 	{

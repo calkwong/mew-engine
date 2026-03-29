@@ -23,7 +23,7 @@ layout( push_constant ) uniform constants
 	MaterialBuffer material_buffer;
 	OITBuffer oit_buffer;
 	uint padding[2];
-	vec2 jitter_offset;
+	vec4 jitter_offset;
 };
 
 void main()

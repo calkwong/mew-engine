@@ -31,7 +31,7 @@ layout( push_constant ) uniform constants
 	ClusterIndicesBuffer cluster_indices_buffer;
 	MaterialBuffer material_buffer;
 	OITBuffer oit_buffer;
-	vec2 jitter_offset;
+	vec4 jitter_offset;
 };
 
 #define PBR
@@ -96,12 +96,12 @@ void main()
 	N = normalize(in_normal);
 #endif
 
-
     vec2 curr_ndc = in_clip_pos.xy / in_clip_pos.w;
+    curr_ndc -= jitter_offset.xy;
     vec2 prev_ndc = in_prev_clip_pos.xy / in_prev_clip_pos.w;
-    vec2 velocity = curr_ndc - prev_ndc;
-    velocity = velocity * vec2(0.5, -0.5) + 0.5;
-    velocity -= jitter_offset;
+    prev_ndc -= jitter_offset.zw;
+
+    vec2 velocity = (curr_ndc - prev_ndc) * vec2(0.5, -0.5); // +0.5 cancels out
 
     out_albedo = albedo;
     out_normal = vec4(N, 1);

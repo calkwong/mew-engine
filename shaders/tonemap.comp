@@ -88,8 +88,9 @@ vec3 agx_eotf(vec3 val)
     // inverse input transform
     val = agx_mat_inv * val;
 
-    // if RT is linear and swapchain is SRGB, uncomment
-    // val = pow(val, vec3(2.2));
+    // value is now in nonlinear space; if RT is linear and swapchain is SRGB, uncomment
+    // TODO: use proper value after TAA experimentation
+    val = pow(val, vec3(2.2));
 
     return val;
 }

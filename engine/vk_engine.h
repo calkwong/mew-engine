@@ -141,8 +141,7 @@ public:
 	Camera main_camera{};
 	SceneData scene_data{};
 	std::array<CascadeData, 4> cascade_data{};
-	std::array<float, 4> jx{};
-	std::array<float, 4> jy{};
+	std::array<glm::vec2, 8> jitter_offset{};
 	EngineStats stats{};
 
 	SamplerCache sampler_cache{};

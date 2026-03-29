@@ -33,7 +33,7 @@ layout( push_constant ) uniform constants
 	MaterialBuffer material_buffer;
 	OITBuffer oit_buffer;
 	uint padding[2];
-	vec2 jitter_offset;
+	vec4 jitter_offset;
 };
 
 void swap_node(inout uint color_a, inout uint depth_a, inout float transmission_a, inout uint color_b, inout uint depth_b, inout float transmission_b)

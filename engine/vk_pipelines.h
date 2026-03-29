@@ -49,7 +49,7 @@ struct SHPushConstants
 	uint32_t cubemap_id{};
 };
 
-struct GPUPushConstants // temporarily shared by vertex and mesh shading path
+struct GPUPushConstants
 {
 	VkDeviceAddress object_buffer_address{};
 	VkDeviceAddress vertex_buffer_address{};
@@ -59,8 +59,7 @@ struct GPUPushConstants // temporarily shared by vertex and mesh shading path
 	VkDeviceAddress material_buffer_address{};
 	VkDeviceAddress oit_buffer_address{};
 	VkDeviceAddress prefix_sum_buffer{};
-	glm::vec2 jitter_offset{}; // last + current frame jitter; should move this up but i am too lazy to edit shaders
-	uint32_t cull{};
+	glm::vec4 jitter_offset{};
 };
 
 struct DeferredPushConstants
@@ -133,6 +132,7 @@ struct TAAResolvePC
 	uint32_t ycocg{};
 	uint32_t depth_dilation{};
 	uint32_t weigh_luminance{};
+	uint32_t valid_history{};
 };
 
 struct DepthPyramidPushConstants

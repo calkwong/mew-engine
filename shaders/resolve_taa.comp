@@ -17,8 +17,8 @@ layout (local_size_x = 32, local_size_y = 32) in;
 layout (push_constant) uniform constants
 {
 	vec2 screen_size;
-	uint color_id;
-	uint accum_id;
+	uint current_id;
+	uint history_id;
 	uint resolve_id;
 	uint depth_id;
 	uint velocity_id;
@@ -28,6 +28,7 @@ layout (push_constant) uniform constants
 	uint ycocg;
 	uint depth_dilation;
 	uint weigh_luminance;
+	uint valid_history; // valid when first_frame==false
 };
 
 /*
@@ -121,15 +122,15 @@ vec3 sample_texture_catmull_rom(vec2 uv, uint texture_index, vec2 resolution) {
     tex_pos_12 /= resolution;
 
     vec3 result = vec3(0);
-    result += texture(sampler2D(textures[texture_index], samplers[LINEAR_SAMPLER]), vec2(tex_pos_0.x, tex_pos_0.y)).rgb * w0.x * w0.y;
-    result += texture(sampler2D(textures[texture_index], samplers[LINEAR_SAMPLER]), vec2(tex_pos_12.x, tex_pos_0.y)).rgb * w12.x * w0.y;
-    result += texture(sampler2D(textures[texture_index], samplers[LINEAR_SAMPLER]), vec2(tex_pos_3.x, tex_pos_0.y)).rgb * w3.x * w0.y;
-    result += texture(sampler2D(textures[texture_index], samplers[LINEAR_SAMPLER]), vec2(tex_pos_0.x, tex_pos_12.y)).rgb * w0.x * w12.y;
-    result += texture(sampler2D(textures[texture_index], samplers[LINEAR_SAMPLER]), vec2(tex_pos_12.x, tex_pos_12.y)).rgb * w12.x * w12.y;
-    result += texture(sampler2D(textures[texture_index], samplers[LINEAR_SAMPLER]), vec2(tex_pos_3.x, tex_pos_12.y)).rgb * w3.x * w12.y;
-    result += texture(sampler2D(textures[texture_index], samplers[LINEAR_SAMPLER]), vec2(tex_pos_0.x, tex_pos_3.y)).rgb * w0.x * w3.y;
-    result += texture(sampler2D(textures[texture_index], samplers[LINEAR_SAMPLER]), vec2(tex_pos_12.x, tex_pos_3.y)).rgb * w12.x * w3.y;
-    result += texture(sampler2D(textures[texture_index], samplers[LINEAR_SAMPLER]), vec2(tex_pos_3.x, tex_pos_3.y)).rgb * w3.x * w3.y;
+    result += texture(sampler2D(textures[texture_index], samplers[LINEAR_CLAMP_SAMPLER]), vec2(tex_pos_0.x, tex_pos_0.y)).rgb * w0.x * w0.y;
+    result += texture(sampler2D(textures[texture_index], samplers[LINEAR_CLAMP_SAMPLER]), vec2(tex_pos_12.x, tex_pos_0.y)).rgb * w12.x * w0.y;
+    result += texture(sampler2D(textures[texture_index], samplers[LINEAR_CLAMP_SAMPLER]), vec2(tex_pos_3.x, tex_pos_0.y)).rgb * w3.x * w0.y;
+    result += texture(sampler2D(textures[texture_index], samplers[LINEAR_CLAMP_SAMPLER]), vec2(tex_pos_0.x, tex_pos_12.y)).rgb * w0.x * w12.y;
+    result += texture(sampler2D(textures[texture_index], samplers[LINEAR_CLAMP_SAMPLER]), vec2(tex_pos_12.x, tex_pos_12.y)).rgb * w12.x * w12.y;
+    result += texture(sampler2D(textures[texture_index], samplers[LINEAR_CLAMP_SAMPLER]), vec2(tex_pos_3.x, tex_pos_12.y)).rgb * w3.x * w12.y;
+    result += texture(sampler2D(textures[texture_index], samplers[LINEAR_CLAMP_SAMPLER]), vec2(tex_pos_0.x, tex_pos_3.y)).rgb * w0.x * w3.y;
+    result += texture(sampler2D(textures[texture_index], samplers[LINEAR_CLAMP_SAMPLER]), vec2(tex_pos_12.x, tex_pos_3.y)).rgb * w12.x * w3.y;
+    result += texture(sampler2D(textures[texture_index], samplers[LINEAR_CLAMP_SAMPLER]), vec2(tex_pos_3.x, tex_pos_3.y)).rgb * w3.x * w3.y;
 
     if (ycocg == 1)
         result = rgb_to_ycocg(result);
@@ -165,6 +166,13 @@ void main()
 	vec2 uv = vec2(texel_coord) + vec2(0.5);
 	uv /= screen_size;
 
+	if (valid_history == 0)
+	{
+	    vec3 history_color = sample_color(history_id, NEAREST_SAMPLER, uv);
+		imageStore(images_rgba32f[resolve_id], texel_coord, vec4(history_color, 1.0));
+		return;
+	}
+
 	// depth dilation
 	vec2 velocity_uv;
 	if (depth_dilation == 1)
@@ -194,15 +202,15 @@ void main()
 
 	// alternative: blend this with a 5 taps '+' pattern per Karis UE4
 	// no need max(sample, 0.0) to ensure no garbage values?
-	vec3 ctl = sample_color(color_id, NEAREST_SAMPLER, uv + (vec2(-1, 1) / screen_size));
-	vec3 ctc = sample_color(color_id, NEAREST_SAMPLER, uv + (vec2( 0, 1) / screen_size));
-	vec3 ctr = sample_color(color_id, NEAREST_SAMPLER, uv + (vec2( 1, 1) / screen_size));
-	vec3 cml = sample_color(color_id, NEAREST_SAMPLER, uv + (vec2(-1, 0) / screen_size));
-	vec3 cmc = sample_color(color_id, NEAREST_SAMPLER, uv + (vec2( 0, 0) / screen_size));
-	vec3 cmr = sample_color(color_id, NEAREST_SAMPLER, uv + (vec2( 1, 0) / screen_size));
-	vec3 cbl = sample_color(color_id, NEAREST_SAMPLER, uv + (vec2(-1,-1) / screen_size));
-	vec3 cbc = sample_color(color_id, NEAREST_SAMPLER, uv + (vec2( 0,-1) / screen_size));
-	vec3 cbr = sample_color(color_id, NEAREST_SAMPLER, uv + (vec2( 1,-1) / screen_size));
+	vec3 ctl = sample_color(current_id, NEAREST_SAMPLER, uv + (vec2(-1, 1) / screen_size));
+	vec3 ctc = sample_color(current_id, NEAREST_SAMPLER, uv + (vec2( 0, 1) / screen_size));
+	vec3 ctr = sample_color(current_id, NEAREST_SAMPLER, uv + (vec2( 1, 1) / screen_size));
+	vec3 cml = sample_color(current_id, NEAREST_SAMPLER, uv + (vec2(-1, 0) / screen_size));
+	vec3 cmc = sample_color(current_id, NEAREST_SAMPLER, uv + (vec2( 0, 0) / screen_size));
+	vec3 cmr = sample_color(current_id, NEAREST_SAMPLER, uv + (vec2( 1, 0) / screen_size));
+	vec3 cbl = sample_color(current_id, NEAREST_SAMPLER, uv + (vec2(-1,-1) / screen_size));
+	vec3 cbc = sample_color(current_id, NEAREST_SAMPLER, uv + (vec2( 0,-1) / screen_size));
+	vec3 cbr = sample_color(current_id, NEAREST_SAMPLER, uv + (vec2( 1,-1) / screen_size));
 	vec3 min_color = vec3(9999.0);
 	vec3 max_color = vec3(-9999.0);
 	min_color = min(ctl, min(ctc, min(ctr, min(cml, min(cmc, min(cmr, min(cbl, min(cbc, cbr))))))));
@@ -213,12 +221,12 @@ void main()
 
 	// alternative: catmull 5-taps from COD?
 	vec2 reprojected_uv = uv - velocity_uv;
-	vec3 previous_color;
+	vec3 history_color;
 	if (history_filter == 1)
-		previous_color = sample_texture_catmull_rom(reprojected_uv, accum_id, screen_size);
+		history_color = sample_texture_catmull_rom(reprojected_uv, history_id, screen_size);
 	else
-		previous_color = sample_color(accum_id, LINEAR_SAMPLER, reprojected_uv);
-	vec3 previous_color_clamped;
+		history_color = sample_color(history_id, LINEAR_CLAMP_SAMPLER, reprojected_uv);
+	vec3 history_color_clamped;
 
 	// https://developer.download.nvidia.com/gameworks/events/GDC2016/msalvi_temporal_supersampling.pdf
 	if (variance_clipping == 1)
@@ -233,11 +241,11 @@ void main()
 		vec3 sigma = sqrt(abs((m2 * rcp_samples) - (mu * mu)));
 		vec3 minc = mu - gamma * sigma;
 		vec3 maxc = mu + gamma * sigma;
-		previous_color_clamped = clip_aabb(minc, maxc, vec4(clamp(previous_color, min_color, max_color), 1.0), 1.0).xyz;
+		history_color_clamped = clip_aabb(minc, maxc, vec4(clamp(history_color, min_color, max_color), 1.0), 1.0).xyz;
 	}
 	else
 	{
-		previous_color_clamped = clamp(previous_color, min_color, max_color);
+		history_color_clamped = clamp(history_color, min_color, max_color);
 	}
 
     // TODO: fix flickering
@@ -247,17 +255,16 @@ void main()
 	if (weigh_luminance == 1)
 	{
 		float luminance_src = luminance(current_color);
-		float luminance_history = luminance(previous_color_clamped);
+		float luminance_history = luminance(history_color_clamped);
 
 		src_weight *= 1.0 / (1.0 + luminance_src);
 		history_weight *= 1.0 / (1.0 + luminance_history);
 	}
 
-	vec3 final_color = (current_color * src_weight + previous_color_clamped * history_weight) / max(src_weight + history_weight, 0.00001);
+	vec3 final_color = (current_color * src_weight + history_color_clamped * history_weight) / max(src_weight + history_weight, 0.00001);
 
 	if (ycocg == 1)
 	    final_color = ycocg_to_rgb(final_color);
 
-	// imageStore(images_rgba32f[resolve_id], texel_coord, vec4(final_color, 1.0));
-	imageStore(images_rgba32f[resolve_id], texel_coord, vec4(previous_color, 1.0));
+	imageStore(images_rgba32f[resolve_id], texel_coord, vec4(final_color, 1.0));
 }

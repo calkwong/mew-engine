@@ -23,7 +23,7 @@ layout(push_constant) uniform constants
     MaterialBuffer material_buffer;
     OITBuffer oit_buffer;
     PrefixSumBuffer prefix_sum_buffer;
-    vec2 jitter_offset;
+    vec4 jitter_offset;
 };
 
 layout (location = 0) perprimitiveEXT out uint out_draw_id[];
