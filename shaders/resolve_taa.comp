@@ -5,27 +5,26 @@
 // https://advances.realtimerendering.com/s2014/#_HIGH-QUALITY_TEMPORAL_SUPERSAMPLING
 // https://developer.download.nvidia.com/gameworks/events/GDC2016/msalvi_temporal_supersampling.pdf
 
-#version 450
+#version 460
 
 #extension GL_GOOGLE_include_directive : require
 
 #include "bindings.glsl"
+#include "buffer_references.glsl"
 
-layout (location = 0) in vec2 in_uv;
+layout (local_size_x = 32, local_size_y = 32) in;
 
-layout (location = 0) out vec4 out_color;
-
-layout( push_constant ) uniform constants
+layout (push_constant) uniform constants
 {
 	vec2 screen_size;
-	vec2 current_jitter;
 	uint color_id;
 	uint accum_id;
+	uint resolve_id;
 	uint depth_id;
 	uint velocity_id;
 	uint variance_clipping;
 	uint history_filter;
-	uint local_filter;
+	uint local_filter; // unused
 	uint ycocg;
 	uint depth_dilation;
 	uint weigh_luminance;
@@ -138,7 +137,7 @@ vec3 sample_texture_catmull_rom(vec2 uv, uint texture_index, vec2 resolution) {
     return result;
 }
 
-// Optimized ver from Inside/playdeadgames 
+// Optimized ver from Inside/playdeadgames
 vec4 clip_aabb(vec3 aabb_min, vec3 aabb_max, vec4 q, float average_alpha)
 {
 	// note: only clips towards aabb center (but fast!)
@@ -158,8 +157,14 @@ vec4 clip_aabb(vec3 aabb_min, vec3 aabb_max, vec4 q, float average_alpha)
 
 void main()
 {
-	vec2 uv = in_uv;
-	
+    ivec2 texel_coord = ivec2(gl_GlobalInvocationID.xy);
+
+    if (texel_coord.x >= screen_size.x || texel_coord.y >= screen_size.y)
+        return;
+
+	vec2 uv = vec2(texel_coord) + vec2(0.5);
+	uv /= screen_size;
+
 	// depth dilation
 	vec2 velocity_uv;
 	if (depth_dilation == 1)
@@ -179,14 +184,14 @@ void main()
 				}
 			}
 		}
-	
+
 		velocity_uv = texture(sampler2D(textures[velocity_id], samplers[NEAREST_SAMPLER]), uv + closest_uv_offset).rg;
 	}
 	else
 	{
-		velocity_uv = texture(sampler2D(textures[velocity_id], samplers[NEAREST_SAMPLER]), uv).rg; 
+		velocity_uv = texture(sampler2D(textures[velocity_id], samplers[NEAREST_SAMPLER]), uv).rg;
 	}
-	
+
 	// alternative: blend this with a 5 taps '+' pattern per Karis UE4
 	// no need max(sample, 0.0) to ensure no garbage values?
 	vec3 ctl = sample_color(color_id, NEAREST_SAMPLER, uv + (vec2(-1, 1) / screen_size));
@@ -214,7 +219,7 @@ void main()
 	else
 		previous_color = sample_color(accum_id, LINEAR_SAMPLER, reprojected_uv);
 	vec3 previous_color_clamped;
-	
+
 	// https://developer.download.nvidia.com/gameworks/events/GDC2016/msalvi_temporal_supersampling.pdf
 	if (variance_clipping == 1)
 	{
@@ -228,7 +233,7 @@ void main()
 		vec3 sigma = sqrt(abs((m2 * rcp_samples) - (mu * mu)));
 		vec3 minc = mu - gamma * sigma;
 		vec3 maxc = mu + gamma * sigma;
-		previous_color_clamped = clip_aabb(minc, maxc, vec4(clamp(previous_color, min_color, max_color), 1.0), 1.0).xyz; 
+		previous_color_clamped = clip_aabb(minc, maxc, vec4(clamp(previous_color, min_color, max_color), 1.0), 1.0).xyz;
 	}
 	else
 	{
@@ -238,7 +243,7 @@ void main()
     // TODO: fix flickering
 	float src_weight = 0.1;
 	float history_weight = 0.9;
-	
+
 	if (weigh_luminance == 1)
 	{
 		float luminance_src = luminance(current_color);
@@ -247,11 +252,12 @@ void main()
 		src_weight *= 1.0 / (1.0 + luminance_src);
 		history_weight *= 1.0 / (1.0 + luminance_history);
 	}
-	
+
 	vec3 final_color = (current_color * src_weight + previous_color_clamped * history_weight) / max(src_weight + history_weight, 0.00001);
 
 	if (ycocg == 1)
 	    final_color = ycocg_to_rgb(final_color);
 
-	out_color = vec4(final_color, 1.0);
+	// imageStore(images_rgba32f[resolve_id], texel_coord, vec4(final_color, 1.0));
+	imageStore(images_rgba32f[resolve_id], texel_coord, vec4(previous_color, 1.0));
 }

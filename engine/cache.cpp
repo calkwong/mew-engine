@@ -51,9 +51,10 @@ uint32_t TextureCache::get_hdri() const
 	return hdri_id;
 }
 
-uint32_t TextureCache::get_accumulation_buffer(uint32_t flip) const
+// note: assuming FIF == 2; pass in framenumber % FIF
+uint32_t TextureCache::get_accumulation_buffer(uint32_t offset) const
 {
-	return accum_id + flip;
+	return accum_id + offset;
 }
 
 uint32_t TextureCache::get_draw_image() const
@@ -121,6 +122,16 @@ void ImageCache::set_draw_image(uint32_t id)
 uint32_t ImageCache::get_draw_image() const
 {
 	return draw_id;
+}
+
+uint32_t ImageCache::get_accumulation_buffer(uint32_t offset) const
+{
+	return accum_id + offset;
+}
+
+void ImageCache::set_accumulation_buffer(uint32_t id)
+{
+    accum_id = id;
 }
 
 uint32_t ImageCache::get_hdri() const

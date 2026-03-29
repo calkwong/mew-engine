@@ -26,10 +26,12 @@ layout(push_constant) uniform constants
     vec2 jitter_offset;
 };
 
-layout(location = 0) perprimitiveEXT out uint out_draw_id[];
-layout(location = 1) perprimitiveEXT out uint out_triangle_id[];
-layout(location = 2) out vec2 out_uv[];
-layout(location = 3) out uint out_material_id[];
+layout (location = 0) perprimitiveEXT out uint out_draw_id[];
+layout (location = 1) perprimitiveEXT out uint out_triangle_id[];
+layout (location = 2) out vec2 out_uv[];
+layout (location = 3) out uint out_material_id[];
+layout (location = 4) out vec4 out_clip_pos[];
+layout (location = 5) out vec4 out_prev_clip_pos[];
 
 shared vec3 vertex_clip[64];
 
@@ -78,10 +80,14 @@ void main()
         vec3 pos = vec3(v.px, v.py, v.pz);
         vec4 world_pos = vec4(rotate_quat(pos, o.orientation) * o.scale + o.translation, 1.0);
 
-        vec4 clip_pos = uniforms.view_proj * world_pos;
-
         out_uv[i] = vec2(v.uv_x, v.uv_y);
         out_material_id[i] = o.material_id; // only used for alpha clipping
+
+        vec4 clip_pos = uniforms.view_proj * world_pos;
+        vec4 prev_clip_pos = uniforms.prev_view_proj * world_pos;
+
+        out_clip_pos[i] = clip_pos;
+        out_prev_clip_pos[i] = prev_clip_pos;
 
         // TODO: only account for screen size if doing small primitive culling
         if (OPAQUE == 1)

@@ -26,7 +26,7 @@ struct TextureCache
 	uint32_t get_depth_image() const;
 	uint32_t get_depth_pyramid_image() const;
 	uint32_t get_shadowmap() const;
-	uint32_t get_accumulation_buffer(uint32_t flip) const;
+	uint32_t get_accumulation_buffer(uint32_t offset) const;
 	uint32_t get_hdri() const;
 
 private:
@@ -38,9 +38,6 @@ private:
 	uint32_t shadowmap_id{};
 	uint32_t accum_id{};
 	uint32_t hdri_id{};
-
-	// pingpong
-	int accum_pp{-1};
 };
 
 struct SamplerCache
@@ -60,14 +57,17 @@ struct ImageCache
 	void set_depth_pyramid_image(uint32_t id);
 	void set_hdri(uint32_t id);
 	void set_draw_image(uint32_t id);
+	void set_accumulation_buffer(uint32_t id);
 	uint32_t get_depth_pyramid_image() const;
 	uint32_t get_hdri() const;
 	uint32_t get_draw_image() const;
+	uint32_t get_accumulation_buffer(uint32_t offset) const;
 
 private:
 	uint32_t depth_pyramid_id{};
 	uint32_t hdri_id{};
 	uint32_t draw_id{};
+	uint32_t accum_id{};
 };
 
 struct ShaderProgram;

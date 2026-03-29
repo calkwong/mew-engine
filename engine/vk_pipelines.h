@@ -38,7 +38,7 @@ struct TonemapPC
 {
 	VkDeviceAddress luminance_avg_buffer{};
 	glm::vec2 screen_size{};
-	uint32_t image_id{};
+	uint32_t draw_id{};
 	uint32_t autoexposure{};
 	uint32_t tonemap_func{};
 };
@@ -122,9 +122,9 @@ struct SkyboxPushConstants
 struct TAAResolvePC
 {
 	glm::vec2 screen_size{};
-	glm::vec2 current_jitter{};
 	uint32_t color_id{};
 	uint32_t accum_id{}; // previous frame's accumulation/history buffer
+	uint32_t resolve_id{};
 	uint32_t depth_id{};
 	uint32_t velocity_id{};
 	uint32_t variance_clipping{};

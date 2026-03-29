@@ -193,8 +193,7 @@ public:
 	void update_scene();
 	void immediate_submit(std::function<void(VkCommandBuffer cmd)>&& func) const;
 	void register_object(const Node* node, const glm::mat4& top_matrix);
-	void execute_deferred_shading(VkCommandBuffer cmd, VkImageView view);
-	void execute_taa_resolve(VkCommandBuffer cmd, VkImageView view);
+	void resolve_taa(VkCommandBuffer cmd);
 	void update_cascade();
 	void draw_imgui(VkCommandBuffer cmd, VkImageView swapchain_view);
 	void upload_buffers();

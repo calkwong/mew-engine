@@ -264,15 +264,16 @@ void CVarSystemImpl::draw_imgui_editor()
 	// 	ImGui::TreePop();
 	// }
 
-	// if (ImGui::TreeNodeEx("Misc", ImGuiTreeNodeFlags_DefaultOpen))
-	// {
-	// 	edit_parameters(get_cvar("misc.draw_distance"));
-	// 	edit_parameters(get_cvar("misc.autoexposure"));
-	// 	edit_parameters(get_cvar("misc.tonemap"));
-	// 	edit_parameters(get_cvar("misc.freeze_camera"));
+	if (ImGui::TreeNodeEx("Misc", ImGuiTreeNodeFlags_DefaultOpen))
+	{
+		// edit_parameters(get_cvar("misc.draw_distance"));
+		edit_parameters(get_cvar("misc.autoexposure"));
+		edit_parameters(get_cvar("misc.tonemap"));
+		edit_parameters(get_cvar("misc.tonemap_func"));
+		edit_parameters(get_cvar("misc.freeze_camera"));
 
-	// 	ImGui::TreePop();
-	// }
+		ImGui::TreePop();
+	}
 
 	if (ImGui::TreeNodeEx("TAA", ImGuiTreeNodeFlags_DefaultOpen))
 	{

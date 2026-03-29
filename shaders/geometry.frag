@@ -10,6 +10,8 @@ layout (location = 0) in vec3 in_normal;
 layout (location = 1) in vec2 in_uv;
 layout (location = 2) in vec4 in_tangent;
 layout (location = 3) in flat uint in_material_id;
+layout (location = 4) in vec4 in_clip_pos;
+layout (location = 5) in vec4 in_prev_clip_pos;
 
 layout (location = 0) out vec4 out_albedo;
 layout (location = 1) out vec4 out_normal;
@@ -94,10 +96,15 @@ void main()
 	N = normalize(in_normal);
 #endif
 
-    vec2 velocity = vec2(1.);
+
+    vec2 curr_ndc = in_clip_pos.xy / in_clip_pos.w;
+    vec2 prev_ndc = in_prev_clip_pos.xy / in_prev_clip_pos.w;
+    vec2 velocity = curr_ndc - prev_ndc;
+    velocity = velocity * vec2(0.5, -0.5) + 0.5;
+    velocity -= jitter_offset;
 
     out_albedo = albedo;
     out_normal = vec4(N, 1);
     out_metal_roughness = vec2(metallic, perceptual_roughness);
-    out_velocity = vec2(velocity);
+    out_velocity = velocity;
 }

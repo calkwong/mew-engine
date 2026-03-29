@@ -56,7 +56,7 @@ AutoCVar_Int CVAR_RENDER_POINT_LIGHTS{ "render.point_lights", "Point lights", 0,
 AutoCVar_Int CVAR_RENDER_OCCLUSION_CULL{ "render.occlusion_cull", "Occlusion culling", 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_LOD{ "render.lod", "LODs", 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_SHADOWS{ "render.shadows", "Shadows", 0, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_RENDER_TAA{ "render.taa", "TAA", 0, CVarFlags::EditCheckbox};// | CVarFlags::EditHide };
+AutoCVar_Int CVAR_RENDER_TAA{ "render.taa", "TAA", 1, CVarFlags::EditCheckbox};// | CVarFlags::EditHide };
 
 AutoCVar_Int CVAR_SHADOWS_PCF{ "shadows.pcf", "PCF", 1, CVarFlags::EditCheckbox };
 AutoCVar_Float CVAR_SHADOWS_CASCADE_SPLIT{ "shadows.cascade_split", "Cascades log factor", 0.95f, CVarFlags::EditDragFloat, 0.f, 1.f, 0.005f };
@@ -67,15 +67,16 @@ AutoCVar_Int CVAR_DEBUG_TEXTURES{ "debug.textures", "Debug textures", 0, CVarFla
 
 AutoCVar_Int CVAR_MISC_DRAW_DISTANCE{ "misc.draw_distance", "Draw distance", 1000, CVarFlags::EditSliderInt, 100, 1000, 100 };
 AutoCVar_Int CVAR_MISC_AUTOEXPOSURE{ "misc.autoexposure", "Autoexposure", 0, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_MISC_TONEMAP{ "misc.tonemap", "Tonemapping", 0, CVarFlags::EditSliderInt, 0, 2, 1 };
+AutoCVar_Int CVAR_MISC_TONEMAP{ "misc.tonemap", "Tonemapping", 1, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_MISC_TONEMAP_FUNC{ "misc.tonemap_func", "Tonemapping function", 0, CVarFlags::EditSliderInt, 0, 3, 1 };
 AutoCVar_Int CVAR_MISC_FREEZE_CAMERA{ "misc.freeze_camera", "Freeze camera", 0, CVarFlags::EditCheckbox };
 
-AutoCVar_Int CVAR_TAA_VARIANCE_CLIP{ "taa.variance_clip", "Variance clipping", 1, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_TAA_VARIANCE_CLIP{ "taa.variance_clip", "Variance clipping", 0, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TAA_CATMULL_ROM{ "taa.catmull_rom", "Catmull filter", 0, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TAA_MITCHELL{ "taa.mitchell", "Mitchell filter", 0, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TAA_YCOCG{ "taa.ycogy", "YCoCg", 0, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_TAA_DEPTH_DILATION{ "taa.depth_dilation", "Depth dilation", 1, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_TAA_LUMINANCE_WEIGHING{ "taa.luminance_weighing", "Luminance weighing", 1, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_TAA_DEPTH_DILATION{ "taa.depth_dilation", "Depth dilation", 0, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_TAA_LUMINANCE_WEIGHING{ "taa.luminance_weighing", "Luminance weighing", 0, CVarFlags::EditCheckbox };
 
 AutoCVar_Float CVAR_PBR_METALLIC{ "pbr.metallic", "Metallic", 0.0f, CVarFlags::EditDragFloat, 0.f, 1.f, 0.05f };
 AutoCVar_Float CVAR_PBR_ROUGHNESS{ "pbr.roughness", "Roughness", 0.5f, CVarFlags::EditDragFloat, 0.f, 1.f, 0.05f };
@@ -205,14 +206,14 @@ void VulkanEngine::init(const std::string& file_path)
 	build_cluster_grid(); // TODO: support draw distance change
 	init_gi();
 
-	// first frame transitions to avoid validation errors
+	// first_frame transitions to avoid validation errors
 	{
 		immediate_submit([&](VkCommandBuffer cmd)
 			{
-				// previous frame's output buffer
+				// previous frame blit to swapchain
 				vkutil::transition_image(cmd, accumulation_buffers[(frame_number + 1) % 2].image,
 					VK_IMAGE_LAYOUT_UNDEFINED,
-					VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+					VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 					0, 0, 0, 0
 				);
 
@@ -220,7 +221,7 @@ void VulkanEngine::init(const std::string& file_path)
 				// TODO: figure out a good default for luminance avg
 				vkCmdFillBuffer(cmd, render_scene.luminance_avg_buffer.buffer, 0, VK_WHOLE_SIZE, 0x40000000); // 0x40000000 = 2.0f
 
-			vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+				vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
 			}
 		);
 	}
@@ -983,18 +984,6 @@ void VulkanEngine::draw()
 			)
 		);
 
-		// obsolete: if TAA, this is used in resolve attachment; else as deferred lighting attachment
-		// image_barriers.emplace_back(image_barrier(
-		// 		draw_image.image,
-		// 		VK_IMAGE_LAYOUT_UNDEFINED, // from prev frame's blit to swapchain
-		// 		VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-		// 		VK_PIPELINE_STAGE_2_BLIT_BIT,
-		// 		VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-		// 		VK_ACCESS_2_TRANSFER_READ_BIT,
-		// 		VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT
-		// 	)
-		// );
-
 		image_barriers.emplace_back(image_barrier(
 				draw_image.image,
 				VK_IMAGE_LAYOUT_UNDEFINED, // from prev frame's blit to swapchain
@@ -1006,90 +995,15 @@ void VulkanEngine::draw()
 			)
 		);
 
-		if (CVAR_RENDER_TAA.get())
-		{
-			// previous frame history buffer
-			image_barriers.emplace_back(image_barrier(
-					accumulation_buffers[frame_number % 2].image,
-					VK_IMAGE_LAYOUT_UNDEFINED,
-					VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-					VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-					VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-					VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-					VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT
-				)
-			);
-		}
-
 		pipeline_barrier(cmd, nullptr, 0, image_barriers.data(), image_barriers.size());
 		image_barriers.clear();
-
-		// TODO: likely obsolete, revisit when fixing TAA
-		VkImageView view = CVAR_RENDER_TAA.get() ? accumulation_buffers[frame_number % 2].view : draw_image.view;
-		if (first_frame)
-		{
-			first_frame = false;
-			view = draw_image.view;
-		}
 
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 14);
 		resolve_shading(cmd);
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 15);
 	}
 
-	if (CVAR_RENDER_TAA.get())
-	{
-		// current frame output buffer
-		image_barriers.emplace_back(image_barrier(
-				accumulation_buffers[frame_number % 2].image,
-				VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-				VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-				VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-				VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-				VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-				VK_ACCESS_2_SHADER_READ_BIT
-			)
-		);
-
-		// previous frame output buffer
-		image_barriers.emplace_back(image_barrier(
-				accumulation_buffers[(frame_number + 1) % 2].image,
-				VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-				VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-				VK_PIPELINE_STAGE_2_BLIT_BIT,
-				VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-				VK_ACCESS_2_TRANSFER_WRITE_BIT,
-				VK_ACCESS_2_SHADER_READ_BIT
-			)
-		);
-
-		pipeline_barrier(cmd, nullptr, 0, image_barriers.data(), image_barriers.size());
-		image_barriers.clear();
-
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 24);
-		if (!first_frame)
-			execute_taa_resolve(cmd, draw_image.view);
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 25);
-
-		// copy resolve to current output buffer
-		image_barriers.emplace_back(image_barrier(
-				accumulation_buffers[frame_number % 2].image,
-				VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-				VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-				VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-				VK_PIPELINE_STAGE_2_BLIT_BIT,
-				VK_ACCESS_2_SHADER_READ_BIT,
-				VK_ACCESS_2_TRANSFER_WRITE_BIT
-			)
-		);
-	}
-	else
-	{
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 24);
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 25);
-	}
-
-	// TODO: verify that luminance histogram is built post TAA resolve
+	// prepare for reading/writing in tonemap
 	image_barriers.emplace_back(image_barrier(
 			draw_image.image,
 			VK_IMAGE_LAYOUT_GENERAL,
@@ -1154,7 +1068,7 @@ void VulkanEngine::draw()
 	}
 
 	// tonemapping pass
-	if (CVAR_DEBUG_TEXTURES.get() == 0)
+	if (CVAR_MISC_TONEMAP.get() && CVAR_DEBUG_TEXTURES.get() == 0)
 	{
 		ShaderPass current_pass = *shader_passes["tonemap"];
 		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
@@ -1166,9 +1080,9 @@ void VulkanEngine::draw()
 		TonemapPC pc{};
 		pc.luminance_avg_buffer = get_buffer_address(device, render_scene.luminance_avg_buffer.buffer);
 		pc.screen_size = glm::vec2(draw_image.extent.width, draw_image.extent.height);
-		pc.image_id = image_cache.get_draw_image();
+		pc.draw_id = image_cache.get_draw_image();
 		pc.autoexposure = CVAR_MISC_AUTOEXPOSURE.get();
-		pc.tonemap_func = CVAR_MISC_TONEMAP.get();
+		pc.tonemap_func = CVAR_MISC_TONEMAP_FUNC.get();
 
 		vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(TonemapPC), &pc);
 		auto groupcount_x = get_groupcount(draw_image.extent.width, WARP_SIZE);
@@ -1176,16 +1090,155 @@ void VulkanEngine::draw()
 		vkCmdDispatch(cmd, groupcount_x, groupcount_y, 1);
 	}
 
-	// OBSOLETE ----------- TAA or not, this is a color attachment prior to using as blit src
-	// NEW ---------------- draw_image from luminance sampling -> tonemap -> blit
+	if (CVAR_RENDER_TAA.get())
+	{
+	    if (!first_frame) // normal taa resolve
+		{
+      		// resolve buffer this frame - history buffer last frame
+      		image_barriers.emplace_back(image_barrier(
+    				accumulation_buffers[frame_number % 2].image,
+    				VK_IMAGE_LAYOUT_UNDEFINED,
+    				VK_IMAGE_LAYOUT_GENERAL,
+    				VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+    				VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+    				VK_ACCESS_2_SHADER_READ_BIT,
+    				VK_ACCESS_2_SHADER_WRITE_BIT
+     			)
+      		);
+
+      		// history buffer this frame - reverse tonemap last frame (do we need a barrier?)
+      		image_barriers.emplace_back(image_barrier(
+    				accumulation_buffers[(frame_number + 1) % 2].image,
+    				VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+    				VK_IMAGE_LAYOUT_GENERAL,
+    				VK_PIPELINE_STAGE_2_BLIT_BIT,
+    				VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+    				VK_ACCESS_2_TRANSFER_READ_BIT,
+    				VK_ACCESS_2_SHADER_READ_BIT
+     			)
+      		);
+
+            // draw image post tonemapping for sampling in resolve_taa
+      		image_barriers.emplace_back(image_barrier(
+                    draw_image.image,
+         			VK_IMAGE_LAYOUT_GENERAL,
+         			VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+         			VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+         			VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+         			VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
+         			VK_ACCESS_2_SHADER_SAMPLED_READ_BIT
+     			)
+      		);
+		}
+	    else // prepare to copy draw image
+		{
+		    // resolve buffer this frame - history buffer last frame
+      		image_barriers.emplace_back(image_barrier(
+    				accumulation_buffers[frame_number % 2].image,
+    				VK_IMAGE_LAYOUT_UNDEFINED,
+    				VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+    				VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+    				VK_PIPELINE_STAGE_2_BLIT_BIT,
+    				VK_ACCESS_2_SHADER_READ_BIT,
+    				VK_ACCESS_2_TRANSFER_WRITE_BIT
+     			)
+      		);
+
+            // draw image post tonemapping for sampling in resolve_taa
+      		image_barriers.emplace_back(image_barrier(
+                    draw_image.image,
+         			VK_IMAGE_LAYOUT_GENERAL,
+         			VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+         			VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+         			VK_PIPELINE_STAGE_2_BLIT_BIT,
+         			VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
+         			VK_ACCESS_2_TRANSFER_READ_BIT
+     			)
+      		);
+		}
+
+		pipeline_barrier(cmd, nullptr, 0, image_barriers.data(), image_barriers.size());
+		image_barriers.clear();
+
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 24);
+
+		if (!first_frame)
+		{
+		    resolve_taa(cmd);
+
+    		// resolve buffer this frame - copy to swapchain temporarily!
+    		image_barriers.emplace_back(image_barrier(
+    				accumulation_buffers[frame_number % 2].image,
+    				VK_IMAGE_LAYOUT_GENERAL,
+    				VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+    				VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+    				VK_PIPELINE_STAGE_2_BLIT_BIT,
+    				VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+    				VK_ACCESS_2_TRANSFER_READ_BIT
+    			)
+    		);
+
+    		// note: this is redundant, just to be consistent with old code for now
+    		image_barriers.emplace_back(image_barrier(
+              		draw_image.image,
+              		VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+              		VK_IMAGE_LAYOUT_GENERAL,
+              		VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+              		VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+              		VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
+              		VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT
+     			)
+      		);
+		}
+		else
+		{
+            vkutil::copy_image(cmd, draw_image.image, accumulation_buffers[frame_number % 2].image, draw_extent, draw_extent);
+
+      		image_barriers.emplace_back(image_barrier(
+    				accumulation_buffers[frame_number % 2].image,
+    				VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+    				VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+    				VK_PIPELINE_STAGE_2_BLIT_BIT,
+    				VK_PIPELINE_STAGE_2_BLIT_BIT,
+    				VK_ACCESS_2_TRANSFER_WRITE_BIT,
+    				VK_ACCESS_2_TRANSFER_READ_BIT
+     			)
+      		);
+
+      		image_barriers.emplace_back(image_barrier(
+                    draw_image.image,
+         			VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+         			VK_IMAGE_LAYOUT_GENERAL,
+         			VK_PIPELINE_STAGE_2_BLIT_BIT,
+         			VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+         			VK_ACCESS_2_TRANSFER_READ_BIT,
+         			VK_ACCESS_2_SHADER_STORAGE_READ_BIT
+     			)
+      		);
+		}
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 25);
+
+		pipeline_barrier(cmd, nullptr, 0, image_barriers.data(), image_barriers.size());
+		image_barriers.clear();
+	}
+	else
+	{
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 24);
+		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 25);
+	}
+
+	first_frame = false;
+
+	// note: previously luminance sampling -> tonemap -> blit
+	// currently, taa sample -> blit layout to be consistent with old code
 	image_barriers.emplace_back(image_barrier(
-		    draw_image.image,
-		    VK_IMAGE_LAYOUT_GENERAL,
-		    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-		    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-		    VK_PIPELINE_STAGE_2_BLIT_BIT,
-		    VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-		    VK_ACCESS_2_TRANSFER_READ_BIT
+	        draw_image.image,
+			VK_IMAGE_LAYOUT_GENERAL,
+      		VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+      		VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+      		VK_PIPELINE_STAGE_2_BLIT_BIT,
+      		VK_ACCESS_2_SHADER_STORAGE_READ_BIT,
+      		VK_ACCESS_2_TRANSFER_READ_BIT
 	    )
 	);
 
@@ -1205,9 +1258,12 @@ void VulkanEngine::draw()
 
 	if (CVAR_RENDER_TAA.get())
 	{
-		vkutil::copy_image(cmd, draw_image.image, accumulation_buffers[frame_number % 2].image, draw_extent, draw_extent);
+		vkutil::copy_image(cmd, accumulation_buffers[frame_number % 2].image, swapchain_images[swapchain_image_idx], draw_extent, draw_extent);
 	}
-	vkutil::copy_image(cmd, draw_image.image, swapchain_images[swapchain_image_idx], draw_extent, swapchain_extent);
+	else
+	{
+	    vkutil::copy_image(cmd, draw_image.image, swapchain_images[swapchain_image_idx], draw_extent, swapchain_extent);
+	}
 
 	vkutil::transition_image(
 	    cmd,
@@ -1571,16 +1627,19 @@ void VulkanEngine::init_swapchain()
 		velocity_buffer = create_image(device, allocator, draw_image_extent, VK_FORMAT_R16G16_SFLOAT, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT);
 		texture_cache.add_texture(velocity_buffer.view);
 
-		auto accum_id = 0;
 		for (int i = 0; i < 2; ++i) // ping pong
 		{
-			accumulation_buffers[i] = create_image(device, allocator, draw_image_extent, VK_FORMAT_R16G16B16A16_SFLOAT,
-				VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_IMAGE_ASPECT_COLOR_BIT
+			accumulation_buffers[i] = create_image(device, allocator, draw_image_extent, VK_FORMAT_R32G32B32A32_SFLOAT,
+				VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+			    VK_IMAGE_ASPECT_COLOR_BIT
 			);
-			accum_id = texture_cache.add_texture(accumulation_buffers[i].view);
+			auto texture_accum_id = texture_cache.add_texture(accumulation_buffers[i].view);
+			auto image_accum_id = image_cache.add_texture(accumulation_buffers[i].view);
+
 			if (i == 0)
 			{
-				texture_cache.set_accumulation_buffer(accum_id);
+				texture_cache.set_accumulation_buffer(texture_accum_id);
+				image_cache.set_accumulation_buffer(image_accum_id);
 			}
 		}
 	}
@@ -1809,7 +1868,7 @@ void VulkanEngine::init_pipelines()
 	shader_cache.add_shader(device, "mesh.vert", VK_SHADER_STAGE_VERTEX_BIT);
 	shader_cache.add_shader(device, "geometry.frag", VK_SHADER_STAGE_FRAGMENT_BIT);
 	shader_cache.add_shader(device, "meshlet.mesh", VK_SHADER_STAGE_MESH_BIT_EXT);
-	shader_cache.add_shader(device, "full_screen.vert", VK_SHADER_STAGE_VERTEX_BIT);
+	// shader_cache.add_shader(device, "full_screen.vert", VK_SHADER_STAGE_VERTEX_BIT);
 	shader_cache.add_shader(device, "mlab.frag", VK_SHADER_STAGE_FRAGMENT_BIT);
 	shader_cache.add_shader(device, "depth.vert", VK_SHADER_STAGE_VERTEX_BIT);
 	shader_cache.add_shader(device, "depth.frag", VK_SHADER_STAGE_FRAGMENT_BIT);
@@ -1819,7 +1878,7 @@ void VulkanEngine::init_pipelines()
 	shader_cache.add_shader(device, "vis_meshlet.mesh", VK_SHADER_STAGE_MESH_BIT_EXT);
 
 	// taa
-	shader_cache.add_shader(device, "taa_resolve.frag", VK_SHADER_STAGE_FRAGMENT_BIT);
+	shader_cache.add_shader(device, "resolve_taa.comp", VK_SHADER_STAGE_COMPUTE_BIT);
 
 	// gi
 	shader_cache.add_shader(device, "equirectangular_to_cubemap.comp", VK_SHADER_STAGE_COMPUTE_BIT);
@@ -1867,6 +1926,7 @@ void VulkanEngine::init_pipelines()
 	shader_passes["resolve_vbuffer"] = vkutil::build_shader(device, compute_builder, shader_cache["resolve_vbuffer.comp"], descriptor_layouts, sizeof(DeferredPushConstants));
 	shader_passes["resolve_gbuffer"] = vkutil::build_shader(device, compute_builder, shader_cache["resolve_gbuffer.comp"], descriptor_layouts, sizeof(DeferredPushConstants));
 	shader_passes["compact_dispatch"] = vkutil::build_shader(device, compute_builder, shader_cache["compact_dispatch.comp"], descriptor_layouts, sizeof(CompactDispatchPC));
+	shader_passes["resolve_taa"] = vkutil::build_shader(device, compute_builder, shader_cache["resolve_taa.comp"], descriptor_layouts, sizeof(TAAResolvePC));
 
 	// mrt
 	builder.set_input_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
@@ -1964,13 +2024,13 @@ void VulkanEngine::init_pipelines()
 	builder.dynamic_state.pop_back(); // reset
 	builder.rasterization.depthClampEnable = VK_FALSE; // reset
 
-	color_attachment_formats.clear();
-	color_attachment_formats.push_back(draw_image.format);
-	builder.set_color_attachment_format(color_attachment_formats);
-	builder.disable_depth();
-	builder.set_depth_format(VK_FORMAT_UNDEFINED);
-	builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-	shader_passes["taa_resolve"] = vkutil::build_shader(device, builder, { shader_cache["full_screen.vert"], shader_cache["taa_resolve.frag"] }, descriptor_layouts, sizeof(TAAResolvePC));
+	// color_attachment_formats.clear();
+	// color_attachment_formats.push_back(draw_image.format);
+	// builder.set_color_attachment_format(color_attachment_formats);
+	// builder.disable_depth();
+	// builder.set_depth_format(VK_FORMAT_UNDEFINED);
+	// builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
+	// shader_passes["taa_resolve"] = vkutil::build_shader(device, builder, { shader_cache["full_screen.vert"], shader_cache["taa_resolve.frag"] }, descriptor_layouts, sizeof(TAAResolvePC));
 
 	builder.enable_depth(false, VK_COMPARE_OP_GREATER_OR_EQUAL);
 	color_attachment_formats.clear();
@@ -2529,129 +2589,20 @@ void VulkanEngine::immediate_submit(std::function<void(VkCommandBuffer cmd)>&& f
 	VK_CHECK(vkWaitForFences(device, 1, &imm_fence, true, 9999999999));
 }
 
-void VulkanEngine::execute_deferred_shading(VkCommandBuffer cmd, VkImageView view)
+void VulkanEngine::resolve_taa(VkCommandBuffer cmd)
 {
-	VkViewport viewport{};
-	viewport.x = 0;
-	viewport.y = static_cast<float>(draw_extent.height);
-	viewport.width = static_cast<float>(draw_extent.width);
-	viewport.height = -static_cast<float>(draw_extent.height);
-	viewport.minDepth = 0.0f;
-	viewport.maxDepth = 1.0f;
-	vkCmdSetViewport(cmd, 0, 1, &viewport);
-
-	VkRect2D scissor{};
-	scissor.offset.x = 0;
-	scissor.offset.y = 0;
-	scissor.extent.width = draw_extent.width;
-	scissor.extent.height = draw_extent.height;
-	vkCmdSetScissor(cmd, 0, 1, &scissor);
-
-	VkRenderingAttachmentInfo color_attachment = vkinit::attachment_info(view, nullptr);
-	VkRenderingInfo render_info = vkinit::rendering_info(draw_extent, &color_attachment, nullptr);
-
-	vkCmdBeginRendering(cmd, &render_info);
-
-	ShaderPass current_pass{};
-	bool visibility_rendering = CVAR_RENDER_VBUFFER.get() && CVAR_RENDER_MESH_SHADERS.get();
-	if (visibility_rendering)
-	{
-		current_pass = *shader_passes["resolve_vbuffer"];
-	}
-	else
-	{
-		current_pass = *shader_passes["resolve_gbuffer"];
-	}
-	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
-
-	DeferredPushConstants pc{};
-
-	uint32_t cluster_x = get_groupcount(window_extent.width, CLUSTER_DIM);
-	uint32_t cluster_y = get_groupcount(window_extent.height, CLUSTER_DIM);
-	pc.cluster_size = glm::vec4(cluster_x, cluster_y, CLUSTER_DEPTH_SLICES, CLUSTER_DIM);
-	pc.screen_size = glm::vec2(window_extent.width, window_extent.height);
-
-	pc.light_buffer_address = get_buffer_address(device, light_buffer.buffer);
-	pc.light_index_buffer_address = get_buffer_address(device, light_index_buffer.buffer);
-	pc.light_grid_buffer_address = get_buffer_address(device, light_grid_buffer.buffer);
-	pc.oit_buffer_address = get_buffer_address(device, render_scene.oit_buffer.buffer);
-	pc.meshlet_indices_address = get_buffer_address(device, render_scene.meshlet_indices.buffer);
-	pc.meshlet_buffer_address = get_buffer_address(device, render_scene.meshlet_buffer.buffer);
-	pc.vertex_buffer_address = get_buffer_address(device, render_scene.vertex_buffer.buffer);
-	pc.object_buffer_address = get_buffer_address(device, render_scene.object_buffer.buffer);
-	pc.material_buffer_address = get_buffer_address(device, render_scene.material_buffer.buffer);
-	pc.sh_buffer_address = get_buffer_address(device, render_scene.sh_buffer.buffer);
-
-	pc.depth_id = texture_cache.get_depth_image();
-	pc.gbuffer_id = visibility_rendering ? texture_cache.get_visibility_buffer() : texture_cache.get_first_gbuffer();
-	pc.shadow_id = texture_cache.get_shadowmap();
-	pc.light_culling = CVAR_RENDER_POINT_LIGHTS.get();
-	pc.near = main_camera.near;
-
-	const float ratio = main_camera.far / main_camera.near;
-	pc.scale = static_cast<float>(CLUSTER_DEPTH_SLICES) / std::log(ratio);
-	pc.bias = static_cast<float>(CLUSTER_DEPTH_SLICES) * std::log(main_camera.near) / std::log(ratio);
-	pc.resolve_transparent = CVAR_RENDER_TRANSPARENT.get();
-	pc.shadows = CVAR_RENDER_SHADOWS.get();
-	pc.pcf = CVAR_SHADOWS_PCF.get();
-	pc.max_prefiltered_lod = static_cast<float>(std::floor(std::log2(static_cast<float>(std::max(prefiltered_envmap.extent.width, prefiltered_envmap.extent.height))))) + 1;
-	pc.metallic = CVAR_PBR_METALLIC.get();
-	pc.roughness = CVAR_PBR_ROUGHNESS.get();
-	pc.debug = CVAR_DEBUG_TEXTURES.get();
-	pc.map = CVAR_SHADOWS_CASCADE_SELECTION.get();
-
-	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(DeferredPushConstants), &pc);
-	vkCmdDraw(cmd, 3, 1, 0, 0);
-
-	stats.draw_count++;
-
-	vkCmdEndRendering(cmd);
-}
-
-void VulkanEngine::execute_taa_resolve(VkCommandBuffer cmd, VkImageView view)
-{
-	VkViewport viewport{};
-	viewport.x = 0;
-	viewport.y = static_cast<float>(draw_extent.height);
-	viewport.width = static_cast<float>(draw_extent.width);
-	viewport.height = -static_cast<float>(draw_extent.height);
-	viewport.minDepth = 0.0f;
-	viewport.maxDepth = 1.0f;
-	vkCmdSetViewport(cmd, 0, 1, &viewport);
-
-	VkRect2D scissor{};
-	scissor.offset.x = 0;
-	scissor.offset.y = 0;
-	scissor.extent.width = draw_extent.width;
-	scissor.extent.height = draw_extent.height;
-	vkCmdSetScissor(cmd, 0, 1, &scissor);
-
-	VkRenderingAttachmentInfo color_attachment = vkinit::attachment_info(view, nullptr); // TODO: load_op_dont_care?
-	VkRenderingInfo render_info = vkinit::rendering_info(draw_extent, &color_attachment, nullptr); // TODO: do we need depth?
-
-	vkCmdBeginRendering(cmd, &render_info);
-
-	ShaderPass current_pass = *shader_passes["taa_resolve"];
-	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
+	ShaderPass current_pass = *shader_passes["resolve_taa"];
+	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
 
 	TAAResolvePC pc{};
 	pc.screen_size = glm::vec2(static_cast<float>(draw_extent.width), static_cast<float>(draw_extent.height));
-	auto jitter_index = frame_number % 8;
-	float halton_x = 2.0f * Halton(jitter_index + 1, 2) - 1.0f;
-	float halton_y = 2.0f * Halton(jitter_index + 1, 3) - 1.0f;
-	float x = halton_x / static_cast<float>(draw_extent.width);
-	float y = halton_y / static_cast<float>(draw_extent.height);
-	pc.current_jitter = glm::vec2(x, y); // current jitter only
+	pc.color_id = texture_cache.get_draw_image();
 	pc.accum_id = texture_cache.get_accumulation_buffer((frame_number + 1) % 2);
-	pc.color_id = texture_cache.get_accumulation_buffer(frame_number % 2);
+	pc.resolve_id = image_cache.get_accumulation_buffer(frame_number % 2);
 	pc.depth_id = texture_cache.get_depth_image();
 	pc.velocity_id = texture_cache.get_visibility_buffer() + 1; // TODO: hardcoded, maybe give velocity its own setter/getter?
 	pc.variance_clipping = CVAR_TAA_VARIANCE_CLIP.get();
@@ -2661,12 +2612,10 @@ void VulkanEngine::execute_taa_resolve(VkCommandBuffer cmd, VkImageView view)
 	pc.depth_dilation = CVAR_TAA_DEPTH_DILATION.get();
 	pc.weigh_luminance = CVAR_TAA_LUMINANCE_WEIGHING.get();
 
-	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(TAAResolvePC), &pc);
-	vkCmdDraw(cmd, 3, 1, 0, 0);
-
-	stats.draw_count++;
-
-	vkCmdEndRendering(cmd);
+	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(TAAResolvePC), &pc);
+	auto groupcount_x = get_groupcount(draw_extent.width, WARP_SIZE);
+	auto groupcount_y = get_groupcount(draw_extent.height, WARP_SIZE);
+	vkCmdDispatch(cmd, groupcount_x, groupcount_y, 1);
 }
 
 void VulkanEngine::update_cascade()
@@ -3185,7 +3134,6 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass, ui
 	pc.oit_buffer_address = get_buffer_address(device, render_scene.oit_buffer.buffer);
 	pc.prefix_sum_buffer = get_buffer_address(device, render_scene.prefix_sum_buffer.buffer);
 
-	// TODO: currently used by visibility path only
 	pc.jitter_offset = glm::vec2(0.0);
 	for (int i = 0; i < 2; ++i)
 	{
@@ -3194,10 +3142,7 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass, ui
 		float halton_y = 2.0f * Halton(jitter_index + 1, 3) - 1.0f;
 		float x = halton_x / static_cast<float>(draw_extent.width);
 		float y = halton_y / static_cast<float>(draw_extent.height);
-		if (i == 0)
-			pc.jitter_offset += glm::vec2(x, y);
-		else
-			pc.jitter_offset -= glm::vec2(x, y);
+		pc.jitter_offset += glm::vec2(x, y);
 	}
 
 	if (!CVAR_RENDER_MESH_SHADERS.get())
@@ -3508,7 +3453,7 @@ void VulkanEngine::execute_light_culling(VkCommandBuffer cmd)
 
 void VulkanEngine::resolve_shading(VkCommandBuffer cmd)
 {
-ShaderPass current_pass{};
+    ShaderPass current_pass{};
 	bool visibility_rendering = CVAR_RENDER_VBUFFER.get() && CVAR_RENDER_MESH_SHADERS.get();
 	if (visibility_rendering)
 	{

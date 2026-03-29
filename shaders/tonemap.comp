@@ -12,7 +12,7 @@ layout( push_constant ) uniform constants
 {
 	LuminanceAvgBuffer luminance_avg_buffer;
 	vec2 screen_size;
-	uint image_id;
+	uint draw_id;
 	uint autoexpose;
 	uint tonemap_func;
 };
@@ -30,6 +30,12 @@ vec3 filmic_optimized(vec3 c)
 vec3 reinhard(vec3 c)
 {
 	return c / (vec3(1.0) + c);
+}
+
+vec3 reverse_reinhard(vec3 c)
+{
+    // return c / (vec3(1.0) - c);
+    return c;
 }
 
 // Minimal AgX implementation: https://iolite-engine.com/blog_posts/minimal_agx_implementation
@@ -94,7 +100,7 @@ void main()
 
 	if (texel_coord.x < screen_size.x && texel_coord.y < screen_size.y)
 	{
-		vec3 color = imageLoad(images_rgba32f[image_id], texel_coord).rgb;
+		vec3 color = imageLoad(images_rgba32f[draw_id], texel_coord).rgb;
 
 		float exposure = 1.0;
 
@@ -117,9 +123,10 @@ void main()
 				break;
 			case 1: color.xyz = linear_to_srgb(reinhard(color.xyz)); break;
 			case 2: color.xyz = filmic_optimized(color.xyz); break;
-			default: break; // clamp
+			case 3: color.xyz = linear_to_srgb(color.xyz); break; // OETF -> clamp
+			default: break; // clamp only
 		}
 
-		imageStore(images_rgba32f[image_id], texel_coord, vec4(color, 1.0));
+		imageStore(images_rgba32f[draw_id], texel_coord, vec4(color, 1.0));
 	}
 }
