@@ -50,7 +50,7 @@ constexpr bool USE_VALIDATION_LAYERS = true;
 
 AutoCVar_Int CVAR_RENDER_VBUFFER{ "render.vbuffer", "Vbuffer path", 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_MESH_SHADERS{ "render.mesh_shaders", "Mesh shaders path", 1, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_RENDER_ALPHACLIP{ "render.alphaclip", "Alphaclip", 0, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_RENDER_ALPHACLIP{ "render.alphaclip", "Alphaclip", 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_TRANSPARENT{ "render.transparent", "Transparent", 0, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_POINT_LIGHTS{ "render.point_lights", "Point lights", 0, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_OCCLUSION_CULL{ "render.occlusion_cull", "Occlusion culling", 1, CVarFlags::EditCheckbox };
@@ -75,6 +75,7 @@ AutoCVar_Int CVAR_TAA_VARIANCE_CLIP{ "taa.variance_clip", "Variance clipping", 1
 AutoCVar_Int CVAR_TAA_CATMULL_ROM{ "taa.catmull_rom", "Catmull filter", 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TAA_MITCHELL{ "taa.mitchell", "Mitchell filter", 0, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TAA_YCOCG{ "taa.ycogy", "YCoCg", 1, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_TAA_DYNAMIC{ "taa.dynamic", "Dynamic luma weights", 0, CVarFlags::EditCheckbox };
 
 AutoCVar_Float CVAR_PBR_METALLIC{ "pbr.metallic", "Metallic", 0.0f, CVarFlags::EditDragFloat, 0.f, 1.f, 0.05f };
 AutoCVar_Float CVAR_PBR_ROUGHNESS{ "pbr.roughness", "Roughness", 0.5f, CVarFlags::EditDragFloat, 0.f, 1.f, 0.05f };
@@ -1031,7 +1032,7 @@ void VulkanEngine::draw()
     	image_barriers.clear();
 	}
 
-	/*
+	/* currently broken, do not reenable
 	// last frame luminance avg & luminance buffer
 	if (CVAR_MISC_AUTOEXPOSURE.get())
 	{
@@ -1670,8 +1671,8 @@ void VulkanEngine::create_swapchain(uint32_t width, uint32_t height)
 	vkb::Swapchain vkbSwapchain = swapchainBuilder
 	                                  //.use_default_format_selection()
 	                                  .set_desired_format(VkSurfaceFormatKHR{ .format = swapchain_image_format, .colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR })
-	                                  // .set_desired_present_mode(VK_PRESENT_MODE_FIFO_KHR)
-	                                  .set_desired_present_mode(VK_PRESENT_MODE_IMMEDIATE_KHR)
+	                                  .set_desired_present_mode(VK_PRESENT_MODE_FIFO_KHR)
+	                                  // .set_desired_present_mode(VK_PRESENT_MODE_IMMEDIATE_KHR)
 	                                  .set_desired_extent(width, height)
 	                                  .add_image_usage_flags(VK_IMAGE_USAGE_TRANSFER_DST_BIT)
 	                                  .build()
@@ -2508,6 +2509,7 @@ void VulkanEngine::resolve_taa(VkCommandBuffer cmd)
 	pc.local_filter = CVAR_TAA_MITCHELL.get();
 	pc.ycocg = CVAR_TAA_YCOCG.get();
 	pc.valid_history = first_frame ? 0 : 1;
+	pc.dynamic = CVAR_TAA_DYNAMIC.get();
 	first_frame = false; // set this elsewhere?
 
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(TAAResolvePC), &pc);

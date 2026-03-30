@@ -6,6 +6,7 @@
 // https://developer.download.nvidia.com/gameworks/events/GDC2016/msalvi_temporal_supersampling.pdf
 
 // note: not optimized, targetting correctness
+// TODO: for each tile, extend borders slightly and perform texture load once into shared memory (inc. depth)
 
 #version 460
 
@@ -29,10 +30,11 @@ layout (push_constant) uniform constants
 	uint local_filter; // unused
 	uint ycocg;
 	uint valid_history; // valid when first_frame==false
+	uint dynamic_blend;
 };
 
-/*
 // https://github.com/TheRealMJP/MSAAFilter/blob/master/MSAAFilter/Resolve.hlsl
+// note: there is some scaling we may have to do
 float filter_cubic(float x, float B, float C)
 {
     float y = 0.0f;
@@ -43,15 +45,19 @@ float filter_cubic(float x, float B, float C)
     else if (x <= 2)
         y = (-B - 6 * C) * x3 + (6 * B + 30 * C) * x2 + (-12 * B - 48 * C) * x + (8 * B + 24 * C);
 
-    return y / 6.0f;
+    return y / 6.0;
 }
 
+// note: there is some scaling we may have to do
+// filter per axis and multiply their respective weights (see MJP link above),
+// or use length? https://github.com/h3r2tic/rtoy-samples/blob/main/assets/shaders/taa.glsl
 float filter_mitchell(float value)
 {
 	return filter_cubic(value, 1.0 / 3.0, 1.0 / 3.0);
 }
-*/
 
+// TODO: account for exposure: https://www.youtube.com/watch?v=nj4puag4hwc
+// we don't want to overdarken highlights
 // https://gpuopen.com/learn/optimized-reversible-tonemapper-for-resolve/
 vec3 tonemap(vec3 c)
 {
@@ -65,8 +71,11 @@ vec3 reverse_tonemap(vec3 c)
     return c / (1.0 - w);
 }
 
-vec3 rgb_to_ycocg(vec3 c)
+vec3 maybe_rgb_to_ycocg(vec3 c)
 {
+    if (ycocg == 0)
+        return c;
+
     float y = c.x / 4.0 + c.y / 2.0 + c.z / 4.0;
     float co = c.x / 2.0 - c.z / 2.0;
     float cg = -c.x / 4.0 + c.y / 2.0 - c.z / 4.0;
@@ -74,8 +83,14 @@ vec3 rgb_to_ycocg(vec3 c)
     return vec3(y, co, cg);
 }
 
-vec3 ycocg_to_rgb(vec3 c)
+// TODO: there are cases where we get black flickers and toggling YCOCG off seem to eliminate them, investigate!
+// they were not nans, but pure black pixels according to renderdoc
+// update: seem to no longer be able to reproduce this, may be fixed during refactor
+vec3 maybe_ycocg_to_rgb(vec3 c)
 {
+    if (ycocg == 0)
+        return c;
+
     float tmp = c.x - c.z;
     float r = tmp + c.y;
     float g = c.r + c.z;
@@ -86,12 +101,12 @@ vec3 ycocg_to_rgb(vec3 c)
 
 vec3 sample_color(uint texture_index, uint sampler_index, vec2 uv)
 {
-    vec3 color = tonemap(texture(sampler2D(textures[texture_index], samplers[sampler_index]), uv).xyz);
+    return tonemap(texture(sampler2D(textures[texture_index], samplers[sampler_index]), uv).xyz);
+}
 
-    if (ycocg == 1)
-        color = rgb_to_ycocg(color);
-
-    return color;
+float luminance(vec3 c)
+{
+    return (ycocg == 1) ? c.x : maybe_rgb_to_ycocg(c).x;
 }
 
 // 9 tap exploiting bilinear filtering: https://gist.github.com/TheRealMJP/c83b8c0f46b63f3a88a5986f4fa982b1
@@ -141,9 +156,6 @@ vec3 sample_texture_catmull_rom(vec2 uv, uint texture_index, vec2 resolution)
     result += tonemap(texture(sampler2D(textures[texture_index], samplers[LINEAR_CLAMP_SAMPLER]), vec2(tex_pos_12.x, tex_pos_3.y)).rgb) * w12.x * w3.y;
     result += tonemap(texture(sampler2D(textures[texture_index], samplers[LINEAR_CLAMP_SAMPLER]), vec2(tex_pos_3.x, tex_pos_3.y)).rgb) * w3.x * w3.y;
 
-    if (ycocg == 1)
-        result = rgb_to_ycocg(result);
-
     return result;
 }
 
@@ -175,6 +187,7 @@ void main()
 	vec2 uv = vec2(texel_coord) + vec2(0.5);
 	uv /= screen_size;
 
+	// frame 0 copy
 	if (valid_history == 0)
 	{
 		vec3 history_color = texture(sampler2D(textures[current_id], samplers[NEAREST_SAMPLER]), uv).xyz;
@@ -202,40 +215,46 @@ void main()
 	vec2 velocity_uv = texture(sampler2D(textures[velocity_id], samplers[NEAREST_SAMPLER]), uv + closest_uv_offset).rg;
 
 	// neighbourhood sampling
-	// alternative: blend this with a 5 taps '+' pattern per Karis UE4
-	// TODO: ignore or accumulate clamped edges for variance clipping?
-	vec3 ctl = sample_color(current_id, NEAREST_SAMPLER, uv + (vec2(-1, 1) / screen_size));
-	vec3 ctc = sample_color(current_id, NEAREST_SAMPLER, uv + (vec2( 0, 1) / screen_size));
-	vec3 ctr = sample_color(current_id, NEAREST_SAMPLER, uv + (vec2( 1, 1) / screen_size));
-	vec3 cml = sample_color(current_id, NEAREST_SAMPLER, uv + (vec2(-1, 0) / screen_size));
-	vec3 cmc = sample_color(current_id, NEAREST_SAMPLER, uv + (vec2( 0, 0) / screen_size));
-	vec3 cmr = sample_color(current_id, NEAREST_SAMPLER, uv + (vec2( 1, 0) / screen_size));
-	vec3 cbl = sample_color(current_id, NEAREST_SAMPLER, uv + (vec2(-1,-1) / screen_size));
-	vec3 cbc = sample_color(current_id, NEAREST_SAMPLER, uv + (vec2( 0,-1) / screen_size));
-	vec3 cbr = sample_color(current_id, NEAREST_SAMPLER, uv + (vec2( 1,-1) / screen_size));
+	// TODO: try mitchell filter
+	// note: ignore or accumulate clamped edges for variance clipping?
 	vec3 min_color = vec3(99999.0);
 	vec3 max_color = vec3(-99999.0);
-	min_color = min(ctl, min(ctc, min(ctr, min(cml, min(cmc, min(cmr, min(cbl, min(cbc, cbr))))))));
-	max_color = max(ctl, max(ctc, max(ctr, max(cml, max(cmc, max(cmr, max(cbl, max(cbc, cbr))))))));
+	vec3 m1 = vec3(0.); // used in variance clipping
+	vec3 m2 = vec3(0.); // used in variance clipping
+	vec3 current_color;
+	for (int x = -1; x <= 1; x++)
+	{
+	    for (int y = -1; y <= 1; y++)
+    	{
+            vec3 col = sample_color(current_id, NEAREST_SAMPLER, uv + (vec2(x, y) / screen_size));
+            col = maybe_rgb_to_ycocg(col);
 
-	// alternative: blackman, mitchell filter or average/weighted neighbourhood?
-    vec3 current_color = cmc;
+            if (x == 0 && y == 0)
+                current_color = col;
+
+            // note: when mitchell is implemented, remember to ignore weights when computing min/max_color
+           	min_color = min(col, min_color);
+            max_color = max(col, max_color);
+            m1 += col;
+            m2 += (col * col);
+    	}
+	}
+
+	vec2 reprojected_uv = uv - velocity_uv;
 
 	// alternative: catmull 5-taps from COD?
-	vec2 reprojected_uv = uv - velocity_uv;
 	vec3 history_color;
 	if (history_filter == 1)
 		history_color = sample_texture_catmull_rom(reprojected_uv, history_id, screen_size);
 	else
 		history_color = sample_color(history_id, LINEAR_CLAMP_SAMPLER, reprojected_uv);
 
+	history_color = maybe_rgb_to_ycocg(history_color);
+
 	// https://developer.download.nvidia.com/gameworks/events/GDC2016/msalvi_temporal_supersampling.pdf
 	vec3 history_color_clamped;
 	if (variance_clipping == 1)
 	{
-		vec3 m1 = ctl + ctc + ctr + cml + cmc + cmr + cbl + cbc + cbr;
-		vec3 m2 = ctl * ctl + ctc * ctc + ctr * ctr + cml * cml + cmc * cmc + cmr * cmr + cbl * cbl + cbc * cbc + cbr * cbr;
-
 		float rcp_samples = 1.0 / 9.0;
 		// large gamma - temporally stable results at the cost of increased ghosting; small gamma - lose ability to integrate data over time
 		float gamma = 1.0;
@@ -247,16 +266,31 @@ void main()
 	}
 	else
 	{
-		history_color_clamped = clamp(history_color, min_color, max_color);
+	    // should not be disabled; neighbourhood clamping trades off ghosting for flickering - turn this off to see it
+		history_color_clamped = history_color;
 	}
 
 	float blend_factor = 0.1;
 
-	vec3 final_color = history_color_clamped + (current_color - history_color) * blend_factor;
+	// TODO: explore other blending heuristics; a straightforward one is when reprojected uv is OOB
+	// https://www.youtube.com/watch?v=WzpLWzGvFK4&t=18m
+	if (dynamic_blend == 1)
+	{
+    	float min_blend_factor = 0.03;
+    	float max_blend_factor = 0.12;
 
-	if (ycocg == 1)
-	    final_color = ycocg_to_rgb(final_color);
+        float luma_history = luminance(history_color_clamped);
+        float luma_current = luminance(current_color);
 
+        float diff = 1.0 - abs(luma_history - luma_current) / max(max(luma_history, luma_current), 0.2);
+        float w = diff * diff; // w == 0, low similarity -> lower history contribution; w == 1, high similarity -> higher history contribution
+
+        blend_factor = max_blend_factor + (min_blend_factor - max_blend_factor) * w;
+	}
+
+	vec3 final_color = history_color_clamped + (current_color - history_color_clamped) * blend_factor;
+
+	final_color = maybe_ycocg_to_rgb(final_color);
 	final_color = reverse_tonemap(final_color);
 
 	// TODO: we can optimize by storing tonemapped value for next frame's history, skipping tonemapping for reprojected colors

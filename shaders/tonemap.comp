@@ -1,4 +1,4 @@
-#version 450
+#version 460
 
 #extension GL_GOOGLE_include_directive : require
 
@@ -35,8 +35,7 @@ vec3 reinhard(vec3 c)
 
 vec3 reverse_reinhard(vec3 c)
 {
-    // return c / (vec3(1.0) - c);
-    return c;
+    return c / (vec3(1.0) - c);
 }
 
 // Minimal AgX implementation: https://iolite-engine.com/blog_posts/minimal_agx_implementation

@@ -281,6 +281,7 @@ void CVarSystemImpl::draw_imgui_editor()
 		edit_parameters(get_cvar("taa.catmull_rom"));
 		edit_parameters(get_cvar("taa.mitchell"));
 		edit_parameters(get_cvar("taa.ycogy"));
+		edit_parameters(get_cvar("taa.dynamic"));
 
 		ImGui::TreePop();
 	}

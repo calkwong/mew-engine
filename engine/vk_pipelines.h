@@ -132,6 +132,7 @@ struct TAAResolvePC
 	uint32_t local_filter{};
 	uint32_t ycocg{};
 	uint32_t valid_history{};
+	uint32_t dynamic{};
 };
 
 struct DepthPyramidPushConstants
