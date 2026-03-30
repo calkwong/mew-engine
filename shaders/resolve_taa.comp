@@ -5,6 +5,8 @@
 // https://advances.realtimerendering.com/s2014/#_HIGH-QUALITY_TEMPORAL_SUPERSAMPLING
 // https://developer.download.nvidia.com/gameworks/events/GDC2016/msalvi_temporal_supersampling.pdf
 
+// note: not optimized, targetting correctness
+
 #version 460
 
 #extension GL_GOOGLE_include_directive : require
@@ -26,8 +28,6 @@ layout (push_constant) uniform constants
 	uint history_filter;
 	uint local_filter; // unused
 	uint ycocg;
-	uint depth_dilation;
-	uint weigh_luminance;
 	uint valid_history; // valid when first_frame==false
 };
 
@@ -52,9 +52,17 @@ float filter_mitchell(float value)
 }
 */
 
-float luminance(vec3 color)
+// https://gpuopen.com/learn/optimized-reversible-tonemapper-for-resolve/
+vec3 tonemap(vec3 c)
 {
-	return dot(color, vec3(0.299, 0.587, 0.114));
+    float w = max(c.x, max(c.y, c.z));
+    return c / (1.0 + w);
+}
+
+vec3 reverse_tonemap(vec3 c)
+{
+    float w = max(c.x, max(c.y, c.z));
+    return c / (1.0 - w);
 }
 
 vec3 rgb_to_ycocg(vec3 c)
@@ -78,7 +86,7 @@ vec3 ycocg_to_rgb(vec3 c)
 
 vec3 sample_color(uint texture_index, uint sampler_index, vec2 uv)
 {
-    vec3 color = texture(sampler2D(textures[texture_index], samplers[sampler_index]), uv).xyz;
+    vec3 color = tonemap(texture(sampler2D(textures[texture_index], samplers[sampler_index]), uv).xyz);
 
     if (ycocg == 1)
         color = rgb_to_ycocg(color);
@@ -86,14 +94,15 @@ vec3 sample_color(uint texture_index, uint sampler_index, vec2 uv)
     return color;
 }
 
-// Samples a texture with Catmull-Rom filtering, using 9 texture fetches instead of 16.
-// See http://vec3.ca/bicubic-filtering-in-fewer-taps/ for more details
-vec3 sample_texture_catmull_rom(vec2 uv, uint texture_index, vec2 resolution) {
+// 9 tap exploiting bilinear filtering: https://gist.github.com/TheRealMJP/c83b8c0f46b63f3a88a5986f4fa982b1
+// for more details: http://vec3.ca/bicubic-filtering-in-fewer-taps/
+vec3 sample_texture_catmull_rom(vec2 uv, uint texture_index, vec2 resolution)
+{
     // We're going to sample a a 4x4 grid of texels surrounding the target UV coordinate. We'll do this by rounding
     // down the sample location to get the exact center of our "starting" texel. The starting texel will be at
     // location [1, 1] in the grid, where [0, 0] is the top left corner.
     vec2 sample_position = uv * resolution;
-    vec2 tex_pos_1 = floor(sample_position - 0.5f) + 0.5f;
+    vec2 tex_pos_1 = floor(sample_position - 0.5) + 0.5;
 
     // Compute the fractional offset from our starting texel to our original sample location, which we'll
     // feed into the Catmull-Rom spline function to get our filter weights.
@@ -102,15 +111,15 @@ vec3 sample_texture_catmull_rom(vec2 uv, uint texture_index, vec2 resolution) {
     // Compute the Catmull-Rom weights using the fractional offset that we calculated earlier.
     // These equations are pre-expanded based on our knowledge of where the texels will be located,
     // which lets us avoid having to evaluate a piece-wise function.
-    vec2 w0 = f * (-0.5f + f * (1.0f - 0.5f * f));
-    vec2 w1 = 1.0f + f * f * (-2.5f + 1.5f * f);
-    vec2 w2 = f * (0.5f + f * (2.0f - 1.5f * f));
-    vec2 w3 = f * f * (-0.5f + 0.5f * f);
+    vec2 w0 = f * (-0.5 + f * (1.0 - 0.5 * f));
+    vec2 w1 = 1.0 + f * f * (-2.5 + 1.5 * f);
+    vec2 w2 = f * (0.5 + f * (2.0 - 1.5 * f));
+    vec2 w3 = f * f * (-0.5 + 0.5 * f);
 
     // Work out weighting factors and sampling offsets that will let us use bilinear filtering to
     // simultaneously evaluate the middle 2 samples from the 4x4 grid.
     vec2 w12 = w1 + w2;
-    vec2 offset_12 = w2 / (w1 + w2);
+    vec2 offset_12 = w2 / w12;
 
     // Compute the final UV coordinates we'll use for sampling the texture
     vec2 tex_pos_0 = tex_pos_1 - 1;
@@ -122,15 +131,15 @@ vec3 sample_texture_catmull_rom(vec2 uv, uint texture_index, vec2 resolution) {
     tex_pos_12 /= resolution;
 
     vec3 result = vec3(0);
-    result += texture(sampler2D(textures[texture_index], samplers[LINEAR_CLAMP_SAMPLER]), vec2(tex_pos_0.x, tex_pos_0.y)).rgb * w0.x * w0.y;
-    result += texture(sampler2D(textures[texture_index], samplers[LINEAR_CLAMP_SAMPLER]), vec2(tex_pos_12.x, tex_pos_0.y)).rgb * w12.x * w0.y;
-    result += texture(sampler2D(textures[texture_index], samplers[LINEAR_CLAMP_SAMPLER]), vec2(tex_pos_3.x, tex_pos_0.y)).rgb * w3.x * w0.y;
-    result += texture(sampler2D(textures[texture_index], samplers[LINEAR_CLAMP_SAMPLER]), vec2(tex_pos_0.x, tex_pos_12.y)).rgb * w0.x * w12.y;
-    result += texture(sampler2D(textures[texture_index], samplers[LINEAR_CLAMP_SAMPLER]), vec2(tex_pos_12.x, tex_pos_12.y)).rgb * w12.x * w12.y;
-    result += texture(sampler2D(textures[texture_index], samplers[LINEAR_CLAMP_SAMPLER]), vec2(tex_pos_3.x, tex_pos_12.y)).rgb * w3.x * w12.y;
-    result += texture(sampler2D(textures[texture_index], samplers[LINEAR_CLAMP_SAMPLER]), vec2(tex_pos_0.x, tex_pos_3.y)).rgb * w0.x * w3.y;
-    result += texture(sampler2D(textures[texture_index], samplers[LINEAR_CLAMP_SAMPLER]), vec2(tex_pos_12.x, tex_pos_3.y)).rgb * w12.x * w3.y;
-    result += texture(sampler2D(textures[texture_index], samplers[LINEAR_CLAMP_SAMPLER]), vec2(tex_pos_3.x, tex_pos_3.y)).rgb * w3.x * w3.y;
+    result += tonemap(texture(sampler2D(textures[texture_index], samplers[LINEAR_CLAMP_SAMPLER]), vec2(tex_pos_0.x, tex_pos_0.y)).rgb) * w0.x * w0.y;
+    result += tonemap(texture(sampler2D(textures[texture_index], samplers[LINEAR_CLAMP_SAMPLER]), vec2(tex_pos_12.x, tex_pos_0.y)).rgb) * w12.x * w0.y;
+    result += tonemap(texture(sampler2D(textures[texture_index], samplers[LINEAR_CLAMP_SAMPLER]), vec2(tex_pos_3.x, tex_pos_0.y)).rgb) * w3.x * w0.y;
+    result += tonemap(texture(sampler2D(textures[texture_index], samplers[LINEAR_CLAMP_SAMPLER]), vec2(tex_pos_0.x, tex_pos_12.y)).rgb) * w0.x * w12.y;
+    result += tonemap(texture(sampler2D(textures[texture_index], samplers[LINEAR_CLAMP_SAMPLER]), vec2(tex_pos_12.x, tex_pos_12.y)).rgb) * w12.x * w12.y;
+    result += tonemap(texture(sampler2D(textures[texture_index], samplers[LINEAR_CLAMP_SAMPLER]), vec2(tex_pos_3.x, tex_pos_12.y)).rgb) * w3.x * w12.y;
+    result += tonemap(texture(sampler2D(textures[texture_index], samplers[LINEAR_CLAMP_SAMPLER]), vec2(tex_pos_0.x, tex_pos_3.y)).rgb) * w0.x * w3.y;
+    result += tonemap(texture(sampler2D(textures[texture_index], samplers[LINEAR_CLAMP_SAMPLER]), vec2(tex_pos_12.x, tex_pos_3.y)).rgb) * w12.x * w3.y;
+    result += tonemap(texture(sampler2D(textures[texture_index], samplers[LINEAR_CLAMP_SAMPLER]), vec2(tex_pos_3.x, tex_pos_3.y)).rgb) * w3.x * w3.y;
 
     if (ycocg == 1)
         result = rgb_to_ycocg(result);
@@ -168,40 +177,33 @@ void main()
 
 	if (valid_history == 0)
 	{
-	    vec3 history_color = sample_color(history_id, NEAREST_SAMPLER, uv);
+	    vec3 history_color = sample_color(current_id, NEAREST_SAMPLER, uv);
 		imageStore(images_rgba32f[resolve_id], texel_coord, vec4(history_color, 1.0));
 		return;
 	}
 
 	// depth dilation
-	vec2 velocity_uv;
-	if (depth_dilation == 1)
+	float closest_depth = 0.0;
+	vec2 closest_uv_offset;
+	for (int x = -1; x <= 1; x++)
 	{
-		float closest_depth = 0.0;
-		vec2 closest_uv_offset;
-		for (int x = -1; x <= 1; x++)
+		for (int y = -1; y <= 1; y++)
 		{
-			for (int y = -1; y <= 1; y++)
+			vec2 uv_offset = vec2(x, y) / screen_size;
+			float neighbour_depth = texture(sampler2D(textures[depth_id], samplers[NEAREST_SAMPLER]), uv + uv_offset).r;
+			if (neighbour_depth > closest_depth)
 			{
-				vec2 uv_offset = vec2(x, y) / screen_size;
-				float neighbour_depth = texture(sampler2D(textures[depth_id], samplers[NEAREST_SAMPLER]), uv + uv_offset).r;
-				if (neighbour_depth > closest_depth)
-				{
-					closest_depth = neighbour_depth;
-					closest_uv_offset = uv_offset;
-				}
+				closest_depth = neighbour_depth;
+				closest_uv_offset = uv_offset;
 			}
 		}
-
-		velocity_uv = texture(sampler2D(textures[velocity_id], samplers[NEAREST_SAMPLER]), uv + closest_uv_offset).rg;
-	}
-	else
-	{
-		velocity_uv = texture(sampler2D(textures[velocity_id], samplers[NEAREST_SAMPLER]), uv).rg;
 	}
 
+	vec2 velocity_uv = texture(sampler2D(textures[velocity_id], samplers[NEAREST_SAMPLER]), uv + closest_uv_offset).rg;
+
+	// neighbourhood sampling
 	// alternative: blend this with a 5 taps '+' pattern per Karis UE4
-	// no need max(sample, 0.0) to ensure no garbage values?
+	// TODO: ignore or accumulate clamped edges for variance clipping?
 	vec3 ctl = sample_color(current_id, NEAREST_SAMPLER, uv + (vec2(-1, 1) / screen_size));
 	vec3 ctc = sample_color(current_id, NEAREST_SAMPLER, uv + (vec2( 0, 1) / screen_size));
 	vec3 ctr = sample_color(current_id, NEAREST_SAMPLER, uv + (vec2( 1, 1) / screen_size));
@@ -211,8 +213,8 @@ void main()
 	vec3 cbl = sample_color(current_id, NEAREST_SAMPLER, uv + (vec2(-1,-1) / screen_size));
 	vec3 cbc = sample_color(current_id, NEAREST_SAMPLER, uv + (vec2( 0,-1) / screen_size));
 	vec3 cbr = sample_color(current_id, NEAREST_SAMPLER, uv + (vec2( 1,-1) / screen_size));
-	vec3 min_color = vec3(9999.0);
-	vec3 max_color = vec3(-9999.0);
+	vec3 min_color = vec3(99999.0);
+	vec3 max_color = vec3(-99999.0);
 	min_color = min(ctl, min(ctc, min(ctr, min(cml, min(cmc, min(cmr, min(cbl, min(cbc, cbr))))))));
 	max_color = max(ctl, max(ctc, max(ctr, max(cml, max(cmc, max(cmr, max(cbl, max(cbc, cbr))))))));
 
@@ -226,9 +228,9 @@ void main()
 		history_color = sample_texture_catmull_rom(reprojected_uv, history_id, screen_size);
 	else
 		history_color = sample_color(history_id, LINEAR_CLAMP_SAMPLER, reprojected_uv);
-	vec3 history_color_clamped;
 
 	// https://developer.download.nvidia.com/gameworks/events/GDC2016/msalvi_temporal_supersampling.pdf
+	vec3 history_color_clamped;
 	if (variance_clipping == 1)
 	{
 		vec3 m1 = ctl + ctc + ctr + cml + cmc + cmr + cbl + cbc + cbr;
@@ -248,23 +250,16 @@ void main()
 		history_color_clamped = clamp(history_color, min_color, max_color);
 	}
 
-    // TODO: fix flickering
-	float src_weight = 0.1;
-	float history_weight = 0.9;
+	float blend_factor = 0.1;
 
-	if (weigh_luminance == 1)
-	{
-		float luminance_src = luminance(current_color);
-		float luminance_history = luminance(history_color_clamped);
-
-		src_weight *= 1.0 / (1.0 + luminance_src);
-		history_weight *= 1.0 / (1.0 + luminance_history);
-	}
-
-	vec3 final_color = (current_color * src_weight + history_color_clamped * history_weight) / max(src_weight + history_weight, 0.00001);
+	vec3 final_color = history_color_clamped + (current_color - history_color) * blend_factor;
 
 	if (ycocg == 1)
 	    final_color = ycocg_to_rgb(final_color);
 
+	final_color = reverse_tonemap(final_color);
+
+	// TODO: we can optimize by storing tonemapped value for next frame's history, skipping tonemapping for reprojected colors
+	// but this is an inconvenience for experimenting with other post-fx for now, so we store reverse tonemapped values
 	imageStore(images_rgba32f[resolve_id], texel_coord, vec4(final_color, 1.0));
 }

@@ -71,12 +71,10 @@ AutoCVar_Int CVAR_MISC_TONEMAP{ "misc.tonemap", "Tonemapping", 1, CVarFlags::Edi
 AutoCVar_Int CVAR_MISC_TONEMAP_FUNC{ "misc.tonemap_func", "Tonemapping function", 0, CVarFlags::EditSliderInt, 0, 3, 1 };
 AutoCVar_Int CVAR_MISC_FREEZE_CAMERA{ "misc.freeze_camera", "Freeze camera", 0, CVarFlags::EditCheckbox };
 
-AutoCVar_Int CVAR_TAA_VARIANCE_CLIP{ "taa.variance_clip", "Variance clipping", 0, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_TAA_CATMULL_ROM{ "taa.catmull_rom", "Catmull filter", 0, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_TAA_VARIANCE_CLIP{ "taa.variance_clip", "Variance clipping", 1, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_TAA_CATMULL_ROM{ "taa.catmull_rom", "Catmull filter", 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TAA_MITCHELL{ "taa.mitchell", "Mitchell filter", 0, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_TAA_YCOCG{ "taa.ycogy", "YCoCg", 0, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_TAA_DEPTH_DILATION{ "taa.depth_dilation", "Depth dilation", 0, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_TAA_LUMINANCE_WEIGHING{ "taa.luminance_weighing", "Luminance weighing", 0, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_TAA_YCOCG{ "taa.ycogy", "YCoCg", 1, CVarFlags::EditCheckbox };
 
 AutoCVar_Float CVAR_PBR_METALLIC{ "pbr.metallic", "Metallic", 0.0f, CVarFlags::EditDragFloat, 0.f, 1.f, 0.05f };
 AutoCVar_Float CVAR_PBR_ROUGHNESS{ "pbr.roughness", "Roughness", 0.5f, CVarFlags::EditDragFloat, 0.f, 1.f, 0.05f };
@@ -210,10 +208,10 @@ void VulkanEngine::init(const std::string& file_path)
 	{
 		immediate_submit([&](VkCommandBuffer cmd)
 			{
-				// previous frame blit to swapchain
+			    // frame 0 history buffer
 				vkutil::transition_image(cmd, accumulation_buffers[(frame_number + 1) % 2].image,
 					VK_IMAGE_LAYOUT_UNDEFINED,
-					VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+					VK_IMAGE_LAYOUT_GENERAL,
 					0, 0, 0, 0
 				);
 
@@ -1003,18 +1001,37 @@ void VulkanEngine::draw()
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 15);
 	}
 
-	// prepare for reading/writing in tonemap
-	image_barriers.emplace_back(image_barrier(
-			draw_image.image,
-			VK_IMAGE_LAYOUT_GENERAL,
-			VK_IMAGE_LAYOUT_GENERAL,
-			VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-			VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-			VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-			VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT
-		)
-	);
+	if (CVAR_RENDER_TAA.get())
+	{
+    	image_barriers.emplace_back(image_barrier(
+    			draw_image.image,
+    			VK_IMAGE_LAYOUT_GENERAL,
+    			VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+    			VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+    			VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+    			VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+    			VK_ACCESS_2_SHADER_SAMPLED_READ_BIT
+    		)
+    	); // barrier in taa pass
+	}
+	else // tonemap or post process
+	{
+        image_barriers.emplace_back(image_barrier(
+    			draw_image.image,
+    			VK_IMAGE_LAYOUT_GENERAL,
+    			VK_IMAGE_LAYOUT_GENERAL,
+    			VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+    			VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+    			VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+    			VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT // src & dst for tonemap
+    		)
+    	);
 
+    	pipeline_barrier(cmd, buffer_barriers.data(), buffer_barriers.size(), image_barriers.data(), image_barriers.size());
+    	image_barriers.clear();
+	}
+
+	/*
 	// last frame luminance avg & luminance buffer
 	if (CVAR_MISC_AUTOEXPOSURE.get())
 	{
@@ -1022,11 +1039,9 @@ void VulkanEngine::draw()
 			VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT));
 	}
 
-	pipeline_barrier(cmd, buffer_barriers.data(), buffer_barriers.size(), image_barriers.data(), image_barriers.size());
-	buffer_barriers.clear();
-	image_barriers.clear();
+	// TODO: re-add barrier here
 
-	// TODO: frame n applies exposure from frame n's luminance avg instead of previous frame's, correct this in the future?
+	// note: for preexposed lights we possibly want exposure to be temporal?
 	// build luminance histogram & luminance avg
 	if (CVAR_MISC_AUTOEXPOSURE.get())
 	{
@@ -1066,65 +1081,31 @@ void VulkanEngine::draw()
 			VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT
 		);
 	}
-
-	// tonemapping pass
-	if (CVAR_MISC_TONEMAP.get() && CVAR_DEBUG_TEXTURES.get() == 0)
-	{
-		ShaderPass current_pass = *shader_passes["tonemap"];
-		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
-		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
-		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
-		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
-
-		TonemapPC pc{};
-		pc.luminance_avg_buffer = get_buffer_address(device, render_scene.luminance_avg_buffer.buffer);
-		pc.screen_size = glm::vec2(draw_image.extent.width, draw_image.extent.height);
-		pc.draw_id = image_cache.get_draw_image();
-		pc.autoexposure = CVAR_MISC_AUTOEXPOSURE.get();
-		pc.tonemap_func = CVAR_MISC_TONEMAP_FUNC.get();
-
-		vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(TonemapPC), &pc);
-		auto groupcount_x = get_groupcount(draw_image.extent.width, WARP_SIZE);
-		auto groupcount_y = get_groupcount(draw_image.extent.height, WARP_SIZE);
-		vkCmdDispatch(cmd, groupcount_x, groupcount_y, 1);
-	}
+	*/
 
 	if (CVAR_RENDER_TAA.get())
 	{
-  		// resolve buffer this frame - history buffer last frame
+  		// resolve buffer
   		image_barriers.emplace_back(image_barrier(
 				accumulation_buffers[frame_number % 2].image,
 				VK_IMAGE_LAYOUT_UNDEFINED,
 				VK_IMAGE_LAYOUT_GENERAL,
 				VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
 				VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-				VK_ACCESS_2_SHADER_READ_BIT,
-				VK_ACCESS_2_SHADER_WRITE_BIT
+				VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
+				VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT
  			)
   		);
 
-  		// history buffer this frame - reverse tonemap last frame (do we need a barrier?)
+  		// history buffer
   		image_barriers.emplace_back(image_barrier(
 				accumulation_buffers[(frame_number + 1) % 2].image,
-				VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 				VK_IMAGE_LAYOUT_GENERAL,
-				VK_PIPELINE_STAGE_2_BLIT_BIT,
+				VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 				VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-				VK_ACCESS_2_TRANSFER_READ_BIT,
-				VK_ACCESS_2_SHADER_READ_BIT
- 			)
-  		);
-
-        // draw image post tonemapping for sampling in resolve_taa
-  		image_barriers.emplace_back(image_barrier(
-                draw_image.image,
-     			VK_IMAGE_LAYOUT_GENERAL,
-     			VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-     			VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-     			VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-     			VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-     			VK_ACCESS_2_SHADER_SAMPLED_READ_BIT
+				VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+				VK_ACCESS_2_SHADER_STORAGE_READ_BIT,
+				VK_ACCESS_2_SHADER_SAMPLED_READ_BIT
  			)
   		);
 
@@ -1135,19 +1116,18 @@ void VulkanEngine::draw()
 	    resolve_taa(cmd);
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 25);
 
-  		// resolve buffer this frame - copy to swapchain temporarily!
+  		// resolve buffer -> load for tonemap / post processing
   		image_barriers.emplace_back(image_barrier(
 				accumulation_buffers[frame_number % 2].image,
 				VK_IMAGE_LAYOUT_GENERAL,
-				VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+				VK_IMAGE_LAYOUT_GENERAL,
 				VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-				VK_PIPELINE_STAGE_2_BLIT_BIT,
+				VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
 				VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-				VK_ACCESS_2_TRANSFER_READ_BIT
+				VK_ACCESS_2_SHADER_STORAGE_READ_BIT
  			)
   		);
 
-  		// note: this is redundant, just to be consistent with old code for now
   		image_barriers.emplace_back(image_barrier(
           		draw_image.image,
           		VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
@@ -1168,15 +1148,37 @@ void VulkanEngine::draw()
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 25);
 	}
 
-	// note: previously luminance sampling -> tonemap -> blit
-	// currently, taa sample -> blit layout to be consistent with old code
+	// tonemapping pass
+	if (CVAR_MISC_TONEMAP.get() && CVAR_DEBUG_TEXTURES.get() == 0)
+	{
+		ShaderPass current_pass = *shader_passes["tonemap"];
+		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
+		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
+		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
+		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
+		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
+
+		TonemapPC pc{};
+		pc.luminance_avg_buffer = get_buffer_address(device, render_scene.luminance_avg_buffer.buffer);
+		pc.screen_size = glm::vec2(draw_image.extent.width, draw_image.extent.height);
+		pc.src_id = CVAR_RENDER_TAA.get() ? image_cache.get_accumulation_buffer(frame_number % 2) : image_cache.get_draw_image();
+		pc.dst_id = image_cache.get_draw_image();
+		pc.autoexposure = CVAR_MISC_AUTOEXPOSURE.get();
+		pc.tonemap_func = CVAR_MISC_TONEMAP_FUNC.get();
+
+		vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(TonemapPC), &pc);
+		auto groupcount_x = get_groupcount(draw_image.extent.width, WARP_SIZE);
+		auto groupcount_y = get_groupcount(draw_image.extent.height, WARP_SIZE);
+		vkCmdDispatch(cmd, groupcount_x, groupcount_y, 1);
+	}
+
 	image_barriers.emplace_back(image_barrier(
 	        draw_image.image,
 			VK_IMAGE_LAYOUT_GENERAL,
       		VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
       		VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
       		VK_PIPELINE_STAGE_2_BLIT_BIT,
-      		VK_ACCESS_2_SHADER_STORAGE_READ_BIT,
+      		VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
       		VK_ACCESS_2_TRANSFER_READ_BIT
 	    )
 	);
@@ -1195,14 +1197,7 @@ void VulkanEngine::draw()
 	pipeline_barrier(cmd, nullptr, 0, image_barriers.data(), image_barriers.size());
 	image_barriers.clear();
 
-	if (CVAR_RENDER_TAA.get())
-	{
-		vkutil::copy_image(cmd, accumulation_buffers[frame_number % 2].image, swapchain_images[swapchain_image_idx], draw_extent, draw_extent);
-	}
-	else
-	{
-	    vkutil::copy_image(cmd, draw_image.image, swapchain_images[swapchain_image_idx], draw_extent, swapchain_extent);
-	}
+	vkutil::copy_image(cmd, draw_image.image, swapchain_images[swapchain_image_idx], draw_extent, swapchain_extent);
 
 	vkutil::transition_image(
 	    cmd,
@@ -1318,20 +1313,6 @@ void VulkanEngine::run()
 						CVAR_TAA_YCOCG.set(0);
 					else
 						CVAR_TAA_YCOCG.set(1);
-				}
-				if (e.key.repeat == 0 && e.key.key == SDLK_V)
-				{
-					if (CVAR_TAA_LUMINANCE_WEIGHING.get() == 1)
-						CVAR_TAA_LUMINANCE_WEIGHING.set(0);
-					else
-						CVAR_TAA_LUMINANCE_WEIGHING.set(1);
-				}
-				if (e.key.repeat == 0 && e.key.key == SDLK_B)
-				{
-					if (CVAR_TAA_DEPTH_DILATION.get() == 1)
-						CVAR_TAA_DEPTH_DILATION.set(0);
-					else
-						CVAR_TAA_DEPTH_DILATION.set(1);
 				}
 				if (e.key.repeat == 0 && e.key.key == SDLK_G)
 				{
@@ -1683,8 +1664,8 @@ void VulkanEngine::create_swapchain(uint32_t width, uint32_t height)
 {
 	vkb::SwapchainBuilder swapchainBuilder{ chosen_gpu, device, surface };
 
-	// swapchain_image_format = VK_FORMAT_B8G8R8A8_UNORM;
-	swapchain_image_format = VK_FORMAT_B8G8R8A8_SRGB;
+	swapchain_image_format = VK_FORMAT_B8G8R8A8_UNORM;
+	// swapchain_image_format = VK_FORMAT_B8G8R8A8_SRGB;
 
 	vkb::Swapchain vkbSwapchain = swapchainBuilder
 	                                  //.use_default_format_selection()
@@ -2517,8 +2498,8 @@ void VulkanEngine::resolve_taa(VkCommandBuffer cmd)
 
 	TAAResolvePC pc{};
 	pc.screen_size = glm::vec2(static_cast<float>(draw_extent.width), static_cast<float>(draw_extent.height));
-	pc.color_id = texture_cache.get_draw_image();
-	pc.accum_id = texture_cache.get_accumulation_buffer((frame_number + 1) % 2);
+	pc.current_id = texture_cache.get_draw_image();
+	pc.history_id = texture_cache.get_accumulation_buffer((frame_number + 1) % 2);
 	pc.resolve_id = image_cache.get_accumulation_buffer(frame_number % 2);
 	pc.depth_id = texture_cache.get_depth_image();
 	pc.velocity_id = texture_cache.get_visibility_buffer() + 1; // TODO: hardcoded, maybe give velocity its own setter/getter?
@@ -2526,8 +2507,6 @@ void VulkanEngine::resolve_taa(VkCommandBuffer cmd)
 	pc.history_filter = CVAR_TAA_CATMULL_ROM.get();
 	pc.local_filter = CVAR_TAA_MITCHELL.get();
 	pc.ycocg = CVAR_TAA_YCOCG.get();
-	pc.depth_dilation = CVAR_TAA_DEPTH_DILATION.get();
-	pc.weigh_luminance = CVAR_TAA_LUMINANCE_WEIGHING.get();
 	pc.valid_history = first_frame ? 0 : 1;
 	first_frame = false; // set this elsewhere?
 

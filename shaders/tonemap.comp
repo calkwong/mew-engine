@@ -12,7 +12,8 @@ layout( push_constant ) uniform constants
 {
 	LuminanceAvgBuffer luminance_avg_buffer;
 	vec2 screen_size;
-	uint draw_id;
+	uint src_id;
+	uint dst_id;
 	uint autoexpose;
 	uint tonemap_func;
 };
@@ -90,7 +91,7 @@ vec3 agx_eotf(vec3 val)
 
     // value is now in nonlinear space; if RT is linear and swapchain is SRGB, uncomment
     // TODO: use proper value after TAA experimentation
-    val = pow(val, vec3(2.2));
+    // val = pow(val, vec3(2.2));
 
     return val;
 }
@@ -101,7 +102,7 @@ void main()
 
 	if (texel_coord.x < screen_size.x && texel_coord.y < screen_size.y)
 	{
-		vec3 color = imageLoad(images_rgba32f[draw_id], texel_coord).rgb;
+		vec3 color = imageLoad(images_rgba32f[src_id], texel_coord).rgb;
 
 		float exposure = 1.0;
 
@@ -128,6 +129,6 @@ void main()
 			default: break; // clamp only
 		}
 
-		imageStore(images_rgba32f[draw_id], texel_coord, vec4(color, 1.0));
+		imageStore(images_rgba32f[dst_id], texel_coord, vec4(color, 1.0));
 	}
 }
