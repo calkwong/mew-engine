@@ -33,7 +33,11 @@ layout (location = 3) out uint out_material_id[];
 layout (location = 4) out vec4 out_clip_pos[];
 layout (location = 5) out vec4 out_prev_clip_pos[];
 
+// #define TRIANGLE_CULLING
+
+#ifdef TRIANGLE_CULLING
 shared vec3 vertex_clip[64];
+#endif
 
 void main()
 {
@@ -90,11 +94,12 @@ void main()
         out_prev_clip_pos[i] = prev_clip_pos;
 
         // TODO: only account for screen size if doing small primitive culling
+#ifdef TRIANGLE_CULLING
         if (OPAQUE == 1)
         {
             vertex_clip[i] = vec3(clip_pos.xy / clip_pos.w * 0.5 + 0.5, clip_pos.w);
         }
-
+#endif
         gl_MeshVerticesEXT[i].gl_Position = clip_pos;
     }
 
@@ -113,6 +118,7 @@ void main()
 
         gl_PrimitiveTriangleIndicesEXT[i] = uvec3(idx0, idx1, idx2);
 
+#ifdef TRIANGLE_CULLING
         // backface + zero area culling
         if (OPAQUE == 1)
         {
@@ -133,6 +139,6 @@ void main()
             // if it exists and we place it in a branch, we get flickering artifacts all over
             gl_MeshPrimitivesEXT[i].gl_CullPrimitiveEXT = culled;
         }
-
+#endif
     }
 }
