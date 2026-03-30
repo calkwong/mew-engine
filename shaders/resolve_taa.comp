@@ -177,7 +177,7 @@ void main()
 
 	if (valid_history == 0)
 	{
-	    vec3 history_color = sample_color(current_id, NEAREST_SAMPLER, uv);
+		vec3 history_color = texture(sampler2D(textures[current_id], samplers[NEAREST_SAMPLER]), uv).xyz;
 		imageStore(images_rgba32f[resolve_id], texel_coord, vec4(history_color, 1.0));
 		return;
 	}
