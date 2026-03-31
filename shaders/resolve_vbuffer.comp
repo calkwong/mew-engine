@@ -485,10 +485,6 @@ void main()
 		    uint mhash = hash(meshlet_id);
             out_color.xyz = vec3(float(mhash & 255), float((mhash >> 8) & 255), float((mhash >> 16) & 255)) / 255.0;
 		    break;
-		// TODO: cleanup velocity
-		case DEBUG_VELOCITY:
-		    out_color.xyz = vec3(texture(sampler2D(textures[gbuffer_id + 1], samplers[NEAREST_SAMPLER]), in_uv).rg, 0.0);
-				break;
 		default:
 		    break;
 		}

@@ -30,8 +30,8 @@ layout (location = 0) perprimitiveEXT out uint out_draw_id[];
 layout (location = 1) perprimitiveEXT out uint out_triangle_id[];
 layout (location = 2) out vec2 out_uv[];
 layout (location = 3) out uint out_material_id[];
-layout (location = 4) out vec4 out_clip_pos[];
-layout (location = 5) out vec4 out_prev_clip_pos[];
+// layout (location = 4) out vec4 out_clip_pos[];
+// layout (location = 5) out vec4 out_prev_clip_pos[];
 
 // #define TRIANGLE_CULLING
 
@@ -88,10 +88,6 @@ void main()
         out_material_id[i] = o.material_id; // only used for alpha clipping
 
         vec4 clip_pos = uniforms.view_proj * world_pos;
-        vec4 prev_clip_pos = uniforms.prev_view_proj * world_pos;
-
-        out_clip_pos[i] = clip_pos;
-        out_prev_clip_pos[i] = prev_clip_pos;
 
         // TODO: only account for screen size if doing small primitive culling
 #ifdef TRIANGLE_CULLING

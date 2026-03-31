@@ -19,6 +19,7 @@ layout (local_size_x = 32, local_size_y = 32) in;
 
 layout (push_constant) uniform constants
 {
+    vec4 jitter_offset;
 	vec2 screen_size;
 	uint current_id;
 	uint history_id;
@@ -109,6 +110,15 @@ float luminance(vec3 c)
     return (ycocg == 1) ? c.x : maybe_rgb_to_ycocg(c).x;
 }
 
+vec3 reconstruct_world_pos(float depth, mat4 inverse_view_proj, vec2 uv_pos)
+{
+	vec2 ndc = uv_pos * 2.0 - 1.0;
+	ndc.y *= -1.0; // flip as window coords are top down
+	vec4 world_pos = inverse_view_proj * vec4(ndc, depth, 1.0);
+
+	return world_pos.xyz / world_pos.w;
+}
+
 // 9 tap exploiting bilinear filtering: https://gist.github.com/TheRealMJP/c83b8c0f46b63f3a88a5986f4fa982b1
 // for more details: http://vec3.ca/bicubic-filtering-in-fewer-taps/
 vec3 sample_texture_catmull_rom(vec2 uv, uint texture_index, vec2 resolution)
@@ -195,25 +205,6 @@ void main()
 		return;
 	}
 
-	// depth dilation
-	float closest_depth = 0.0;
-	vec2 closest_uv_offset;
-	for (int x = -1; x <= 1; x++)
-	{
-		for (int y = -1; y <= 1; y++)
-		{
-			vec2 uv_offset = vec2(x, y) / screen_size;
-			float neighbour_depth = texture(sampler2D(textures[depth_id], samplers[NEAREST_SAMPLER]), uv + uv_offset).r;
-			if (neighbour_depth > closest_depth)
-			{
-				closest_depth = neighbour_depth;
-				closest_uv_offset = uv_offset;
-			}
-		}
-	}
-
-	vec2 velocity_uv = texture(sampler2D(textures[velocity_id], samplers[NEAREST_SAMPLER]), uv + closest_uv_offset).rg;
-
 	// neighbourhood sampling
 	// TODO: try mitchell filter
 	// note: ignore or accumulate clamped edges for variance clipping?
@@ -240,7 +231,41 @@ void main()
     	}
 	}
 
-	vec2 reprojected_uv = uv - velocity_uv;
+	// depth dilation
+	float closest_depth = 0.0;
+	vec2 closest_uv_offset;
+	for (int x = -1; x <= 1; x++)
+	{
+		for (int y = -1; y <= 1; y++)
+		{
+			vec2 uv_offset = vec2(x, y) / screen_size;
+			float neighbour_depth = texture(sampler2D(textures[depth_id], samplers[NEAREST_SAMPLER]), uv + uv_offset).r;
+			if (neighbour_depth > closest_depth)
+			{
+				closest_depth = neighbour_depth;
+				closest_uv_offset = uv_offset;
+			}
+		}
+	}
+
+	// note: our scene is entirely static now, so we recompute it here
+	float current_depth = texture(sampler2D(textures[depth_id], samplers[NEAREST_SAMPLER]), uv).r;
+	vec2 current_ndc = uv * 2.0 - 1.0;
+	current_ndc.y *= -1.0;
+	vec4 world_pos = uniforms.inverse_view_proj * vec4(current_ndc, current_depth, 1.0);
+	world_pos /= world_pos.w;
+	vec4 previous_clip = uniforms.prev_view_proj * world_pos;
+	vec2 previous_ndc = previous_clip.xy / previous_clip.w;
+	current_ndc -= jitter_offset.xy;
+	previous_ndc -= jitter_offset.zw;
+	vec2 camera_velocity = (current_ndc - previous_ndc) * vec2(0.5, -0.5);
+
+	// important! without this, setting blend_factor to 1.0 is not sufficient as nan has propogated to the blending eq
+	camera_velocity = current_depth != 0.0 ? camera_velocity : vec2(0.0);
+
+	// TODO: object motion
+	// vec2 object_velocity = texture(sampler2D(textures[velocity_id], samplers[NEAREST_SAMPLER]), uv + closest_uv_offset).rg; // uv space
+    vec2 reprojected_uv = uv - camera_velocity; // - object_velocity;
 
 	// alternative: catmull 5-taps from COD?
 	vec3 history_color;
@@ -266,7 +291,7 @@ void main()
 	}
 	else
 	{
-	    // should not be disabled; neighbourhood clamping trades off ghosting for flickering - turn this off to see it
+	    // should not be disabled; neighbourhood clamping trades off ghosting for flickering - turn this off to see without flickering
 		history_color_clamped = history_color;
 	}
 
@@ -287,6 +312,8 @@ void main()
 
         blend_factor = max_blend_factor + (min_blend_factor - max_blend_factor) * w;
 	}
+
+	blend_factor = current_depth != 0.0 ? blend_factor : 1.0;
 
 	vec3 final_color = history_color_clamped + (current_color - history_color_clamped) * blend_factor;
 

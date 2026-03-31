@@ -9,8 +9,8 @@ layout (location = 0) flat in uint in_draw_id;
 layout (location = 1) flat in uint in_triangle_id;
 layout (location = 2) in vec2 in_uv;
 layout (location = 3) flat in uint in_material_id;
-layout (location = 4) in vec4 in_clip_pos;
-layout (location = 5) in vec4 in_prev_clip_pos;
+// layout (location = 4) in vec4 in_clip_pos;
+// layout (location = 5) in vec4 in_prev_clip_pos;
 
 layout (location = 0) out uvec2 out_visibility_id;
 layout (location = 1) out vec2 out_velocity;
@@ -45,13 +45,4 @@ void main()
 	}
 
 	out_visibility_id = uvec2(in_draw_id, in_triangle_id);
-
-    vec2 curr_ndc = in_clip_pos.xy / in_clip_pos.w;
-    curr_ndc -= jitter_offset.xy;
-    vec2 prev_ndc = in_prev_clip_pos.xy / in_prev_clip_pos.w;
-    prev_ndc -= jitter_offset.zw;
-
-    vec2 velocity = (curr_ndc - prev_ndc) * vec2(0.5, -0.5); // +0.5 cancels out
-
-    out_velocity = velocity;
 }

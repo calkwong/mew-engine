@@ -2498,6 +2498,10 @@ void VulkanEngine::resolve_taa(VkCommandBuffer cmd)
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
 
 	TAAResolvePC pc{};
+	auto jitter_count = jitter_offset.size();
+	auto current_jitter = jitter_offset[frame_number % jitter_count];
+	auto previous_jitter = jitter_offset[(frame_number - 1) % jitter_count];
+	pc.jitter_offset = glm::vec4(current_jitter, previous_jitter);
 	pc.screen_size = glm::vec2(static_cast<float>(draw_extent.width), static_cast<float>(draw_extent.height));
 	pc.current_id = texture_cache.get_draw_image();
 	pc.history_id = texture_cache.get_accumulation_buffer((frame_number + 1) % 2);

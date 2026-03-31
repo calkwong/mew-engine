@@ -121,6 +121,7 @@ struct SkyboxPushConstants
 
 struct TAAResolvePC
 {
+    glm::vec4 jitter_offset{};
 	glm::vec2 screen_size{};
 	uint32_t current_id{};
 	uint32_t history_id{};
