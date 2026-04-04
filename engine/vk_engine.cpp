@@ -34,7 +34,6 @@
 #include <span>
 #include <thread>
 #include <utility>
-#include <vulkan/vulkan_core.h>
 
 VulkanEngine* loaded_engine{};
 

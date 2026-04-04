@@ -5,7 +5,6 @@
 #include <initializer_list>
 #include <vector>
 #include <array>
-#include <vulkan/vulkan_core.h>
 
 struct CompactDispatchPC
 {

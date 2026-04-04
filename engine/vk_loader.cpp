@@ -32,7 +32,6 @@
 #include <cassert>
 #include <cstddef>
 #include <tracy/Tracy.hpp>
-#include <vulkan/vulkan_core.h>
 
 namespace
 {
