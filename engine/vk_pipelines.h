@@ -5,6 +5,7 @@
 #include <initializer_list>
 #include <vector>
 #include <array>
+#include <filesystem>
 
 struct CompactDispatchPC
 {
@@ -181,6 +182,7 @@ struct ShaderProgram
 	VkShaderModule module{};
 	VkShaderStageFlagBits stage{};
 	std::string name{};
+	std::filesystem::file_time_type time{};
 };
 
 struct PipelineBuilder

@@ -11,6 +11,7 @@
 #include "vk_scene.h"
 #include "cache.h"
 
+#include <filesystem>
 #include <vk_mem_alloc.h>
 #include <tracy/Tracy.hpp>
 // #include <tracy/TracyVulkan.hpp>
@@ -34,6 +35,7 @@
 #include <span>
 #include <thread>
 #include <utility>
+#include <cstdlib>
 
 VulkanEngine* loaded_engine{};
 
@@ -274,6 +276,11 @@ void VulkanEngine::cleanup()
 
 			vkDestroyQueryPool(device, frame.query_pool_timestamps, nullptr);
 			vkDestroyQueryPool(device, frame.query_pool_pipelines, nullptr);
+		}
+
+		for (const auto& [_, shader_program] : shader_cache.data)
+		{
+			vkDestroyShaderModule(device, shader_program.get()->module, nullptr);
 		}
 
 		destroy_buffer(allocator, render_scene.object_buffer);
@@ -1328,10 +1335,55 @@ void VulkanEngine::run()
 					else
 						CVAR_RENDER_TAA.set(1);
 				}
+				if (e.key.repeat == 0 && e.key.key == SDLK_Y)
+				{
+    				reload_shaders = true;
+				}
 			}
 
 			if (!stop_movement)
 				main_camera.process_sdl_event(e);
+
+			if (reload_shaders)
+			{
+			    reload_shaders = false;
+
+				std::vector<ShaderProgram*> programs_to_reload{};
+
+				int recompile = std::system("ninja -C bin Shaders");
+
+				if (recompile == 0)
+				{
+    				for (auto& [name, program] : shader_cache.data)
+     			    {
+                        std::string shader_path{ "shaders/compiled/" };
+                       	shader_path += name;
+                       	shader_path += ".spv";
+
+                        // if spv has changed, update
+                        // assume VkShaderStageFlagBits cannot change
+         			auto time = std::filesystem::last_write_time(shader_path);
+                        if (program->time != time)
+                        {
+                            program->time = time;
+                            vkDestroyShaderModule(device, program->module, nullptr);
+                            vkutil::load_shader_module(shader_path.c_str(), device, &program->module);
+                            programs_to_reload.push_back(program.get());
+                        }
+     			    }
+
+                    if (programs_to_reload.size() != 0)
+                    {
+                        fmt::println("some shaders have been updated"); // placeholder
+
+                        // VK_CHECK(vkDeviceWaitIdle(device));
+
+                        // for (auto* program : programs_to_reload)
+                        // {
+                        // }
+                    }
+				}
+			}
 
 			ImGui_ImplSDL3_ProcessEvent(&e);
 		}
@@ -1965,11 +2017,6 @@ void VulkanEngine::init_pipelines()
 	builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
 	shader_passes["mlab_vert"] = vkutil::build_shader(device, builder, { shader_cache["mesh.vert"], shader_cache["mlab.frag"] }, descriptor_layouts, sizeof(GPUPushConstants));
 	shader_passes["mlab_mesh"] = vkutil::build_shader(device, builder, { shader_cache["meshlet.mesh"], shader_cache["mlab.frag"] }, descriptor_layouts, sizeof(GPUPushConstants));
-
-	for (const auto& [_, shader_program] : shader_cache.data)
-	{
-		vkDestroyShaderModule(device, shader_program.get()->module, nullptr);
-	}
 }
 
 void VulkanEngine::init_default_data()

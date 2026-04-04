@@ -96,6 +96,7 @@ public:
 	bool freeze_camera{ false };
 	bool first_frame{ true };
 	bool render_imgui{ true };
+	bool reload_shaders{ false };
 	glm::mat4 last_view{};
 	glm::mat4 last_proj{};
 
