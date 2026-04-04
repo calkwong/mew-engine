@@ -1505,6 +1505,20 @@ void VulkanEngine::init_vulkan()
 
 	vkGetPhysicalDeviceProperties(chosen_gpu, &device_properties);
 	assert(device_properties.limits.timestampComputeAndGraphics);
+
+	uint32_t count = 0;
+    vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &count, nullptr);
+    std::vector<VkExtensionProperties> extensions(count);
+    vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &count, extensions.data());
+
+    // check for extension support
+    for (uint32_t i = 0; i < count; i++)
+    {
+        // if (strcmp(VK_KHR_RAY_QUERY_EXTENSION_NAME, extensions[i].extensionName) == 0)
+        // {
+        //     fmt::println("VK_KHR_RAY_QUERY_EXTENSION_NAME supported");
+        // }
+    }
 }
 
 void VulkanEngine::init_swapchain()
@@ -1671,8 +1685,8 @@ void VulkanEngine::create_swapchain(uint32_t width, uint32_t height)
 	vkb::Swapchain vkbSwapchain = swapchainBuilder
 	                                  //.use_default_format_selection()
 	                                  .set_desired_format(VkSurfaceFormatKHR{ .format = swapchain_image_format, .colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR })
-	                                  .set_desired_present_mode(VK_PRESENT_MODE_FIFO_KHR)
-	                                  // .set_desired_present_mode(VK_PRESENT_MODE_IMMEDIATE_KHR)
+	                                  // .set_desired_present_mode(VK_PRESENT_MODE_FIFO_KHR)
+	                                  .set_desired_present_mode(VK_PRESENT_MODE_IMMEDIATE_KHR)
 	                                  .set_desired_extent(width, height)
 	                                  .add_image_usage_flags(VK_IMAGE_USAGE_TRANSFER_DST_BIT)
 	                                  .build()

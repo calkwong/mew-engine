@@ -33,7 +33,7 @@ layout (location = 3) out uint out_material_id[];
 // layout (location = 4) out vec4 out_clip_pos[];
 // layout (location = 5) out vec4 out_prev_clip_pos[];
 
-// #define TRIANGLE_CULLING
+#define TRIANGLE_CULLING
 
 #ifdef TRIANGLE_CULLING
 shared vec3 vertex_clip[64];
