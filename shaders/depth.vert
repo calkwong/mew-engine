@@ -1,4 +1,4 @@
-#version 450
+#version 460
 
 #extension GL_GOOGLE_include_directive : require
 
@@ -21,12 +21,12 @@ void main()
 {
 	ObjectData o = object_buffer.objects[gl_InstanceIndex]; // gl_InstanceIndex from drawIndirectCommand
 	Vertex v = vertex_buffer.vertices[gl_VertexIndex];
-	
+
 	vec3 pos = vec3(v.px, v.py, v.pz);
 	vec4 world_pos = vec4(rotate_quat(pos, o.orientation) * o.scale + o.translation, 1.0);
-	
+
 	gl_Position = view_proj * world_pos;
-	
+
 	out_uv = vec2(v.uv_x, v.uv_y);
 	out_material_id = o.material_id;
 }

@@ -1,4 +1,4 @@
-#version 450
+#version 460
 
 #extension GL_GOOGLE_include_directive : require
 
@@ -21,12 +21,12 @@ vec2 sample_equirectangular_map(vec3 dir)
 	float u = atan(dir.z, dir.x);
 	float v = asin(dir.y);
 	//float v = acos(dir.y); // remove 0.5 below
-	
+
 	u = u / (2.0 * PI) + 0.5;
 	v = v / PI + 0.5;
-	
+
 	v = 1.0 - v;
-	
+
 	return vec2(u, v);
 }
 
@@ -37,10 +37,10 @@ void main()
 	vec2 texel_coord = vec2(gl_GlobalInvocationID.xy);
 	vec2 uv = (texel_coord + vec2(0.5)) / image_size;
 	uv = uv * 2.0 - 1.0;
-	uv.y *= -1.0; 
-	
+	uv.y *= -1.0;
+
 	uint face = gl_WorkGroupID.z;
-	
+
 	switch (face)
 	{
 		case 0: direction = normalize(vec3(1.0, uv.y, -uv.x)); break; // +X

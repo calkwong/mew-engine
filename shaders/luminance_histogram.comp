@@ -1,4 +1,4 @@
-#version 450
+#version 460
 
 #extension GL_GOOGLE_include_directive : require
 
@@ -30,10 +30,10 @@ float get_luminance(vec3 color)
 uint color_to_bin(vec3 color)
 {
 	float luminance = get_luminance(color);
-	
+
 	if (luminance < 0.005)
 		return 0;
-		
+
 	float log_luminance = clamp((log2(luminance) - min_log_luminance) * one_over_log_luminance_range, 0.0, 1.0); // in range [0,254]
 	return uint(log_luminance * 254.0 + 1.0); // map to [1,255]
 }
@@ -41,19 +41,19 @@ uint color_to_bin(vec3 color)
 void main()
 {
 	shared_bins[gl_LocalInvocationIndex] = 0;
-	
+
 	barrier();
-	
+
 	ivec2 texel_coord = ivec2(gl_GlobalInvocationID.xy);
 	if (texel_coord.x < screen_size.x && texel_coord.y < screen_size.y)
 	{
 		vec3 color = imageLoad(images_rgba32f[image_id], texel_coord).rgb;
-		
+
 		uint bin = color_to_bin(color);
-		
+
 		atomicAdd(shared_bins[bin], 1);
 	}
-	
+
 	barrier();
 	atomicAdd(luminance_buffer.bins[gl_LocalInvocationIndex], shared_bins[gl_LocalInvocationIndex]);
 }

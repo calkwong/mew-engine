@@ -1,4 +1,4 @@
-#version 450
+#version 460
 
 #extension GL_GOOGLE_include_directive : require
 
@@ -22,18 +22,18 @@ void main()
 
 	vec2 texel_coord = vec2(gl_GlobalInvocationID.xy);
 	ivec2 image_size = imageSize(images_array_rgba32f[image_id]).xy;
-	
+
 	if (texel_coord.x >= image_size.x || texel_coord.y >= image_size.y)
 		return;
-		
+
 	vec2 uv = (texel_coord + vec2(0.5)) / vec2(image_size);
 	uv = uv * 2.0 - 1.0;
-	
+
 	float perceptual_roughness = roughness;
 	float envmap_size = float(textureSize(samplerCube(textures_cube[texture_id], samplers[CUBE_SAMPLER]), 0).r);
-	
+
 	uint face = gl_WorkGroupID.z;
-	
+
 	switch (face)
 	{
 		case 0: direction = normalize(vec3(1.0, -uv.y, -uv.x)); break; // +X
@@ -42,9 +42,9 @@ void main()
 		case 3: direction = normalize(vec3(uv.x, -1.0, -uv.y)); break; // -Y
 		case 4: direction = normalize(vec3(uv.x, -uv.y, 1.0)); break; // +Z
 		case 5: direction = normalize(vec3(-uv.x, -uv.y, -1.0)); break; // -Z
-		default: direction = vec3(0.0); break; 
+		default: direction = vec3(0.0); break;
 	}
-	
+
 	vec3 N = direction;
 	vec3 V = N;
 	float linear_roughness = perceptual_roughness * perceptual_roughness;
@@ -55,7 +55,7 @@ void main()
 	for (uint i = 0; i < sample_count; i++)
 	{
 		vec2 Xi = Hammersley(i, sample_count);
-		vec3 H = ImportanceSampleGGX(Xi, N, linear_roughness); 
+		vec3 H = ImportanceSampleGGX(Xi, N, linear_roughness);
 		vec3 L = normalize(2.0 * dot(V,H) * H - V);
 
 		float NdotL = max(dot(N, L), 0.0);
@@ -68,13 +68,13 @@ void main()
 			float omegaS = 1.0 / (float(sample_count) * pdf);  // solid angle of a sample
 			float omegaP = 4.0 * PI / (6.0 * envmap_size * envmap_size); // solid angle of one pixel from cubemap/sphere
 			float mipLevel = perceptual_roughness == 0.0 ? 0.0 : max(0.5 * log2(omegaS / omegaP) + 1.0, 0.0);
-			
+
 			prefiltered_color += textureLod(samplerCube(textures_cube[texture_id], samplers[CUBE_SAMPLER]), L, mipLevel).rgb * NdotL;
 			total_weight += NdotL;
 		}
 	}
 
 	prefiltered_color = prefiltered_color / total_weight;
-	
+
 	imageStore(images_array_rgba32f[image_id], ivec3(texel_coord, face), vec4(prefiltered_color, 1.0));
 }

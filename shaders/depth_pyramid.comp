@@ -1,4 +1,4 @@
-#version 450
+#version 460
 
 #extension GL_GOOGLE_include_directive : require
 
@@ -17,14 +17,14 @@ layout(push_constant) uniform constants
 void main()
 {
 	ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
-	
+
 	if (pos.x < int(image_size.x) || pos.y < int(image_size.y))
 	{
 		vec2 uv = vec2(pos) + vec2(0.5);
 		uv = uv / image_size;
-		
-		float depth = textureLod(sampler2D(textures[texture_id], samplers[DEPTH_REDUCTION_SAMPLER]), uv, lod).r; 
-	
+
+		float depth = textureLod(sampler2D(textures[texture_id], samplers[DEPTH_REDUCTION_SAMPLER]), uv, lod).r;
+
 		imageStore(images_r32f[image_id], pos, vec4(depth));
 	}
 }

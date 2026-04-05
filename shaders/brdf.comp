@@ -1,4 +1,4 @@
-#version 450
+#version 460
 
 #extension GL_GOOGLE_include_directive : require
 
@@ -56,8 +56,8 @@ void main()
 {
 	vec2 texel_coord = vec2(gl_GlobalInvocationID.xy);
 	vec2 uv = (texel_coord + vec2(0.5)) / image_size;
-	
+
 	vec2 color = IntegratedBRDF(uv.x, uv.y);
-	
+
 	imageStore(images_rg16f[image_id], ivec2(texel_coord), vec4(color, 0.0, 1.0));
 }
