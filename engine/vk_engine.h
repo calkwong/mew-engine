@@ -62,9 +62,9 @@ struct EngineStats
 {
 	int draw_count{};
 	unsigned int triangle_count{};
-	double scene_update_time{};
 	double deltatime{};
-	double frame_avg{};
+	double cpu_time{};
+	double gpu_time{};
 	double early_cull{};
 	double late_cull{};
 	double mask_cull{};

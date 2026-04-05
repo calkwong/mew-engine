@@ -36,6 +36,7 @@
 #include <thread>
 #include <utility>
 #include <cstdlib>
+#include <vulkan/vulkan_core.h>
 
 VulkanEngine* loaded_engine{};
 
@@ -550,6 +551,8 @@ void VulkanEngine::draw()
 		stats.shadow_cull = get_time(20, 21);
 		stats.shadow_render = get_time(22, 23);
 		stats.taa_resolve = get_time(24, 25);
+		auto gpu_time = get_time(26, 27);
+		stats.gpu_time = gpu_time + 0.95 * (stats.gpu_time - gpu_time);
 
 		stats.triangle_count = 0;
 		// for (size_t i = 0; i < pipeline_results.size() - 1; i++)
@@ -576,6 +579,8 @@ void VulkanEngine::draw()
 	VkCommandBufferBeginInfo cmd_begin_info = vkinit::command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
 
 	VK_CHECK(vkBeginCommandBuffer(cmd, &cmd_begin_info));
+
+	vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 26);
 
 	// two-pass mesh/cluster occlusion culling
 	{
@@ -1234,6 +1239,9 @@ void VulkanEngine::draw()
 	    VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
 	    0
 	);
+
+	vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 27);
+
 	// TracyVkCollect(tracy_ctx, get_current_frame().main_command_buffer);
 	VK_CHECK(vkEndCommandBuffer(cmd));
 
@@ -1265,23 +1273,22 @@ void VulkanEngine::draw()
 void VulkanEngine::run()
 {
 	SDL_Event e;
-	bool bQuit = false;
+	bool b_quit = false;
 
 	auto last_frame = std::chrono::system_clock::now();
 
-	while (!bQuit)
+	while (!b_quit)
 	{
 		auto start = std::chrono::system_clock::now();
 		auto deltatime = std::chrono::duration_cast<std::chrono::microseconds>(start - last_frame);
 		stats.deltatime = static_cast<float>(deltatime.count()) / 1000000.0f; // microseconds to seconds
-		stats.frame_avg = stats.frame_avg * 0.95 + stats.deltatime * 0.05;
 		last_frame = start;
 
 		// Handle events on queue
 		while (SDL_PollEvent(&e) != 0)
 		{
 			if (e.type == SDL_EVENT_QUIT)
-				bQuit = true;
+				b_quit = true;
 
 			if (e.type == SDL_EVENT_WINDOW_MINIMIZED)
 				stop_rendering = true;
@@ -1322,13 +1329,6 @@ void VulkanEngine::run()
 						CVAR_TAA_YCOCG.set(0);
 					else
 						CVAR_TAA_YCOCG.set(1);
-				}
-				if (e.key.repeat == 0 && e.key.key == SDLK_G)
-				{
-					if (CVAR_MISC_AUTOEXPOSURE.get() == 1)
-						CVAR_MISC_AUTOEXPOSURE.set(0);
-					else
-						CVAR_MISC_AUTOEXPOSURE.set(1);
 				}
 				if (e.key.repeat == 0 && e.key.key == SDLK_T)
 				{
@@ -1410,7 +1410,8 @@ void VulkanEngine::run()
 
 		{
 			ImGui::Begin("Stats");
-			ImGui::Text("Frametime:            %.3f ms", stats.frame_avg * 1000.0f);
+			ImGui::Text("Total render time:    %.3f ms", stats.cpu_time);
+			ImGui::Text("Gpu render time:      %.3f ms", stats.gpu_time);
 			ImGui::Text("Draw calls:           %i", stats.draw_count);
 			// ImGui::Text("scene update time %f ms", stats.scene_update_time);
 			ImGui::Text("Early cull:           %.3f ms", stats.early_cull);
@@ -1441,6 +1442,10 @@ void VulkanEngine::run()
 		update_scene();
 
 		draw();
+
+		auto end = std::chrono::system_clock::now();
+		auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() / 1000.0f;
+		stats.cpu_time = stats.cpu_time * 0.95 + elapsed * 0.05;
 	}
 }
 
@@ -2435,7 +2440,6 @@ void VulkanEngine::register_object(const Node* node, const glm::mat4& top_matrix
 void VulkanEngine::update_scene()
 {
 	stats.draw_count = 0;
-	auto start = std::chrono::system_clock::now();
 
 	main_camera.far = static_cast<float>(CVAR_MISC_DRAW_DISTANCE.get());
 	main_camera.update(static_cast<float>(stats.deltatime));
@@ -2476,9 +2480,6 @@ void VulkanEngine::update_scene()
 	auto ms_per_orbit = 10000;
 	float rot_angle = static_cast<float>(elapsed_ms % ms_per_orbit) / static_cast<float>(ms_per_orbit) * 360.0f;
 	scene_data.light_rot = glm::rotate(glm::mat4(1.0f), glm::radians(rot_angle), glm::vec3(0, 1, 0));
-	auto end = std::chrono::system_clock::now();
-	auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-	stats.scene_update_time = static_cast<float>(elapsed.count()) / 1000.0f; // milliseconds
 }
 
 void VulkanEngine::immediate_submit(std::function<void(VkCommandBuffer cmd)>&& func) const
