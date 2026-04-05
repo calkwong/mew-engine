@@ -216,6 +216,7 @@ private:
 	void init_commands();
 	void init_sync_structures();
 	void init_descriptors();
+	void init_shaders();
 	void init_pipelines();
 	void init_default_data();
 	void init_renderables(const std::string& file_path);

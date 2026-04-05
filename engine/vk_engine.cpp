@@ -184,6 +184,8 @@ void VulkanEngine::init(const std::string& file_path)
 
 	init_descriptors();
 
+	init_shaders();
+
 	init_pipelines();
 
 	main_camera.position = glm::vec3(0, 0, 5);
@@ -1348,39 +1350,42 @@ void VulkanEngine::run()
 			{
 			    reload_shaders = false;
 
-				std::vector<ShaderProgram*> programs_to_reload{};
-
 				int recompile = std::system("ninja -C bin Shaders");
 
 				if (recompile == 0)
 				{
+				    bool rebuild{};
+
     				for (auto& [name, program] : shader_cache.data)
      			    {
                         std::string shader_path{ "shaders/compiled/" };
                        	shader_path += name;
                        	shader_path += ".spv";
 
-                        // if spv has changed, update
-                        // assume VkShaderStageFlagBits cannot change
-         			auto time = std::filesystem::last_write_time(shader_path);
+                        auto time = std::filesystem::last_write_time(shader_path);
+
                         if (program->time != time)
                         {
                             program->time = time;
                             vkDestroyShaderModule(device, program->module, nullptr);
                             vkutil::load_shader_module(shader_path.c_str(), device, &program->module);
-                            programs_to_reload.push_back(program.get());
+                            rebuild = true;
                         }
      			    }
 
-                    if (programs_to_reload.size() != 0)
+                    if (rebuild)
                     {
-                        fmt::println("some shaders have been updated"); // placeholder
+                        VK_CHECK(vkDeviceWaitIdle(device));
 
-                        // VK_CHECK(vkDeviceWaitIdle(device));
+                  		for (const auto& [_, shader] : shader_passes)
+                  		{
+                 			vkDestroyPipeline(device, shader->pipeline, nullptr);
+                 			vkDestroyPipelineLayout(device, shader->layout, nullptr);
+                  		}
 
-                        // for (auto* program : programs_to_reload)
-                        // {
-                        // }
+                        // TODO: instead of rebuilding everything, we could just update relevant pipelines, but full rebuild is almost instantaneous so we roll with this for now
+                        shader_passes.clear();
+                        init_pipelines();
                     }
 				}
 			}
@@ -1840,32 +1845,23 @@ void VulkanEngine::init_descriptors()
 	);
 }
 
-void VulkanEngine::init_pipelines()
+void VulkanEngine::init_shaders()
 {
-	// compute pipeline
 	shader_cache.add_shader(device, "cluster_grid.comp", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "light_culling.comp", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "depth_pyramid.comp", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "mesh_cull.comp", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "meshlet_cull.comp", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "shadow_cull.comp", VK_SHADER_STAGE_COMPUTE_BIT);
-
-	// graphics pipeline
 	shader_cache.add_shader(device, "mesh.vert", VK_SHADER_STAGE_VERTEX_BIT);
 	shader_cache.add_shader(device, "geometry.frag", VK_SHADER_STAGE_FRAGMENT_BIT);
 	shader_cache.add_shader(device, "meshlet.mesh", VK_SHADER_STAGE_MESH_BIT_EXT);
 	shader_cache.add_shader(device, "mlab.frag", VK_SHADER_STAGE_FRAGMENT_BIT);
 	shader_cache.add_shader(device, "depth.vert", VK_SHADER_STAGE_VERTEX_BIT);
 	shader_cache.add_shader(device, "depth.frag", VK_SHADER_STAGE_FRAGMENT_BIT);
-
-	// vis buffer
 	shader_cache.add_shader(device, "vis_buffer.frag", VK_SHADER_STAGE_FRAGMENT_BIT);
 	shader_cache.add_shader(device, "vis_meshlet.mesh", VK_SHADER_STAGE_MESH_BIT_EXT);
-
-	// taa
 	shader_cache.add_shader(device, "resolve_taa.comp", VK_SHADER_STAGE_COMPUTE_BIT);
-
-	// gi
 	shader_cache.add_shader(device, "equirectangular_to_cubemap.comp", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "spherical_harmonics.comp", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "irradiance.comp", VK_SHADER_STAGE_COMPUTE_BIT);
@@ -1874,19 +1870,13 @@ void VulkanEngine::init_pipelines()
 	shader_cache.add_shader(device, "luminance_histogram.comp", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "luminance_avg.comp", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "tonemap.comp", VK_SHADER_STAGE_COMPUTE_BIT);
-
 	shader_cache.add_shader(device, "resolve_vbuffer.comp", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "resolve_gbuffer.comp", VK_SHADER_STAGE_COMPUTE_BIT);
-
-	// prefix sum
 	shader_cache.add_shader(device, "compact_dispatch.comp", VK_SHADER_STAGE_COMPUTE_BIT);
+}
 
-#ifdef NDEBUG
-	fmt::println("running Release mode"); // ensuring no clion shenanigans
-#else
-	fmt::println("running Debug mode");
-#endif
-
+void VulkanEngine::init_pipelines()
+{
 	std::vector<VkDescriptorSetLayout> descriptor_layouts = { scene_descriptor_layout, bindless_image_layout, bindless_tex_layout, bindless_sampler_layout };
 
 	ComputePipelineBuilder compute_builder{};
