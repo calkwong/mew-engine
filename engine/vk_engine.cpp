@@ -1934,41 +1934,15 @@ void VulkanEngine::init_pipelines()
 	}
 	builder.set_color_attachment_format(color_attachment_formats);
 	builder.set_blending_state(color_blend_states);
-
-	struct GBufferSpecializationData
-	{
-		uint32_t opaque = 1;
-	};
-
-	GBufferSpecializationData specialization_data{};
-	std::array<VkSpecializationMapEntry, 1> specialization_entries{};
-	specialization_entries[0].constantID = 0;
-	specialization_entries[0].offset = 0;
-	specialization_entries[0].size = sizeof(specialization_data.opaque);
-
-	VkSpecializationInfo specialization_info{};
-	specialization_info.mapEntryCount = static_cast<uint32_t>(specialization_entries.size());
-	specialization_info.pMapEntries = specialization_entries.data();
-	specialization_info.dataSize = sizeof(GBufferSpecializationData);
-	specialization_info.pData = &specialization_data;
-
-	builder.set_shaders({ shader_cache["mesh.vert"], shader_cache["geometry.frag"] });
-	builder.set_shader_specialization(&specialization_info, 1);
-	specialization_data.opaque = 1;
 	builder.set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-	shader_passes["geometry_vert"] = vkutil::build_shader(device, builder, {}, descriptor_layouts, sizeof(GPUPushConstants));
-	specialization_data.opaque = 0;
+	shader_passes["geometry_vert"] = vkutil::build_shader(device, builder, { shader_cache["mesh.vert"], shader_cache["geometry.frag"] }, descriptor_layouts, sizeof(GPUPushConstants), { 1 });
 	builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-	shader_passes["geometry_vert_mask"] = vkutil::build_shader(device, builder, {}, descriptor_layouts, sizeof(GPUPushConstants));
+	shader_passes["geometry_vert_mask"] = vkutil::build_shader(device, builder, { shader_cache["mesh.vert"], shader_cache["geometry.frag"] }, descriptor_layouts, sizeof(GPUPushConstants), { 0 });
 
-	builder.set_shaders({ shader_cache["meshlet.mesh"], shader_cache["geometry.frag"] });
-	builder.set_shader_specialization(&specialization_info);
-	specialization_data.opaque = 1;
 	builder.set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-	shader_passes["geometry_mesh"] = vkutil::build_shader(device, builder, {}, descriptor_layouts, sizeof(GPUPushConstants));
-	specialization_data.opaque = 0;
+	shader_passes["geometry_mesh"] = vkutil::build_shader(device, builder, { shader_cache["meshlet.mesh"], shader_cache["geometry.frag"] }, descriptor_layouts, sizeof(GPUPushConstants), { 1 });
 	builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-	shader_passes["geometry_mesh_mask"] = vkutil::build_shader(device, builder, {}, descriptor_layouts, sizeof(GPUPushConstants));
+	shader_passes["geometry_mesh_mask"] = vkutil::build_shader(device, builder, { shader_cache["meshlet.mesh"], shader_cache["geometry.frag"] }, descriptor_layouts, sizeof(GPUPushConstants), { 0 });
 
 	color_attachment_formats.clear();
 	color_attachment_formats.push_back(visibility_buffer.format);
@@ -1978,14 +1952,10 @@ void VulkanEngine::init_pipelines()
 	color_blend_states.push_back(builder.disable_blending()); // 2 channel texture but RGBA write mask ok? no validation error
 	color_blend_states.push_back(builder.disable_blending()); // 2 channel texture but RGBA write mask ok? no validation error
 	builder.set_blending_state(color_blend_states);
-	builder.set_shaders({ shader_cache["vis_meshlet.mesh"], shader_cache["vis_buffer.frag"] });
-	builder.set_shader_specialization(&specialization_info);
-	specialization_data.opaque = 1;
 	builder.set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-	shader_passes["visibility_mesh"] = vkutil::build_shader(device, builder, {}, descriptor_layouts, sizeof(GPUPushConstants));
-	specialization_data.opaque = 0;
+	shader_passes["visibility_mesh"] = vkutil::build_shader(device, builder, { shader_cache["vis_meshlet.mesh"], shader_cache["vis_buffer.frag"] }, descriptor_layouts, sizeof(GPUPushConstants), { 1 });
 	builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-	shader_passes["visibility_mesh_mask"] = vkutil::build_shader(device, builder, {}, descriptor_layouts, sizeof(GPUPushConstants));
+	shader_passes["visibility_mesh_mask"] = vkutil::build_shader(device, builder, { shader_cache["vis_meshlet.mesh"], shader_cache["vis_buffer.frag"] }, descriptor_layouts, sizeof(GPUPushConstants), { 0 });
 
 	// single render target
 	color_attachment_formats.clear();
@@ -1997,15 +1967,10 @@ void VulkanEngine::init_pipelines()
 	builder.enable_depth(true, VK_COMPARE_OP_GREATER_OR_EQUAL);
 	builder.rasterization.depthClampEnable = VK_TRUE;
 	builder.dynamic_state.push_back(VK_DYNAMIC_STATE_DEPTH_BIAS);
-	builder.set_shaders({ shader_cache["depth.vert"], shader_cache["depth.frag"] });
-	builder.set_shader_specialization(&specialization_info, 1);
-	specialization_data.opaque = 1;
 	builder.set_cull_mode(VK_CULL_MODE_FRONT_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-	// builder.set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-	shader_passes["depth"] = vkutil::build_shader(device, builder, {}, descriptor_layouts, sizeof(ShadowPushConstants));
-	specialization_data.opaque = 0;
+	shader_passes["depth"] = vkutil::build_shader(device, builder, { shader_cache["depth.vert"], shader_cache["depth.frag"] }, descriptor_layouts, sizeof(ShadowPushConstants), { 1 });
 	builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-	shader_passes["depth_mask"] = vkutil::build_shader(device, builder, {}, descriptor_layouts, sizeof(ShadowPushConstants));
+	shader_passes["depth_mask"] = vkutil::build_shader(device, builder, { shader_cache["depth.vert"], shader_cache["depth.frag"] }, descriptor_layouts, sizeof(ShadowPushConstants), { 0 });
 	builder.dynamic_state.pop_back(); // reset
 	builder.rasterization.depthClampEnable = VK_FALSE; // reset
 

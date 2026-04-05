@@ -235,15 +235,36 @@ VkPipelineColorBlendAttachmentState PipelineBuilder::disable_blending()
 	return attachment_state;
 }
 
-std::unique_ptr<ShaderPass> vkutil::build_shader(VkDevice device, ComputePipelineBuilder& builder, const ShaderProgram* program, const std::vector<VkDescriptorSetLayout>& layouts, uint32_t pc_size)
+std::unique_ptr<ShaderPass> vkutil::build_shader(VkDevice device, ComputePipelineBuilder& builder, const ShaderProgram* program, const std::vector<VkDescriptorSetLayout>& layouts, uint32_t pc_size, SpecConstants constants)
 {
     std::unique_ptr<ShaderPass> shader = std::make_unique<ShaderPass>();
 
-    if (program != nullptr)
-    {
-        assert(builder.shader_stages.size() == 1);
-        builder.set_shaders(program);
-    }
+    assert(program != nullptr);
+    builder.set_shaders(program);
+
+   	if (constants.size() != 0)
+	{
+        std::vector<VkSpecializationMapEntry> specialization_entries(constants.size());
+        uint32_t index{};
+        for (auto c : constants)
+       	{
+           	specialization_entries[index].constantID = index;
+           	specialization_entries[index].offset = index * static_cast<uint32_t>(sizeof(uint32_t));
+           	specialization_entries[index].size = static_cast<uint32_t>(sizeof(uint32_t));
+           	index++;
+       	}
+
+        VkSpecializationInfo specialization_info{};
+       	specialization_info.mapEntryCount = static_cast<uint32_t>(specialization_entries.size());
+       	specialization_info.pMapEntries = specialization_entries.data();
+       	specialization_info.dataSize = constants.size() * sizeof(uint32_t);
+       	specialization_info.pData = constants.size() != 0 ? constants.begin() : nullptr;
+
+        for (auto& shader_stage : builder.shader_stages)
+       	{
+           	shader_stage.pSpecializationInfo = &specialization_info;
+       	}
+	}
 
     VkPipelineLayoutCreateInfo pipeline_layout_info{};
     pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -272,23 +293,40 @@ std::unique_ptr<ShaderPass> vkutil::build_shader(VkDevice device, ComputePipelin
         name_info.pObjectName = builder.name.c_str();
         vkSetDebugUtilsObjectNameEXT(device, &name_info);
     }
-
     return shader;
 }
 
-std::unique_ptr<ShaderPass> vkutil::build_shader(VkDevice device, PipelineBuilder& builder, std::initializer_list<ShaderProgram*> programs, const std::vector<VkDescriptorSetLayout>& layouts, uint32_t pc_size)
+std::unique_ptr<ShaderPass> vkutil::build_shader(VkDevice device, PipelineBuilder& builder, std::initializer_list<ShaderProgram*> programs, const std::vector<VkDescriptorSetLayout>& layouts, uint32_t pc_size, SpecConstants constants)
 {
     std::unique_ptr<ShaderPass> shader = std::make_unique<ShaderPass>();
 
-    if (programs.size() == 0)
+    assert(programs.size() > 0);
+    builder.set_shaders(programs);
+
+    std::vector<VkSpecializationMapEntry> specialization_entries(constants.size());
+
+    if (constants.size() > 0)
     {
-        assert(!builder.shader_stages.empty());
+        uint32_t index{};
+        for (auto c : constants)
+       	{
+           	specialization_entries[index].constantID = index;
+           	specialization_entries[index].offset = index * sizeof(uint32_t);
+           	specialization_entries[index].size = sizeof(uint32_t);
+           	index++;
+       	}
     }
-    else
-    {
-        assert(programs.size() <= 2 && programs.size() > 0);
-        builder.set_shaders(programs);
-    }
+
+    VkSpecializationInfo specialization_info{};
+   	specialization_info.mapEntryCount = static_cast<uint32_t>(specialization_entries.size());
+   	specialization_info.pMapEntries = specialization_entries.data();
+   	specialization_info.dataSize = constants.size() * sizeof(uint32_t);
+   	specialization_info.pData = constants.size() != 0 ? constants.begin() : nullptr;
+
+    for (auto& shader_stage : builder.shader_stages)
+   	{
+       	shader_stage.pSpecializationInfo = &specialization_info;
+   	}
 
     VkPipelineLayoutCreateInfo pipeline_layout_info{};
     pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;

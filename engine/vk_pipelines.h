@@ -234,12 +234,14 @@ struct ComputePipelineBuilder
 	void set_shader_specialization(VkSpecializationInfo* spec_info);
 };
 
+using SpecConstants = std::initializer_list<uint32_t>;
+
 namespace vkutil
 {
 	bool load_shader_module(const char* path, VkDevice device, VkShaderModule* out_shader_module);
 
 	std::unique_ptr<ShaderPass> build_shader(VkDevice device, PipelineBuilder& builder, std::initializer_list<ShaderProgram*> programs,
-	    const std::vector<VkDescriptorSetLayout>& layouts, uint32_t pc_size);
+	    const std::vector<VkDescriptorSetLayout>& layouts, uint32_t pc_size, SpecConstants constants = {});
 	std::unique_ptr<ShaderPass> build_shader(VkDevice device, ComputePipelineBuilder& builder, const ShaderProgram* program,
-	    const std::vector<VkDescriptorSetLayout>& layouts, uint32_t pc_size);
+	    const std::vector<VkDescriptorSetLayout>& layouts, uint32_t pc_size, SpecConstants constants = {});
 } // namespace vkutil
