@@ -313,8 +313,6 @@ void main()
         blend_factor = max_blend_factor + (min_blend_factor - max_blend_factor) * w;
 	}
 
-	blend_factor = current_depth != 0.0 ? blend_factor : 1.0;
-
 	vec3 final_color = history_color_clamped + (current_color - history_color_clamped) * blend_factor;
 
 	final_color = maybe_ycocg_to_rgb(final_color);
