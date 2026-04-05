@@ -1573,13 +1573,13 @@ void VulkanEngine::init_vulkan()
     vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &count, extensions.data());
 
     // check for extension support
-    for (uint32_t i = 0; i < count; i++)
-    {
-        // if (strcmp(VK_KHR_RAY_QUERY_EXTENSION_NAME, extensions[i].extensionName) == 0)
-        // {
-        //     fmt::println("VK_KHR_RAY_QUERY_EXTENSION_NAME supported");
-        // }
-    }
+    // for (uint32_t i = 0; i < count; i++)
+    // {
+    //     if (strcmp(VK_KHR_RAY_QUERY_EXTENSION_NAME, extensions[i].extensionName) == 0)
+    //     {
+    //         fmt::println("VK_KHR_RAY_QUERY_EXTENSION_NAME supported");
+    //     }
+    // }
 }
 
 void VulkanEngine::init_swapchain()

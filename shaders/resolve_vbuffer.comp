@@ -39,8 +39,8 @@ layout( push_constant ) uniform constants
 	uint shadows;
 	uint pcf;
 	float max_prefiltered_lod;
-	float metallic; // unused, for furnace test
-	float roughness; // unused, for furnace test
+	float pc_metallic; // unused, for furnace test
+	float pc_roughness; // unused, for furnace test
 	uint debug;
 	uint map;
 };
@@ -312,8 +312,8 @@ void main()
 	color = (Fd + Fr) * light_color * NdotL;
 
 	#ifdef IBL
-		//perceptual_roughness = roughness; // sphere test
-		//metallic = metallic; // sphere test
+		// perceptual_roughness = pc_roughness; // sphere test
+		// metallic = pc_metallic; // sphere test
 
 		vec3 R = reflect(-V, N);
 		float prefiltered_mip = max_prefiltered_lod * perceptual_roughness;
@@ -323,24 +323,25 @@ void main()
 			vec3 prefiltered = textureLod(samplerCube(textures_cube[uint(uniforms.textures[2])], samplers[CUBE_SAMPLER]), R, prefiltered_mip).xyz;
 			vec2 brdf = texture(sampler2D(textures[uint(uniforms.textures[3])], samplers[LINEAR_CLAMP_SAMPLER]), vec2(NdotV, perceptual_roughness)).rg;
 
-			//vec3 white = vec3(1.0); // sphere test
-			//f0 = vec3(0.04); // sphere test
+			// vec3 white = vec3(1.0); // sphere test
+			// f0 = vec3(0.04); // sphere test
 			f0 = mix(f0, albedo.xyz, metallic);
-			//f0 = mix(f0, white, metallic); // sphere test
+			// f0 = mix(f0, white, metallic); // sphere test
 
-			// try normal schlick and visualize difference, remove comment after
 			F = F_SchlickRoughness(NdotV, f0, perceptual_roughness);
-
 			kS = F;
 			kD = vec3(1.0) - kS;
 			kD *= 1.0 - metallic;
+
+			// TODO: multiscattering?
 
 		    // TODO: we could bake the division by PI into SH
 			vec3 diffuse = kD * irradiance * (1.0 / PI) * albedo.xyz;
 			vec3 specular = prefiltered * (F * brdf.x + brdf.y);
 			ambient = diffuse + specular;
-			//out_color = vec4(ambient, 1.0); // sphere test
-			//return; // sphere test
+			// out_color = vec4(ambient, 1.0); // sphere test
+			// imageStore(images_rgba32f[0], ivec2(screen_pos), out_color); // sphere test
+			// return; // sphere test
 		}
 	#endif
 #else

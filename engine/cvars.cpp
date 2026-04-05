@@ -285,10 +285,13 @@ void CVarSystemImpl::draw_imgui_editor()
 
 		ImGui::TreePop();
 	}
-	//
-	// if (ImGui::CollapsingHeader("PBR"))
+
+	// if (ImGui::TreeNodeEx("PBR", ImGuiTreeNodeFlags_DefaultOpen))
 	// {
-	//
+	// 	edit_parameters(get_cvar("pbr.metallic"));
+	// 	edit_parameters(get_cvar("pbr.roughness"));
+
+	// 	ImGui::TreePop();
 	// }
 
 	/*

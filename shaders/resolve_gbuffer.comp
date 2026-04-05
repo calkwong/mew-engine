@@ -34,8 +34,8 @@ layout( push_constant ) uniform constants
 	uint shadows;
 	uint pcf;
 	float max_prefiltered_lod;
-	float metallic; // unused, for furnace test
-	float roughness; // unused, for furnace test
+	float pc_metallic; // unused, for furnace test
+	float pc_roughness; // unused, for furnace test
 	uint debug;
 	uint map;
 };
@@ -224,8 +224,8 @@ void main()
 	color = (Fd + Fr) * light_color * NdotL;
 
 	#ifdef IBL
-		//perceptual_roughness = roughness; // sphere test
-		//metallic = metallic; // sphere test
+		//perceptual_roughness = pc_roughness; // sphere test
+		//metallic = pc_metallic; // sphere test
 
 		vec3 R = reflect(-V, N);
 		float prefiltered_mip = max_prefiltered_lod * perceptual_roughness;
@@ -245,11 +245,14 @@ void main()
 			kD = vec3(1.0) - kS;
 			kD *= 1.0 - metallic;
 
+			// TODO: multiscattering?
+
 		    // TODO: we could bake the division by PI into SH
 			vec3 diffuse = kD * irradiance * (1.0 / PI) * albedo.xyz;
 			vec3 specular = prefiltered * (F * brdf.x + brdf.y);
 			ambient = diffuse + specular;
 			//out_color = vec4(ambient, 1.0); // sphere test
+			// imageStore(images_rgba32f[0], ivec2(screen_pos), out_color); // sphere test
 			//return; // sphere test
 		}
 	#endif
