@@ -132,7 +132,7 @@ uint32_t ImageCache::get_accumulation_buffer(uint32_t offset) const
 
 void ImageCache::set_accumulation_buffer(uint32_t id)
 {
-    accum_id = id;
+	accum_id = id;
 }
 
 uint32_t ImageCache::get_hdri() const

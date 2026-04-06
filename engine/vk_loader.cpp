@@ -87,7 +87,9 @@ namespace
 			bool is_ktx2{};
 			VkFormat format{};
 
+			// clang-format off
 			std::unique_ptr<unsigned char[], decltype([](unsigned char* p){ stbi_image_free(p); })> data{};
+			// clang-format on
 			std::unique_ptr<unsigned char[]> ktx{};
 			std::unique_ptr<basist::ktx2_image_level_info[]> ktx_info{};
 		};
@@ -180,7 +182,8 @@ namespace
 			return raw_image_data;
 		};
 
-		// generates sequence of value by repeatedly incrementing initial value up to bound - types must match!
+		// generates sequence of value by repeatedly incrementing initial value up to bound - types
+		// must match!
 		const auto indices = std::ranges::iota_view(static_cast<size_t>(0), asset.images.size());
 
 		auto has_ktx2_format = [&](std::string_view file_path) -> bool
@@ -195,41 +198,43 @@ namespace
 		basist::basisu_transcoder_init();
 
 		std::transform(std::execution::par, indices.begin(), indices.end(), raw_images.begin(), [&](size_t index)
+		{
+			const fastgltf::Image& image = asset.images[index];
+
+			// how does this fare against std::variant?
+			if (const auto* file_path = std::get_if<fastgltf::sources::URI>(&image.data))
 			{
-				const fastgltf::Image& image = asset.images[index];
+				assert(file_path->fileByteOffset == 0); // we don't support offsets with stbi
+				assert(file_path->uri.isLocalPath()); // only load local files
 
-				// how does this fare against std::variant?
-				if (const auto* file_path = std::get_if<fastgltf::sources::URI>(&image.data))
-				{
-					assert(file_path->fileByteOffset == 0); // we don't support offsets with stbi
-					assert(file_path->uri.isLocalPath()); // only load local files
+				bool is_ktx2 = has_ktx2_format(file_path->uri.path());
+				std::filesystem::path full_path = current_path / file_path->uri.path();
 
-					bool is_ktx2 = has_ktx2_format(file_path->uri.path());
-					std::filesystem::path full_path = current_path / file_path->uri.path();
-
-					return create_raw_image_data(full_path, is_ktx2);
-				}
-				// TODO
-				if (const auto* file_path = std::get_if<fastgltf::sources::Vector>(&image.data))
-				{
-					assert(0 && "fastgltf::sources::Vector not implemented");
-					return RawImageData{};
-				}
-				// TODO
-				if (const auto* file_path = std::get_if<fastgltf::sources::BufferView>(&image.data))
-				{
-					assert(0 && "fastgltf::sources::BufferView not implemented");
-					return RawImageData{};
-				}
-
-				assert(0);
-				return RawImageData{};
-
+				return create_raw_image_data(full_path, is_ktx2);
 			}
-		);
+			// TODO
+			if (const auto* file_path = std::get_if<fastgltf::sources::Vector>(&image.data))
+			{
+				assert(0 && "fastgltf::sources::Vector not implemented");
+				return RawImageData{};
+			}
+			// TODO
+			if (const auto* file_path = std::get_if<fastgltf::sources::BufferView>(&image.data))
+			{
+				assert(0 && "fastgltf::sources::BufferView not implemented");
+				return RawImageData{};
+			}
+
+			assert(0);
+			return RawImageData{};
+		});
 
 		// create staging buffer
-		AllocatedBuffer scratch = create_buffer(engine->allocator, 1000000000, VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT, VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
+		AllocatedBuffer scratch = create_buffer(
+		    engine->allocator, 1000000000,
+		    VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
+		    VK_BUFFER_USAGE_TRANSFER_SRC_BIT
+		);
 
 		struct ImageUploadInfo
 		{
@@ -258,38 +263,50 @@ namespace
 					uint32_t num_blocks_or_pixels = raw_image_data.ktx_info[mip].m_total_blocks;
 					uint32_t output_size = bytes_per_block_or_pixel * num_blocks_or_pixels;
 
-					image_upload_info.emplace_back(ImageUploadInfo{
-						.data = static_cast<void*>(raw_image_data.ktx.get() + upload_offset),
-						.size = output_size,
-						.buffer_offset = buffer_offset,
-						.image_index = static_cast<uint32_t>(images.size()),
-						.mips = mip,
-						.extent = { raw_image_data.ktx_info[mip].m_orig_width, raw_image_data.ktx_info[mip].m_orig_width, 1 }
-					});
+					image_upload_info.emplace_back(
+					    ImageUploadInfo{
+					        .data = static_cast<void*>(raw_image_data.ktx.get() + upload_offset),
+					        .size = output_size,
+					        .buffer_offset = buffer_offset,
+					        .image_index = static_cast<uint32_t>(images.size()),
+					        .mips = mip,
+					        .extent = { raw_image_data.ktx_info[mip].m_orig_width,
+					                    raw_image_data.ktx_info[mip].m_orig_width, 1 } }
+					);
 
 					upload_offset += output_size;
 					buffer_offset += output_size;
 				}
 
-				images.emplace_back(create_image(engine->device, engine->allocator, { raw_image_data.ktx_info[0].m_orig_width, raw_image_data.ktx_info[0].m_orig_height, 1}, raw_image_data.format,
-					VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT, 0, true
+				images.emplace_back(create_image(
+				    engine->device,
+				    engine->allocator,
+				    { raw_image_data.ktx_info[0].m_orig_width, raw_image_data.ktx_info[0].m_orig_height, 1 },
+				    raw_image_data.format,
+				    VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+				    VK_IMAGE_ASPECT_COLOR_BIT, 0, true
 				));
 			}
 			else
 			{
-				image_upload_info.emplace_back(ImageUploadInfo{
-   					.data = static_cast<void*>(raw_image_data.data.get()),
-   					.size = raw_image_data.size,
-   					.buffer_offset = buffer_offset,
-   					.image_index = static_cast<uint32_t>(images.size()),
-   					.mips = 0,
-   					.extent = VkExtent3D{ static_cast<uint32_t>(raw_image_data.width), static_cast<uint32_t>(raw_image_data.height), 1 }
-				});
+				image_upload_info.emplace_back(
+				    ImageUploadInfo{
+				        .data = static_cast<void*>(raw_image_data.data.get()),
+				        .size = raw_image_data.size,
+				        .buffer_offset = buffer_offset,
+				        .image_index = static_cast<uint32_t>(images.size()),
+				        .mips = 0,
+				        .extent = VkExtent3D{ static_cast<uint32_t>(raw_image_data.width), static_cast<uint32_t>(raw_image_data.height), 1 } }
+				);
 
 				buffer_offset += raw_image_data.size;
 
-				images.emplace_back(create_image(engine->device, engine->allocator, { static_cast<uint32_t>(raw_image_data.width), static_cast<uint32_t>(raw_image_data.height), 1 },
-					VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_IMAGE_ASPECT_COLOR_BIT, 0, true
+				images.emplace_back(create_image(
+				    engine->device, engine->allocator,
+				    { static_cast<uint32_t>(raw_image_data.width), static_cast<uint32_t>(raw_image_data.height), 1 },
+				    VK_FORMAT_R8G8B8A8_UNORM,
+				    VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+				    VK_IMAGE_ASPECT_COLOR_BIT, 0, true
 				));
 			}
 		}
@@ -306,16 +323,19 @@ namespace
 			if (scratch.info.size < buffer_offset + image_upload_info.back().size)
 			{
 				destroy_buffer(engine->allocator, scratch);
-				scratch = create_buffer(engine->allocator, static_cast<size_t>(buffer_offset * 1.5), VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT, VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
+				scratch = create_buffer(
+				    engine->allocator, static_cast<size_t>(buffer_offset * 1.5),
+				    VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
+				    VK_BUFFER_USAGE_TRANSFER_SRC_BIT
+				);
 			}
 
 			// copy to staging in parallel
 			std::for_each(std::execution::par, image_upload_info.begin(), image_upload_info.end(), [&](const ImageUploadInfo& upload_info)
-				{
-					auto p = static_cast<std::byte*>(scratch.info.pMappedData) + upload_info.buffer_offset; // this needs an overall offset
-					memcpy(p, upload_info.data, upload_info.size); // this needs a local offset
-				}
-			);
+			{
+				auto p = static_cast<std::byte*>(scratch.info.pMappedData) + upload_info.buffer_offset; // this needs an overall offset
+				memcpy(p, upload_info.data, upload_info.size); // this needs a local offset
+			});
 
 			std::vector<VkBufferImageCopy2> buffer_image_copies(image_upload_info.size());
 			std::vector<VkCopyBufferToImageInfo2> buffer_to_image_info(image_upload_info.size());
@@ -334,7 +354,7 @@ namespace
 				copy.imageSubresource.mipLevel = upload_info.mips;
 				copy.imageSubresource.baseArrayLayer = 0;
 				copy.imageSubresource.layerCount = 1;
-				copy.imageOffset = VkOffset3D{ 0,0,0 };
+				copy.imageOffset = VkOffset3D{ 0, 0, 0 };
 				copy.imageExtent = upload_info.extent;
 
 				info.sType = VK_STRUCTURE_TYPE_COPY_BUFFER_TO_IMAGE_INFO_2;
@@ -349,19 +369,23 @@ namespace
 			// assumes all textures are either ktx2 or not, otherwise may break
 			if (image_upload_info.size() != raw_images.size())
 			{
-                for (const auto& info : buffer_to_image_info)
-    			{
-    				vkCmdCopyBufferToImage2(engine->imm_command_buffer, &info);
-    			}
+				for (const auto& info : buffer_to_image_info)
+				{
+					vkCmdCopyBufferToImage2(engine->imm_command_buffer, &info);
+				}
 			}
 			else
 			{
-			    for (const auto& info : buffer_to_image_info)
-    			{
-       				vkCmdCopyBufferToImage2(engine->imm_command_buffer, &info);
+				for (const auto& info : buffer_to_image_info)
+				{
+					vkCmdCopyBufferToImage2(engine->imm_command_buffer, &info);
 
-                    vkutil::generate_mipmaps(engine->imm_command_buffer, info.dstImage, VkExtent2D{ info.pRegions->imageExtent.width, info.pRegions->imageExtent.height });
-    			}
+					vkutil::generate_mipmaps(
+					    engine->imm_command_buffer, info.dstImage,
+					    VkExtent2D{ info.pRegions->imageExtent.width,
+					                info.pRegions->imageExtent.height }
+					);
+				}
 			}
 		};
 
@@ -369,30 +393,35 @@ namespace
 		std::vector<VkImageMemoryBarrier2> image_barriers(asset.images.size());
 		for (int i = 0; i < image_barriers.size(); i++)
 		{
-			image_barriers[i] = image_barrier(images[i].image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-				0, VK_PIPELINE_STAGE_2_TRANSFER_BIT, 0, VK_ACCESS_2_TRANSFER_WRITE_BIT
+			image_barriers[i] = image_barrier(
+			    images[i].image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0,
+			    VK_PIPELINE_STAGE_2_TRANSFER_BIT, 0, VK_ACCESS_2_TRANSFER_WRITE_BIT
 			);
 		}
 
 		engine->immediate_submit([&](VkCommandBuffer cmd)
+		{
+			pipeline_barrier(engine->imm_command_buffer, nullptr, 0, image_barriers.data(), image_barriers.size());
+
+			flush_uploads();
+
+			// assumes all textures are either ktx2 or not, otherwise may break
+			VkImageLayout src_layout = (image_upload_info.size() != raw_images.size())
+			                               ? VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
+			                               : VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+
+			for (int i = 0; i < image_barriers.size(); i++)
 			{
-				pipeline_barrier(engine->imm_command_buffer, nullptr, 0, image_barriers.data(), image_barriers.size());
-
-				flush_uploads();
-
-				// assumes all textures are either ktx2 or not, otherwise may break
-				VkImageLayout src_layout = (image_upload_info.size() != raw_images.size()) ? VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL : VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-
-				for (int i = 0; i < image_barriers.size(); i++)
-				{
-					image_barriers[i] = image_barrier(images[i].image, src_layout, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-						VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT
-					);
-				}
-
-				pipeline_barrier(engine->imm_command_buffer, nullptr, 0, image_barriers.data(), image_barriers.size());
+				image_barriers[i] = image_barrier(
+				    images[i].image, src_layout, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+				    VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+				    VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+				    VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT
+				);
 			}
-		);
+
+			pipeline_barrier(engine->imm_command_buffer, nullptr, 0, image_barriers.data(), image_barriers.size());
+		});
 
 		destroy_buffer(engine->allocator, scratch);
 
@@ -406,11 +435,12 @@ namespace
 		return images;
 	}
 
-	// meshlet_indices stores meshlet vertices & triangles, meshlet stores offset into meshlet_indices, and triangle/vertices count
+	// meshlet_indices stores meshlet vertices & triangles, meshlet stores offset into
+	// meshlet_indices, and triangle/vertices count
 	void optimize_mesh(
-		std::vector<Vertex>& vertices, std::vector<uint32_t>& indices,
-		std::vector<uint32_t>& meshlet_indices, std::vector<Meshlet>& meshlets,
-		MeshData& mesh_data, std::vector<Vertex>& combined_vertices, std::vector<uint32_t>& combined_indices
+	    std::vector<Vertex>& vertices, std::vector<uint32_t>& indices,
+	    std::vector<uint32_t>& meshlet_indices, std::vector<Meshlet>& meshlets, MeshData& mesh_data,
+	    std::vector<Vertex>& combined_vertices, std::vector<uint32_t>& combined_indices
 	)
 	{
 		// indexing
@@ -434,7 +464,6 @@ namespace
 		std::vector<glm::vec3> positions(vertex_count);
 		for (size_t i = 0; i < vertex_count; i++)
 		{
-
 			float px = meshopt_dequantizeHalf(vertices[i].px);
 			float py = meshopt_dequantizeHalf(vertices[i].py);
 			float pz = meshopt_dequantizeHalf(vertices[i].pz);
@@ -495,7 +524,11 @@ namespace
 			std::vector<uint32_t> meshlet_vertices(max_meshlets * max_vertices); // TODO: should size be indices.size()?
 			std::vector<uint8_t> meshlet_triangles(max_meshlets * max_triangles * 3); // TODO: should size be indices.size()?
 
-			size_t meshlet_count = meshopt_buildMeshlets(meshopt_meshlets.data(), meshlet_vertices.data(), meshlet_triangles.data(), indices.data(), indices.size(), &positions[0].x, vertex_count, sizeof(glm::vec3), max_vertices, max_triangles, cone_weight);
+			size_t meshlet_count = meshopt_buildMeshlets(
+			    meshopt_meshlets.data(), meshlet_vertices.data(), meshlet_triangles.data(),
+			    indices.data(), indices.size(), &positions[0].x, vertex_count, sizeof(glm::vec3),
+			    max_vertices, max_triangles, cone_weight
+			);
 
 			// trim arrays
 			// meshopt_Meshlet's triangle_offset already accounts for alignment padding
@@ -519,7 +552,10 @@ namespace
 			{
 				meshopt_optimizeMeshlet(&meshlet_vertices[m.vertex_offset], &meshlet_triangles[m.triangle_offset], m.triangle_count, m.vertex_count);
 
-				meshopt_Bounds bounds = meshopt_computeMeshletBounds(&meshlet_vertices[m.vertex_offset], &meshlet_triangles[m.triangle_offset], m.triangle_count, &positions[0].x, vertex_count, sizeof(glm::vec3));
+				meshopt_Bounds bounds = meshopt_computeMeshletBounds(
+				    &meshlet_vertices[m.vertex_offset], &meshlet_triangles[m.triangle_offset],
+				    m.triangle_count, &positions[0].x, vertex_count, sizeof(glm::vec3)
+				);
 
 				Meshlet new_meshlet{};
 
@@ -558,7 +594,11 @@ namespace
 
 			if (mesh_data.lod_count < MAX_LOD)
 			{
-				size_t new_size = meshopt_simplifyWithAttributes(indices.data(), indices.data(), indices.size(), &positions[0].x, vertex_count, sizeof(glm::vec3), &normals[0].x, sizeof(glm::vec3), &attr_weights[0], 3, nullptr, target_index_count, target_error, 0, &next_error);
+				size_t new_size = meshopt_simplifyWithAttributes(
+				    indices.data(), indices.data(), indices.size(), &positions[0].x, vertex_count,
+				    sizeof(glm::vec3), &normals[0].x, sizeof(glm::vec3), &attr_weights[0], 3,
+				    nullptr, target_index_count, target_error, 0, &next_error
+				);
 
 				assert(new_size <= indices.size());
 
@@ -571,7 +611,8 @@ namespace
 
 				indices.resize(new_size);
 
-				lod_error = std::max(lod_error, next_error); // accumulate error as its technically possible for lower LOD to have smaller error
+				// accumulate error as its technically possible for lower LOD to have smaller error?
+				lod_error = std::max(lod_error, next_error);
 
 				meshopt_optimizeVertexCache(indices.data(), indices.data(), new_size, vertex_count);
 			}
@@ -584,10 +625,7 @@ namespace
 		return static_cast<int>((mesh.indices)->size()) / 3;
 	}
 
-	int mikk_getNumVerticesOfFace(const SMikkTSpaceContext* context, int faceIndex)
-	{
-		return 3;
-	}
+	int mikk_getNumVerticesOfFace(const SMikkTSpaceContext* context, int faceIndex) { return 3; }
 
 	void mikk_getPosition(const SMikkTSpaceContext* context, float outPosition[3], int faceIndex, int vertIndex)
 	{
@@ -658,9 +696,7 @@ namespace
 		auto tz = outTangent[2];
 		mikk_encodeOct(tx, ty, tz);
 
-		uint16_t t =
-			(meshopt_quantizeSnorm(tx, 8) + 127) << 8 |
-			(meshopt_quantizeSnorm(ty, 8) + 127);
+		uint16_t t = (meshopt_quantizeSnorm(tx, 8) + 127) << 8 | (meshopt_quantizeSnorm(ty, 8) + 127);
 
 		(*mesh.vertices)[idx].tangent = t;
 		(*mesh.vertices)[idx].normal |= (-sign >= 0 ? 1 : 0) << 30;
@@ -683,7 +719,7 @@ namespace
 
 		genTangSpaceDefault(&mikkContext);
 	}
-}
+} // namespace
 
 // TODO: refactor - try to decouple loader and engine
 std::optional<std::unique_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const std::string& file_path)
@@ -696,19 +732,17 @@ std::optional<std::unique_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const
 	LoadedGLTF& file = *scene;
 
 	constexpr auto supported_extensions =
-		fastgltf::Extensions::KHR_lights_punctual |
-		fastgltf::Extensions::KHR_texture_basisu;
+	    fastgltf::Extensions::KHR_lights_punctual |
+	    fastgltf::Extensions::KHR_texture_basisu;
 	// fastgltf::Extensions::KHR_materials_transmission;
 
 	fastgltf::Parser parser(supported_extensions);
 
 	// TODO: look up options
-	constexpr auto gltf_options{
-		fastgltf::Options::DontRequireValidAssetMember |
-		// fastgltf::Options::LoadGLBBuffers | // now default behaviour
-		fastgltf::Options::AllowDouble |
-		fastgltf::Options::LoadExternalBuffers
-	};
+	constexpr auto gltf_options{ fastgltf::Options::DontRequireValidAssetMember |
+		                         // fastgltf::Options::LoadGLBBuffers | // now default behaviour
+		                         fastgltf::Options::AllowDouble |
+		                         fastgltf::Options::LoadExternalBuffers };
 
 	std::filesystem::path path = asset_path;
 	file.asset_path = path.parent_path().string();
@@ -735,7 +769,7 @@ std::optional<std::unique_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const
 	}
 	else if (type == fastgltf::GltfType::GLB)
 	{
-		auto load{parser.loadGltfBinary(gltf_file.get(), path.parent_path(), gltf_options)};
+		auto load{ parser.loadGltfBinary(gltf_file.get(), path.parent_path(), gltf_options) };
 		if (load)
 		{
 			asset = std::move(load.get());
@@ -762,10 +796,8 @@ std::optional<std::unique_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const
 	std::vector<AllocatedImage> images{};
 	auto start = std::chrono::system_clock::now();
 
-	{
-		if (!asset.images.empty())
-			images = load_images(asset, engine, file.asset_path);
-	}
+	if (!asset.images.empty())
+		images = load_images(asset, engine, file.asset_path);
 
 	auto end = std::chrono::system_clock::now();
 	auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
@@ -790,51 +822,50 @@ std::optional<std::unique_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const
 
 		if (mat.pbrData.baseColorTexture.has_value())
 		{
-			size_t image_index = asset.textures[mat.pbrData.baseColorTexture.value().textureIndex].imageIndex
-				                     ? asset.textures[mat.pbrData.baseColorTexture.value().textureIndex].imageIndex.
-				                     value()
-				                     : asset.textures[mat.pbrData.baseColorTexture.value().textureIndex].
-				                       basisuImageIndex.value();
+			size_t image_index =
+			    asset.textures[mat.pbrData.baseColorTexture.value().textureIndex].imageIndex
+			        ? asset.textures[mat.pbrData.baseColorTexture.value().textureIndex].imageIndex.value()
+			        : asset.textures[mat.pbrData.baseColorTexture.value().textureIndex].basisuImageIndex.value();
 
 			mat_data.diffuse_id = static_cast<uint32_t>(texture_cache_offset + image_index);
 		}
 
 		if (mat.pbrData.metallicRoughnessTexture.has_value())
 		{
-			size_t image_index = asset.textures[mat.pbrData.metallicRoughnessTexture.value().textureIndex].imageIndex
-				                     ? asset.textures[mat.pbrData.metallicRoughnessTexture.value().textureIndex].
-				                       imageIndex.value()
-				                     : asset.textures[mat.pbrData.metallicRoughnessTexture.value().textureIndex].
-				                       basisuImageIndex.value();
+			size_t image_index =
+			    asset.textures[mat.pbrData.metallicRoughnessTexture.value().textureIndex].imageIndex
+			        ? asset.textures[mat.pbrData.metallicRoughnessTexture.value().textureIndex].imageIndex.value()
+			        : asset.textures[mat.pbrData.metallicRoughnessTexture.value().textureIndex].basisuImageIndex.value();
 
 			mat_data.metal_roughness_id = static_cast<uint32_t>(texture_cache_offset + image_index);
 		}
 
 		if (mat.normalTexture.has_value())
 		{
-			size_t image_index = asset.textures[mat.normalTexture.value().textureIndex].imageIndex
-				                     ? asset.textures[mat.normalTexture.value().textureIndex].imageIndex.value()
-				                     : asset.textures[mat.normalTexture.value().textureIndex].basisuImageIndex.value();
+			size_t image_index =
+			    asset.textures[mat.normalTexture.value().textureIndex].imageIndex
+			        ? asset.textures[mat.normalTexture.value().textureIndex].imageIndex.value()
+			        : asset.textures[mat.normalTexture.value().textureIndex].basisuImageIndex.value();
 
 			mat_data.normal_id = static_cast<uint32_t>(texture_cache_offset + image_index);
 		}
 
 		if (mat.occlusionTexture.has_value())
 		{
-			size_t image_index = asset.textures[mat.occlusionTexture.value().textureIndex].imageIndex
-				                     ? asset.textures[mat.occlusionTexture.value().textureIndex].imageIndex.value()
-				                     : asset.textures[mat.occlusionTexture.value().textureIndex].basisuImageIndex.
-				                     value();
+			size_t image_index =
+			    asset.textures[mat.occlusionTexture.value().textureIndex].imageIndex
+			        ? asset.textures[mat.occlusionTexture.value().textureIndex].imageIndex.value()
+			        : asset.textures[mat.occlusionTexture.value().textureIndex].basisuImageIndex.value();
 
 			mat_data.occlusion_id = static_cast<uint32_t>(texture_cache_offset + image_index);
 		}
 
 		if (mat.emissiveTexture.has_value())
 		{
-			size_t image_index = asset.textures[mat.emissiveTexture.value().textureIndex].imageIndex
-				                     ? asset.textures[mat.emissiveTexture.value().textureIndex].imageIndex.value()
-				                     : asset.textures[mat.emissiveTexture.value().textureIndex].basisuImageIndex.
-				                     value();
+			size_t image_index =
+			    asset.textures[mat.emissiveTexture.value().textureIndex].imageIndex
+			        ? asset.textures[mat.emissiveTexture.value().textureIndex].imageIndex.value()
+			        : asset.textures[mat.emissiveTexture.value().textureIndex].basisuImageIndex.value();
 
 			mat_data.emissive_id = static_cast<uint32_t>(texture_cache_offset + image_index);
 		}
@@ -847,7 +878,7 @@ std::optional<std::unique_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const
 	auto mesh_idx = 0;
 	for (fastgltf::Mesh& mesh : asset.meshes)
 	{
-		std::shared_ptr<MeshAsset> new_mesh{std::make_shared<MeshAsset>()};
+		std::shared_ptr<MeshAsset> new_mesh{ std::make_shared<MeshAsset>() };
 		mesh_assets.push_back(new_mesh);
 		file.meshes[std::to_string(mesh_idx).c_str()] = new_mesh;
 		mesh_idx++;
@@ -893,10 +924,9 @@ std::optional<std::unique_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const
 				normals.resize(normals_accessor.count);
 				fastgltf::iterateAccessorWithIndex<glm::vec3>(asset, normals_accessor, [&](glm::vec3 n, size_t index)
 				{
-					uint32_t normal =
-						(meshopt_quantizeSnorm(n.x, 10) + 511) << 20 |
-						(meshopt_quantizeSnorm(n.y, 10) + 511) << 10 |
-						(meshopt_quantizeSnorm(n.z, 10) + 511);
+					uint32_t normal = (meshopt_quantizeSnorm(n.x, 10) + 511) << 20 |
+					                  (meshopt_quantizeSnorm(n.y, 10) + 511) << 10 |
+					                  (meshopt_quantizeSnorm(n.z, 10) + 511);
 
 					normals[index] = normal;
 				});
@@ -918,7 +948,8 @@ std::optional<std::unique_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const
 			else
 				uvs.resize(positions.size());
 
-			auto encode_oct = [&](glm::vec3 n) -> glm::vec2 {
+			auto encode_oct = [&](glm::vec3 n) -> glm::vec2
+			{
 				n /= (abs(n.x) + abs(n.y) + abs(n.z));
 				float u = n.z >= 0.0f ? n.x : (1.0f - abs(n.y)) * (n.x >= 0.0f ? 1.0f : -1.0f);
 				float v = n.z >= 0.0f ? n.y : (1.0f - abs(n.x)) * (n.y >= 0.0f ? 1.0f : -1.0f);
@@ -937,9 +968,8 @@ std::optional<std::unique_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const
 				{
 					glm::vec2 t_encoded = encode_oct(glm::vec3(tangent));
 
-					uint16_t t =
-						(meshopt_quantizeSnorm(t_encoded.x, 8) + 127) << 8 |
-						(meshopt_quantizeSnorm(t_encoded.y, 8) + 127);
+					uint16_t t = (meshopt_quantizeSnorm(t_encoded.x, 8) + 127) << 8 |
+					             (meshopt_quantizeSnorm(t_encoded.y, 8) + 127);
 
 					tangents[index] = t;
 					normals[index] |= (tangent.w >= 0 ? 1 : 0) << 30;
@@ -956,10 +986,7 @@ std::optional<std::unique_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const
 			std::vector<Vertex> vertices{};
 			for (size_t idx = 0; idx < positions.size(); ++idx)
 			{
-				vertices.emplace_back(Vertex{
-					positions[idx][0], positions[idx][1], positions[idx][2],
-					tangents[idx], normals[idx], uvs[idx][0], uvs[idx][1]
-				});
+				vertices.emplace_back(Vertex{ positions[idx][0], positions[idx][1], positions[idx][2], tangents[idx], normals[idx], uvs[idx][0], uvs[idx][1] });
 			}
 
 			if (generate_mikkt_tangents)
@@ -996,8 +1023,7 @@ std::optional<std::unique_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const
 			auto& meshlet_indices = scene->meshlet_indices;
 			auto& meshlets = scene->meshlets;
 
-			optimize_mesh(vertices, indices, meshlet_indices, meshlets, mesh_data, scene->vertices,
-						  scene->indices);
+			optimize_mesh(vertices, indices, meshlet_indices, meshlets, mesh_data, scene->vertices, scene->indices);
 			scene->vertices.insert(scene->vertices.end(), vertices.begin(), vertices.end());
 
 			new_mesh->mesh.push_back(mesh_data);
@@ -1023,29 +1049,36 @@ std::optional<std::unique_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const
 		auto [node, node_index] = work.back();
 		work.pop_back();
 		const auto& gltf_node = asset.nodes[node_index];
-		std::string node_name = gltf_node.name.empty() ? std::string("Node_") + std::to_string(node_index) : gltf_node.name.c_str();
+		std::string node_name = gltf_node.name.empty()
+		                            ? std::string("Node_") + std::to_string(node_index)
+		                            : gltf_node.name.c_str();
 		file.nodes[node_name] = node;
 
-		std::visit(fastgltf::visitor{
-				[&](fastgltf::math::fmat4x4 matrix)
-				{
-					memcpy(&node->local_transform, matrix.data(), sizeof(matrix));
-				},
-				[&](fastgltf::TRS transform)
-				{
-					const glm::vec3 tl(transform.translation[0], transform.translation[1], transform.translation[2]);
-					const glm::quat rot(transform.rotation[3], transform.rotation[0], transform.rotation[1], transform.rotation[2]);
-					const glm::vec3 sc(transform.scale[0], transform.scale[1], transform.scale[2]);
+		// clang-format off
+		std::visit(
+		    fastgltf::visitor{
+    		    [&](fastgltf::math::fmat4x4 matrix) {
+    				memcpy(&node->local_transform, matrix.data(), sizeof(matrix));
+    			},
+                [&](fastgltf::TRS transform) {
+         			const glm::vec3 tl(
+         			    transform.translation[0], transform.translation[1], transform.translation[2]
+         			);
+         			const glm::quat rot(
+         			    transform.rotation[3], transform.rotation[0], transform.rotation[1],
+         			    transform.rotation[2]
+         			);
+         			const glm::vec3 sc(transform.scale[0], transform.scale[1], transform.scale[2]);
 
-					const glm::mat4 tm = glm::translate(glm::mat4(1.f), tl);
-					const glm::mat4 rm = glm::toMat4(rot);
-					const glm::mat4 sm = glm::scale(glm::mat4(1.f), sc);
+         			const glm::mat4 tm = glm::translate(glm::mat4(1.f), tl);
+         			const glm::mat4 rm = glm::toMat4(rot);
+         			const glm::mat4 sm = glm::scale(glm::mat4(1.f), sc);
 
-					node->local_transform = tm * rm * sm;
-				}
-			},
-			gltf_node.transform
+                    node->local_transform = tm * rm * sm;
+    			}},
+		    gltf_node.transform
 		);
+		// clang-format on
 
 		if (gltf_node.meshIndex.has_value())
 		{

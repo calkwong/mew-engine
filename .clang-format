@@ -1,9 +1,10 @@
 ---
 Language: Cpp
-BasedOnStyle: LLVM
+Standard: Latest
 AccessModifierOffset: -4
 AlignTrailingComments: false
 AlignAfterOpenBracket: BlockIndent
+LambdaBodyIndentation: OuterScope
 AlignEscapedNewlines: DontAlign
 BreakBeforeBraces: Allman
 BreakConstructorInitializers: BeforeComma

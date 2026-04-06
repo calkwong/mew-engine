@@ -9,8 +9,8 @@
 
 struct CompactDispatchPC
 {
-    VkDeviceAddress prefix_sum_buffer{};
-    VkDeviceAddress dispatch_buffer{};
+	VkDeviceAddress prefix_sum_buffer{};
+	VkDeviceAddress dispatch_buffer{};
 };
 
 struct IBLPushConstants
@@ -121,7 +121,7 @@ struct SkyboxPushConstants
 
 struct TAAResolvePC
 {
-    glm::vec4 jitter_offset{};
+	glm::vec4 jitter_offset{};
 	glm::vec2 screen_size{};
 	uint32_t current_id{};
 	uint32_t history_id{};
@@ -240,8 +240,6 @@ namespace vkutil
 {
 	bool load_shader_module(const char* path, VkDevice device, VkShaderModule* out_shader_module);
 
-	std::unique_ptr<ShaderPass> build_shader(VkDevice device, PipelineBuilder& builder, std::initializer_list<ShaderProgram*> programs,
-	    const std::vector<VkDescriptorSetLayout>& layouts, uint32_t pc_size, SpecConstants constants = {});
-	std::unique_ptr<ShaderPass> build_shader(VkDevice device, ComputePipelineBuilder& builder, const ShaderProgram* program,
-	    const std::vector<VkDescriptorSetLayout>& layouts, uint32_t pc_size, SpecConstants constants = {});
+	std::unique_ptr<ShaderPass> build_shader(VkDevice device, PipelineBuilder& builder, std::initializer_list<ShaderProgram*> programs, const std::vector<VkDescriptorSetLayout>& layouts, uint32_t pc_size, SpecConstants constants = {});
+	std::unique_ptr<ShaderPass> build_shader(VkDevice device, ComputePipelineBuilder& builder, const ShaderProgram* program, const std::vector<VkDescriptorSetLayout>& layouts, uint32_t pc_size, SpecConstants constants = {});
 } // namespace vkutil
