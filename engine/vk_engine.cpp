@@ -154,7 +154,7 @@ namespace
 	}
 } // namespace
 
-void VulkanEngine::init(const std::string& file_path)
+void VulkanEngine::init(int argc, char** argv)
 {
 	assert(loaded_engine == nullptr);
 	loaded_engine = this;
@@ -198,7 +198,7 @@ void VulkanEngine::init(const std::string& file_path)
 
 	init_default_data();
 
-	init_renderables(file_path);
+	init_renderables(argc, argv);
 
 	init_bindless();
 
@@ -2208,12 +2208,17 @@ void VulkanEngine::init_default_data()
 	}
 }
 
-void VulkanEngine::init_renderables(const std::string& file_path)
+void VulkanEngine::init_renderables(int argc, char** argv)
 {
 	auto start = std::chrono::system_clock::now();
 
 	{
-		auto asset_file = load_gltf(this, file_path);
+	    std::vector<std::string> file_paths(argc - 1);
+		for (int i = 1; i < argc; i++)
+		{
+		    file_paths[i-1] = argv[i];
+		}
+		auto asset_file = load_gltfs(this, file_paths);
 		assert(asset_file.has_value());
 		loaded_scene = std::move(*asset_file);
 	}

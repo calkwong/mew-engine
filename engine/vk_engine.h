@@ -185,7 +185,7 @@ public:
 
 	static VulkanEngine& get();
 
-	void init(const std::string& file_path);
+	void init(int argc, char** argv);
 	void cleanup();
 	void draw();
 	void run();
@@ -219,7 +219,7 @@ private:
 	void init_shaders();
 	void init_pipelines();
 	void init_default_data();
-	void init_renderables(const std::string& file_path);
+	void init_renderables(int argc, char** argv);
 	void init_bindless();
 	void init_gi();
 	void init_imgui();

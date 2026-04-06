@@ -719,387 +719,408 @@ namespace
 
 		genTangSpaceDefault(&mikkContext);
 	}
+
+    // TODO: refactor - try to decouple loader and engine
+    bool load_gltf(VulkanEngine* engine, LoadedGLTF* scene, const std::string& file_path)
+    {
+    	auto asset_path = "assets/" + file_path;
+    	fmt::println("loading glTF: {}", file_path);
+
+    	scene->creator = engine;
+    	LoadedGLTF& file = *scene;
+
+    	constexpr auto supported_extensions =
+    	    fastgltf::Extensions::KHR_lights_punctual |
+    	    fastgltf::Extensions::KHR_texture_basisu;
+    	// fastgltf::Extensions::KHR_materials_transmission;
+
+    	fastgltf::Parser parser(supported_extensions);
+
+    	// TODO: look up options
+    	constexpr auto gltf_options{ fastgltf::Options::DontRequireValidAssetMember |
+    		                         // fastgltf::Options::LoadGLBBuffers | // now default behaviour
+    		                         fastgltf::Options::AllowDouble |
+    		                         fastgltf::Options::LoadExternalBuffers };
+
+    	std::filesystem::path path = asset_path;
+    	file.asset_path = path.parent_path().string();
+    	auto gltf_file = fastgltf::GltfDataBuffer::FromPath(path);
+
+    	if (gltf_file.error() != fastgltf::Error::None)
+    	{
+    		return false;
+    	}
+
+    	fastgltf::Asset asset{};
+
+    	auto type = fastgltf::determineGltfFileType(gltf_file.get());
+    	if (type == fastgltf::GltfType::glTF)
+    	{
+    		auto load = parser.loadGltf(gltf_file.get(), path.parent_path(), gltf_options);
+    		if (load)
+    		{
+    			asset = std::move(load.get());
+    		}
+    		else
+    		{
+    			fmt::println("Failed to load gltf: {}", fastgltf::to_underlying(load.error()));
+    			return false;
+    		}
+    	}
+    	else if (type == fastgltf::GltfType::GLB)
+    	{
+    		auto load{ parser.loadGltfBinary(gltf_file.get(), path.parent_path(), gltf_options) };
+    		if (load)
+    		{
+    			asset = std::move(load.get());
+    		}
+    		else
+    		{
+    			fmt::println("Failed to load gltf: {}", fastgltf::to_underlying(load.error()));
+    			return false;
+    		}
+    	}
+    	else
+    	{
+    		fmt::println("Failed to determine gltf container");
+    		return false;
+    	}
+
+    	// note: handle another way
+    	assert(!asset.materials.empty());
+    	auto& materials_data = scene->materials;
+
+    	size_t texture_cache_offset = engine->texture_cache.image_infos.size(); // important! do this before loading images
+
+    	// TODO: currently supports ktx2 in URI only
+    	std::vector<AllocatedImage> images{};
+    	auto start = std::chrono::system_clock::now();
+
+    	if (!asset.images.empty())
+    		images = load_images(asset, engine, file.asset_path);
+
+    	auto end = std::chrono::system_clock::now();
+    	auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+    	float ret = static_cast<float>(elapsed.count()) / 1000.0f;
+    	fmt::println("load_images: {}ms", ret);
+
+    	// TODO: do we really need an unordered map here?
+    	// some files don't have names, we name by indices for now
+    	auto img_offset = file.images.size();
+    	for (int i = 0; i < images.size(); i++)
+    	{
+    		file.images[std::to_string(i + img_offset).c_str()] = images[i];
+    	}
+
+    	for (fastgltf::Material& mat : asset.materials)
+    	{
+    		MaterialData mat_data{};
+    		mat_data.base_color_factor.x = mat.pbrData.baseColorFactor[0];
+    		mat_data.base_color_factor.y = mat.pbrData.baseColorFactor[1];
+    		mat_data.base_color_factor.z = mat.pbrData.baseColorFactor[2];
+    		mat_data.base_color_factor.w = mat.pbrData.baseColorFactor[3];
+    		mat_data.metallic_factor = mat.pbrData.metallicFactor;
+    		mat_data.roughness_factor = mat.pbrData.roughnessFactor;
+
+    		if (mat.pbrData.baseColorTexture.has_value())
+    		{
+    			size_t image_index =
+    			    asset.textures[mat.pbrData.baseColorTexture.value().textureIndex].imageIndex
+    			        ? asset.textures[mat.pbrData.baseColorTexture.value().textureIndex].imageIndex.value()
+    			        : asset.textures[mat.pbrData.baseColorTexture.value().textureIndex].basisuImageIndex.value();
+
+    			mat_data.diffuse_id = static_cast<uint32_t>(texture_cache_offset + image_index);
+    		}
+
+    		if (mat.pbrData.metallicRoughnessTexture.has_value())
+    		{
+    			size_t image_index =
+    			    asset.textures[mat.pbrData.metallicRoughnessTexture.value().textureIndex].imageIndex
+    			        ? asset.textures[mat.pbrData.metallicRoughnessTexture.value().textureIndex].imageIndex.value()
+    			        : asset.textures[mat.pbrData.metallicRoughnessTexture.value().textureIndex].basisuImageIndex.value();
+
+    			mat_data.metal_roughness_id = static_cast<uint32_t>(texture_cache_offset + image_index);
+    		}
+
+    		if (mat.normalTexture.has_value())
+    		{
+    			size_t image_index =
+    			    asset.textures[mat.normalTexture.value().textureIndex].imageIndex
+    			        ? asset.textures[mat.normalTexture.value().textureIndex].imageIndex.value()
+    			        : asset.textures[mat.normalTexture.value().textureIndex].basisuImageIndex.value();
+
+    			mat_data.normal_id = static_cast<uint32_t>(texture_cache_offset + image_index);
+    		}
+
+    		if (mat.occlusionTexture.has_value())
+    		{
+    			size_t image_index =
+    			    asset.textures[mat.occlusionTexture.value().textureIndex].imageIndex
+    			        ? asset.textures[mat.occlusionTexture.value().textureIndex].imageIndex.value()
+    			        : asset.textures[mat.occlusionTexture.value().textureIndex].basisuImageIndex.value();
+
+    			mat_data.occlusion_id = static_cast<uint32_t>(texture_cache_offset + image_index);
+    		}
+
+    		if (mat.emissiveTexture.has_value())
+    		{
+    			size_t image_index =
+    			    asset.textures[mat.emissiveTexture.value().textureIndex].imageIndex
+    			        ? asset.textures[mat.emissiveTexture.value().textureIndex].imageIndex.value()
+    			        : asset.textures[mat.emissiveTexture.value().textureIndex].basisuImageIndex.value();
+
+    			mat_data.emissive_id = static_cast<uint32_t>(texture_cache_offset + image_index);
+    		}
+
+    		materials_data.push_back(mat_data);
+    	}
+
+    	std::vector<std::shared_ptr<MeshAsset>> mesh_assets{};
+
+    	auto mesh_idx = 0;
+    	for (fastgltf::Mesh& mesh : asset.meshes)
+    	{
+    		std::shared_ptr<MeshAsset> new_mesh{ std::make_shared<MeshAsset>() };
+    		mesh_assets.push_back(new_mesh);
+    		file.meshes[std::to_string(mesh_idx).c_str()] = new_mesh;
+    		mesh_idx++;
+    		new_mesh->name = mesh.name;
+
+    		// rewrite vertex/indices loading
+    		for (int i = 0; i < mesh.primitives.size(); ++i)
+    		{
+    			const auto& p = mesh.primitives[i];
+
+    			std::vector<uint32_t> indices{};
+    			{
+    				auto& index_accessor = asset.accessors[p.indicesAccessor.value()];
+    				indices.resize(index_accessor.count);
+    				fastgltf::iterateAccessorWithIndex<std::uint32_t>(asset, index_accessor, [&](std::uint32_t index, size_t idx)
+    				{
+    					indices[idx] = index;
+    				});
+    			}
+
+    			using Position = std::array<uint16_t, 3>;
+    			using UV = std::array<uint16_t, 2>;
+
+    			std::vector<Position> positions{};
+    			if (auto it = p.findAttribute("POSITION"); it != p.attributes.end())
+    			{
+    				auto& position_accessor = asset.accessors[it->accessorIndex];
+    				positions.resize(position_accessor.count);
+    				fastgltf::iterateAccessorWithIndex<glm::vec3>(asset, position_accessor, [&](glm::vec3 pos, size_t index)
+    				{
+    					uint16_t px = meshopt_quantizeHalf(pos.x);
+    					uint16_t py = meshopt_quantizeHalf(pos.y);
+    					uint16_t pz = meshopt_quantizeHalf(pos.z);
+
+    					positions[index] = Position{ px, py, pz };
+    				});
+    			}
+
+    			std::vector<uint32_t> normals{};
+    			if (auto it = p.findAttribute("NORMAL"); it != p.attributes.end())
+    			{
+    				auto& normals_accessor = asset.accessors[it->accessorIndex];
+    				normals.resize(normals_accessor.count);
+    				fastgltf::iterateAccessorWithIndex<glm::vec3>(asset, normals_accessor, [&](glm::vec3 n, size_t index)
+    				{
+    					uint32_t normal = (meshopt_quantizeSnorm(n.x, 10) + 511) << 20 |
+    					                  (meshopt_quantizeSnorm(n.y, 10) + 511) << 10 |
+    					                  (meshopt_quantizeSnorm(n.z, 10) + 511);
+
+    					normals[index] = normal;
+    				});
+    			}
+
+    			std::vector<UV> uvs{};
+    			if (auto it = p.findAttribute("TEXCOORD_0"); it != p.attributes.end())
+    			{
+    				auto& uv_accessor = asset.accessors[it->accessorIndex];
+    				uvs.resize(uv_accessor.count);
+    				fastgltf::iterateAccessorWithIndex<glm::vec2>(asset, uv_accessor, [&](glm::vec2 uv, size_t index)
+    				{
+    					uint16_t uv_x = meshopt_quantizeHalf(uv.x);
+    					uint16_t uv_y = meshopt_quantizeHalf(uv.y);
+
+    					uvs[index] = UV{ uv_x, uv_y };
+    				});
+    			}
+    			else
+    				uvs.resize(positions.size());
+
+    			auto encode_oct = [&](glm::vec3 n) -> glm::vec2
+    			{
+    				n /= (abs(n.x) + abs(n.y) + abs(n.z));
+    				float u = n.z >= 0.0f ? n.x : (1.0f - abs(n.y)) * (n.x >= 0.0f ? 1.0f : -1.0f);
+    				float v = n.z >= 0.0f ? n.y : (1.0f - abs(n.x)) * (n.y >= 0.0f ? 1.0f : -1.0f);
+
+    				// optional mapping to [0, 1]?
+    				return glm::vec2(u, v);
+    			};
+
+    			bool generate_mikkt_tangents = false;
+    			std::vector<uint16_t> tangents{};
+    			if (auto it = p.findAttribute("TANGENT"); it != p.attributes.end())
+    			{
+    				auto& tangent_accessor = asset.accessors[it->accessorIndex];
+    				tangents.resize(tangent_accessor.count);
+    				fastgltf::iterateAccessorWithIndex<glm::vec4>(asset, tangent_accessor, [&](glm::vec4 tangent, size_t index)
+    				{
+    					glm::vec2 t_encoded = encode_oct(glm::vec3(tangent));
+
+    					uint16_t t = (meshopt_quantizeSnorm(t_encoded.x, 8) + 127) << 8 |
+    					             (meshopt_quantizeSnorm(t_encoded.y, 8) + 127);
+
+    					tangents[index] = t;
+    					normals[index] |= (tangent.w >= 0 ? 1 : 0) << 30;
+    				});
+    			}
+    			else
+    			{
+    				generate_mikkt_tangents = true;
+    				tangents.resize(positions.size());
+    			}
+
+    			assert(positions.size() == normals.size() && positions.size() == tangents.size() && positions.size() == uvs.size());
+
+    			std::vector<Vertex> vertices{};
+    			for (size_t idx = 0; idx < positions.size(); ++idx)
+    			{
+    				vertices.emplace_back(Vertex{ positions[idx][0], positions[idx][1], positions[idx][2], tangents[idx], normals[idx], uvs[idx][0], uvs[idx][1] });
+    			}
+
+    			if (generate_mikkt_tangents)
+    			{
+    				fmt::println("generating tangents manually");
+    				MikkMesh mikk_mesh{ &vertices, &indices };
+    				mikk_calculate_tangents(mikk_mesh);
+    			}
+
+    			MeshData mesh_data{};
+    			mesh_data.vertex_offset = static_cast<uint32_t>(scene->vertices.size()); // note: if we implement multithreading, this likely needs to be computed post meshoptimizing
+    			auto material_offset = materials_data.size() - asset.materials.size(); // for multiple gltf compatibility
+    			if (p.materialIndex.has_value())
+    			{
+    				size_t idx = p.materialIndex.value();
+    				mesh_data.material_id = static_cast<uint32_t>(idx + material_offset);
+    				auto alpha_mode = asset.materials[idx].alphaMode;
+    				switch (alpha_mode)
+    				{
+    				case fastgltf::AlphaMode::Mask:
+    					mesh_data.pass = MaterialPass::Mask;
+    					break;
+    				case fastgltf::AlphaMode::Blend:
+    					mesh_data.pass = MaterialPass::Blend;
+    					break;
+    				default:
+    					break;
+    				}
+    			}
+    			else
+    			{
+    				assert(0);
+    			}
+
+    			auto& meshlet_indices = scene->meshlet_indices;
+    			auto& meshlets = scene->meshlets;
+
+    			optimize_mesh(vertices, indices, meshlet_indices, meshlets, mesh_data, scene->vertices, scene->indices);
+    			scene->vertices.insert(scene->vertices.end(), vertices.begin(), vertices.end());
+
+    			new_mesh->mesh.push_back(mesh_data);
+    		}
+    	}
+
+    	struct NodeWork
+    	{
+    		std::shared_ptr<Node> node{};
+    		size_t index{};
+    	};
+
+    	std::vector<NodeWork> work{};
+
+    	for (auto node_index : asset.scenes[0].nodeIndices) // we handle 1 scene only
+    	{
+    		auto p = file.top_nodes.emplace_back(std::make_shared<Node>());
+    		work.emplace_back(NodeWork{ p, node_index });
+    	}
+
+    	while (work.size() > 0)
+    	{
+    		auto [node, node_index] = work.back();
+    		work.pop_back();
+    		const auto& gltf_node = asset.nodes[node_index];
+    		std::string node_name = gltf_node.name.empty()
+    		                            ? std::string("Node_") + std::to_string(node_index)
+    		                            : gltf_node.name.c_str();
+    		file.nodes[node_name] = node;
+
+    		// clang-format off
+    		std::visit(
+    		    fastgltf::visitor{
+      		    [&](fastgltf::math::fmat4x4 matrix) {
+        				memcpy(&node->local_transform, matrix.data(), sizeof(matrix));
+     			},
+                    [&](fastgltf::TRS transform) {
+             			const glm::vec3 tl(
+             			    transform.translation[0], transform.translation[1], transform.translation[2]
+             			);
+             			const glm::quat rot(
+             			    transform.rotation[3], transform.rotation[0], transform.rotation[1],
+             			    transform.rotation[2]
+             			);
+             			const glm::vec3 sc(transform.scale[0], transform.scale[1], transform.scale[2]);
+
+             			const glm::mat4 tm = glm::translate(glm::mat4(1.f), tl);
+             			const glm::mat4 rm = glm::toMat4(rot);
+             			const glm::mat4 sm = glm::scale(glm::mat4(1.f), sc);
+
+                        node->local_transform = tm * rm * sm;
+     			}},
+    		    gltf_node.transform
+    		);
+    		// clang-format on
+
+    		if (gltf_node.meshIndex.has_value())
+    		{
+    			node->mesh_asset = mesh_assets[*(gltf_node.meshIndex)];
+    		}
+
+    		for (auto child_index : gltf_node.children)
+    		{
+    			auto p = node->children.emplace_back(std::make_shared<Node>());
+    			work.emplace_back(NodeWork{ p, child_index });
+    		}
+    	}
+
+    	for (auto& node : file.top_nodes)
+    	{
+    		node->refresh_transform(glm::mat4(1.0f));
+    	}
+
+    	fmt::println("size of topnodes: {}", scene->top_nodes.size());
+    	fmt::println("size of nodes: {}", scene->nodes.size());
+    	fmt::println("size of gltf nodes: {}", asset.nodes.size());
+
+    	return true;
+    }
 } // namespace
 
-// TODO: refactor - try to decouple loader and engine
-std::optional<std::unique_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const std::string& file_path)
+
+std::optional<std::unique_ptr<LoadedGLTF>> load_gltfs(VulkanEngine* engine, std::vector<std::string>& file_paths)
 {
-	auto asset_path = "assets/" + file_path;
-	fmt::println("loading glTF: {}", file_path);
-
 	std::unique_ptr<LoadedGLTF> scene = std::make_unique<LoadedGLTF>();
-	scene->creator = engine;
-	LoadedGLTF& file = *scene;
-
-	constexpr auto supported_extensions =
-	    fastgltf::Extensions::KHR_lights_punctual |
-	    fastgltf::Extensions::KHR_texture_basisu;
-	// fastgltf::Extensions::KHR_materials_transmission;
-
-	fastgltf::Parser parser(supported_extensions);
-
-	// TODO: look up options
-	constexpr auto gltf_options{ fastgltf::Options::DontRequireValidAssetMember |
-		                         // fastgltf::Options::LoadGLBBuffers | // now default behaviour
-		                         fastgltf::Options::AllowDouble |
-		                         fastgltf::Options::LoadExternalBuffers };
-
-	std::filesystem::path path = asset_path;
-	file.asset_path = path.parent_path().string();
-	auto gltf_file = fastgltf::GltfDataBuffer::FromPath(path);
-
-	if (gltf_file.error() != fastgltf::Error::None)
-		return {};
-
-	fastgltf::Asset asset{};
-
-	auto type = fastgltf::determineGltfFileType(gltf_file.get());
-	if (type == fastgltf::GltfType::glTF)
+	for (auto& file_path : file_paths)
 	{
-		auto load = parser.loadGltf(gltf_file.get(), path.parent_path(), gltf_options);
-		if (load)
+		bool success = load_gltf(engine, scene.get(), file_path);
+		if (!success)
 		{
-			asset = std::move(load.get());
-		}
-		else
-		{
-			fmt::println("Failed to load gltf: {}", fastgltf::to_underlying(load.error()));
-			return {};
+		    fmt::println("Failed to load gltf: {}", file_path);
+		    return {};
 		}
 	}
-	else if (type == fastgltf::GltfType::GLB)
-	{
-		auto load{ parser.loadGltfBinary(gltf_file.get(), path.parent_path(), gltf_options) };
-		if (load)
-		{
-			asset = std::move(load.get());
-		}
-		else
-		{
-			fmt::println("Failed to load gltf: {}", fastgltf::to_underlying(load.error()));
-			return {};
-		}
-	}
-	else
-	{
-		fmt::println("Failed to determine gltf container");
-		return {};
-	}
-
-	// note: handle another way
-	assert(!asset.materials.empty());
-	auto& materials_data = scene->materials;
-
-	size_t texture_cache_offset = engine->texture_cache.image_infos.size(); // important! do this before loading images
-
-	// TODO: currently supports ktx2 in URI only
-	std::vector<AllocatedImage> images{};
-	auto start = std::chrono::system_clock::now();
-
-	if (!asset.images.empty())
-		images = load_images(asset, engine, file.asset_path);
-
-	auto end = std::chrono::system_clock::now();
-	auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-	float ret = static_cast<float>(elapsed.count()) / 1000.0f;
-	fmt::println("load_images: {}ms", ret);
-
-	// TODO: do we really need an unordered map here?
-	for (int i = 0; i < images.size(); i++)
-	{
-		file.images[std::to_string(i).c_str()] = images[i];
-	}
-
-	for (fastgltf::Material& mat : asset.materials)
-	{
-		MaterialData mat_data{};
-		mat_data.base_color_factor.x = mat.pbrData.baseColorFactor[0];
-		mat_data.base_color_factor.y = mat.pbrData.baseColorFactor[1];
-		mat_data.base_color_factor.z = mat.pbrData.baseColorFactor[2];
-		mat_data.base_color_factor.w = mat.pbrData.baseColorFactor[3];
-		mat_data.metallic_factor = mat.pbrData.metallicFactor;
-		mat_data.roughness_factor = mat.pbrData.roughnessFactor;
-
-		if (mat.pbrData.baseColorTexture.has_value())
-		{
-			size_t image_index =
-			    asset.textures[mat.pbrData.baseColorTexture.value().textureIndex].imageIndex
-			        ? asset.textures[mat.pbrData.baseColorTexture.value().textureIndex].imageIndex.value()
-			        : asset.textures[mat.pbrData.baseColorTexture.value().textureIndex].basisuImageIndex.value();
-
-			mat_data.diffuse_id = static_cast<uint32_t>(texture_cache_offset + image_index);
-		}
-
-		if (mat.pbrData.metallicRoughnessTexture.has_value())
-		{
-			size_t image_index =
-			    asset.textures[mat.pbrData.metallicRoughnessTexture.value().textureIndex].imageIndex
-			        ? asset.textures[mat.pbrData.metallicRoughnessTexture.value().textureIndex].imageIndex.value()
-			        : asset.textures[mat.pbrData.metallicRoughnessTexture.value().textureIndex].basisuImageIndex.value();
-
-			mat_data.metal_roughness_id = static_cast<uint32_t>(texture_cache_offset + image_index);
-		}
-
-		if (mat.normalTexture.has_value())
-		{
-			size_t image_index =
-			    asset.textures[mat.normalTexture.value().textureIndex].imageIndex
-			        ? asset.textures[mat.normalTexture.value().textureIndex].imageIndex.value()
-			        : asset.textures[mat.normalTexture.value().textureIndex].basisuImageIndex.value();
-
-			mat_data.normal_id = static_cast<uint32_t>(texture_cache_offset + image_index);
-		}
-
-		if (mat.occlusionTexture.has_value())
-		{
-			size_t image_index =
-			    asset.textures[mat.occlusionTexture.value().textureIndex].imageIndex
-			        ? asset.textures[mat.occlusionTexture.value().textureIndex].imageIndex.value()
-			        : asset.textures[mat.occlusionTexture.value().textureIndex].basisuImageIndex.value();
-
-			mat_data.occlusion_id = static_cast<uint32_t>(texture_cache_offset + image_index);
-		}
-
-		if (mat.emissiveTexture.has_value())
-		{
-			size_t image_index =
-			    asset.textures[mat.emissiveTexture.value().textureIndex].imageIndex
-			        ? asset.textures[mat.emissiveTexture.value().textureIndex].imageIndex.value()
-			        : asset.textures[mat.emissiveTexture.value().textureIndex].basisuImageIndex.value();
-
-			mat_data.emissive_id = static_cast<uint32_t>(texture_cache_offset + image_index);
-		}
-
-		materials_data.push_back(mat_data);
-	}
-
-	std::vector<std::shared_ptr<MeshAsset>> mesh_assets{};
-
-	auto mesh_idx = 0;
-	for (fastgltf::Mesh& mesh : asset.meshes)
-	{
-		std::shared_ptr<MeshAsset> new_mesh{ std::make_shared<MeshAsset>() };
-		mesh_assets.push_back(new_mesh);
-		file.meshes[std::to_string(mesh_idx).c_str()] = new_mesh;
-		mesh_idx++;
-		new_mesh->name = mesh.name;
-
-		// rewrite vertex/indices loading
-		for (int i = 0; i < mesh.primitives.size(); ++i)
-		{
-			const auto& p = mesh.primitives[i];
-
-			std::vector<uint32_t> indices{};
-			{
-				auto& index_accessor = asset.accessors[p.indicesAccessor.value()];
-				indices.resize(index_accessor.count);
-				fastgltf::iterateAccessorWithIndex<std::uint32_t>(asset, index_accessor, [&](std::uint32_t index, size_t idx)
-				{
-					indices[idx] = index;
-				});
-			}
-
-			using Position = std::array<uint16_t, 3>;
-			using UV = std::array<uint16_t, 2>;
-
-			std::vector<Position> positions{};
-			if (auto it = p.findAttribute("POSITION"); it != p.attributes.end())
-			{
-				auto& position_accessor = asset.accessors[it->accessorIndex];
-				positions.resize(position_accessor.count);
-				fastgltf::iterateAccessorWithIndex<glm::vec3>(asset, position_accessor, [&](glm::vec3 pos, size_t index)
-				{
-					uint16_t px = meshopt_quantizeHalf(pos.x);
-					uint16_t py = meshopt_quantizeHalf(pos.y);
-					uint16_t pz = meshopt_quantizeHalf(pos.z);
-
-					positions[index] = Position{ px, py, pz };
-				});
-			}
-
-			std::vector<uint32_t> normals{};
-			if (auto it = p.findAttribute("NORMAL"); it != p.attributes.end())
-			{
-				auto& normals_accessor = asset.accessors[it->accessorIndex];
-				normals.resize(normals_accessor.count);
-				fastgltf::iterateAccessorWithIndex<glm::vec3>(asset, normals_accessor, [&](glm::vec3 n, size_t index)
-				{
-					uint32_t normal = (meshopt_quantizeSnorm(n.x, 10) + 511) << 20 |
-					                  (meshopt_quantizeSnorm(n.y, 10) + 511) << 10 |
-					                  (meshopt_quantizeSnorm(n.z, 10) + 511);
-
-					normals[index] = normal;
-				});
-			}
-
-			std::vector<UV> uvs{};
-			if (auto it = p.findAttribute("TEXCOORD_0"); it != p.attributes.end())
-			{
-				auto& uv_accessor = asset.accessors[it->accessorIndex];
-				uvs.resize(uv_accessor.count);
-				fastgltf::iterateAccessorWithIndex<glm::vec2>(asset, uv_accessor, [&](glm::vec2 uv, size_t index)
-				{
-					uint16_t uv_x = meshopt_quantizeHalf(uv.x);
-					uint16_t uv_y = meshopt_quantizeHalf(uv.y);
-
-					uvs[index] = UV{ uv_x, uv_y };
-				});
-			}
-			else
-				uvs.resize(positions.size());
-
-			auto encode_oct = [&](glm::vec3 n) -> glm::vec2
-			{
-				n /= (abs(n.x) + abs(n.y) + abs(n.z));
-				float u = n.z >= 0.0f ? n.x : (1.0f - abs(n.y)) * (n.x >= 0.0f ? 1.0f : -1.0f);
-				float v = n.z >= 0.0f ? n.y : (1.0f - abs(n.x)) * (n.y >= 0.0f ? 1.0f : -1.0f);
-
-				// optional mapping to [0, 1]?
-				return glm::vec2(u, v);
-			};
-
-			bool generate_mikkt_tangents = false;
-			std::vector<uint16_t> tangents{};
-			if (auto it = p.findAttribute("TANGENT"); it != p.attributes.end())
-			{
-				auto& tangent_accessor = asset.accessors[it->accessorIndex];
-				tangents.resize(tangent_accessor.count);
-				fastgltf::iterateAccessorWithIndex<glm::vec4>(asset, tangent_accessor, [&](glm::vec4 tangent, size_t index)
-				{
-					glm::vec2 t_encoded = encode_oct(glm::vec3(tangent));
-
-					uint16_t t = (meshopt_quantizeSnorm(t_encoded.x, 8) + 127) << 8 |
-					             (meshopt_quantizeSnorm(t_encoded.y, 8) + 127);
-
-					tangents[index] = t;
-					normals[index] |= (tangent.w >= 0 ? 1 : 0) << 30;
-				});
-			}
-			else
-			{
-				generate_mikkt_tangents = true;
-				tangents.resize(positions.size());
-			}
-
-			assert(positions.size() == normals.size() && positions.size() == tangents.size() && positions.size() == uvs.size());
-
-			std::vector<Vertex> vertices{};
-			for (size_t idx = 0; idx < positions.size(); ++idx)
-			{
-				vertices.emplace_back(Vertex{ positions[idx][0], positions[idx][1], positions[idx][2], tangents[idx], normals[idx], uvs[idx][0], uvs[idx][1] });
-			}
-
-			if (generate_mikkt_tangents)
-			{
-				fmt::println("generating tangents manually");
-				MikkMesh mikk_mesh{ &vertices, &indices };
-				mikk_calculate_tangents(mikk_mesh);
-			}
-
-			MeshData mesh_data{};
-			mesh_data.vertex_offset = static_cast<uint32_t>(scene->vertices.size()); // note: if we implement multithreading, this likely needs to be computed post meshoptimizing
-			if (p.materialIndex.has_value())
-			{
-				size_t idx = p.materialIndex.value();
-				mesh_data.material_id = static_cast<uint32_t>(idx);
-				auto alpha_mode = asset.materials[idx].alphaMode;
-				switch (alpha_mode)
-				{
-				case fastgltf::AlphaMode::Mask:
-					mesh_data.pass = MaterialPass::Mask;
-					break;
-				case fastgltf::AlphaMode::Blend:
-					mesh_data.pass = MaterialPass::Blend;
-					break;
-				default:
-					break;
-				}
-			}
-			else
-			{
-				assert(0);
-			}
-
-			auto& meshlet_indices = scene->meshlet_indices;
-			auto& meshlets = scene->meshlets;
-
-			optimize_mesh(vertices, indices, meshlet_indices, meshlets, mesh_data, scene->vertices, scene->indices);
-			scene->vertices.insert(scene->vertices.end(), vertices.begin(), vertices.end());
-
-			new_mesh->mesh.push_back(mesh_data);
-		}
-	}
-
-	struct NodeWork
-	{
-		std::shared_ptr<Node> node{};
-		size_t index{};
-	};
-
-	std::vector<NodeWork> work{};
-
-	for (auto node_index : asset.scenes[0].nodeIndices) // we handle 1 scene only
-	{
-		auto p = file.top_nodes.emplace_back(std::make_shared<Node>());
-		work.emplace_back(NodeWork{ p, node_index });
-	}
-
-	while (work.size() > 0)
-	{
-		auto [node, node_index] = work.back();
-		work.pop_back();
-		const auto& gltf_node = asset.nodes[node_index];
-		std::string node_name = gltf_node.name.empty()
-		                            ? std::string("Node_") + std::to_string(node_index)
-		                            : gltf_node.name.c_str();
-		file.nodes[node_name] = node;
-
-		// clang-format off
-		std::visit(
-		    fastgltf::visitor{
-    		    [&](fastgltf::math::fmat4x4 matrix) {
-    				memcpy(&node->local_transform, matrix.data(), sizeof(matrix));
-    			},
-                [&](fastgltf::TRS transform) {
-         			const glm::vec3 tl(
-         			    transform.translation[0], transform.translation[1], transform.translation[2]
-         			);
-         			const glm::quat rot(
-         			    transform.rotation[3], transform.rotation[0], transform.rotation[1],
-         			    transform.rotation[2]
-         			);
-         			const glm::vec3 sc(transform.scale[0], transform.scale[1], transform.scale[2]);
-
-         			const glm::mat4 tm = glm::translate(glm::mat4(1.f), tl);
-         			const glm::mat4 rm = glm::toMat4(rot);
-         			const glm::mat4 sm = glm::scale(glm::mat4(1.f), sc);
-
-                    node->local_transform = tm * rm * sm;
-    			}},
-		    gltf_node.transform
-		);
-		// clang-format on
-
-		if (gltf_node.meshIndex.has_value())
-		{
-			node->mesh_asset = mesh_assets[*(gltf_node.meshIndex)];
-		}
-
-		for (auto child_index : gltf_node.children)
-		{
-			auto p = node->children.emplace_back(std::make_shared<Node>());
-			work.emplace_back(NodeWork{ p, child_index });
-		}
-	}
-
-	for (auto& node : file.top_nodes)
-	{
-		node->refresh_transform(glm::mat4(1.0f));
-	}
-
-	fmt::println("size of topnodes: {}", scene->top_nodes.size());
-	fmt::println("size of nodes: {}", scene->nodes.size());
-	fmt::println("size of gltf nodes: {}", asset.nodes.size());
 
 	return scene;
 }

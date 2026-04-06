@@ -46,9 +46,9 @@ class VulkanEngine;
 
 struct LoadedGLTF
 {
-	std::unordered_map<std::string, std::shared_ptr<MeshAsset>> meshes{};
-	std::unordered_map<std::string, std::shared_ptr<Node>> nodes{};
-	std::unordered_map<std::string, AllocatedImage> images{};
+	std::unordered_map<std::string, std::shared_ptr<MeshAsset>> meshes{}; // obsolete?
+	std::unordered_map<std::string, std::shared_ptr<Node>> nodes{}; // obsolete?
+	std::unordered_map<std::string, AllocatedImage> images{}; // stores our GPU images
 	std::vector<std::shared_ptr<Node>> top_nodes{};
 
 	std::vector<uint32_t> indices{};
@@ -58,7 +58,7 @@ struct LoadedGLTF
 	std::vector<MaterialData> materials{};
 
 	VulkanEngine* creator{};
-	std::string asset_path{};
+	std::string asset_path{}; // asset folder
 
 	~LoadedGLTF() { clear(); }
 
@@ -66,4 +66,4 @@ private:
 	void clear();
 };
 
-std::optional<std::unique_ptr<LoadedGLTF>> load_gltf(VulkanEngine* engine, const std::string& file_path);
+std::optional<std::unique_ptr<LoadedGLTF>> load_gltfs(VulkanEngine* engine, std::vector<std::string>& file_paths);
