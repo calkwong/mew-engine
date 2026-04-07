@@ -295,7 +295,7 @@ void main()
 		history_color_clamped = history_color;
 	}
 
-	float blend_factor = 0.1;
+	float blend_factor = 0.05;
 
 	// TODO: explore other blending heuristics; a straightforward one is when reprojected uv is OOB
 	// https://www.youtube.com/watch?v=WzpLWzGvFK4&t=18m

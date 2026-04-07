@@ -191,7 +191,7 @@ void VulkanEngine::init(int argc, char** argv)
 
 	main_camera.position = glm::vec3(0, 0, 5);
 	main_camera.far = static_cast<float>(CVAR_MISC_DRAW_DISTANCE.get());
-	main_camera.near = 0.5f;
+	main_camera.near = 0.01f;
 	main_camera.fov = 70.0f;
 	// TODO: refactor if window resize
 	main_camera.set_perspective_matrix(glm::radians(main_camera.fov), static_cast<float>(draw_extent.width) / static_cast<float>(draw_extent.height), main_camera.near);
@@ -1160,7 +1160,7 @@ void VulkanEngine::draw()
 		pc.screen_size = glm::vec2(draw_image.extent.width, draw_image.extent.height);
 		pc.src_id = CVAR_RENDER_TAA.get() ? image_cache.get_accumulation_buffer(frame_number % 2) : image_cache.get_draw_image();
 		pc.dst_id = image_cache.get_draw_image();
-		pc.autoexposure = CVAR_MISC_AUTOEXPOSURE.get();
+		// pc.autoexposure = CVAR_MISC_AUTOEXPOSURE.get();
 		pc.tonemap_func = CVAR_MISC_TONEMAP_FUNC.get();
 
 		vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(TonemapPC), &pc);

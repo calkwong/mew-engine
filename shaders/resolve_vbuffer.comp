@@ -359,6 +359,7 @@ void main()
 
 	float depth = texture(sampler2D(textures[depth_id], samplers[NEAREST_SAMPLER]), in_uv).r;
 
+	// TODO: potential issue where faces away from point light being lit, exposed by sponza test scene
 	if (light_culling == 1)
 	{
 		ivec4 cluster_dim = ivec4(cluster_size);
