@@ -17,7 +17,7 @@
 
 // queries
 #define QUERY_COUNT 50
-#define TIMESTAMP_QUERIES 28
+#define TIMESTAMP_QUERIES 30
 #define PIPELINE_QUERIES 8
 
 // clustered shading

@@ -547,6 +547,7 @@ void VulkanEngine::draw()
 		stats.taa_resolve = get_time(24, 25);
 		auto gpu_time = get_time(26, 27);
 		stats.gpu_time = gpu_time + 0.95 * (stats.gpu_time - gpu_time);
+		stats.hiz = get_time(28, 29);
 
 		stats.triangle_count = 0;
 		// for (size_t i = 0; i < pipeline_results.size() - 1; i++)
@@ -688,7 +689,9 @@ void VulkanEngine::draw()
 			pipeline_barrier(cmd, nullptr, 0, image_barriers.data(), image_barriers.size());
 			image_barriers.clear();
 
+			vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 28);
 			build_depth_pyramid(cmd);
+			vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 29);
 
 			// next use in compute occlusion cull; if freeze_camera, we will always be in the right image layout
 			vkutil::transition_image(
@@ -702,6 +705,11 @@ void VulkanEngine::draw()
 			    VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
 			    VK_IMAGE_ASPECT_COLOR_BIT
 			);
+		}
+		else
+		{
+    		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 28);
+    		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 29);
 		}
 
 		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
@@ -1400,6 +1408,7 @@ void VulkanEngine::run()
 			ImGui::Text("Late render:          %.3f ms", stats.late_indirect);
 			ImGui::Text("Light culling:        %.3f ms", stats.light_culling);
 			ImGui::Text("Deferred shading:     %.3f ms", stats.deferred_shading);
+			ImGui::Text("Build hiz:            %.3f ms", stats.hiz);
 			ImGui::Text("Mask cull:            %.3f ms", stats.mask_cull);
 			ImGui::Text("Mask render:          %.3f ms", stats.mask_indirect);
 			ImGui::Text("Transparent cull:     %.3f ms", stats.transparent_cull);

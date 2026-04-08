@@ -68,6 +68,7 @@ struct EngineStats
 	double early_cull{};
 	double late_cull{};
 	double mask_cull{};
+	double hiz{};
 	double early_indirect{};
 	double late_indirect{};
 	double mask_indirect{};
