@@ -72,7 +72,7 @@ AutoCVar_Int CVAR_MISC_AUTOEXPOSURE{ "misc.autoexposure", "Autoexposure", 0, CVa
 AutoCVar_Int CVAR_MISC_TONEMAP{ "misc.tonemap", "Tonemapping", 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_MISC_TONEMAP_FUNC{ "misc.tonemap_func", "Tonemapping function", 0, CVarFlags::EditSliderInt, 0, 3, 1 };
 AutoCVar_Int CVAR_MISC_FREEZE_CAMERA{ "misc.freeze_camera", "Freeze camera", 0, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_MISC_SPD{ "misc.spd", "SPD", 1, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_MISC_HIZ_SPD{ "misc.hiz_spd", "HiZ SPD", 1, CVarFlags::EditCheckbox };
 
 AutoCVar_Int CVAR_TAA_VARIANCE_CLIP{ "taa.variance_clip", "Variance clipping", 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TAA_CATMULL_ROM{ "taa.catmull_rom", "Catmull filter", 1, CVarFlags::EditCheckbox };
@@ -697,7 +697,7 @@ void VulkanEngine::draw()
 			image_barriers.clear();
 
 			vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 28);
-			if (CVAR_MISC_SPD.get())
+			if (CVAR_MISC_HIZ_SPD.get())
 			    execute_spd(cmd);
 			else
 			    build_depth_pyramid(cmd);
@@ -1337,10 +1337,10 @@ void VulkanEngine::run()
 				}
 				if (e.key.repeat == 0 && e.key.key == SDLK_G)
 				{
-					if (CVAR_MISC_SPD.get() == 1)
-						CVAR_MISC_SPD.set(0);
+					if (CVAR_MISC_HIZ_SPD.get() == 1)
+						CVAR_MISC_HIZ_SPD.set(0);
 					else
-						CVAR_MISC_SPD.set(1);
+						CVAR_MISC_HIZ_SPD.set(1);
 				}
 				if (e.key.repeat == 0 && e.key.key == SDLK_Y)
 				{
@@ -1859,7 +1859,7 @@ void VulkanEngine::init_shaders()
 {
 	shader_cache.add_shader(device, "cluster_grid.comp", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "light_culling.comp", VK_SHADER_STAGE_COMPUTE_BIT);
-	shader_cache.add_shader(device, "depth_pyramid.comp", VK_SHADER_STAGE_COMPUTE_BIT);
+	shader_cache.add_shader(device, "hiz.comp", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "mesh_cull.comp", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "meshlet_cull.comp", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "shadow_cull.comp", VK_SHADER_STAGE_COMPUTE_BIT);
@@ -1883,7 +1883,7 @@ void VulkanEngine::init_shaders()
 	shader_cache.add_shader(device, "resolve_vbuffer.comp", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "resolve_gbuffer.comp", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "compact_dispatch.comp", VK_SHADER_STAGE_COMPUTE_BIT);
-	shader_cache.add_shader(device, "spd.comp", VK_SHADER_STAGE_COMPUTE_BIT);
+	shader_cache.add_shader(device, "hiz_spd.comp", VK_SHADER_STAGE_COMPUTE_BIT);
 }
 
 void VulkanEngine::init_pipelines()
@@ -1896,7 +1896,7 @@ void VulkanEngine::init_pipelines()
 	shader_passes["cluster_grid"] = vkutil::build_shader(device, compute_builder, shader_cache["cluster_grid.comp"], descriptor_layouts, sizeof(ClusterGridPushConstants));
 	shader_passes["light_culling"] = vkutil::build_shader(device, compute_builder, shader_cache["light_culling.comp"], descriptor_layouts, sizeof(LightCullingPushConstants));
 
-	shader_passes["depth_pyramid"] = vkutil::build_shader(device, compute_builder, shader_cache["depth_pyramid.comp"], descriptor_layouts, sizeof(DepthPyramidPushConstants));
+	shader_passes["hiz"] = vkutil::build_shader(device, compute_builder, shader_cache["hiz.comp"], descriptor_layouts, sizeof(DepthPyramidPushConstants));
 	shader_passes["mesh_cull"] = vkutil::build_shader(device, compute_builder, shader_cache["mesh_cull.comp"], descriptor_layouts, sizeof(CullData));
 	shader_passes["meshlet_cull"] = vkutil::build_shader(device, compute_builder, shader_cache["meshlet_cull.comp"], descriptor_layouts, sizeof(ClusterCullData)); // TODO: check if this is also culldata
 	shader_passes["equirectangular_to_cubemap"] = vkutil::build_shader(device, compute_builder, shader_cache["equirectangular_to_cubemap.comp"], descriptor_layouts, sizeof(IBLPushConstants));
@@ -1913,7 +1913,7 @@ void VulkanEngine::init_pipelines()
 	shader_passes["resolve_gbuffer"] = vkutil::build_shader(device, compute_builder, shader_cache["resolve_gbuffer.comp"], descriptor_layouts, sizeof(DeferredPushConstants));
 	shader_passes["compact_dispatch"] = vkutil::build_shader(device, compute_builder, shader_cache["compact_dispatch.comp"], descriptor_layouts, sizeof(CompactDispatchPC));
 	shader_passes["resolve_taa"] = vkutil::build_shader(device, compute_builder, shader_cache["resolve_taa.comp"], descriptor_layouts, sizeof(TAAResolvePC));
-	shader_passes["spd"] = vkutil::build_shader(device, compute_builder, shader_cache["spd.comp"], descriptor_layouts, sizeof(SpdPushConstants));
+	shader_passes["hiz_spd"] = vkutil::build_shader(device, compute_builder, shader_cache["hiz_spd.comp"], descriptor_layouts, sizeof(SpdPushConstants));
 
 	// mrt
 	builder.set_input_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
@@ -3249,7 +3249,7 @@ void VulkanEngine::render_shadows(VkCommandBuffer cmd, uint32_t cascade_idx, uin
 
 void VulkanEngine::execute_spd(VkCommandBuffer cmd)
 {
-    ShaderPass current_pass = *shader_passes["spd"];
+    ShaderPass current_pass = *shader_passes["hiz_spd"];
 	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
@@ -3276,7 +3276,7 @@ void VulkanEngine::execute_spd(VkCommandBuffer cmd)
 
 void VulkanEngine::build_depth_pyramid(VkCommandBuffer cmd)
 {
-	ShaderPass current_pass = *shader_passes["depth_pyramid"];
+	ShaderPass current_pass = *shader_passes["hiz"];
 	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);

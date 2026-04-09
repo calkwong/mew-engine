@@ -5,6 +5,9 @@
 // Limitations:
 // - Strictly PoT only
 // - No texture array/cubemap support for now
+// - No proper oob check - reliant on no op behaviour from imageload/store, likely not good?
+//
+// Note to self:
 //
 // Instead of padding depth buffer to multiple of 64 or PoT, we lie to the shader that the depth buffer's size is PoT rounded up.
 // When building mip 0, uv is remapped; instead of downsampling 2x2 in 2 texels increments (of the actual depth buffer's dimensions), its stepping in 1.x texel increments

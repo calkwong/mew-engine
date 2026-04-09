@@ -271,7 +271,7 @@ void CVarSystemImpl::draw_imgui_editor()
 		edit_parameters(get_cvar("misc.tonemap"));
 		edit_parameters(get_cvar("misc.tonemap_func"));
 		edit_parameters(get_cvar("misc.freeze_camera"));
-		edit_parameters(get_cvar("misc.spd"));
+		edit_parameters(get_cvar("misc.hiz_spd"));
 
 		ImGui::TreePop();
 	}
