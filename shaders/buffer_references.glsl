@@ -123,3 +123,8 @@ layout(buffer_reference, std430) buffer MaterialBuffer
 {
 	MaterialData materials[];
 };
+
+layout(buffer_reference, std430) buffer SpdCounterBuffer
+{
+    uint counter;
+};

@@ -6,6 +6,7 @@
 #include <vector>
 #include <array>
 #include <filesystem>
+#include <vulkan/vulkan_core.h>
 
 struct CompactDispatchPC
 {
@@ -134,6 +135,18 @@ struct TAAResolvePC
 	uint32_t ycocg{};
 	uint32_t valid_history{};
 	uint32_t dynamic{};
+};
+
+struct SpdPushConstants
+{
+    VkDeviceAddress spd_counter_buffer{};
+	glm::vec2 rcp_resolution{};
+    uint32_t mips{};
+	uint32_t num_wgs{};
+	uint32_t src_id{}; // texture to sample
+	uint32_t dst_id{}; // image to write to, offset accordingly!
+	uint32_t sampler_id{};
+	// uint32_t wg_offset; // note: for subregion downsampling, not implemented for now
 };
 
 struct DepthPyramidPushConstants

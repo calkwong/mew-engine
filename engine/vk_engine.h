@@ -207,6 +207,7 @@ public:
 	void render(VkCommandBuffer cmd, bool late, uint32_t post_pass, uint32_t query);
 	void render_transparent(VkCommandBuffer cmd, uint32_t query);
 	void render_shadows(VkCommandBuffer cmd, uint32_t cascade_idx, uint32_t query);
+	void execute_spd(VkCommandBuffer cmd);
 	void build_depth_pyramid(VkCommandBuffer cmd);
 	void execute_light_culling(VkCommandBuffer cmd);
 	void resolve_shading(VkCommandBuffer cmd);

@@ -29,3 +29,12 @@
 #define MESHLET_MAX_VERTICES 64
 #define MESHLET_MAX_TRIANGLES 124
 #define MESHLET_LIMIT (1 << 24) // max VISIBLE meshlets, ~16.7m meshlets for ~64mb. validate with frame 0 capture for test scenes.
+
+// samplers
+#define LINEAR_SAMPLER 0
+#define CUBE_SAMPLER 1
+#define SHADOW_SAMPLER 2
+#define DEPTH_REDUCTION_SAMPLER 3
+#define NEAREST_CLAMP_BORDER_SAMPLER 4
+#define NEAREST_SAMPLER 5 // clamp to edge
+#define LINEAR_CLAMP_SAMPLER 6 // clamp to edge

@@ -271,6 +271,8 @@ struct RenderScene
 
 	AllocatedBuffer prefix_sum_buffer{};
 
+	AllocatedBuffer spd_counter_buffer{};
+
 	MeshPass opaque_pass{};
 	MeshPass mask_pass{};
 	MeshPass transparent_pass{};
