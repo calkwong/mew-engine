@@ -50,6 +50,7 @@ void main()
 	uint prefix_sum_idx = prefix_sum_binary_search(prefix_sum_buffer, target);
     PrefixSumData prefix_sum_data = prefix_sum_buffer.prefix_sum.data[prefix_sum_idx];
     uint meshlet_lod_offset = prefix_sum_data.lod_offset;
+    meshlet_lod_offset = bitfieldExtract(meshlet_lod_offset, 0, 31); // we do some packing hence this is essential!
     uint object_id = prefix_sum_data.instance_id;
 
    	bool overflow = prefix_sum_idx == total_meshlet_count;

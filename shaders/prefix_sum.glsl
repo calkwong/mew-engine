@@ -22,6 +22,8 @@ layout(buffer_reference, std430) buffer PrefixSumBuffer
 	PrefixSum prefix_sum;
 };
 
+// note: offset can be packed with bit flags as we are unlikely to even use half its bits
+// currently msb is set to mesh visibility last frame for late pass
 void prefix_sum_inclusive_append(PrefixSumBuffer buf, uint index, uint value, uint offset)
 {
     uint64_t count = uint64_t(1) << uint64_t(32);

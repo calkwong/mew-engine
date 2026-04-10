@@ -138,7 +138,8 @@ void main()
 	{
 		if (occlusion_enabled == 1)
 			visible = visible && !occlusion_culled(center, radius);
-		should_draw = (task_submit == 0) ? visible && (!visible_last_frame || post_pass != 0) : visible; // TODO: verify we can remove postpass check here as we dispatch by geometry type?
+		// TODO: verify we can remove postpass check here as we dispatch by geometry type?
+		should_draw = (task_submit == 0) ? visible && (!visible_last_frame || post_pass != 0) : visible;
 	}
 
 	if (should_draw)
@@ -162,6 +163,12 @@ void main()
 		{
 			uint meshlet_count = mesh.lods[index].meshlet_count;
 			uint meshlet_offset = mesh.lods[index].meshlet_offset;
+
+			if (late)
+			{
+    			uint mesh_visible_last_frame = uint(visible_last_frame) << 31;
+    			meshlet_offset = meshlet_offset | mesh_visible_last_frame;
+			}
 
 			uint count = atomicAdd(dispatch_buffer.workgroup_x, meshlet_count);
 

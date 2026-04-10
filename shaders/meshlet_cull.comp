@@ -105,6 +105,14 @@ void main()
 	uint prefix_sum_idx = prefix_sum_binary_search(prefix_sum_buffer, ti);
 	PrefixSumData prefix_sum_data = prefix_sum_buffer.prefix_sum.data[prefix_sum_idx];
 	uint meshlet_lod_offset = prefix_sum_data.lod_offset; // NOT final meshlet id
+
+	uint mesh_visible_last_frame;
+	bool late = is_late == 1;
+	if (late)
+	{
+    	mesh_visible_last_frame = bitfieldExtract(meshlet_lod_offset, 31, 1); // careful order matters!
+    	meshlet_lod_offset = bitfieldExtract(meshlet_lod_offset, 0, 31);
+	}
 	uint object_id = prefix_sum_data.instance_id;
 
 	bool overflow = prefix_sum_idx == total_meshlet_count;
@@ -118,27 +126,28 @@ void main()
 
 	if (ti < total_meshlet_count)
 	{
-		bool late = is_late == 1;
-
 		ObjectData obj = object_buffer.objects[object_id];
 		uint meshlet_visibility_offset = obj.meshlet_bit_offset + local_meshlet_index;
 
 		// bit shift in place of floor division, then bit& to extract the relevant bit
 		uint meshlet_visibility_bit = meshlet_visibility_buffer.visible[meshlet_visibility_offset >> 5] & (1u << (meshlet_visibility_offset & 31));
 
-		bool visible_last_frame = meshlet_visibility_bit != 0;
+		bool meshlet_visible_last_frame = meshlet_visibility_bit != 0;
 
-		if (!late && !visible_last_frame)
+		if (!late && !meshlet_visible_last_frame)
 			return;
 
 		bool skip = false; // always false for early pass
-		if (late && visible_last_frame)
+		if (late && meshlet_visible_last_frame && mesh_visible_last_frame == 1)
 			skip = true;
-		if (post_pass != 0) // TODO: update this when we start culling postpass > 0 for late==0
-			skip = false; // we never skip mask and transparent (postpass != 0) regardless of visibility last frame as they only run for late==1
+		// TODO: update this when we start culling postpass > 0 for late==0
+		// take into consideration both meshlet and mesh_visibility_last_frame when updating this in the future
+		// we never skip mask and transparent (postpass != 0) regardless of visibility last frame as they only run for late==1
+		if (post_pass != 0)
+			skip = false;
 
 		// reprocess all meshlets of visible meshes
-		Meshlet meshlet = meshlet_buffer.meshlets[local_meshlet_index + meshlet_lod_offset]; // WRONG?
+		Meshlet meshlet = meshlet_buffer.meshlets[local_meshlet_index + meshlet_lod_offset];
 
 		vec3 mpos = vec3(meshlet.cx, meshlet.cy, meshlet.cz);
 		vec3 center = rotate_quat(mpos, obj.orientation) * obj.scale + obj.translation; // world space
