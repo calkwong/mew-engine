@@ -191,7 +191,7 @@ struct ClusterCullData
 	VkDeviceAddress object_buffer_address{};
 	VkDeviceAddress meshlet_buffer_address{};
 	VkDeviceAddress cluster_indices_address{};
-	VkDeviceAddress cluster_count_address{};
+	VkDeviceAddress meshlet_dispatch_address{};
 	VkDeviceAddress cluster_vis_address{};
 	VkDeviceAddress prefix_sum_buffer{};
 	uint32_t count{};
@@ -261,7 +261,7 @@ struct RenderScene
 	AllocatedBuffer vis_buffer{};
 	AllocatedBuffer meshlet_vis_buffer{};
 
-	AllocatedBuffer cluster_count_buffer{};
+	AllocatedBuffer meshlet_dispatch_buffer{};
 	AllocatedBuffer cluster_indices{};
 	AllocatedBuffer oit_buffer{};
 

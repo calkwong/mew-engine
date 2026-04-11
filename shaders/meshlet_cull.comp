@@ -17,7 +17,7 @@ layout(push_constant) uniform constants
 	ObjectBuffer object_buffer;
 	MeshletBuffer meshlet_buffer;
 	ClusterIndicesBuffer cluster_indices_buffer;
-	ClusterCountBuffer cluster_count_buffer;
+	MeshletDispatchBuffer meshlet_dispatch_buffer;
 	VisibilityBuffer meshlet_visibility_buffer;
 	PrefixSumBuffer prefix_sum_buffer;
 
@@ -187,9 +187,9 @@ void main()
 		if (visible && !skip)
 		{
             // similar performance with subgroupops, maybe compiler already optimized this?
-			uint cluster_index = atomicAdd(cluster_count_buffer.workgroup_x, 1);
-			cluster_count_buffer.workgroup_y = 1;
-			cluster_count_buffer.workgroup_z = 1;
+			uint cluster_index = atomicAdd(meshlet_dispatch_buffer.workgroup_x, 1);
+			meshlet_dispatch_buffer.workgroup_y = 1;
+			meshlet_dispatch_buffer.workgroup_z = 1;
 
 			cluster_indices_buffer.indices[cluster_index] = ti;
 		}

@@ -92,7 +92,7 @@ layout(buffer_reference, std430) buffer ClusterIndicesBuffer
 	uint indices[];
 };
 
-layout(buffer_reference, std430) buffer ClusterCountBuffer
+layout(buffer_reference, std430) buffer MeshletDispatchBuffer
 {
 	uint workgroup_x;
 	uint workgroup_y;

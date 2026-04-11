@@ -299,7 +299,7 @@ void VulkanEngine::cleanup()
 		destroy_buffer(allocator, render_scene.dispatch_buffer);
 		destroy_buffer(allocator, render_scene.vis_buffer);
 		destroy_buffer(allocator, render_scene.meshlet_vis_buffer);
-		destroy_buffer(allocator, render_scene.cluster_count_buffer);
+		destroy_buffer(allocator, render_scene.meshlet_dispatch_buffer);
 		destroy_buffer(allocator, render_scene.cluster_indices);
 
 		destroy_buffer(allocator, render_scene.oit_buffer);
@@ -589,7 +589,7 @@ void VulkanEngine::draw()
 		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
 
 		vkCmdFillBuffer(cmd, render_scene.dispatch_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
-		vkCmdFillBuffer(cmd, render_scene.cluster_count_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
+		vkCmdFillBuffer(cmd, render_scene.meshlet_dispatch_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
 		vkCmdFillBuffer(cmd, render_scene.draw_indirect_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
 		vkCmdFillBuffer(cmd, render_scene.prefix_sum_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
 
@@ -725,7 +725,7 @@ void VulkanEngine::draw()
 		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
 
 		vkCmdFillBuffer(cmd, render_scene.dispatch_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
-		vkCmdFillBuffer(cmd, render_scene.cluster_count_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
+		vkCmdFillBuffer(cmd, render_scene.meshlet_dispatch_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
 		vkCmdFillBuffer(cmd, render_scene.draw_indirect_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
 		vkCmdFillBuffer(cmd, render_scene.prefix_sum_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
 
@@ -776,7 +776,7 @@ void VulkanEngine::draw()
 		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
 
 		vkCmdFillBuffer(cmd, render_scene.dispatch_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
-		vkCmdFillBuffer(cmd, render_scene.cluster_count_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
+		vkCmdFillBuffer(cmd, render_scene.meshlet_dispatch_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
 		vkCmdFillBuffer(cmd, render_scene.draw_indirect_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
 		vkCmdFillBuffer(cmd, render_scene.prefix_sum_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
 
@@ -820,7 +820,7 @@ void VulkanEngine::draw()
 		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
 
 		vkCmdFillBuffer(cmd, render_scene.dispatch_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
-		vkCmdFillBuffer(cmd, render_scene.cluster_count_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
+		vkCmdFillBuffer(cmd, render_scene.meshlet_dispatch_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
 		vkCmdFillBuffer(cmd, render_scene.draw_indirect_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
 		vkCmdFillBuffer(cmd, render_scene.prefix_sum_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
 
@@ -903,7 +903,7 @@ void VulkanEngine::draw()
 		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
 
 		vkCmdFillBuffer(cmd, render_scene.dispatch_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
-		// vkCmdFillBuffer(cmd, render_scene.cluster_count_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
+		// vkCmdFillBuffer(cmd, render_scene.meshlet_dispatch_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
 		vkCmdFillBuffer(cmd, render_scene.draw_indirect_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
 
 		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
@@ -2753,7 +2753,7 @@ void VulkanEngine::upload_buffers()
 
 	render_scene.dispatch_buffer = create_buffer(allocator, 3 * sizeof(uint32_t), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_2_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_2_TRANSFER_DST_BIT);
 	// TODO: can we combine both of these?
-	render_scene.cluster_count_buffer = create_buffer(allocator, 3 * sizeof(uint32_t), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_2_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_2_TRANSFER_DST_BIT);
+	render_scene.meshlet_dispatch_buffer = create_buffer(allocator, 3 * sizeof(uint32_t), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_2_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_2_TRANSFER_DST_BIT);
 
 	auto count_size = 2 * sizeof(uint32_t);
 	auto draw_commands_size = (MAX_OPAQUE_DRAWS + MAX_ALPHACLIP_DRAWS) * sizeof(VkDrawIndexedIndirectCommand);
@@ -2878,7 +2878,7 @@ void VulkanEngine::ready_meshlet_cull(RenderScene::MeshPass& pass, ClusterCullDa
 	cull_data.object_buffer_address = get_buffer_address(device, render_scene.object_buffer.buffer);
 	cull_data.meshlet_buffer_address = get_buffer_address(device, render_scene.meshlet_buffer.buffer);
 	cull_data.cluster_indices_address = get_buffer_address(device, render_scene.cluster_indices.buffer);
-	cull_data.cluster_count_address = get_buffer_address(device, render_scene.cluster_count_buffer.buffer);
+	cull_data.meshlet_dispatch_address = get_buffer_address(device, render_scene.meshlet_dispatch_buffer.buffer);
 	cull_data.cluster_vis_address = get_buffer_address(device, render_scene.meshlet_vis_buffer.buffer);
 	cull_data.prefix_sum_buffer = get_buffer_address(device, render_scene.prefix_sum_buffer.buffer);
 
@@ -3095,7 +3095,7 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass, ui
 		vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GPUPushConstants), &pc);
 
 		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
-		vkCmdDrawMeshTasksIndirectEXT(cmd, render_scene.cluster_count_buffer.buffer, 0, 1, 0);
+		vkCmdDrawMeshTasksIndirectEXT(cmd, render_scene.meshlet_dispatch_buffer.buffer, 0, 1, 0);
 
 		stats.draw_count++;
 	}
@@ -3172,7 +3172,7 @@ void VulkanEngine::render_transparent(VkCommandBuffer cmd, uint32_t query)
 		vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GPUPushConstants), &pc);
 
 		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
-		vkCmdDrawMeshTasksIndirectEXT(cmd, render_scene.cluster_count_buffer.buffer, 0, 1, 0);
+		vkCmdDrawMeshTasksIndirectEXT(cmd, render_scene.meshlet_dispatch_buffer.buffer, 0, 1, 0);
 
 		stats.draw_count++;
 	}
