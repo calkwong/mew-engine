@@ -86,6 +86,8 @@ struct EngineStats
 };
 
 struct SDL_Window;
+struct CullData;
+struct ClusterCullData;
 
 class VulkanEngine
 {
@@ -220,10 +222,10 @@ private:
 	void init_descriptors();
 	void init_shaders();
 	void init_pipelines();
-	void init_default_data();
+	void init_resources();
 	void init_renderables(int argc, char** argv);
 	void init_bindless();
-	void init_gi();
+	void execute_baked_gi();
 	void init_imgui();
 	void build_cluster_grid();
 

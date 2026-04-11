@@ -155,63 +155,6 @@ struct ObjectData
 	uint32_t post_pass{};
 };
 
-struct CullData
-{
-	glm::mat4 view{};
-	glm::vec4 frustum_planes{};
-	VkDeviceAddress object_buffer_address{};
-	VkDeviceAddress mesh_buffer_address{};
-	VkDeviceAddress indices_buffer_address{};
-	VkDeviceAddress draw_indirect_address{};
-	VkDeviceAddress count_buffer_address{};
-	VkDeviceAddress vis_buffer_address{};
-	VkDeviceAddress prefix_sum_buffer{};
-	uint32_t count{};
-	uint32_t late{};
-	uint32_t texture_id{};
-	uint32_t occlusion_enabled{};
-
-	float p00{};
-	float p11{};
-	float near{};
-	float far{};
-
-	glm::vec2 resolution{};
-	float texture_lod{};
-	float lod_distance_factor{};
-	uint32_t lod_enabled{};
-	uint32_t task_submit{};
-	uint32_t post_pass{};
-};
-
-struct ClusterCullData
-{
-	glm::mat4 view{};
-	glm::vec4 frustum_planes{};
-	VkDeviceAddress object_buffer_address{};
-	VkDeviceAddress meshlet_buffer_address{};
-	VkDeviceAddress cluster_indices_address{};
-	VkDeviceAddress meshlet_dispatch_address{};
-	VkDeviceAddress cluster_vis_address{};
-	VkDeviceAddress prefix_sum_buffer{};
-	uint32_t count{};
-	uint32_t late{};
-	uint32_t texture_id{};
-	uint32_t occlusion_enabled{};
-
-	float p00{};
-	float p11{};
-	float near{};
-	float far{};
-
-	glm::vec2 resolution{};
-	float texture_lod{};
-	float lod_distance_factor{};
-	uint32_t lod_enabled{};
-	uint32_t task_submit{};
-	uint32_t post_pass{};
-};
-
 struct PrefixSumData
 {
     uint32_t instance_id{};
@@ -277,6 +220,4 @@ struct RenderScene
 	MeshPass mask_pass{};
 	MeshPass transparent_pass{};
 	uint32_t total_meshlets_bits{};
-
-	void init();
 };

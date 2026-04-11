@@ -34,7 +34,7 @@ target_sources(engine PRIVATE
 	vk_loader.h
 	vk_pipelines.cpp
 	vk_pipelines.h
-	vk_scene.cpp
+	#vk_scene.cpp
 	vk_scene.h
 	common.h
 	cvars.h
@@ -44,6 +44,7 @@ target_sources(engine PRIVATE
 	cache.cpp
 	extern.cpp
     config.h
+    push_constants.h
 	${imgui_sources}
 )
 

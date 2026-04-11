@@ -10,6 +10,7 @@
 #include "vk_pipelines.h"
 #include "vk_scene.h"
 #include "cache.h"
+#include "push_constants.h"
 
 #include <filesystem>
 #include <vk_mem_alloc.h>
@@ -36,7 +37,6 @@
 #include <thread>
 #include <utility>
 #include <cstdlib>
-#include <vulkan/vulkan_core.h>
 
 VulkanEngine* loaded_engine{};
 
@@ -202,7 +202,7 @@ void VulkanEngine::init(int argc, char** argv)
 	// TODO: refactor if window resize
 	main_camera.set_perspective_matrix(glm::radians(main_camera.fov), static_cast<float>(draw_extent.width) / static_cast<float>(draw_extent.height), main_camera.near);
 
-	init_default_data();
+	init_resources();
 
 	init_renderables(argc, argv);
 
@@ -212,8 +212,8 @@ void VulkanEngine::init(int argc, char** argv)
 
 	upload_buffers();
 
-	build_cluster_grid(); // TODO: support draw distance change
-	init_gi();
+	build_cluster_grid(); // TODO: support draw distance change and rebuilding
+	execute_baked_gi();
 
 	// first_frame transitions to avoid validation errors
 	{
@@ -229,6 +229,7 @@ void VulkanEngine::init(int argc, char** argv)
 			vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
 		});
 	}
+
 	VkQueryPoolCreateInfo query_pool_info{};
 	query_pool_info.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
 	query_pool_info.queryType = VK_QUERY_TYPE_TIMESTAMP;
@@ -246,6 +247,16 @@ void VulkanEngine::init(int argc, char** argv)
 		VK_CHECK(vkCreateQueryPool(device, &query_pool_info, nullptr, &frame.query_pool_pipelines));
 		vkResetQueryPool(device, frame.query_pool_pipelines, 0, QUERY_COUNT);
 	}
+
+	// initialize jitter offsets
+    for (int i = 0; i < jitter_offset.size(); i++)
+    {
+        float halton_x = 2.0f * Halton(i + 1, 2) - 1.0f;
+        float halton_y = 2.0f * Halton(i + 1, 3) - 1.0f;
+        float x = halton_x / static_cast<float>(draw_extent.width); // TODO: image resize
+        float y = halton_y / static_cast<float>(draw_extent.height);
+        jitter_offset[i] = glm::vec2(x, y);
+    }
 
 	is_initialized = true;
 }
@@ -336,7 +347,7 @@ void VulkanEngine::cleanup()
 	loaded_engine = nullptr;
 }
 
-void VulkanEngine::init_gi()
+void VulkanEngine::execute_baked_gi()
 {
 	VK_CHECK(vkResetFences(device, 1, &imm_fence));
 	VK_CHECK(vkResetCommandPool(device, imm_command_pool, 0));
@@ -1071,7 +1082,7 @@ void VulkanEngine::draw()
 	    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
 	    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
 
-	    LuminanceBinsPC pc{};
+	    LuminanceBinsPushConstants pc{};
 	    pc.luminance_buffer = get_buffer_address(device, render_scene.luminance_buffer.buffer);
 	    pc.luminance_avg_buffer = get_buffer_address(device, render_scene.luminance_avg_buffer.buffer);
 	    pc.screen_size = glm::vec2(draw_image.extent.width, draw_image.extent.height);
@@ -1083,7 +1094,7 @@ void VulkanEngine::draw()
 	    pc.tau = 2.f;
 	    pc.delta_time = static_cast<float>(stats.deltatime);
 
-	    vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(LuminanceBinsPC), &pc);
+	    vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(LuminanceBinsPushConstants), &pc);
 	    auto groupcount_x = get_groupcount(draw_image.extent.width, LUMINANCE_BINS);
 	    auto groupcount_y = get_groupcount(draw_image.extent.height, LUMINANCE_BINS);
 	    vkCmdDispatch(cmd, groupcount_x, groupcount_y, 1);
@@ -1173,7 +1184,7 @@ void VulkanEngine::draw()
 		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
 		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
 
-		TonemapPC pc{};
+		TonemapPushConstants pc{};
 		pc.luminance_avg_buffer = get_buffer_address(device, render_scene.luminance_avg_buffer.buffer);
 		pc.screen_size = glm::vec2(draw_image.extent.width, draw_image.extent.height);
 		pc.src_id = CVAR_RENDER_TAA.get() ? image_cache.get_accumulation_buffer(frame_number % 2) : image_cache.get_draw_image();
@@ -1181,7 +1192,7 @@ void VulkanEngine::draw()
 		// pc.autoexposure = CVAR_MISC_AUTOEXPOSURE.get();
 		pc.tonemap_func = CVAR_MISC_TONEMAP_FUNC.get();
 
-		vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(TonemapPC), &pc);
+		vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(TonemapPushConstants), &pc);
 		auto groupcount_x = get_groupcount(draw_image.extent.width, WARP_SIZE);
 		auto groupcount_y = get_groupcount(draw_image.extent.height, WARP_SIZE);
 		vkCmdDispatch(cmd, groupcount_x, groupcount_y, 1);
@@ -1904,15 +1915,15 @@ void VulkanEngine::init_pipelines()
 	shader_passes["irradiance"] = vkutil::build_shader(device, compute_builder, shader_cache["irradiance.comp"], descriptor_layouts, sizeof(IBLPushConstants));
 	shader_passes["prefiltered"] = vkutil::build_shader(device, compute_builder, shader_cache["prefiltered.comp"], descriptor_layouts, sizeof(IBLPushConstants));
 	shader_passes["brdf"] = vkutil::build_shader(device, compute_builder, shader_cache["brdf.comp"], descriptor_layouts, sizeof(IBLPushConstants));
-	shader_passes["luminance_histogram"] = vkutil::build_shader(device, compute_builder, shader_cache["luminance_histogram.comp"], descriptor_layouts, sizeof(LuminanceBinsPC));
-	shader_passes["luminance_avg"] = vkutil::build_shader(device, compute_builder, shader_cache["luminance_avg.comp"], descriptor_layouts, sizeof(LuminanceBinsPC));
-	shader_passes["tonemap"] = vkutil::build_shader(device, compute_builder, shader_cache["tonemap.comp"], descriptor_layouts, sizeof(TonemapPC));
+	shader_passes["luminance_histogram"] = vkutil::build_shader(device, compute_builder, shader_cache["luminance_histogram.comp"], descriptor_layouts, sizeof(LuminanceBinsPushConstants));
+	shader_passes["luminance_avg"] = vkutil::build_shader(device, compute_builder, shader_cache["luminance_avg.comp"], descriptor_layouts, sizeof(LuminanceBinsPushConstants));
+	shader_passes["tonemap"] = vkutil::build_shader(device, compute_builder, shader_cache["tonemap.comp"], descriptor_layouts, sizeof(TonemapPushConstants));
 	shader_passes["shadow_cull"] = vkutil::build_shader(device, compute_builder, shader_cache["shadow_cull.comp"], descriptor_layouts, sizeof(ShadowCullPushConstants));
 
 	shader_passes["resolve_vbuffer"] = vkutil::build_shader(device, compute_builder, shader_cache["resolve_vbuffer.comp"], descriptor_layouts, sizeof(DeferredPushConstants));
 	shader_passes["resolve_gbuffer"] = vkutil::build_shader(device, compute_builder, shader_cache["resolve_gbuffer.comp"], descriptor_layouts, sizeof(DeferredPushConstants));
-	shader_passes["compact_dispatch"] = vkutil::build_shader(device, compute_builder, shader_cache["compact_dispatch.comp"], descriptor_layouts, sizeof(CompactDispatchPC));
-	shader_passes["resolve_taa"] = vkutil::build_shader(device, compute_builder, shader_cache["resolve_taa.comp"], descriptor_layouts, sizeof(TAAResolvePC));
+	shader_passes["compact_dispatch"] = vkutil::build_shader(device, compute_builder, shader_cache["compact_dispatch.comp"], descriptor_layouts, sizeof(CompactDispatchPushConstants));
+	shader_passes["resolve_taa"] = vkutil::build_shader(device, compute_builder, shader_cache["resolve_taa.comp"], descriptor_layouts, sizeof(TAAPushConstants));
 	shader_passes["hiz_spd"] = vkutil::build_shader(device, compute_builder, shader_cache["hiz_spd.comp"], descriptor_layouts, sizeof(SpdPushConstants));
 
 	// mrt
@@ -1986,82 +1997,84 @@ void VulkanEngine::init_pipelines()
 	shader_passes["mlab_mesh"] = vkutil::build_shader(device, builder, { shader_cache["meshlet.mesh"], shader_cache["mlab.frag"] }, descriptor_layouts, sizeof(GPUPushConstants));
 }
 
-void VulkanEngine::init_default_data()
+void VulkanEngine::init_resources()
 {
-	VkSampler sampler{};
-	VkSamplerCreateInfo sampler_info{};
-	sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-	sampler_info.magFilter = VK_FILTER_LINEAR;
-	sampler_info.minFilter = VK_FILTER_LINEAR;
+    {
+    	VkSampler sampler{};
+    	VkSamplerCreateInfo sampler_info{};
+    	sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    	sampler_info.magFilter = VK_FILTER_LINEAR;
+    	sampler_info.minFilter = VK_FILTER_LINEAR;
 
-	sampler_info.maxLod = VK_LOD_CLAMP_NONE;
-	sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    	sampler_info.maxLod = VK_LOD_CLAMP_NONE;
+    	sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
 
-	// sampler_info.anisotropyEnable = VK_TRUE;
-	// sampler_info.maxAnisotropy = 16.0f;
+    	// sampler_info.anisotropyEnable = VK_TRUE;
+    	// sampler_info.maxAnisotropy = 16.0f;
 
-	vkCreateSampler(device, &sampler_info, nullptr, &sampler); // 0 linear
-	sampler_cache.add_sampler(sampler);
+    	vkCreateSampler(device, &sampler_info, nullptr, &sampler); // 0 linear
+    	sampler_cache.add_sampler(sampler);
 
-	// sampler_info.anisotropyEnable = VK_FALSE;
-	sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-	sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-	sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    	// sampler_info.anisotropyEnable = VK_FALSE;
+    	sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    	sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    	sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 
-	vkCreateSampler(device, &sampler_info, nullptr, &sampler); // 1 cube map sampling
-	sampler_cache.add_sampler(sampler);
+    	vkCreateSampler(device, &sampler_info, nullptr, &sampler); // 1 cube map sampling
+    	sampler_cache.add_sampler(sampler);
 
-	sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE; // tailored to our PCF sampling; manual OOB rejection required in shader
-	sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-	sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-	sampler_info.maxLod = 1.0;
+    	sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE; // tailored to our PCF sampling; manual OOB rejection required in shader
+    	sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    	sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    	sampler_info.maxLod = 1.0;
 
-	vkCreateSampler(device, &sampler_info, nullptr, &sampler); // 2 shadow map sampler
-	sampler_cache.add_sampler(sampler);
+    	vkCreateSampler(device, &sampler_info, nullptr, &sampler); // 2 shadow map sampler
+    	sampler_cache.add_sampler(sampler);
 
-	sampler_info.magFilter = VK_FILTER_LINEAR;
-	sampler_info.minFilter = VK_FILTER_LINEAR;
-	sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-	sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-	sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-	sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
-	sampler_info.maxLod = VK_LOD_CLAMP_NONE;
+    	sampler_info.magFilter = VK_FILTER_LINEAR;
+    	sampler_info.minFilter = VK_FILTER_LINEAR;
+    	sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    	sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    	sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    	sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    	sampler_info.maxLod = VK_LOD_CLAMP_NONE;
 
-	VkSamplerReductionModeCreateInfo reduction_info{};
-	reduction_info.sType = VK_STRUCTURE_TYPE_SAMPLER_REDUCTION_MODE_CREATE_INFO;
-	reduction_info.reductionMode = VK_SAMPLER_REDUCTION_MODE_MIN;
+    	VkSamplerReductionModeCreateInfo reduction_info{};
+    	reduction_info.sType = VK_STRUCTURE_TYPE_SAMPLER_REDUCTION_MODE_CREATE_INFO;
+    	reduction_info.reductionMode = VK_SAMPLER_REDUCTION_MODE_MIN;
 
-	sampler_info.pNext = &reduction_info;
+    	sampler_info.pNext = &reduction_info;
 
-	vkCreateSampler(device, &sampler_info, nullptr, &sampler); // 3 building hi-z
-	sampler_cache.add_sampler(sampler);
+    	vkCreateSampler(device, &sampler_info, nullptr, &sampler); // 3 building hi-z
+    	sampler_cache.add_sampler(sampler);
 
-	sampler_info.pNext = nullptr;
-	sampler_info.magFilter = VK_FILTER_NEAREST;
-	sampler_info.minFilter = VK_FILTER_NEAREST;
-	sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
-	sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
-	sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
-	sampler_info.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK;
+    	sampler_info.pNext = nullptr;
+    	sampler_info.magFilter = VK_FILTER_NEAREST;
+    	sampler_info.minFilter = VK_FILTER_NEAREST;
+    	sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+    	sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+    	sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+    	sampler_info.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK;
 
-	vkCreateSampler(device, &sampler_info, nullptr, &sampler);
-	sampler_cache.add_sampler(sampler); // 4 nearest clamp to border
+    	vkCreateSampler(device, &sampler_info, nullptr, &sampler);
+    	sampler_cache.add_sampler(sampler); // 4 nearest clamp to border
 
-	sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-	sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-	sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-	vkCreateSampler(device, &sampler_info, nullptr, &sampler);
-	sampler_cache.add_sampler(sampler); // 5 nearest clamp to edge
+    	sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    	sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    	sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    	vkCreateSampler(device, &sampler_info, nullptr, &sampler);
+    	sampler_cache.add_sampler(sampler); // 5 nearest clamp to edge
 
-	sampler_info.magFilter = VK_FILTER_LINEAR;
-	sampler_info.minFilter = VK_FILTER_LINEAR;
-	sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-	sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-	sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-	sampler_info.maxLod = VK_LOD_CLAMP_NONE;
-	sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-	vkCreateSampler(device, &sampler_info, nullptr, &sampler);
-	sampler_cache.add_sampler(sampler); // 6 linear clamp to edge
+    	sampler_info.magFilter = VK_FILTER_LINEAR;
+    	sampler_info.minFilter = VK_FILTER_LINEAR;
+    	sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    	sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    	sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    	sampler_info.maxLod = VK_LOD_CLAMP_NONE;
+    	sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    	vkCreateSampler(device, &sampler_info, nullptr, &sampler);
+    	sampler_cache.add_sampler(sampler); // 6 linear clamp to edge
+    }
 
 	// shadowmaps
 	for (size_t idx = 0; idx < cascade_data.size(); idx++)
@@ -2082,9 +2095,6 @@ void VulkanEngine::init_default_data()
 			destroy_image(device, allocator, cascade.shadow_map);
 		}
 	});
-
-	//> init scene
-	render_scene.init();
 
 	//> create depth pyramid
 	VkExtent3D depth_pyramid_extent{};
@@ -2223,16 +2233,6 @@ void VulkanEngine::init_default_data()
 			vkDestroyImageView(device, prefiltered_views[i], nullptr);
 		}
 	});
-
-	// initialize jitter offsets
-	for (int i = 0; i < jitter_offset.size(); i++)
-	{
-		float halton_x = 2.0f * Halton(i + 1, 2) - 1.0f;
-		float halton_y = 2.0f * Halton(i + 1, 3) - 1.0f;
-		float x = halton_x / static_cast<float>(draw_extent.width); // TODO: image resize
-		float y = halton_y / static_cast<float>(draw_extent.height);
-		jitter_offset[i] = glm::vec2(x, y);
-	}
 }
 
 void VulkanEngine::init_renderables(int argc, char** argv)
@@ -2506,7 +2506,7 @@ void VulkanEngine::resolve_taa(VkCommandBuffer cmd)
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
 
-	TAAResolvePC pc{};
+	TAAPushConstants pc{};
 	auto jitter_count = jitter_offset.size();
 	auto current_jitter = jitter_offset[frame_number % jitter_count];
 	auto previous_jitter = jitter_offset[(frame_number - 1) % jitter_count];
@@ -2525,7 +2525,7 @@ void VulkanEngine::resolve_taa(VkCommandBuffer cmd)
 	pc.dynamic = CVAR_TAA_DYNAMIC.get();
 	first_frame = false; // set this elsewhere?
 
-	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(TAAResolvePC), &pc);
+	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(TAAPushConstants), &pc);
 	auto groupcount_x = get_groupcount(draw_extent.width, WARP_SIZE);
 	auto groupcount_y = get_groupcount(draw_extent.height, WARP_SIZE);
 	vkCmdDispatch(cmd, groupcount_x, groupcount_y, 1);
@@ -2909,11 +2909,11 @@ void VulkanEngine::execute_compact_dispatch(VkCommandBuffer cmd)
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
 
-	CompactDispatchPC pc{};
+	CompactDispatchPushConstants pc{};
 	pc.prefix_sum_buffer = get_buffer_address(device, render_scene.prefix_sum_buffer.buffer);
 	pc.dispatch_buffer = get_buffer_address(device, render_scene.dispatch_buffer.buffer);
 
-	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CompactDispatchPC), &pc);
+	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CompactDispatchPushConstants), &pc);
 	vkCmdDispatch(cmd, 1, 1, 1);
 }
 
