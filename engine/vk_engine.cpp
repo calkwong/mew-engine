@@ -1869,7 +1869,7 @@ void VulkanEngine::init_descriptors()
 void VulkanEngine::init_shaders()
 {
 	shader_cache.add_shader(device, "cluster_grid.slang", VK_SHADER_STAGE_COMPUTE_BIT);
-	shader_cache.add_shader(device, "light_culling.comp", VK_SHADER_STAGE_COMPUTE_BIT);
+	shader_cache.add_shader(device, "light_culling.slang", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "hiz.comp", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "mesh_cull.comp", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "meshlet_cull.comp", VK_SHADER_STAGE_COMPUTE_BIT);
@@ -1905,7 +1905,7 @@ void VulkanEngine::init_pipelines()
 	PipelineBuilder builder{};
 
 	shader_passes["cluster_grid"] = vkutil::build_shader(device, compute_builder, shader_cache["cluster_grid.slang"], descriptor_layouts, sizeof(ClusterGridPushConstants));
-	shader_passes["light_culling"] = vkutil::build_shader(device, compute_builder, shader_cache["light_culling.comp"], descriptor_layouts, sizeof(LightCullingPushConstants));
+	shader_passes["light_culling"] = vkutil::build_shader(device, compute_builder, shader_cache["light_culling.slang"], descriptor_layouts, sizeof(LightCullingPushConstants));
 
 	shader_passes["hiz"] = vkutil::build_shader(device, compute_builder, shader_cache["hiz.comp"], descriptor_layouts, sizeof(DepthPyramidPushConstants));
 	shader_passes["mesh_cull"] = vkutil::build_shader(device, compute_builder, shader_cache["mesh_cull.comp"], descriptor_layouts, sizeof(CullData));
@@ -3382,10 +3382,11 @@ void VulkanEngine::execute_light_culling(VkCommandBuffer cmd)
 	pc.light_index_buffer_address = get_buffer_address(device, light_index_buffer.buffer);
 	pc.light_grid_buffer_address = get_buffer_address(device, light_grid_buffer.buffer);
 	pc.light_count_buffer_address = get_buffer_address(device, light_count_buffer.buffer);
-
-	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(LightCullingPushConstants), &pc);
 	auto groupcount_x = get_groupcount(window_extent.width, CLUSTER_DIM);
 	auto groupcount_y = get_groupcount(window_extent.height, CLUSTER_DIM);
+	pc.workgroups = glm::uvec2(groupcount_x, groupcount_y);
+
+	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(LightCullingPushConstants), &pc);
 	vkCmdDispatch(cmd, groupcount_x, groupcount_y, CLUSTER_DIM);
 }
 

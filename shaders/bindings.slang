@@ -1,3 +1,6 @@
+#ifndef BINDINGS_SLANG
+#define BINDINGS_SLANG
+
 struct UniformBuffer
 {
     float4x4 view;
@@ -36,3 +39,5 @@ layout(set = 2, binding = 0) Texture2D<uint4> textures_u[];
 #define LINEAR_CLAMP_SAMPLER 6 // clamp to edge
 
 layout(set = 3, binding = 0) SamplerState samplers[];
+
+#endif

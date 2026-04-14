@@ -171,6 +171,7 @@ struct LightCullingPushConstants
 	VkDeviceAddress light_index_buffer_address{};
 	VkDeviceAddress light_grid_buffer_address{};
 	VkDeviceAddress light_count_buffer_address{};
+	glm::uvec2 workgroups{};
 };
 
 struct CullData

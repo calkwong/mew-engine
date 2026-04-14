@@ -1,13 +1,7 @@
 #include "bindings.slang"
-// #include "buffer_references.slang"
+#include "types.slang"
 
-struct ClusterAABB
-{
-    float4 min;
-    float4 max;
-};
-
-struct PushConstant
+struct PushConstants
 {
 	float4x4 inverse_proj;
 	ClusterAABB* cluster_buffer;
@@ -17,6 +11,8 @@ struct PushConstant
 	float farz;
 	uint depth_slices;
 };
+
+[[vk::push_constant]] PushConstants pc;
 
 float3 screen_to_view(float2 screen_pos, float2 screen_size, float4x4 inverse_proj)
 {
@@ -41,12 +37,10 @@ float3 line_intersection_to_zplane(float3 point, float z)
 
 #define WG_SIZE_X 27
 #define WG_SIZE_Y 15
-#define WG_SIZE_Z 1
 
 [shader("compute")]
-[numthreads(WG_SIZE_X, WG_SIZE_Y, WG_SIZE_Z)]
+[numthreads(WG_SIZE_X, WG_SIZE_Y, 1)]
 void main(
-    uniform PushConstant pc,
     uint3 t_id : SV_GroupThreadID,
     uint t_index : SV_GroupIndex,
     uint3 wg_id : SV_GroupID
