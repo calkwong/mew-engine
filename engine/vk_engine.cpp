@@ -48,13 +48,13 @@ constexpr bool USE_VALIDATION_LAYERS = false;
 constexpr bool USE_VALIDATION_LAYERS = true;
 #endif
 
-// #define SINGLE // uncomment if loading a proper scene
+#define SINGLE // uncomment if loading a proper scene
 
 AutoCVar_Int CVAR_RENDER_VBUFFER{ "render.vbuffer", "Vbuffer path", 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_MESH_SHADERS{ "render.mesh_shaders", "Mesh shaders path", 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_ALPHACLIP{ "render.alphaclip", "Alphaclip", 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_TRANSPARENT{ "render.transparent", "Transparent", 0, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_RENDER_POINT_LIGHTS{ "render.point_lights", "Point lights", 0, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_RENDER_POINT_LIGHTS{ "render.point_lights", "Point lights", 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_OCCLUSION_CULL{ "render.occlusion_cull", "Occlusion culling", 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_LOD{ "render.lod", "LODs", 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_SHADOWS{ "render.shadows", "Shadows", 0, CVarFlags::EditCheckbox };
@@ -1868,7 +1868,7 @@ void VulkanEngine::init_descriptors()
 
 void VulkanEngine::init_shaders()
 {
-	shader_cache.add_shader(device, "cluster_grid.comp", VK_SHADER_STAGE_COMPUTE_BIT);
+	shader_cache.add_shader(device, "cluster_grid.slang", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "light_culling.comp", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "hiz.comp", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "mesh_cull.comp", VK_SHADER_STAGE_COMPUTE_BIT);
@@ -1904,7 +1904,7 @@ void VulkanEngine::init_pipelines()
 	ComputePipelineBuilder compute_builder{};
 	PipelineBuilder builder{};
 
-	shader_passes["cluster_grid"] = vkutil::build_shader(device, compute_builder, shader_cache["cluster_grid.comp"], descriptor_layouts, sizeof(ClusterGridPushConstants));
+	shader_passes["cluster_grid"] = vkutil::build_shader(device, compute_builder, shader_cache["cluster_grid.slang"], descriptor_layouts, sizeof(ClusterGridPushConstants));
 	shader_passes["light_culling"] = vkutil::build_shader(device, compute_builder, shader_cache["light_culling.comp"], descriptor_layouts, sizeof(LightCullingPushConstants));
 
 	shader_passes["hiz"] = vkutil::build_shader(device, compute_builder, shader_cache["hiz.comp"], descriptor_layouts, sizeof(DepthPyramidPushConstants));
@@ -3353,6 +3353,7 @@ void VulkanEngine::build_cluster_grid()
 	pc.cluster_dim = CLUSTER_DIM;
 	pc.near = main_camera.near; // reverse-z
 	pc.far = main_camera.far;
+	pc.depth_slices = CLUSTER_DEPTH_SLICES;
 
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ClusterGridPushConstants), &pc);
 	vkCmdDispatch(cmd, 1, 1, CLUSTER_DEPTH_SLICES);

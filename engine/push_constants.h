@@ -159,6 +159,7 @@ struct ClusterGridPushConstants
 	float cluster_dim{};
 	float near{};
 	float far{};
+	uint32_t depth_slices{};
 };
 
 struct LightCullingPushConstants
