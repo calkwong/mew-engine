@@ -1,28 +1,27 @@
-#version 460
+import bindings;
+import types;
+import util;
 
-#extension GL_GOOGLE_include_directive : require
-
-#define SHADOW_CULL
-
-#include "bindings.glsl"
-#include "buffer_references.glsl"
-#include "util.glsl"
-
-layout (local_size_x = 256, local_size_y = 4) in;
-
-layout(push_constant) uniform constants
+struct ShadowDrawCommands
 {
-	ObjectBuffer object_buffer;
-	MeshBuffer mesh_buffer;
-	MeshIndicesBuffer mesh_indices_buffer;
-	ShadowDrawCommandsBuffer draw_buffer;
+    DrawCommands draws[4];
+};
+
+struct PushConstants
+{
+	ObjectData* object_buffer;
+	MeshData* mesh_buffer;
+	uint* mesh_indices_buffer;
+	ShadowDrawCommands* draw_buffer;
 	uint count;
 	uint lod_enabled;
 };
 
-bool partially_inside_cascade(vec3 center_world, float radius, uint cascade_index)
+[[vk::push_constant]] PushConstants pc;
+
+bool partially_inside_cascade(float3 center_world, float radius, uint cascade_index)
 {
-	vec3 center_view = vec3(uniforms.shadow_views[cascade_index] * vec4(center_world, 1.0)); // light space
+	float3 center_view = mul(uniforms.shadow_views[cascade_index], float4(center_world, 1.0)).xyz; // light space
 	float cascade_radius = uniforms.shadow_widths[cascade_index];
 
 	bool visible = true;
@@ -36,9 +35,9 @@ bool partially_inside_cascade(vec3 center_world, float radius, uint cascade_inde
 
 // idea from: https://github.com/expenses/lighthugger/blob/9d6c46b3e339e9673b69b7d9933d6a439051232c/src/shaders/cull_instances.comp
 // TODO: is this even worth it? unsure if implementation is robust, requires more testing. disabled for now.
-bool completely_inside_cascade(vec3 center_world, float radius, uint cascade_index)
+bool completely_inside_cascade(float3 center_world, float radius, uint cascade_index)
 {
-    vec3 center_view = vec3(uniforms.shadow_views[cascade_index] * vec4(center_world, 1.0));
+    float3 center_view = mul(uniforms.shadow_views[cascade_index], float4(center_world, 1.0)).xyz;
     float cascade_radius = uniforms.shadow_widths[cascade_index];
 
 	bool visible = true;
@@ -56,20 +55,23 @@ bool completely_inside_cascade(vec3 center_world, float radius, uint cascade_ind
     return visible;
 }
 
-const int CASCADE_COUNT = 4;
-
-void main()
+[shader("compute")]
+[numthreads(256, 4, 1)]
+void main(
+    uint3 global_id : SV_DispatchThreadID,
+    uint3 t_id : SV_GroupThreadID
+)
 {
-	uint global_id = gl_GlobalInvocationID.x;
-
+	uint global_id = global_id.x;
+	uint count = pc.count;
 	if (global_id >= count)
 		return;
 
-	uint id = mesh_indices_buffer.indices[global_id];
+	uint id = pc.mesh_indices_buffer[global_id];
 
-	ObjectData obj = object_buffer.objects[id];
+	ObjectData obj = pc.object_buffer[id];
 	uint mesh_id = obj.mesh_id;
-	MeshData mesh = mesh_buffer.meshes[mesh_id];
+	MeshData mesh = pc.mesh_buffer[mesh_id];
 
 	bool alpha_clip = obj.post_pass != 0;
 
@@ -79,12 +81,12 @@ void main()
 	float max_scale = obj.scale;
 	radius = radius * max_scale;
 
-	uint cascade_index = gl_LocalInvocationID.y;
+	uint cascade_index = t_id.y;
 
     float cascade_radius = uniforms.shadow_widths[cascade_index];
 
-    vec3 mpos = mesh.center;
-    vec3 center = rotate_quat(mpos, obj.orientation) * obj.scale + obj.translation; // world space
+    float3 mpos = mesh.center;
+    float3 center = rotate_quat(mpos, obj.orientation) * obj.scale + obj.translation; // world space
 
     if (!partially_inside_cascade(center, radius, cascade_index))
         return;
@@ -104,7 +106,7 @@ void main()
     //}
 
     uint lod_index = 0;
-    if (lod_enabled == 1)
+    if (pc.lod_enabled == 1)
     {
         float d = max(0.0, length(center) - radius);
 
@@ -120,7 +122,7 @@ void main()
         }
     }
 
-    uint count = alpha_clip ? atomicAdd(draw_buffer.draws[cascade_index].alpha_clip_count, 1) : atomicAdd(draw_buffer.draws[cascade_index].opaque_count, 1);
+    alpha_clip ? InterlockedAdd(pc.draw_buffer.draws[cascade_index].alpha_clip_count, 1, count) : InterlockedAdd(pc.draw_buffer.draws[cascade_index].opaque_count, 1, count);
     uint index = alpha_clip ? count + 200000 : count;
 
     DrawCommand draw;
@@ -130,5 +132,5 @@ void main()
 	draw.vertex_offset = mesh.vertex_offset;
 	draw.first_instance = id;
 
-    draw_buffer.draws[cascade_index].commands[index] = draw;
+    pc.draw_buffer.draws[cascade_index].commands[index] = draw;
 }

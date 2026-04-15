@@ -1,5 +1,5 @@
-#include "bindings.slang"
-#include "types.slang"
+import bindings;
+import types;
 
 struct PushConstants
 {

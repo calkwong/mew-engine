@@ -366,6 +366,7 @@ FodyWeavers.xsd
 /assets
 *.spv
 /external
+*.slang-module
 
 # CLion
 .idea

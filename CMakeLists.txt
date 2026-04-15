@@ -37,9 +37,25 @@ endforeach(GLSL)
 # slang
 find_program(SLANG_COMPILER slangc HINTS /usr/bin /usr/local/bin $ENV{VULKAN_SDK}/Bin/ $ENV{VULKAN_SDK}/Bin32/)
 
-file(GLOB_RECURSE SLANG_SOURCE_FILES
+file(GLOB SLANG_SOURCE_FILES
     "${PROJECT_SOURCE_DIR}/shaders/*.slang"
     )
+
+file(GLOB SLANG_MODULES
+    "${PROJECT_SOURCE_DIR}/shaders/modules/*.slang"
+    )
+
+foreach(SLANG ${SLANG_MODULES})
+  message(STATUS "BUILDING MODULES")
+  get_filename_component(FILE_NAME ${SLANG} NAME)
+  set(SLANG_MODULE "${PROJECT_SOURCE_DIR}/shaders/compiled/${FILE_NAME}.slang-module")
+  message(STATUS ${SLANG})
+  add_custom_command(
+    OUTPUT ${SLANG_MODULE}
+    COMMAND ${SLANG_COMPILER} ${SLANG} -o ${SLANG_MODULE}
+    DEPENDS ${SLANG})
+  list(APPEND SPIRV_BINARY_FILES ${SLANG_MODULE})
+endforeach(SLANG)
 
 foreach(SLANG ${SLANG_SOURCE_FILES})
   message(STATUS "BUILDING SHADER")
@@ -48,8 +64,8 @@ foreach(SLANG ${SLANG_SOURCE_FILES})
   message(STATUS ${SLANG})
   add_custom_command(
     OUTPUT ${SPIRV}
-    COMMAND ${SLANG_COMPILER} ${SLANG} -target spirv -Wno-39001 -o ${SPIRV}
-    DEPENDS ${SLANG})
+    COMMAND ${SLANG_COMPILER} ${SLANG} -target spirv -I "${PROJECT_SOURCE_DIR}/shaders/compiled/" -I "${PROJECT_SOURCE_DIR}/shaders/modules/" -Wno-39001 -o ${SPIRV}
+    DEPENDS ${SLANG} ${SLANG_MODULES}) # TODO: migrate to Slang compilation API
   list(APPEND SPIRV_BINARY_FILES ${SPIRV})
 endforeach(SLANG)
 

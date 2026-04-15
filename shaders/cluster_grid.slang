@@ -1,5 +1,5 @@
-#include "bindings.slang"
-#include "types.slang"
+import bindings;
+import types;
 
 struct PushConstants
 {
@@ -20,7 +20,6 @@ float3 screen_to_view(float2 screen_pos, float2 screen_size, float4x4 inverse_pr
 	float4 ndc = float4(float2(pos / screen_size), 1.0, 1.0); // reverse z
 	ndc.xy = ndc.xy * 2.0 - 1.0;
 
-	// float4 view_pos = inverse_proj * ndc;
 	float4 view_pos = mul(inverse_proj, ndc);
 	view_pos.xyz /= view_pos.w;
 
