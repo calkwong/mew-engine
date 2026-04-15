@@ -1,25 +1,20 @@
-#version 460
+import glsl;
+import bindings;
+import types;
+import util;
+import prefix_sum;
 
-#extension GL_GOOGLE_include_directive : require
-
-#include "bindings.glsl"
-#include "buffer_references.glsl"
-#include "util.glsl"
-#include "prefix_sum.glsl"
-
-layout (local_size_x = 256) in;
-
-layout(push_constant) uniform constants
+struct PushConstants
 {
-	mat4 view;
-	vec4 frustum_planes;
+	float4x4 view;
+	float4 frustum_planes;
 
-	ObjectBuffer object_buffer;
-	MeshletBuffer meshlet_buffer;
-	ClusterIndicesBuffer cluster_indices_buffer;
-	MeshletDispatchBuffer meshlet_dispatch_buffer;
-	VisibilityBuffer meshlet_visibility_buffer;
-	PrefixSumBuffer prefix_sum_buffer;
+	ObjectData* object_buffer;
+	Meshlet* meshlet_buffer;
+	uint* cluster_indices_buffer;
+	Dispatch* meshlet_dispatch_buffer;
+	uint* meshlet_visibility_buffer;
+	PrefixSum* prefix_sum_buffer;
 
 	uint count; // unused?
 	uint is_late;
@@ -31,7 +26,7 @@ layout(push_constant) uniform constants
 	float near;
 	float far; // this is draw distance
 
-	vec2 resolution;
+	float2 resolution;
 	float texture_lod;
 	float lod_distance_factor;
 	uint lod_enabled;
@@ -39,14 +34,16 @@ layout(push_constant) uniform constants
 	uint post_pass;
 };
 
+[[vk::push_constant]] PushConstants pc;
+
 // 2D Polyhedral Bounds of a Clipped, Perspective-Projected 3D Sphere. Michael Mara, Morgan McGuire. 2013
 // https://zeux.io/2023/01/12/approximate-projected-bounds/
-bool project_sphere(vec3 c, float r, float near, float p00, float p11, out vec4 aabb)
+bool project_sphere(float3 c, float r, float near, float p00, float p11, out float4 aabb)
 {
 	if (c.z < r + near)
 		return false;
 
-    vec3 cr = c * r;
+    float3 cr = c * r;
     float czr2 = c.z * c.z - r * r;
     float vx = sqrt(c.x * c.x + czr2);
     float minx = (vx * c.x - cr.z) / (vx * c.z + cr.x);
@@ -56,68 +53,79 @@ bool project_sphere(vec3 c, float r, float near, float p00, float p11, out vec4 
     float miny = (vy * c.y - cr.z) / (vy * c.z + cr.y);
     float maxy = (vy * c.y + cr.z) / (vy * c.z - cr.y);
 
-    aabb = vec4(minx * p00, miny * p11, maxx * p00, maxy * p11);
+    aabb = float4(minx * p00, miny * p11, maxx * p00, maxy * p11);
     // clip space -> uv space
-    aabb = aabb.xwzy * vec4(0.5, -0.5, 0.5, -0.5) + vec4(0.5);
+    aabb = aabb.xwzy * float4(0.5, -0.5, 0.5, -0.5) + float4(0.5);
 
     return true;
 }
 
-bool frustum_culled(vec3 center, float radius)
+bool frustum_culled(float3 center, float radius)
 {
 	bool visible = true;
 
 	// symmetrical sphere-plane distance test
-	visible = visible && (center.z * frustum_planes.y - abs(center.x) * frustum_planes.x) >= -radius;
-	visible = visible && (center.z * frustum_planes.w - abs(center.y) * frustum_planes.z) >= -radius;
-	visible = visible && (center.z - radius <= -near) && (center.z + radius >= -far);
+	visible = visible && (center.z * pc.frustum_planes.y - abs(center.x) * pc.frustum_planes.x) >= -radius;
+	visible = visible && (center.z * pc.frustum_planes.w - abs(center.y) * pc.frustum_planes.z) >= -radius;
+	visible = visible && (center.z - radius <= -pc.near) && (center.z + radius >= -pc.far);
 
 	return !visible;
 }
 
-bool occlusion_culled(vec3 center, float radius)
+bool occlusion_culled(float3 center, float radius)
 {
-	vec4 aabb;
+	float4 aabb;
 
-	if (project_sphere(vec3(center.x, center.y, -center.z), radius, near, p00, p11, aabb))
+	// TODO: do we need this conditional check?
+	if (project_sphere(float3(center.x, center.y, -center.z), radius, pc.near, pc.p00, pc.p11, aabb))
 	{
-		vec2 pixel_size = (aabb.zw - aabb.xy) * resolution;
+		float2 pixel_size = (aabb.zw - aabb.xy) * pc.resolution;
 
 		float max_dim = max(pixel_size.x, pixel_size.y);
 
 		float mip = ceil(log2(max_dim));
-		mip = min(mip, texture_lod);
+		mip = min(mip, pc.texture_lod);
 
-		float depth = textureLod(sampler2D(textures[texture_id], samplers[DEPTH_REDUCTION_SAMPLER]), (aabb.zw + aabb.xy) * 0.5, mip).r;
+		float depth = textures[pc.texture_id].SampleLevel(samplers[DEPTH_REDUCTION_SAMPLER], (aabb.zw + aabb.xy) * 0.5, mip).r;
 
-		float depth_sphere = near / (-center.z - radius);
+		float depth_sphere = pc.near / (-center.z - radius);
 		return depth_sphere < depth; // reverse depth
 	}
+
+	return false;
 }
 
-void main()
-{
-	uint ti = gl_WorkGroupID.x * gl_WorkGroupSize.x + gl_LocalInvocationIndex;
+#define WG_SIZE_X 256
 
-	uint64_t counter = get_prefix_sum_counter(prefix_sum_buffer);
+[shader("compute")]
+[numthreads(WG_SIZE_X, 1, 1)]
+void main(
+    uint t_index : SV_GroupIndex,
+    uint3 wg_id : SV_GroupID
+)
+{
+	uint ti = wg_id.x * WG_SIZE_X + t_index;
+
+	uint64_t counter = get_prefix_sum_counter(pc.prefix_sum_buffer);
 	uint total_meshlet_count = uint(counter);
 
-	uint prefix_sum_idx = prefix_sum_binary_search(prefix_sum_buffer, ti);
-	PrefixSumData prefix_sum_data = prefix_sum_buffer.prefix_sum.data[prefix_sum_idx];
+	uint prefix_sum_idx = prefix_sum_binary_search(pc.prefix_sum_buffer, ti);
+	PrefixSumData prefix_sum_data = pc.prefix_sum_buffer.data[prefix_sum_idx];
 	uint meshlet_lod_offset = prefix_sum_data.lod_offset; // NOT final meshlet id
 
 	uint mesh_visible_last_frame;
-	bool late = is_late == 1;
+	bool late = pc.is_late == 1;
 	if (late)
 	{
-    	mesh_visible_last_frame = bitfieldExtract(meshlet_lod_offset, 31, 1); // careful order matters!
-    	meshlet_lod_offset = bitfieldExtract(meshlet_lod_offset, 0, 31);
+    	mesh_visible_last_frame = bitfieldExtract(meshlet_lod_offset, 31u, 1u); // careful order matters!
+    	meshlet_lod_offset = bitfieldExtract(meshlet_lod_offset, 0u, 31u);
+
 	}
 	uint object_id = prefix_sum_data.instance_id;
 
 	bool overflow = prefix_sum_idx == total_meshlet_count;
 
-	uint inclusive_sum = overflow ? total_meshlet_count : prefix_sum_buffer.prefix_sum.data[prefix_sum_idx + 1].sum;
+	uint inclusive_sum = overflow ? total_meshlet_count : pc.prefix_sum_buffer.data[prefix_sum_idx + 1].sum;
 	uint exclusive_sum = prefix_sum_data.sum;
 	uint local_meshlet_count = inclusive_sum - exclusive_sum;
 
@@ -126,11 +134,11 @@ void main()
 
 	if (ti < total_meshlet_count)
 	{
-		ObjectData obj = object_buffer.objects[object_id];
+		ObjectData obj = pc.object_buffer[object_id];
 		uint meshlet_visibility_offset = obj.meshlet_bit_offset + local_meshlet_index;
 
 		// bit shift in place of floor division, then bit& to extract the relevant bit
-		uint meshlet_visibility_bit = meshlet_visibility_buffer.visible[meshlet_visibility_offset >> 5] & (1u << (meshlet_visibility_offset & 31));
+		uint meshlet_visibility_bit = pc.meshlet_visibility_buffer[meshlet_visibility_offset >> 5] & (1u << (meshlet_visibility_offset & 31));
 
 		bool meshlet_visible_last_frame = meshlet_visibility_bit != 0;
 
@@ -143,15 +151,15 @@ void main()
 		// TODO: update this when we start culling postpass > 0 for late==0
 		// take into consideration both meshlet and mesh_visibility_last_frame when updating this in the future
 		// we never skip mask and transparent (postpass != 0) regardless of visibility last frame as they only run for late==1
-		if (post_pass != 0)
+		if (pc.post_pass != 0)
 			skip = false;
 
 		// reprocess all meshlets of visible meshes
-		Meshlet meshlet = meshlet_buffer.meshlets[local_meshlet_index + meshlet_lod_offset];
+		Meshlet meshlet = pc.meshlet_buffer[local_meshlet_index + meshlet_lod_offset];
 
-		vec3 mpos = vec3(meshlet.cx, meshlet.cy, meshlet.cz);
-		vec3 center = rotate_quat(mpos, obj.orientation) * obj.scale + obj.translation; // world space
-		center = vec3(view * vec4(center, 1.0)); // view space
+		float3 mpos = float3(meshlet.cx, meshlet.cy, meshlet.cz);
+		float3 center = rotate_quat(mpos, obj.orientation) * obj.scale + obj.translation; // world space
+		center = mul(pc.view, float4(center, 1.0)).xyz; // view space
 
 		float radius = meshlet.radius;
 
@@ -160,12 +168,12 @@ void main()
 		radius = radius * max_scale;
 
 		// meshlet cone culling
-        // vec3 cone_axis = vec3(int(meshlet.cone_axis[0]), int(meshlet.cone_axis[1]), int(meshlet.cone_axis[2]));
+        // float3 cone_axis = float3(int(meshlet.cone_axis[0]), int(meshlet.cone_axis[1]), int(meshlet.cone_axis[2]));
         // cone_axis /= 127.0;
         // cone_axis = rotate_quat(cone_axis, obj.orientation);
-        // cone_axis = mat3(view) * cone_axis;
+        // cone_axis = mul(mat3(view), cone_axis);
 
-        // vec3 bound_sphere_dir = center - camera_pos;
+        // float3 bound_sphere_dir = center - camera_pos;
         // float bound_sphere_distance = length(bound_sphere_dir);
         // float cone_cutoff = int(meshlet.cone_cutoff) / 127.0;
         // cone_cutoff = cone_cutoff * bound_sphere_distance + radius;
@@ -177,7 +185,7 @@ void main()
 
 		if (late && visible)
 		{
-			if (occlusion_enabled == 1)
+			if (pc.occlusion_enabled == 1)
 			{
 				visible = visible && !occlusion_culled(center, radius);
 			}
@@ -187,11 +195,12 @@ void main()
 		if (visible && !skip)
 		{
             // similar performance with subgroupops, maybe compiler already optimized this?
-			uint cluster_index = atomicAdd(meshlet_dispatch_buffer.workgroup_x, 1);
-			meshlet_dispatch_buffer.workgroup_y = 1;
-			meshlet_dispatch_buffer.workgroup_z = 1;
+			uint cluster_index;
+			InterlockedAdd(pc.meshlet_dispatch_buffer.workgroup_x, 1, cluster_index);
+			pc.meshlet_dispatch_buffer.workgroup_y = 1;
+			pc.meshlet_dispatch_buffer.workgroup_z = 1;
 
-			cluster_indices_buffer.indices[cluster_index] = ti;
+			pc.cluster_indices_buffer[cluster_index] = ti;
 		}
 
 		if (late)
@@ -200,9 +209,10 @@ void main()
 			// divide offset by 32, producing index in the buffer that holds the bit we want
 			// extract the bit via (offset & 31); equivalent to modulo 32
 			if (visible)
-				atomicOr(meshlet_visibility_buffer.visible[meshlet_visibility_offset >> 5], 1u << (meshlet_visibility_offset & 31));
+				InterlockedOr(pc.meshlet_visibility_buffer[meshlet_visibility_offset >> 5], 1u << (meshlet_visibility_offset & 31));
 			else
-				atomicAnd(meshlet_visibility_buffer.visible[meshlet_visibility_offset >> 5], ~(1u << (meshlet_visibility_offset & 31)));
+                InterlockedAnd(pc.meshlet_visibility_buffer[meshlet_visibility_offset >> 5], ~(1u << (meshlet_visibility_offset & 31)));
+
 		}
 	}
 }

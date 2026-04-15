@@ -1,12 +1,5 @@
 module types;
 
-/*
-TODO:
-- alternative for specifying public?
-- replace preprocessor directives - enums?
-
-*/
-
 public struct ClusterAABB
 {
 	public float4 min;
@@ -69,17 +62,23 @@ public struct DrawCommand
 	public uint first_instance;
 };
 
-// #ifdef SHADOW_CULL
-// #define MAX_DRAW_COMMANDS 400000
-// #else
-// #define MAX_DRAW_COMMANDS 1000000
-// #endif
-public struct DrawCommands
+public struct Dispatch
 {
-	public uint opaque_count;
-	public uint alpha_clip_count;
+    public uint workgroup_x;
+	public uint workgroup_y;
+	public uint workgroup_z;
+};
 
-	// shadow_cull is using 400000 as we cull then render opaque & alphaclip together
-	// main view implements alphaclip as third pass (late only)
-	public DrawCommand commands[400000];
+public struct Meshlet
+{
+	public float16_t cx, cy, cz;
+	public float16_t radius;
+
+	// public int8_t cone_axis[3];
+	// public int8_t cone_cutoff;
+
+	public uint data_offset; // index into MeshletIndices
+	public uint8_t vertex_count;
+	public uint8_t triangle_count;
+	public uint8_t padding[2];
 };

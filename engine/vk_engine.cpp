@@ -48,7 +48,7 @@ constexpr bool USE_VALIDATION_LAYERS = false;
 constexpr bool USE_VALIDATION_LAYERS = true;
 #endif
 
-#define SINGLE // uncomment if loading a proper scene
+// #define SINGLE // uncomment if loading a proper scene
 
 AutoCVar_Int CVAR_RENDER_VBUFFER{ "render.vbuffer", "Vbuffer path", 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_MESH_SHADERS{ "render.mesh_shaders", "Mesh shaders path", 1, CVarFlags::EditCheckbox };
@@ -1871,8 +1871,8 @@ void VulkanEngine::init_shaders()
 	shader_cache.add_shader(device, "cluster_grid.slang", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "light_culling.slang", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "hiz.comp", VK_SHADER_STAGE_COMPUTE_BIT);
-	shader_cache.add_shader(device, "mesh_cull.comp", VK_SHADER_STAGE_COMPUTE_BIT);
-	shader_cache.add_shader(device, "meshlet_cull.comp", VK_SHADER_STAGE_COMPUTE_BIT);
+	shader_cache.add_shader(device, "mesh_cull.slang", VK_SHADER_STAGE_COMPUTE_BIT);
+	shader_cache.add_shader(device, "meshlet_cull.slang", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "shadow_cull.slang", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "mesh.vert", VK_SHADER_STAGE_VERTEX_BIT);
 	shader_cache.add_shader(device, "geometry.frag", VK_SHADER_STAGE_FRAGMENT_BIT);
@@ -1908,8 +1908,8 @@ void VulkanEngine::init_pipelines()
 	shader_passes["light_culling"] = vkutil::build_shader(device, compute_builder, shader_cache["light_culling.slang"], descriptor_layouts, sizeof(LightCullingPushConstants));
 
 	shader_passes["hiz"] = vkutil::build_shader(device, compute_builder, shader_cache["hiz.comp"], descriptor_layouts, sizeof(DepthPyramidPushConstants));
-	shader_passes["mesh_cull"] = vkutil::build_shader(device, compute_builder, shader_cache["mesh_cull.comp"], descriptor_layouts, sizeof(CullData));
-	shader_passes["meshlet_cull"] = vkutil::build_shader(device, compute_builder, shader_cache["meshlet_cull.comp"], descriptor_layouts, sizeof(ClusterCullData)); // TODO: check if this is also culldata
+	shader_passes["mesh_cull"] = vkutil::build_shader(device, compute_builder, shader_cache["mesh_cull.slang"], descriptor_layouts, sizeof(CullData));
+	shader_passes["meshlet_cull"] = vkutil::build_shader(device, compute_builder, shader_cache["meshlet_cull.slang"], descriptor_layouts, sizeof(ClusterCullData)); // TODO: check if this is also culldata
 	shader_passes["equirectangular_to_cubemap"] = vkutil::build_shader(device, compute_builder, shader_cache["equirectangular_to_cubemap.comp"], descriptor_layouts, sizeof(IBLPushConstants));
 	shader_passes["spherical_harmonics"] = vkutil::build_shader(device, compute_builder, shader_cache["spherical_harmonics.comp"], descriptor_layouts, sizeof(SHPushConstants));
 	shader_passes["irradiance"] = vkutil::build_shader(device, compute_builder, shader_cache["irradiance.comp"], descriptor_layouts, sizeof(IBLPushConstants));

@@ -2,6 +2,14 @@ import bindings;
 import types;
 import util;
 
+struct DrawCommands
+{
+	uint opaque_count;
+	uint alpha_clip_count;
+
+	DrawCommand commands[400000];
+};
+
 struct ShadowDrawCommands
 {
     DrawCommands draws[4];

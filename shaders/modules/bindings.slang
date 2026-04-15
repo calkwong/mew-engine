@@ -27,9 +27,9 @@ public struct UniformBuffer
 [[vk::binding(0, 1)]][vk::image_format("rgba32f")] public RWTexture2D<float4> images_rgba32f[];
 [[vk::binding(0, 1)]][vk::image_format("rg16f")] public RWTexture2D<float2> images_rg16f[];
 
-[[vk::binding(0, 2)]] Texture2D<float4> textures[];
-[[vk::binding(0, 2)]] TextureCube<float4> textures_cube[];
-[[vk::binding(0, 2)]] Texture2D<uint4> textures_u[];
+[[vk::binding(0, 2)]] public Texture2D<float4> textures[];
+[[vk::binding(0, 2)]] public TextureCube<float4> textures_cube[];
+[[vk::binding(0, 2)]] public Texture2D<uint4> textures_u[];
 
 public static const uint LINEAR_SAMPLER = 0;
 public static const uint CUBE_SAMPLER = 1;
