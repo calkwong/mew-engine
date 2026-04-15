@@ -1888,12 +1888,12 @@ void VulkanEngine::init_shaders()
 	shader_cache.add_shader(device, "irradiance.comp", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "prefiltered.comp", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "brdf.comp", VK_SHADER_STAGE_COMPUTE_BIT);
-	shader_cache.add_shader(device, "luminance_histogram.comp", VK_SHADER_STAGE_COMPUTE_BIT);
-	shader_cache.add_shader(device, "luminance_avg.comp", VK_SHADER_STAGE_COMPUTE_BIT);
-	shader_cache.add_shader(device, "tonemap.comp", VK_SHADER_STAGE_COMPUTE_BIT);
+	shader_cache.add_shader(device, "luminance_histogram.slang", VK_SHADER_STAGE_COMPUTE_BIT);
+	shader_cache.add_shader(device, "luminance_avg.slang", VK_SHADER_STAGE_COMPUTE_BIT);
+	shader_cache.add_shader(device, "tonemap.slang", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "resolve_vbuffer.comp", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "resolve_gbuffer.comp", VK_SHADER_STAGE_COMPUTE_BIT);
-	shader_cache.add_shader(device, "compact_dispatch.comp", VK_SHADER_STAGE_COMPUTE_BIT);
+	shader_cache.add_shader(device, "compact_dispatch.slang", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "hiz_spd.comp", VK_SHADER_STAGE_COMPUTE_BIT);
 }
 
@@ -1915,14 +1915,14 @@ void VulkanEngine::init_pipelines()
 	shader_passes["irradiance"] = vkutil::build_shader(device, compute_builder, shader_cache["irradiance.comp"], descriptor_layouts, sizeof(IBLPushConstants));
 	shader_passes["prefiltered"] = vkutil::build_shader(device, compute_builder, shader_cache["prefiltered.comp"], descriptor_layouts, sizeof(IBLPushConstants));
 	shader_passes["brdf"] = vkutil::build_shader(device, compute_builder, shader_cache["brdf.comp"], descriptor_layouts, sizeof(IBLPushConstants));
-	shader_passes["luminance_histogram"] = vkutil::build_shader(device, compute_builder, shader_cache["luminance_histogram.comp"], descriptor_layouts, sizeof(LuminanceBinsPushConstants));
-	shader_passes["luminance_avg"] = vkutil::build_shader(device, compute_builder, shader_cache["luminance_avg.comp"], descriptor_layouts, sizeof(LuminanceBinsPushConstants));
-	shader_passes["tonemap"] = vkutil::build_shader(device, compute_builder, shader_cache["tonemap.comp"], descriptor_layouts, sizeof(TonemapPushConstants));
+	shader_passes["luminance_histogram"] = vkutil::build_shader(device, compute_builder, shader_cache["luminance_histogram.slang"], descriptor_layouts, sizeof(LuminanceBinsPushConstants));
+	shader_passes["luminance_avg"] = vkutil::build_shader(device, compute_builder, shader_cache["luminance_avg.slang"], descriptor_layouts, sizeof(LuminanceBinsPushConstants));
+	shader_passes["tonemap"] = vkutil::build_shader(device, compute_builder, shader_cache["tonemap.slang"], descriptor_layouts, sizeof(TonemapPushConstants));
 	shader_passes["shadow_cull"] = vkutil::build_shader(device, compute_builder, shader_cache["shadow_cull.slang"], descriptor_layouts, sizeof(ShadowCullPushConstants));
 
 	shader_passes["resolve_vbuffer"] = vkutil::build_shader(device, compute_builder, shader_cache["resolve_vbuffer.comp"], descriptor_layouts, sizeof(DeferredPushConstants));
 	shader_passes["resolve_gbuffer"] = vkutil::build_shader(device, compute_builder, shader_cache["resolve_gbuffer.comp"], descriptor_layouts, sizeof(DeferredPushConstants));
-	shader_passes["compact_dispatch"] = vkutil::build_shader(device, compute_builder, shader_cache["compact_dispatch.comp"], descriptor_layouts, sizeof(CompactDispatchPushConstants));
+	shader_passes["compact_dispatch"] = vkutil::build_shader(device, compute_builder, shader_cache["compact_dispatch.slang"], descriptor_layouts, sizeof(CompactDispatchPushConstants));
 	shader_passes["resolve_taa"] = vkutil::build_shader(device, compute_builder, shader_cache["resolve_taa.comp"], descriptor_layouts, sizeof(TAAPushConstants));
 	shader_passes["hiz_spd"] = vkutil::build_shader(device, compute_builder, shader_cache["hiz_spd.comp"], descriptor_layouts, sizeof(SpdPushConstants));
 
