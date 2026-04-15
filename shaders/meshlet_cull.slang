@@ -1,4 +1,3 @@
-import glsl;
 import bindings;
 import types;
 import util;
@@ -117,11 +116,10 @@ void main(
 	bool late = pc.is_late == 1;
 	if (late)
 	{
-        // import glsl necessary to use bitfieldExtract in slang
     	mesh_visible_last_frame = bitfieldExtract(meshlet_lod_offset, 31u, 1u); // careful order matters!
     	meshlet_lod_offset = bitfieldExtract(meshlet_lod_offset, 0u, 31u);
-
 	}
+
 	uint object_id = prefix_sum_data.instance_id;
 
 	bool overflow = prefix_sum_idx == total_meshlet_count;

@@ -1,7 +1,5 @@
 module bindings;
 
-// TODO: do we need to make everything public here?
-
 public struct UniformBuffer
 {
     public float4x4 view;
@@ -14,7 +12,7 @@ public struct UniformBuffer
 	public float4 cascade_splits;
 	public float4 camera_pos;
 	public float4 sunlight_color;
-	public float4 sunlight_dir; //w for sun power
+	public float4 sunlight_dir; // w for sun power
 	public float4 textures; // cubemap/skybox, irradiance, prefiltered, brdf
 	public float4x4 shadow_views[4]; // for shadow cull
 	public float4 shadow_widths; // for shadow cull, each channel for a diff cascade; TODO: move to pc?
