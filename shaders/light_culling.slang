@@ -118,7 +118,7 @@ void main(
 			shared_counts[i] = exclusive_sum;
 		}
 
-		InterlockedAdd(pc.light_count_buffer[0], total_count, base_offset);
+		InterlockedAdd(*pc.light_count_buffer, total_count, base_offset);
 
         pc.light_grid_buffer[cluster_index].offset = base_offset;
     	pc.light_grid_buffer[cluster_index].count = total_count;

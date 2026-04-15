@@ -117,6 +117,7 @@ void main(
 	bool late = pc.is_late == 1;
 	if (late)
 	{
+        // import glsl necessary to use bitfieldExtract in slang
     	mesh_visible_last_frame = bitfieldExtract(meshlet_lod_offset, 31u, 1u); // careful order matters!
     	meshlet_lod_offset = bitfieldExtract(meshlet_lod_offset, 0u, 31u);
 
@@ -171,7 +172,7 @@ void main(
         // float3 cone_axis = float3(int(meshlet.cone_axis[0]), int(meshlet.cone_axis[1]), int(meshlet.cone_axis[2]));
         // cone_axis /= 127.0;
         // cone_axis = rotate_quat(cone_axis, obj.orientation);
-        // cone_axis = mul(mat3(view), cone_axis);
+        // cone_axis = mul(float3x3(view), cone_axis);
 
         // float3 bound_sphere_dir = center - camera_pos;
         // float bound_sphere_distance = length(bound_sphere_dir);

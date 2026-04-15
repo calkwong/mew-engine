@@ -1,17 +1,13 @@
-#version 460
+import bindings;
 
-#extension GL_GOOGLE_include_directive : require
+// warning: untested after porting to slang
+// assumes we have 256 bins
 
-#include "bindings.glsl"
-#include "buffer_references.glsl"
-
-layout (local_size_x = 16, local_size_y = 16) in;
-
-layout( push_constant ) uniform constants
+struct PushConstants
 {
-	LuminanceBuffer luminance_buffer;
-	LuminanceAvgBuffer luminance_avg_buffer;
-	vec2 screen_size;
+	uint* luminance_buffer;
+	float* luminance_avg_buffer;
+	float2 screen_size;
 	uint image_id; // HDR color attachment
 	float min_log_luminance;
 	float one_over_log_luminance_range;
@@ -20,40 +16,47 @@ layout( push_constant ) uniform constants
 	float delta_time;
 };
 
-shared uint shared_bins[256];
+[[vk::push_constant]] PushConstants pc;
 
-float get_luminance(vec3 color)
+groupshared uint shared_bins[256];
+
+float get_luminance(float3 color)
 {
-	return dot(color, vec3(0.2125, 0.7154, 0.0721));
+	return dot(color, float3(0.2125, 0.7154, 0.0721));
 }
 
-uint color_to_bin(vec3 color)
+uint color_to_bin(float3 color)
 {
 	float luminance = get_luminance(color);
 
 	if (luminance < 0.005)
 		return 0;
 
-	float log_luminance = clamp((log2(luminance) - min_log_luminance) * one_over_log_luminance_range, 0.0, 1.0); // in range [0,254]
+	float log_luminance = clamp((log2(luminance) - pc.min_log_luminance) * pc.one_over_log_luminance_range, 0.0, 1.0); // in range [0,254]
 	return uint(log_luminance * 254.0 + 1.0); // map to [1,255]
 }
 
-void main()
+[shader("compute")]
+[numthreads(16, 16, 1)]
+void main(
+    uint t_index : SV_GroupIndex,
+    uint3 global_id : SV_GroupID
+)
 {
-	shared_bins[gl_LocalInvocationIndex] = 0;
+	shared_bins[t_index] = 0;
 
-	barrier();
+	GroupMemoryBarrierWithGroupSync();
 
-	ivec2 texel_coord = ivec2(gl_GlobalInvocationID.xy);
-	if (texel_coord.x < screen_size.x && texel_coord.y < screen_size.y)
+	int2 texel_coord = int2(global_id.xy);
+	if (texel_coord.x < pc.screen_size.x && texel_coord.y < pc.screen_size.y)
 	{
-		vec3 color = imageLoad(images_rgba32f[image_id], texel_coord).rgb;
+		float3 color = images_rgba32f[pc.image_id].Load(texel_coord).rgb;
 
 		uint bin = color_to_bin(color);
 
-		atomicAdd(shared_bins[bin], 1);
+		InterlockedAdd(shared_bins[bin], 1);
 	}
 
-	barrier();
-	atomicAdd(luminance_buffer.bins[gl_LocalInvocationIndex], shared_bins[gl_LocalInvocationIndex]);
+	GroupMemoryBarrierWithGroupSync();
+	InterlockedAdd(pc.luminance_buffer[t_index], shared_bins[t_index]);
 }
