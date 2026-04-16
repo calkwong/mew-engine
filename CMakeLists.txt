@@ -35,6 +35,9 @@ foreach(GLSL ${GLSL_SOURCE_FILES})
 endforeach(GLSL)
 
 # slang
+# TODO:
+# - consider using slang compilation API if command line does not cache modules
+
 find_program(SLANG_COMPILER slangc HINTS /usr/bin /usr/local/bin $ENV{VULKAN_SDK}/Bin/ $ENV{VULKAN_SDK}/Bin32/)
 
 file(GLOB SLANG_SOURCE_FILES
@@ -64,8 +67,10 @@ foreach(SLANG ${SLANG_SOURCE_FILES})
   message(STATUS ${SLANG})
   add_custom_command(
     OUTPUT ${SPIRV}
-    COMMAND ${SLANG_COMPILER} ${SLANG} -target spirv -I "${PROJECT_SOURCE_DIR}/shaders/compiled/" -I "${PROJECT_SOURCE_DIR}/shaders/modules/" -Wno-39001 -o ${SPIRV}
-    DEPENDS ${SLANG} ${SLANG_MODULES}) # TODO: migrate to Slang compilation API
+    COMMAND ${SLANG_COMPILER} ${SLANG} -target spirv -matrix-layout-column-major -fvk-use-entrypoint-name
+      -I "${PROJECT_SOURCE_DIR}/shaders/compiled/" -I "${PROJECT_SOURCE_DIR}/shaders/modules/"
+      -Wno-39001 -o ${SPIRV}
+    DEPENDS ${SLANG} ${SLANG_MODULES})
   list(APPEND SPIRV_BINARY_FILES ${SPIRV})
 endforeach(SLANG)
 

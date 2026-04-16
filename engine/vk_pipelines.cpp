@@ -27,7 +27,7 @@ VkPipeline ComputePipelineBuilder::build_pipeline(VkDevice device) const
 
 void ComputePipelineBuilder::set_shaders(const ShaderProgram* program)
 {
-	shader_stages[0] = vkinit::pipeline_shader_stage_create_info(program->stage, program->module);
+	shader_stages[0] = vkinit::pipeline_shader_stage_create_info(program->stage, program->module, program->entry.c_str());
 	name = "";
 	name += program->name;
 }
@@ -110,7 +110,7 @@ void PipelineBuilder::set_shaders(std::initializer_list<ShaderProgram*> programs
 
 	for (const auto program : programs)
 	{
-		shader_stages.push_back(vkinit::pipeline_shader_stage_create_info(program->stage, program->module));
+		shader_stages.push_back(vkinit::pipeline_shader_stage_create_info(program->stage, program->module, program->entry.c_str()));
 
 		name += program->name + '/';
 	}
@@ -231,12 +231,12 @@ VkPipelineColorBlendAttachmentState PipelineBuilder::disable_blending()
 	return attachment_state;
 }
 
-std::unique_ptr<ShaderPass> vkutil::build_shader(VkDevice device, ComputePipelineBuilder& builder, const ShaderProgram* program, const std::vector<VkDescriptorSetLayout>& layouts, uint32_t pc_size, SpecConstants constants)
+std::unique_ptr<ShaderPass> ComputePipelineBuilder::create_pipeline(VkDevice device, const ShaderProgram* program, const std::vector<VkDescriptorSetLayout>& layouts, uint32_t pc_size, SpecConstants constants)
 {
 	std::unique_ptr<ShaderPass> shader = std::make_unique<ShaderPass>();
 
 	assert(program != nullptr);
-	builder.set_shaders(program);
+	set_shaders(program);
 
 	if (constants.size() != 0)
 	{
@@ -256,7 +256,7 @@ std::unique_ptr<ShaderPass> vkutil::build_shader(VkDevice device, ComputePipelin
 		specialization_info.dataSize = constants.size() * sizeof(uint32_t);
 		specialization_info.pData = constants.size() != 0 ? constants.begin() : nullptr;
 
-		for (auto& shader_stage : builder.shader_stages)
+		for (auto& shader_stage : shader_stages)
 		{
 			shader_stage.pSpecializationInfo = &specialization_info;
 		}
@@ -276,9 +276,9 @@ std::unique_ptr<ShaderPass> vkutil::build_shader(VkDevice device, ComputePipelin
 
 	vkCreatePipelineLayout(device, &pipeline_layout_info, nullptr, &shader->layout);
 
-	builder.pipeline_layout = shader->layout;
+	pipeline_layout = shader->layout;
 
-	shader->pipeline = builder.build_pipeline(device);
+	shader->pipeline = build_pipeline(device);
 
 	if (vkSetDebugUtilsObjectNameEXT)
 	{
@@ -286,7 +286,7 @@ std::unique_ptr<ShaderPass> vkutil::build_shader(VkDevice device, ComputePipelin
 		name_info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT;
 		name_info.objectType = VK_OBJECT_TYPE_PIPELINE;
 		name_info.objectHandle = (uint64_t)shader->pipeline;
-		name_info.pObjectName = builder.name.c_str();
+		name_info.pObjectName = name.c_str();
 		vkSetDebugUtilsObjectNameEXT(device, &name_info);
 	}
 	return shader;

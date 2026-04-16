@@ -19,8 +19,11 @@ struct ShaderProgram
 	VkShaderModule module{};
 	VkShaderStageFlagBits stage{};
 	std::string name{};
+	std::string entry{};
 	std::filesystem::file_time_type time{};
 };
+
+using SpecConstants = std::initializer_list<uint32_t>;
 
 struct PipelineBuilder
 {
@@ -69,14 +72,12 @@ struct ComputePipelineBuilder
 	VkPipeline build_pipeline(VkDevice device) const;
 	void set_shaders(const ShaderProgram* program);
 	void set_shader_specialization(VkSpecializationInfo* spec_info);
+	std::unique_ptr<ShaderPass> create_pipeline(VkDevice device, const ShaderProgram* program, const std::vector<VkDescriptorSetLayout>& layouts, uint32_t pc_size, SpecConstants constants = {});
 };
-
-using SpecConstants = std::initializer_list<uint32_t>;
 
 namespace vkutil
 {
 	bool load_shader_module(const char* path, VkDevice device, VkShaderModule* out_shader_module);
 
 	std::unique_ptr<ShaderPass> build_shader(VkDevice device, PipelineBuilder& builder, std::initializer_list<ShaderProgram*> programs, const std::vector<VkDescriptorSetLayout>& layouts, uint32_t pc_size, SpecConstants constants = {});
-	std::unique_ptr<ShaderPass> build_shader(VkDevice device, ComputePipelineBuilder& builder, const ShaderProgram* program, const std::vector<VkDescriptorSetLayout>& layouts, uint32_t pc_size, SpecConstants constants = {});
 } // namespace vkutil

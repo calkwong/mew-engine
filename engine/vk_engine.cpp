@@ -1904,27 +1904,27 @@ void VulkanEngine::init_pipelines()
 	ComputePipelineBuilder compute_builder{};
 	PipelineBuilder builder{};
 
-	shader_passes["cluster_grid"] = vkutil::build_shader(device, compute_builder, shader_cache["cluster_grid.slang"], descriptor_layouts, sizeof(ClusterGridPushConstants));
-	shader_passes["light_culling"] = vkutil::build_shader(device, compute_builder, shader_cache["light_culling.slang"], descriptor_layouts, sizeof(LightCullingPushConstants));
+	shader_passes["cluster_grid"] = compute_builder.create_pipeline(device, shader_cache["cluster_grid.slang"], descriptor_layouts, sizeof(ClusterGridPushConstants));
+	shader_passes["light_culling"] = compute_builder.create_pipeline(device, shader_cache["light_culling.slang"], descriptor_layouts, sizeof(LightCullingPushConstants));
 
-	shader_passes["hiz"] = vkutil::build_shader(device, compute_builder, shader_cache["hiz.comp"], descriptor_layouts, sizeof(DepthPyramidPushConstants));
-	shader_passes["mesh_cull"] = vkutil::build_shader(device, compute_builder, shader_cache["mesh_cull.slang"], descriptor_layouts, sizeof(CullData));
-	shader_passes["meshlet_cull"] = vkutil::build_shader(device, compute_builder, shader_cache["meshlet_cull.slang"], descriptor_layouts, sizeof(ClusterCullData)); // TODO: check if this is also culldata
-	shader_passes["equirectangular_to_cubemap"] = vkutil::build_shader(device, compute_builder, shader_cache["equirectangular_to_cubemap.comp"], descriptor_layouts, sizeof(IBLPushConstants));
-	shader_passes["spherical_harmonics"] = vkutil::build_shader(device, compute_builder, shader_cache["spherical_harmonics.comp"], descriptor_layouts, sizeof(SHPushConstants));
-	shader_passes["irradiance"] = vkutil::build_shader(device, compute_builder, shader_cache["irradiance.comp"], descriptor_layouts, sizeof(IBLPushConstants));
-	shader_passes["prefiltered"] = vkutil::build_shader(device, compute_builder, shader_cache["prefiltered.comp"], descriptor_layouts, sizeof(IBLPushConstants));
-	shader_passes["brdf"] = vkutil::build_shader(device, compute_builder, shader_cache["brdf.comp"], descriptor_layouts, sizeof(IBLPushConstants));
-	shader_passes["luminance_histogram"] = vkutil::build_shader(device, compute_builder, shader_cache["luminance_histogram.slang"], descriptor_layouts, sizeof(LuminanceBinsPushConstants));
-	shader_passes["luminance_avg"] = vkutil::build_shader(device, compute_builder, shader_cache["luminance_avg.slang"], descriptor_layouts, sizeof(LuminanceBinsPushConstants));
-	shader_passes["tonemap"] = vkutil::build_shader(device, compute_builder, shader_cache["tonemap.slang"], descriptor_layouts, sizeof(TonemapPushConstants));
-	shader_passes["shadow_cull"] = vkutil::build_shader(device, compute_builder, shader_cache["shadow_cull.slang"], descriptor_layouts, sizeof(ShadowCullPushConstants));
+	shader_passes["hiz"] = compute_builder.create_pipeline(device, shader_cache["hiz.comp"], descriptor_layouts, sizeof(DepthPyramidPushConstants));
+	shader_passes["mesh_cull"] = compute_builder.create_pipeline(device, shader_cache["mesh_cull.slang"], descriptor_layouts, sizeof(CullData));
+	shader_passes["meshlet_cull"] = compute_builder.create_pipeline(device, shader_cache["meshlet_cull.slang"], descriptor_layouts, sizeof(ClusterCullData)); // TODO: check if this is also culldata
+	shader_passes["equirectangular_to_cubemap"] = compute_builder.create_pipeline(device, shader_cache["equirectangular_to_cubemap.comp"], descriptor_layouts, sizeof(IBLPushConstants));
+	shader_passes["spherical_harmonics"] = compute_builder.create_pipeline(device, shader_cache["spherical_harmonics.comp"], descriptor_layouts, sizeof(SHPushConstants));
+	shader_passes["irradiance"] = compute_builder.create_pipeline(device, shader_cache["irradiance.comp"], descriptor_layouts, sizeof(IBLPushConstants));
+	shader_passes["prefiltered"] = compute_builder.create_pipeline(device, shader_cache["prefiltered.comp"], descriptor_layouts, sizeof(IBLPushConstants));
+	shader_passes["brdf"] = compute_builder.create_pipeline(device, shader_cache["brdf.comp"], descriptor_layouts, sizeof(IBLPushConstants));
+	shader_passes["luminance_histogram"] = compute_builder.create_pipeline(device, shader_cache["luminance_histogram.slang"], descriptor_layouts, sizeof(LuminanceBinsPushConstants));
+	shader_passes["luminance_avg"] = compute_builder.create_pipeline(device, shader_cache["luminance_avg.slang"], descriptor_layouts, sizeof(LuminanceBinsPushConstants));
+	shader_passes["tonemap"] = compute_builder.create_pipeline(device, shader_cache["tonemap.slang"], descriptor_layouts, sizeof(TonemapPushConstants));
+	shader_passes["shadow_cull"] = compute_builder.create_pipeline(device, shader_cache["shadow_cull.slang"], descriptor_layouts, sizeof(ShadowCullPushConstants));
 
-	shader_passes["resolve_vbuffer"] = vkutil::build_shader(device, compute_builder, shader_cache["resolve_vbuffer.comp"], descriptor_layouts, sizeof(DeferredPushConstants));
-	shader_passes["resolve_gbuffer"] = vkutil::build_shader(device, compute_builder, shader_cache["resolve_gbuffer.comp"], descriptor_layouts, sizeof(DeferredPushConstants));
-	shader_passes["compact_dispatch"] = vkutil::build_shader(device, compute_builder, shader_cache["compact_dispatch.slang"], descriptor_layouts, sizeof(CompactDispatchPushConstants));
-	shader_passes["resolve_taa"] = vkutil::build_shader(device, compute_builder, shader_cache["resolve_taa.comp"], descriptor_layouts, sizeof(TAAPushConstants));
-	shader_passes["hiz_spd"] = vkutil::build_shader(device, compute_builder, shader_cache["hiz_spd.comp"], descriptor_layouts, sizeof(SpdPushConstants));
+	shader_passes["resolve_vbuffer"] = compute_builder.create_pipeline(device, shader_cache["resolve_vbuffer.comp"], descriptor_layouts, sizeof(DeferredPushConstants));
+	shader_passes["resolve_gbuffer"] = compute_builder.create_pipeline(device, shader_cache["resolve_gbuffer.comp"], descriptor_layouts, sizeof(DeferredPushConstants));
+	shader_passes["compact_dispatch"] = compute_builder.create_pipeline(device, shader_cache["compact_dispatch.slang"], descriptor_layouts, sizeof(CompactDispatchPushConstants));
+	shader_passes["resolve_taa"] = compute_builder.create_pipeline(device, shader_cache["resolve_taa.comp"], descriptor_layouts, sizeof(TAAPushConstants));
+	shader_passes["hiz_spd"] = compute_builder.create_pipeline(device, shader_cache["hiz_spd.comp"], descriptor_layouts, sizeof(SpdPushConstants));
 
 	// mrt
 	builder.set_input_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
