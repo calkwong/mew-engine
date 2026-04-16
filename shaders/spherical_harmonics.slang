@@ -38,7 +38,6 @@ void main(
 
 			SH9 base = sh_basis(dir);
 
-			// float3 color = texture(samplerCube(textures_cube[cubemap_id], samplers[CUBE_SAMPLER]), dir).xyz;
 			float3 color = textures_cube[pc.cubemap_id].SampleLevel(samplers[CUBE_SAMPLER], dir, 0.0).xyz;
 
 			R = sh_sum(R, sh_scale(base, color.r));

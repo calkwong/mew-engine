@@ -40,7 +40,7 @@ uint color_to_bin(float3 color)
 [numthreads(16, 16, 1)]
 void main(
     uint t_index : SV_GroupIndex,
-    uint3 global_id : SV_GroupID
+    uint3 global_id : SV_DispatchThreadID
 )
 {
 	shared_bins[t_index] = 0;
