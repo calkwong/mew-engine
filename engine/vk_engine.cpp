@@ -1883,7 +1883,7 @@ void VulkanEngine::init_shaders()
 	shader_cache.add_shader(device, "depth.frag", VK_SHADER_STAGE_FRAGMENT_BIT);
 	shader_cache.add_shader(device, "vis_buffer.frag", VK_SHADER_STAGE_FRAGMENT_BIT);
 	shader_cache.add_shader(device, "vis_meshlet.mesh", VK_SHADER_STAGE_MESH_BIT_EXT);
-	shader_cache.add_shader(device, "resolve_taa.comp", VK_SHADER_STAGE_COMPUTE_BIT);
+	shader_cache.add_shader(device, "resolve_taa.slang", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "equirectangular_to_cubemap.slang", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "spherical_harmonics.slang", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "irradiance.slang", VK_SHADER_STAGE_COMPUTE_BIT);
@@ -1924,7 +1924,7 @@ void VulkanEngine::init_pipelines()
 	shader_passes["resolve_vbuffer"] = compute_builder.create_pipeline(device, shader_cache["resolve_vbuffer.comp"], descriptor_layouts, sizeof(DeferredPushConstants));
 	shader_passes["resolve_gbuffer"] = compute_builder.create_pipeline(device, shader_cache["resolve_gbuffer.comp"], descriptor_layouts, sizeof(DeferredPushConstants));
 	shader_passes["compact_dispatch"] = compute_builder.create_pipeline(device, shader_cache["compact_dispatch.slang"], descriptor_layouts, sizeof(CompactDispatchPushConstants));
-	shader_passes["resolve_taa"] = compute_builder.create_pipeline(device, shader_cache["resolve_taa.comp"], descriptor_layouts, sizeof(TAAPushConstants));
+	shader_passes["resolve_taa"] = compute_builder.create_pipeline(device, shader_cache["resolve_taa.slang"], descriptor_layouts, sizeof(TAAPushConstants));
 	shader_passes["hiz_spd"] = compute_builder.create_pipeline(device, shader_cache["hiz_spd.comp"], descriptor_layouts, sizeof(SpdPushConstants));
 
 	// mrt
