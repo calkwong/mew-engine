@@ -1,41 +1,45 @@
-#version 460
+import bindings;
+import sh;
 
-#extension GL_GOOGLE_include_directive : require
-
-#include "bindings.glsl"
-#include "buffer_references.glsl"
-#include "sh.glsl"
-
-layout (local_size_x = 32) in;
-
-layout (push_constant) uniform constants
+struct PushConstants
 {
-	SHBuffer sh_buffer;
+	SH* sh_buffer;
 	uint cubemap_id;
 };
 
-shared SH9 shared_r[gl_WorkGroupSize.x];
-shared SH9 shared_g[gl_WorkGroupSize.x];
-shared SH9 shared_b[gl_WorkGroupSize.x];
+[[vk::push_constant]] PushConstants pc;
 
-const int samples = 100;
+#define WG_SIZE_X 32
 
-void main()
+groupshared SH9 shared_r[WG_SIZE_X];
+groupshared SH9 shared_g[WG_SIZE_X];
+groupshared SH9 shared_b[WG_SIZE_X];
+
+static const int samples = 100;
+static const float PI = 3.14159265359;
+
+[shader("compute")]
+[numthreads(WG_SIZE_X, 1, 1)]
+void main(
+    uint t_index : SV_GroupIndex,
+
+)
 {
 	SH9 R = sh_zero();
 	SH9 G = sh_zero();
 	SH9 B = sh_zero();
 
 	// TODO: use more workgroups
-	for (float phi = gl_LocalInvocationIndex + 0.5; phi < samples; phi = phi + gl_WorkGroupSize.x)
+	for (float phi = t_index + 0.5; phi < samples; phi = phi + WG_SIZE_X)
 	{
 		for (float theta = 0.5; theta < samples; theta++)
 		{
-			vec3 dir = uniform_sample_sphere(phi * (1.0 / samples), theta * (1.0 / samples));
+			float3 dir = uniform_sample_sphere(phi * (1.0 / samples), theta * (1.0 / samples));
 
 			SH9 base = sh_basis(dir);
 
-			vec3 color = texture(samplerCube(textures_cube[cubemap_id], samplers[CUBE_SAMPLER]), dir).xyz;
+			// float3 color = texture(samplerCube(textures_cube[cubemap_id], samplers[CUBE_SAMPLER]), dir).xyz;
+			float3 color = textures_cube[pc.cubemap_id].SampleLevel(samplers[CUBE_SAMPLER], dir, 0.0).xyz;
 
 			R = sh_sum(R, sh_scale(base, color.r));
 			G = sh_sum(G, sh_scale(base, color.g));
@@ -43,21 +47,19 @@ void main()
 		}
 	}
 
-	shared_r[gl_LocalInvocationIndex] = R;
-	shared_g[gl_LocalInvocationIndex] = G;
-	shared_b[gl_LocalInvocationIndex] = B;
+	shared_r[t_index] = R;
+	shared_g[t_index] = G;
+	shared_b[t_index] = B;
 
-	// TODO: technically not required for single workgroup single warp - to modify if using more workgroups/warps
-	//memoryBarrier();
-	//barrier();
+	// note: careful not to omit barrier if using wg_size > warp_size
 
-	if (gl_LocalInvocationIndex == 0)
+	if (t_index == 0)
 	{
 		R = shared_r[0];
 		G = shared_g[0];
 		B = shared_b[0];
 
-		for (int i = 1; i < gl_WorkGroupSize.x; i++)
+		for (int i = 1; i < WG_SIZE_X; i++)
 		{
 			R = sh_sum(shared_r[i], R);
 			G = sh_sum(shared_g[i], G);
@@ -84,8 +86,8 @@ void main()
 		G = sh_mul(G, coefficients);
 		B = sh_mul(B, coefficients);
 
-		sh_buffer.r_coefficients = R;
-		sh_buffer.g_coefficients = G;
-		sh_buffer.b_coefficients = B;
+		pc.sh_buffer->r_coefficients = R;
+		pc.sh_buffer->g_coefficients = G;
+		pc.sh_buffer->b_coefficients = B;
 	}
 }

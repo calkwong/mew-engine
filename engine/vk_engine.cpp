@@ -1885,7 +1885,7 @@ void VulkanEngine::init_shaders()
 	shader_cache.add_shader(device, "vis_meshlet.mesh", VK_SHADER_STAGE_MESH_BIT_EXT);
 	shader_cache.add_shader(device, "resolve_taa.comp", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "equirectangular_to_cubemap.slang", VK_SHADER_STAGE_COMPUTE_BIT);
-	shader_cache.add_shader(device, "spherical_harmonics.comp", VK_SHADER_STAGE_COMPUTE_BIT);
+	shader_cache.add_shader(device, "spherical_harmonics.slang", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "irradiance.slang", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "prefiltered.slang", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "brdf.slang", VK_SHADER_STAGE_COMPUTE_BIT);
@@ -1912,7 +1912,7 @@ void VulkanEngine::init_pipelines()
 	shader_passes["mesh_cull"] = compute_builder.create_pipeline(device, shader_cache["mesh_cull.slang"], descriptor_layouts, sizeof(CullData));
 	shader_passes["meshlet_cull"] = compute_builder.create_pipeline(device, shader_cache["meshlet_cull.slang"], descriptor_layouts, sizeof(ClusterCullData)); // TODO: check if this is also culldata
 	shader_passes["equirectangular_to_cubemap"] = compute_builder.create_pipeline(device, shader_cache["equirectangular_to_cubemap.slang"], descriptor_layouts, sizeof(IBLPushConstants));
-	shader_passes["spherical_harmonics"] = compute_builder.create_pipeline(device, shader_cache["spherical_harmonics.comp"], descriptor_layouts, sizeof(SHPushConstants));
+	shader_passes["spherical_harmonics"] = compute_builder.create_pipeline(device, shader_cache["spherical_harmonics.slang"], descriptor_layouts, sizeof(SHPushConstants));
 	shader_passes["irradiance"] = compute_builder.create_pipeline(device, shader_cache["irradiance.slang"], descriptor_layouts, sizeof(IBLPushConstants));
 	shader_passes["prefiltered"] = compute_builder.create_pipeline(device, shader_cache["prefiltered.slang"], descriptor_layouts, sizeof(IBLPushConstants));
 	shader_passes["brdf"] = compute_builder.create_pipeline(device, shader_cache["brdf.slang"], descriptor_layouts, sizeof(IBLPushConstants));
