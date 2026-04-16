@@ -29,7 +29,7 @@ foreach(GLSL ${GLSL_SOURCE_FILES})
   message(STATUS ${GLSL})
   add_custom_command(
     OUTPUT ${SPIRV}
-    COMMAND ${GLSL_VALIDATOR} -V ${GLSL} -o ${SPIRV} --target-env vulkan1.3 #-gVS
+    COMMAND ${GLSL_VALIDATOR} -V ${GLSL} -o ${SPIRV} --target-env vulkan1.4 #-gVS
     DEPENDS ${GLSL} ${GLSL_HEADER_FILES})
   list(APPEND SPIRV_BINARY_FILES ${SPIRV})
 endforeach(GLSL)
