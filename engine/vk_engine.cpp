@@ -425,6 +425,7 @@ void VulkanEngine::execute_baked_gi()
 		vkutil::transition_image(imm_command_buffer, irradiance_cubemap.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_READ_BIT);
 	}
 
+	// TODO: fix - we are dispatching wg_size that is more than necessary here
 	// prefiltered envmap
 	uint32_t brdf_id{};
 	{
@@ -1883,11 +1884,11 @@ void VulkanEngine::init_shaders()
 	shader_cache.add_shader(device, "vis_buffer.frag", VK_SHADER_STAGE_FRAGMENT_BIT);
 	shader_cache.add_shader(device, "vis_meshlet.mesh", VK_SHADER_STAGE_MESH_BIT_EXT);
 	shader_cache.add_shader(device, "resolve_taa.comp", VK_SHADER_STAGE_COMPUTE_BIT);
-	shader_cache.add_shader(device, "equirectangular_to_cubemap.comp", VK_SHADER_STAGE_COMPUTE_BIT);
+	shader_cache.add_shader(device, "equirectangular_to_cubemap.slang", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "spherical_harmonics.comp", VK_SHADER_STAGE_COMPUTE_BIT);
-	shader_cache.add_shader(device, "irradiance.comp", VK_SHADER_STAGE_COMPUTE_BIT);
-	shader_cache.add_shader(device, "prefiltered.comp", VK_SHADER_STAGE_COMPUTE_BIT);
-	shader_cache.add_shader(device, "brdf.comp", VK_SHADER_STAGE_COMPUTE_BIT);
+	shader_cache.add_shader(device, "irradiance.slang", VK_SHADER_STAGE_COMPUTE_BIT);
+	shader_cache.add_shader(device, "prefiltered.slang", VK_SHADER_STAGE_COMPUTE_BIT);
+	shader_cache.add_shader(device, "brdf.slang", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "luminance_histogram.slang", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "luminance_avg.slang", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "tonemap.slang", VK_SHADER_STAGE_COMPUTE_BIT);
@@ -1910,11 +1911,11 @@ void VulkanEngine::init_pipelines()
 	shader_passes["hiz"] = compute_builder.create_pipeline(device, shader_cache["hiz.comp"], descriptor_layouts, sizeof(DepthPyramidPushConstants));
 	shader_passes["mesh_cull"] = compute_builder.create_pipeline(device, shader_cache["mesh_cull.slang"], descriptor_layouts, sizeof(CullData));
 	shader_passes["meshlet_cull"] = compute_builder.create_pipeline(device, shader_cache["meshlet_cull.slang"], descriptor_layouts, sizeof(ClusterCullData)); // TODO: check if this is also culldata
-	shader_passes["equirectangular_to_cubemap"] = compute_builder.create_pipeline(device, shader_cache["equirectangular_to_cubemap.comp"], descriptor_layouts, sizeof(IBLPushConstants));
+	shader_passes["equirectangular_to_cubemap"] = compute_builder.create_pipeline(device, shader_cache["equirectangular_to_cubemap.slang"], descriptor_layouts, sizeof(IBLPushConstants));
 	shader_passes["spherical_harmonics"] = compute_builder.create_pipeline(device, shader_cache["spherical_harmonics.comp"], descriptor_layouts, sizeof(SHPushConstants));
-	shader_passes["irradiance"] = compute_builder.create_pipeline(device, shader_cache["irradiance.comp"], descriptor_layouts, sizeof(IBLPushConstants));
-	shader_passes["prefiltered"] = compute_builder.create_pipeline(device, shader_cache["prefiltered.comp"], descriptor_layouts, sizeof(IBLPushConstants));
-	shader_passes["brdf"] = compute_builder.create_pipeline(device, shader_cache["brdf.comp"], descriptor_layouts, sizeof(IBLPushConstants));
+	shader_passes["irradiance"] = compute_builder.create_pipeline(device, shader_cache["irradiance.slang"], descriptor_layouts, sizeof(IBLPushConstants));
+	shader_passes["prefiltered"] = compute_builder.create_pipeline(device, shader_cache["prefiltered.slang"], descriptor_layouts, sizeof(IBLPushConstants));
+	shader_passes["brdf"] = compute_builder.create_pipeline(device, shader_cache["brdf.slang"], descriptor_layouts, sizeof(IBLPushConstants));
 	shader_passes["luminance_histogram"] = compute_builder.create_pipeline(device, shader_cache["luminance_histogram.slang"], descriptor_layouts, sizeof(LuminanceBinsPushConstants));
 	shader_passes["luminance_avg"] = compute_builder.create_pipeline(device, shader_cache["luminance_avg.slang"], descriptor_layouts, sizeof(LuminanceBinsPushConstants));
 	shader_passes["tonemap"] = compute_builder.create_pipeline(device, shader_cache["tonemap.slang"], descriptor_layouts, sizeof(TonemapPushConstants));

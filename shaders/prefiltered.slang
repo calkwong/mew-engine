@@ -1,62 +1,68 @@
-#version 460
+import bindings;
+import importance_sampling;
+import pbr;
 
-#extension GL_GOOGLE_include_directive : require
-
-#include "bindings.glsl"
-#include "importance_sampling.glsl"
-#include "pbr.glsl"
-
-layout (local_size_x = 32, local_size_y = 32) in;
-
-layout (push_constant) uniform constants
+struct PushConstants
 {
-	vec2 image_size;
+	float2 image_size;
 	uint texture_id;
 	uint image_id;
 	float roughness;
 };
 
-void main()
-{
-	vec3 direction = vec3(0.0);
+[[vk::push_constant]] PushConstants pc;
 
-	vec2 texel_coord = vec2(gl_GlobalInvocationID.xy);
-	ivec2 image_size = imageSize(images_array_rgba32f[image_id]).xy;
+static const float PI = 3.14159265359;
+
+[shader("compute")]
+[numthreads(32, 32, 1)]
+void main(
+    uint3 global_id : SV_DispatchThreadID,
+    uint3 wg_id : SV_GroupID
+)
+{
+	float3 direction = float3(0.0);
+
+	int2 texel_coord = int2(global_id.xy);
+	int2 image_size;
+	int layers;
+	images_array_rgba32f[pc.image_id].GetDimensions(image_size.x, image_size.y, layers);
 
 	if (texel_coord.x >= image_size.x || texel_coord.y >= image_size.y)
 		return;
 
-	vec2 uv = (texel_coord + vec2(0.5)) / vec2(image_size);
+	float2 uv = (float2(texel_coord) + float2(0.5)) / float2(image_size);
 	uv = uv * 2.0 - 1.0;
 
-	float perceptual_roughness = roughness;
-	float envmap_size = float(textureSize(samplerCube(textures_cube[texture_id], samplers[CUBE_SAMPLER]), 0).r);
+	float perceptual_roughness = pc.roughness;
+	int2 envmap_size;
+	textures_cube[pc.texture_id].GetDimensions(0, envmap_size.x, envmap_size.y, layers);
 
-	uint face = gl_WorkGroupID.z;
+	uint face = wg_id.z;
 
 	switch (face)
 	{
-		case 0: direction = normalize(vec3(1.0, -uv.y, -uv.x)); break; // +X
-		case 1: direction = normalize(vec3(-1.0, -uv.y, uv.x)); break; // -X
-		case 2: direction = normalize(vec3(uv.x, 1.0, uv.y)); break; // +Y
-		case 3: direction = normalize(vec3(uv.x, -1.0, -uv.y)); break; // -Y
-		case 4: direction = normalize(vec3(uv.x, -uv.y, 1.0)); break; // +Z
-		case 5: direction = normalize(vec3(-uv.x, -uv.y, -1.0)); break; // -Z
-		default: direction = vec3(0.0); break;
+		case 0: direction = normalize(float3(1.0, -uv.y, -uv.x)); break; // +X
+		case 1: direction = normalize(float3(-1.0, -uv.y, uv.x)); break; // -X
+		case 2: direction = normalize(float3(uv.x, 1.0, uv.y)); break; // +Y
+		case 3: direction = normalize(float3(uv.x, -1.0, -uv.y)); break; // -Y
+		case 4: direction = normalize(float3(uv.x, -uv.y, 1.0)); break; // +Z
+		case 5: direction = normalize(float3(-uv.x, -uv.y, -1.0)); break; // -Z
+		default: direction = float3(0.0); break;
 	}
 
-	vec3 N = direction;
-	vec3 V = N;
+	float3 N = direction;
+	float3 V = N;
 	float linear_roughness = perceptual_roughness * perceptual_roughness;
 
 	uint sample_count = 32;
 	float total_weight = 0.0;
-	vec3 prefiltered_color = vec3(0.0);
+	float3 prefiltered_color = float3(0.0);
 	for (uint i = 0; i < sample_count; i++)
 	{
-		vec2 Xi = Hammersley(i, sample_count);
-		vec3 H = ImportanceSampleGGX(Xi, N, linear_roughness);
-		vec3 L = normalize(2.0 * dot(V,H) * H - V);
+		float2 Xi = Hammersley(i, sample_count);
+		float3 H = ImportanceSampleGGX(Xi, N, linear_roughness);
+		float3 L = normalize(2.0 * dot(V,H) * H - V);
 
 		float NdotL = max(dot(N, L), 0.0);
 		float NdotH = max(dot(N, H), 0.0);
@@ -66,15 +72,15 @@ void main()
 			// https://chetanjags.wordpress.com/2015/08/26/image-based-lighting/
 			float pdf = D_GGX(NdotH, linear_roughness) / 4.0 + 0.0001; // NdotH and VdotH (from Jacobian) cancel out
 			float omegaS = 1.0 / (float(sample_count) * pdf);  // solid angle of a sample
-			float omegaP = 4.0 * PI / (6.0 * envmap_size * envmap_size); // solid angle of one pixel from cubemap/sphere
+			float omegaP = 4.0 * PI / (6.0 * envmap_size.x * envmap_size.y); // solid angle of one pixel from cubemap/sphere
 			float mipLevel = perceptual_roughness == 0.0 ? 0.0 : max(0.5 * log2(omegaS / omegaP) + 1.0, 0.0);
 
-			prefiltered_color += textureLod(samplerCube(textures_cube[texture_id], samplers[CUBE_SAMPLER]), L, mipLevel).rgb * NdotL;
+			prefiltered_color += textures_cube[pc.texture_id].SampleLevel(samplers[CUBE_SAMPLER], L, mipLevel).rgb * NdotL;
 			total_weight += NdotL;
 		}
 	}
 
 	prefiltered_color = prefiltered_color / total_weight;
 
-	imageStore(images_array_rgba32f[image_id], ivec3(texel_coord, face), vec4(prefiltered_color, 1.0));
+	images_array_rgba32f[pc.image_id].Store(int3(texel_coord, face), float4(prefiltered_color, 1.0));
 }

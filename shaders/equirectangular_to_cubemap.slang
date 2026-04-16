@@ -1,24 +1,20 @@
-#version 460
+import bindings;
 
-#extension GL_GOOGLE_include_directive : require
-
-#include "bindings.glsl"
-
-layout (local_size_x = 32, local_size_y = 32) in;
-
-#define PI 3.14159265359
-
-layout (push_constant) uniform constants
+struct PushConstants
 {
-	vec2 image_size;
+	float2 image_size;
 	uint texture_id;
 	uint image_id;
 	float roughness;
 };
 
-vec2 sample_equirectangular_map(vec3 dir)
+[[vk::push_constant]] PushConstants pc;
+
+static const float PI = 3.14159265359;
+
+float2 sample_equirectangular_map(float3 dir)
 {
-	float u = atan(dir.z, dir.x);
+	float u = atan2(dir.z, dir.x);
 	float v = asin(dir.y);
 	//float v = acos(dir.y); // remove 0.5 below
 
@@ -27,32 +23,37 @@ vec2 sample_equirectangular_map(vec3 dir)
 
 	v = 1.0 - v;
 
-	return vec2(u, v);
+	return float2(u, v);
 }
 
-void main()
+[shader("compute")]
+[numthreads(32, 32, 1)]
+void main(
+    uint3 global_id : SV_DispatchThreadID,
+    uint3 wg_id : SV_GroupID
+)
 {
-	vec3 direction = vec3(0.0);
+	float3 direction = float3(0.0);
 
-	vec2 texel_coord = vec2(gl_GlobalInvocationID.xy);
-	vec2 uv = (texel_coord + vec2(0.5)) / image_size;
+	int2 texel_coord = int2(global_id.xy);
+	float2 uv = (float2(texel_coord) + float2(0.5)) / pc.image_size;
 	uv = uv * 2.0 - 1.0;
 	uv.y *= -1.0;
 
-	uint face = gl_WorkGroupID.z;
+	uint face = wg_id.z;
 
 	switch (face)
 	{
-		case 0: direction = normalize(vec3(1.0, uv.y, -uv.x)); break; // +X
-		case 1: direction = normalize(vec3(-1.0, uv.y, uv.x)); break; // -X
-		case 2: direction = normalize(vec3(uv.x, 1.0, -uv.y)); break; // +Y
-		case 3: direction = normalize(vec3(uv.x, -1.0, uv.y)); break; // -Y
-		case 4: direction = normalize(vec3(uv.x, uv.y, 1.0)); break; // +Z
-		case 5: direction = normalize(vec3(-uv.x, uv.y, -1.0)); break; // -Z
-		default: direction = vec3(0.0); break; // Should not happen
+		case 0: direction = normalize(float3(1.0, uv.y, -uv.x)); break; // +X
+		case 1: direction = normalize(float3(-1.0, uv.y, uv.x)); break; // -X
+		case 2: direction = normalize(float3(uv.x, 1.0, -uv.y)); break; // +Y
+		case 3: direction = normalize(float3(uv.x, -1.0, uv.y)); break; // -Y
+		case 4: direction = normalize(float3(uv.x, uv.y, 1.0)); break; // +Z
+		case 5: direction = normalize(float3(-uv.x, uv.y, -1.0)); break; // -Z
+		default: direction = float3(0.0); break; // Should not happen
 	}
 
-	vec2 sample_uv = sample_equirectangular_map(direction);
-	vec4 color = texture(sampler2D(textures[texture_id], samplers[LINEAR_SAMPLER]), sample_uv);
-	imageStore(images_array_rgba32f[image_id], ivec3(texel_coord, face), color);
+	float2 sample_uv = sample_equirectangular_map(direction);
+	float4 color = textures[pc.texture_id].SampleLevel(samplers[LINEAR_SAMPLER], sample_uv, 0.0);
+	images_array_rgba32f[pc.image_id].Store(int3(texel_coord, face), color);
 }

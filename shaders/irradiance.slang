@@ -1,64 +1,65 @@
-#version 460
+import bindings;
 
-#extension GL_GOOGLE_include_directive : require
-
-#include "bindings.glsl"
-
-layout (local_size_x = 32, local_size_y = 32) in;
-
-layout (push_constant) uniform constants
+struct PushConstants
 {
-	vec2 image_size;
+	float2 image_size;
 	uint texture_id;
 	uint image_id;
 	float roughness;
 };
 
-const float sample_delta = 0.025;
-const float PI = 3.14159265359;
+[[vk::push_constant]] PushConstants pc;
 
-void main()
+static const float SAMPLE_DELTA = 0.025;
+static const float PI = 3.14159265359;
+
+[shader("compute")]
+[numthreads(32, 32, 1)]
+void main(
+    uint3 global_id : SV_DispatchThreadID,
+    uint3 wg_id : SV_GroupID
+)
 {
-	vec3 irradiance = vec3(0.0);
+	float3 irradiance = float3(0.0);
 
-	vec3 direction = vec3(0.0);
+	float3 direction = float3(0.0);
 
-	vec2 texel_coord = vec2(gl_GlobalInvocationID.xy);
-	vec2 uv = (texel_coord + vec2(0.5)) / image_size;
+	int2 texel_coord = int2(global_id.xy);
+	float2 uv = (float2(texel_coord) + float2(0.5)) / pc.image_size;
 	uv = uv * 2.0 - 1.0;
 
-	uint face = gl_WorkGroupID.z;
+	uint face = wg_id.z;
 
 	switch (face)
 	{
-		case 0: direction = normalize(vec3(1.0, -uv.y, -uv.x)); break; // +X
-		case 1: direction = normalize(vec3(-1.0, -uv.y, uv.x)); break; // -X
-		case 2: direction = normalize(vec3(uv.x, 1.0, uv.y)); break; // +Y
-		case 3: direction = normalize(vec3(uv.x, -1.0, -uv.y)); break; // -Y
-		case 4: direction = normalize(vec3(uv.x, -uv.y, 1.0)); break; // +Z
-		case 5: direction = normalize(vec3(-uv.x, -uv.y, -1.0)); break; // -Z
-		default: direction = vec3(0.0); break;
+		case 0: direction = normalize(float3(1.0, -uv.y, -uv.x)); break; // +X
+		case 1: direction = normalize(float3(-1.0, -uv.y, uv.x)); break; // -X
+		case 2: direction = normalize(float3(uv.x, 1.0, uv.y)); break; // +Y
+		case 3: direction = normalize(float3(uv.x, -1.0, -uv.y)); break; // -Y
+		case 4: direction = normalize(float3(uv.x, -uv.y, 1.0)); break; // +Z
+		case 5: direction = normalize(float3(-uv.x, -uv.y, -1.0)); break; // -Z
+		default: direction = float3(0.0); break;
 	}
 
-	vec3 N = direction;
-	vec3 up = abs(N.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
-	vec3 T = normalize(cross(up, N));
-	vec3 B = cross(N, T);
+	float3 N = direction;
+	float3 up = abs(N.z) < 0.999 ? float3(0.0, 0.0, 1.0) : float3(1.0, 0.0, 0.0);
+	float3 T = normalize(cross(up, N));
+	float3 B = cross(N, T);
 
 	uint sample_count = 0;
-	for (float phi = 0.0; phi < (PI * 2.0); phi += sample_delta)
+	for (float phi = 0.0; phi < (PI * 2.0); phi += SAMPLE_DELTA)
 	{
-		for (float theta = 0.0; theta < (PI * 0.5); theta += sample_delta)
+		for (float theta = 0.0; theta < (PI * 0.5); theta += SAMPLE_DELTA)
 		{
-			vec3 temp_vec = cos(phi) * T + sin(phi) * B;
-			vec3 sample_vec = cos(theta) * N + sin(theta) * temp_vec;
+			float3 temp_vec = cos(phi) * T + sin(phi) * B;
+			float3 sample_vec = cos(theta) * N + sin(theta) * temp_vec;
 
-			irradiance += texture(samplerCube(textures_cube[texture_id], samplers[CUBE_SAMPLER]), sample_vec).xyz * cos(theta) * sin(theta);
+			irradiance += textures_cube[pc.texture_id].SampleLevel(samplers[CUBE_SAMPLER], sample_vec, 0).xyz * cos(theta) * sin(theta);
 			sample_count++;
 		}
 	}
 
 	irradiance = PI * irradiance / float(sample_count);
 
-	imageStore(images_array_rgba32f[image_id], ivec3(texel_coord, face), vec4(irradiance, 1));
+	images_array_rgba32f[pc.image_id].Store(int3(texel_coord, face), float4(irradiance, 1.0));
 }

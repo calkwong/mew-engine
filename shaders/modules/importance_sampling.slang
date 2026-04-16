@@ -1,6 +1,6 @@
 module importance_sampling;
 
-static const float PI = 14159265359;
+static const float PI = 3.14159265359;
 
 public float RadicalInverse_VdC(uint bits)
 {
