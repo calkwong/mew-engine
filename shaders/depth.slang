@@ -1,32 +1,62 @@
-#version 460
+import bindings;
+import types;
+import util;
 
-#extension GL_GOOGLE_include_directive : require
-
-#include "bindings.glsl"
-#include "buffer_references.glsl"
-#include "util.glsl"
-
-layout (push_constant) uniform constants
+struct PushConstants
 {
-	mat4 view_proj;
-	MaterialBuffer material_buffer;
-	ObjectBuffer object_buffer;
-	VertexBuffer vertex_buffer;
+	float4x4 view_proj;
+	MaterialData* material_buffer;
+	ObjectData* object_buffer;
+	Vertex* vertex_buffer;
 };
 
-layout (location = 0) out vec2 out_uv;
-layout (location = 1) flat out uint out_material_id;
+[[vk::push_constant]] PushConstants pc;
 
-void main()
+struct Interp
 {
-	ObjectData o = object_buffer.objects[gl_InstanceIndex]; // gl_InstanceIndex from drawIndirectCommand
-	Vertex v = vertex_buffer.vertices[gl_VertexIndex];
+	float4 position : SV_Position;
+	float2 uv;
+	nointerpolation uint material_id; // how to handle flat?
+};
 
-	vec3 pos = vec3(v.px, v.py, v.pz);
-	vec4 world_pos = vec4(rotate_quat(pos, o.orientation) * o.scale + o.translation, 1.0);
+[shader("vertex")]
+Interp vs_main(
+    uint instance_id : SV_VulkanInstanceID,
+    uint vertex_id : SV_VulkanVertexID,
+)
+{
+    Interp interp;
 
-	gl_Position = view_proj * world_pos;
+	ObjectData o = pc.object_buffer[instance_id]; // instance_id from drawIndirectCommand
+	Vertex v = pc.vertex_buffer[vertex_id];
 
-	out_uv = vec2(v.uv_x, v.uv_y);
-	out_material_id = o.material_id;
+	float3 pos = float3(v.px, v.py, v.pz);
+	float4 world_pos = float4(rotate_quat(pos, o.orientation) * o.scale + o.translation, 1.0);
+
+	interp.position = mul(pc.view_proj, world_pos);
+	interp.uv = float2(v.uv_x, v.uv_y);
+	interp.material_id = o.material_id;
+
+	return interp;
+}
+
+[vk::constant_id(0)]
+const int OPAQUE = 1;
+
+[shader("pixel")]
+void ps_main(
+    Interp in
+)
+{
+   	if (OPAQUE == 0)
+	{
+		MaterialData m = pc.material_buffer[in.material_id];
+
+		float4 albedo = m.base_color_factor;
+		if (m.diffuse_id != 0)
+		    albedo *= textures[m.diffuse_id].Sample(samplers[LINEAR_SAMPLER], in.uv);
+
+		if (albedo.a < 0.5)
+			discard;
+	}
 }

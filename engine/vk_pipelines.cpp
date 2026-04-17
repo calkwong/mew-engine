@@ -113,14 +113,18 @@ void PipelineBuilder::set_shaders(std::initializer_list<ShaderProgram*> programs
 
 	// TODO: after full slang port we will only have 1 shaderprogram
 	auto program = programs.begin();
+	auto entry = entries.begin();
 	for (auto it = stages.begin(); it != stages.end(); it++)
 	{
-		shader_stages.push_back(vkinit::pipeline_shader_stage_create_info(*it, (*program)->module));
+	    shader_stages.push_back(vkinit::pipeline_shader_stage_create_info(*it, (*program)->module, entries.size() != 0 ? *entry : "main"));
+
 		// TODO: better naming
 		name += (*program)->name + '/';
 
 		if (programs.size() == stages.size())
 		    program++;
+		if (entries.size() != 0)
+		    entry++;
 	}
 }
 

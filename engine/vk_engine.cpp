@@ -37,7 +37,6 @@
 #include <thread>
 #include <utility>
 #include <cstdlib>
-#include <vulkan/vulkan_core.h>
 
 VulkanEngine* loaded_engine{};
 
@@ -1888,14 +1887,6 @@ void VulkanEngine::init_shaders()
 	shader_cache.add_shader(device, "mesh_cull.slang", sizeof(CullData));
 	shader_cache.add_shader(device, "meshlet_cull.slang", sizeof(ClusterCullData));
 	shader_cache.add_shader(device, "shadow_cull.slang", sizeof(ShadowCullPushConstants));
-	shader_cache.add_shader(device, "mesh.vert", sizeof(GPUPushConstants));
-	shader_cache.add_shader(device, "geometry.frag", sizeof(GPUPushConstants));
-	shader_cache.add_shader(device, "meshlet.mesh", sizeof(GPUPushConstants));
-	shader_cache.add_shader(device, "mlab.frag", sizeof(GPUPushConstants));
-	shader_cache.add_shader(device, "depth.vert", sizeof(ShadowPushConstants));
-	shader_cache.add_shader(device, "depth.frag", sizeof(ShadowPushConstants));
-	shader_cache.add_shader(device, "vis_buffer.frag", sizeof(GPUPushConstants));
-	shader_cache.add_shader(device, "vis_meshlet.mesh", sizeof(GPUPushConstants));
 	shader_cache.add_shader(device, "resolve_taa.slang", sizeof(TAAPushConstants));
 	shader_cache.add_shader(device, "equirectangular_to_cubemap.slang", sizeof(IBLPushConstants));
 	shader_cache.add_shader(device, "spherical_harmonics.slang", sizeof(SHPushConstants));
@@ -1909,6 +1900,13 @@ void VulkanEngine::init_shaders()
 	shader_cache.add_shader(device, "resolve_gbuffer.slang", sizeof(DeferredPushConstants));
 	shader_cache.add_shader(device, "compact_dispatch.slang", sizeof(CompactDispatchPushConstants));
 	shader_cache.add_shader(device, "hiz_spd.slang", sizeof(SpdPushConstants));
+	shader_cache.add_shader(device, "mesh.vert", sizeof(GPUPushConstants));
+	shader_cache.add_shader(device, "geometry.frag", sizeof(GPUPushConstants));
+	shader_cache.add_shader(device, "meshlet.mesh", sizeof(GPUPushConstants));
+	shader_cache.add_shader(device, "mlab.frag", sizeof(GPUPushConstants));
+	shader_cache.add_shader(device, "depth.slang", sizeof(ShadowPushConstants));
+	shader_cache.add_shader(device, "vis_buffer.frag", sizeof(GPUPushConstants));
+	shader_cache.add_shader(device, "vis_meshlet.mesh", sizeof(GPUPushConstants));
 }
 
 void VulkanEngine::init_pipelines()
@@ -1996,9 +1994,9 @@ void VulkanEngine::init_pipelines()
 	builder.rasterization.depthClampEnable = VK_TRUE;
 	builder.dynamic_state.push_back(VK_DYNAMIC_STATE_DEPTH_BIAS);
 	builder.set_cull_mode(VK_CULL_MODE_FRONT_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-	shader_passes["depth"] = builder.create_pipeline(device, { shader_cache["depth.vert"], shader_cache["depth.frag"] }, { VK_SHADER_STAGE_VERTEX_BIT, VK_SHADER_STAGE_FRAGMENT_BIT }, {}, { 1 });
+	shader_passes["depth"] = builder.create_pipeline(device, { shader_cache["depth.slang"] }, { VK_SHADER_STAGE_VERTEX_BIT }, { "vs_main" });
 	builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-	shader_passes["depth_mask"] = builder.create_pipeline(device, { shader_cache["depth.vert"], shader_cache["depth.frag"] }, { VK_SHADER_STAGE_VERTEX_BIT, VK_SHADER_STAGE_FRAGMENT_BIT }, {}, { 0 });
+	shader_passes["depth_mask"] = builder.create_pipeline(device, { shader_cache["depth.slang"] }, { VK_SHADER_STAGE_VERTEX_BIT, VK_SHADER_STAGE_FRAGMENT_BIT }, { "vs_main", "ps_main" }, { 0 });
 	builder.dynamic_state.pop_back(); // reset
 	builder.rasterization.depthClampEnable = VK_FALSE; // reset
 
@@ -3239,7 +3237,7 @@ void VulkanEngine::render_shadows(VkCommandBuffer cmd, uint32_t cascade_idx, uin
 		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
 		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
 
-		vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(ShadowPushConstants), &pc);
+		vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ShadowPushConstants), &pc);
 
 		vkCmdBindIndexBuffer(cmd, render_scene.index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
 
@@ -3253,6 +3251,11 @@ void VulkanEngine::render_shadows(VkCommandBuffer cmd, uint32_t cascade_idx, uin
 		{
 			current_pass = *shader_passes["depth_mask"];
 			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
+			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
+			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
+			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
+			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
+			vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(ShadowPushConstants), &pc);
 			vkCmdDrawIndexedIndirectCount(cmd, render_scene.draw_indirect_buffer.buffer, 2 * sizeof(uint32_t) + MAX_OPAQUE_DRAWS * sizeof(VkDrawIndexedIndirectCommand) + cascade_offset, render_scene.draw_indirect_buffer.buffer, sizeof(uint32_t) + cascade_offset, MAX_ALPHACLIP_DRAWS, sizeof(VkDrawIndexedIndirectCommand));
 			stats.draw_count++;
 		}
