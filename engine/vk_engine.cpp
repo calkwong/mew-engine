@@ -1498,6 +1498,7 @@ void VulkanEngine::init_vulkan()
 	features13.dynamicRendering = true;
 	features13.synchronization2 = true;
 	features13.maintenance4 = true;
+	features13.shaderDemoteToHelperInvocation = true;
 
 	// vulkan 1.2 features
 	VkPhysicalDeviceVulkan12Features features12{};
