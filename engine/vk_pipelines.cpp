@@ -10,7 +10,6 @@
 #include <array>
 #include <fstream>
 #include <cassert>
-#include <vulkan/vulkan_core.h>
 
 VkPipeline ComputePipelineBuilder::build_pipeline(VkDevice device) const
 {

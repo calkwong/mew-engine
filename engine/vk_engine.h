@@ -16,7 +16,6 @@
 #include <string>
 #include <vector>
 #include <memory>
-#include <vulkan/vulkan_core.h>
 
 constexpr unsigned int FRAME_OVERLAP = 2;
 

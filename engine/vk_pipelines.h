@@ -7,7 +7,6 @@
 #include <vector>
 #include <array>
 #include <filesystem>
-#include <vulkan/vulkan_core.h>
 
 // TODO: rename?
 struct ShaderPass

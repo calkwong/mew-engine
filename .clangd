@@ -3,3 +3,5 @@ CompileFlags:
 Diagnostics:
   MissingIncludes: None
   UnusedIncludes: Strict
+Completion:
+  HeaderInsertion: Never
