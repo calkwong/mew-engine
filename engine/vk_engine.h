@@ -16,6 +16,7 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <vulkan/vulkan_core.h>
 
 constexpr unsigned int FRAME_OVERLAP = 2;
 
@@ -47,8 +48,7 @@ struct FrameData
 	VkQueryPool query_pool_timestamps{};
 	VkQueryPool query_pool_pipelines{};
 
-	VkSemaphore swapchain_semaphore{};
-	VkSemaphore render_semaphore{};
+	VkSemaphore image_acquired_semaphore{};
 	VkFence render_fence{};
 
 	DescriptorAllocatorGrowable frame_descriptor_allocator{};
@@ -126,6 +126,7 @@ public:
 
 	FrameData frames[FRAME_OVERLAP]{};
 	FrameData& get_current_frame() { return frames[frame_number % FRAME_OVERLAP]; }
+	std::vector<VkSemaphore> render_done_semaphores{};
 	DeletionQueue main_deletion_queue{};
 
 	DescriptorAllocatorGrowable global_descriptor_allocator{};

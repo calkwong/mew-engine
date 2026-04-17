@@ -282,8 +282,7 @@ void VulkanEngine::cleanup()
 			vkDestroyCommandPool(device, frame.command_pool, nullptr);
 
 			vkDestroyFence(device, frame.render_fence, nullptr);
-			vkDestroySemaphore(device, frame.swapchain_semaphore, nullptr);
-			vkDestroySemaphore(device, frame.render_semaphore, nullptr);
+			vkDestroySemaphore(device, frame.image_acquired_semaphore, nullptr);
 
 			destroy_buffer(allocator, frame.scene_buffer);
 
@@ -292,6 +291,11 @@ void VulkanEngine::cleanup()
 			vkDestroyQueryPool(device, frame.query_pool_timestamps, nullptr);
 			vkDestroyQueryPool(device, frame.query_pool_pipelines, nullptr);
 		}
+
+		for (auto& sem : render_done_semaphores)
+    	{
+        	vkDestroySemaphore(device, sem, nullptr);
+    	}
 
 		for (const auto& [_, shader_program] : shader_cache.data)
 		{
@@ -515,7 +519,7 @@ void VulkanEngine::draw()
 
 	uint32_t swapchain_image_idx{};
 	{
-		VK_CHECK(vkAcquireNextImageKHR(device, swapchain, 1000000000, get_current_frame().swapchain_semaphore, nullptr, &swapchain_image_idx));
+		VK_CHECK(vkAcquireNextImageKHR(device, swapchain, 1000000000, get_current_frame().image_acquired_semaphore, nullptr, &swapchain_image_idx));
 	}
 
 	// record currentFrame-2's timestamps
@@ -1258,8 +1262,8 @@ void VulkanEngine::draw()
 
 	VkCommandBufferSubmitInfo cmd_info = vkinit::command_buffer_submit_info(cmd);
 
-	VkSemaphoreSubmitInfo wait_info = vkinit::semaphore_submit_info(VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, get_current_frame().swapchain_semaphore);
-	VkSemaphoreSubmitInfo submit_info = vkinit::semaphore_submit_info(VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, get_current_frame().render_semaphore); // all graphics bit?
+	VkSemaphoreSubmitInfo wait_info = vkinit::semaphore_submit_info(VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, get_current_frame().image_acquired_semaphore);
+	VkSemaphoreSubmitInfo submit_info = vkinit::semaphore_submit_info(VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, render_done_semaphores[swapchain_image_idx]); // all graphics bit?
 
 	VkSubmitInfo2 submit = vkinit::submit_info(&cmd_info, &submit_info, &wait_info);
 
@@ -1270,7 +1274,7 @@ void VulkanEngine::draw()
 	VkPresentInfoKHR present_info{};
 	present_info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
 	present_info.waitSemaphoreCount = 1;
-	present_info.pWaitSemaphores = &get_current_frame().render_semaphore; // TODO: use swapchain image count number of semaphores instead of frame in flight? see: vulkanised 2026 frames in flight talk
+	present_info.pWaitSemaphores = &render_done_semaphores[swapchain_image_idx];
 	present_info.swapchainCount = 1;
 	present_info.pSwapchains = &swapchain;
 	present_info.pImageIndices = &swapchain_image_idx;
@@ -1740,8 +1744,13 @@ void VulkanEngine::init_sync_structures()
 	{
 		VK_CHECK(vkCreateFence(device, &fence_info, nullptr, &frame.render_fence));
 
-		VK_CHECK(vkCreateSemaphore(device, &semaphore_info, nullptr, &frame.swapchain_semaphore));
-		VK_CHECK(vkCreateSemaphore(device, &semaphore_info, nullptr, &frame.render_semaphore));
+		VK_CHECK(vkCreateSemaphore(device, &semaphore_info, nullptr, &frame.image_acquired_semaphore));
+	}
+
+	render_done_semaphores.resize(swapchain_images.size());
+	for (auto& sem : render_done_semaphores)
+	{
+	    VK_CHECK(vkCreateSemaphore(device, &semaphore_info, nullptr, &sem));
 	}
 
 	VK_CHECK(vkCreateFence(device, &fence_info, nullptr, &imm_fence));
