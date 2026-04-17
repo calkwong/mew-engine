@@ -1,27 +1,27 @@
-#version 460
+import bindings;
 
-#extension GL_GOOGLE_include_directive : require
-
-#include "bindings.glsl"
-
-layout (local_size_x = 32, local_size_y = 32) in;
-
-layout(push_constant) uniform constants
+struct PushConstants
 {
-	ivec2 image_size;
+	int2 image_size;
 	uint texture_id;
 	uint image_id;
 	uint lod;
 };
 
-void main()
+[[vk::push_constant]] PushConstants pc;
+
+[shader("compute")]
+[numthreads(32, 32, 1)]
+void main(
+    uint3 global_id : SV_DispatchThreadID
+)
 {
-	ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
+	int2 pos = int2(global_id.xy);
 
-	vec2 uv = vec2(pos) + vec2(0.5);
-	uv = uv / image_size;
+	float2 uv = float2(pos) + float2(0.5);
+	uv = uv / pc.image_size;
 
-	float depth = textureLod(sampler2D(textures[texture_id], samplers[DEPTH_REDUCTION_SAMPLER]), uv, lod).r;
+	float depth = textures[pc.texture_id].SampleLevel(samplers[DEPTH_REDUCTION_SAMPLER], uv, pc.lod).r;
 
-	imageStore(images_r32f[image_id], pos, vec4(depth));
+	images_r32f[pc.image_id].Store(pos, depth);
 }

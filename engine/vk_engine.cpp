@@ -48,7 +48,7 @@ constexpr bool USE_VALIDATION_LAYERS = false;
 constexpr bool USE_VALIDATION_LAYERS = true;
 #endif
 
-#define SINGLE // uncomment if loading a proper scene
+// #define SINGLE // uncomment if loading a proper scene
 
 AutoCVar_Int CVAR_RENDER_VBUFFER{ "render.vbuffer", "Vbuffer path", 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_MESH_SHADERS{ "render.mesh_shaders", "Mesh shaders path", 1, CVarFlags::EditCheckbox };
@@ -1883,7 +1883,7 @@ void VulkanEngine::init_shaders()
 {
 	shader_cache.add_shader(device, "cluster_grid.slang", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "light_culling.slang", VK_SHADER_STAGE_COMPUTE_BIT);
-	shader_cache.add_shader(device, "hiz.comp", VK_SHADER_STAGE_COMPUTE_BIT);
+	shader_cache.add_shader(device, "hiz.slang", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "mesh_cull.slang", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "meshlet_cull.slang", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "shadow_cull.slang", VK_SHADER_STAGE_COMPUTE_BIT);
@@ -1907,7 +1907,7 @@ void VulkanEngine::init_shaders()
 	shader_cache.add_shader(device, "resolve_vbuffer.slang", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "resolve_gbuffer.slang", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "compact_dispatch.slang", VK_SHADER_STAGE_COMPUTE_BIT);
-	shader_cache.add_shader(device, "hiz_spd.comp", VK_SHADER_STAGE_COMPUTE_BIT);
+	shader_cache.add_shader(device, "hiz_spd.slang", VK_SHADER_STAGE_COMPUTE_BIT);
 }
 
 void VulkanEngine::init_pipelines()
@@ -1920,7 +1920,7 @@ void VulkanEngine::init_pipelines()
 	shader_passes["cluster_grid"] = compute_builder.create_pipeline(device, shader_cache["cluster_grid.slang"], descriptor_layouts, sizeof(ClusterGridPushConstants));
 	shader_passes["light_culling"] = compute_builder.create_pipeline(device, shader_cache["light_culling.slang"], descriptor_layouts, sizeof(LightCullingPushConstants));
 
-	shader_passes["hiz"] = compute_builder.create_pipeline(device, shader_cache["hiz.comp"], descriptor_layouts, sizeof(DepthPyramidPushConstants));
+	shader_passes["hiz"] = compute_builder.create_pipeline(device, shader_cache["hiz.slang"], descriptor_layouts, sizeof(DepthPyramidPushConstants));
 	shader_passes["mesh_cull"] = compute_builder.create_pipeline(device, shader_cache["mesh_cull.slang"], descriptor_layouts, sizeof(CullData));
 	shader_passes["meshlet_cull"] = compute_builder.create_pipeline(device, shader_cache["meshlet_cull.slang"], descriptor_layouts, sizeof(ClusterCullData)); // TODO: check if this is also culldata
 	shader_passes["equirectangular_to_cubemap"] = compute_builder.create_pipeline(device, shader_cache["equirectangular_to_cubemap.slang"], descriptor_layouts, sizeof(IBLPushConstants));
@@ -1937,7 +1937,7 @@ void VulkanEngine::init_pipelines()
 	shader_passes["resolve_gbuffer"] = compute_builder.create_pipeline(device, shader_cache["resolve_gbuffer.slang"], descriptor_layouts, sizeof(DeferredPushConstants));
 	shader_passes["compact_dispatch"] = compute_builder.create_pipeline(device, shader_cache["compact_dispatch.slang"], descriptor_layouts, sizeof(CompactDispatchPushConstants));
 	shader_passes["resolve_taa"] = compute_builder.create_pipeline(device, shader_cache["resolve_taa.slang"], descriptor_layouts, sizeof(TAAPushConstants));
-	shader_passes["hiz_spd"] = compute_builder.create_pipeline(device, shader_cache["hiz_spd.comp"], descriptor_layouts, sizeof(SpdPushConstants));
+	shader_passes["hiz_spd"] = compute_builder.create_pipeline(device, shader_cache["hiz_spd.slang"], descriptor_layouts, sizeof(SpdPushConstants));
 
 	// mrt
 	builder.set_input_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);

@@ -20,41 +20,35 @@
 // Renderdoc showed massive overdraw on the horizontal and vertical edges where padded data lived.
 // Yet to try padding with clamped (actual) depth values instead of far plane depth.
 
-#version 460
+import bindings;
 
-#extension GL_GOOGLE_include_directive : require
-#extension GL_KHR_shader_subgroup_quad : require
+[[vk::binding(0, 1)]][vk::image_format("r32f")] globallycoherent RWTexture2D<float> images_r32f_coherent[];
 
-#include "bindings.glsl"
-#include "buffer_references.glsl"
-
-layout (local_size_x = 256) in;
-
-layout(set = 1, binding = 0, r32f) uniform coherent image2D images_r32f_coherent[];
-
-layout(push_constant) uniform constants
+struct PushConstants
 {
-    SpdCounterBuffer spd_counter_buffer;
-	vec2 rcp_resolution; // resolution of src image, not mip 0
+    uint* spd_counter_buffer;
+	float2 rcp_resolution; // resolution of src image, not mip 0
     uint mips;
 	uint num_wgs;
 	uint src_id; // texture to sample
 	uint dst_id; // image to write to, offset accordingly!
 	uint sampler_id;
 	// uint wg_offset; // note: for subregion downsampling, not implemented for now
-} pc;
+};
 
-shared float shared_intermediate[16][16];
-shared uint spd_counter;
+[[vk::push_constant]] PushConstants pc;
+
+groupshared float shared_intermediate[16][16];
+groupshared uint spd_counter;
 
 uint ABfe(uint src, uint off, uint bits)
 {
-    return bitfieldExtract(src, int(off), int(bits));
+    return bitfieldExtract(src, off, bits);
 }
 
 uint ABfiM(uint src, uint ins, uint bits)
 {
-    return bitfieldInsert(src, ins, 0, int(bits));
+    return bitfieldInsert(src, ins, 0, bits);
 }
 
 //  LANE TO 8x8 MAPPING
@@ -67,24 +61,24 @@ uint ABfiM(uint src, uint ins, uint bits)
 //  22 23 2a 2b 32 33 3a 3b
 //  24 25 2c 2d 34 35 3c 3d
 //  26 27 2e 2f 36 37 3e 3f
-uvec2 ARmpRed8x8(uint a)
+uint2 ARmpRed8x8(uint a)
 {
-    return uvec2(ABfiM(ABfe(a, 2u, 3u), a, 1u), ABfiM(ABfe(a, 3u, 3u), ABfe(a, 1u, 2u), 2u));
+    return uint2(ABfiM(ABfe(a, 2u, 3u), a, 1u), ABfiM(ABfe(a, 3u, 3u), ABfe(a, 1u, 2u), 2u));
 }
 
-float sample_texture(uint texture_id, uint sampler_id, vec2 uv, uint slice)
+float sample_texture(uint texture_id, uint sampler_id, float2 uv, uint slice)
 {
-    return texture(sampler2D(textures[texture_id], samplers[sampler_id]), uv).r;
+    return textures[texture_id].SampleLevel(samplers[sampler_id], uv, 0.0).r;
 }
 
-void spd_store_coherent(ivec2 coords, float value, uint slice)
+void spd_store_coherent(int2 coords, float value, uint slice)
 {
-    imageStore(images_r32f_coherent[pc.dst_id + 5], coords, vec4(value.r));
+    images_r32f_coherent[pc.dst_id + 5].Store(coords, value);
 }
 
-void spd_store(ivec2 coords, float value, uint mip, uint slice)
+void spd_store(int2 coords, float value, uint mip, uint slice)
 {
-    imageStore(images_r32f[pc.dst_id + mip], coords, vec4(value));
+    images_r32f[pc.dst_id + mip].Store(coords, value);
 }
 
 void spd_store_intermediate(uint x, uint y, float value)
@@ -93,9 +87,9 @@ void spd_store_intermediate(uint x, uint y, float value)
 }
 
 // switch to this when we want min and max depth
-float spd_load(ivec2 coords, uint mip, uint slice)
+float spd_load(int2 coords, uint mip, uint slice)
 {
-    return imageLoad(images_r32f[pc.dst_id + mip], coords).r;
+    return images_r32f[pc.dst_id + mip].Load(coords).r;
 }
 
 float spd_load_intermediate(uint x, uint y)
@@ -111,50 +105,50 @@ float spd_reduce_4(float v0, float v1, float v2, float v3)
 float spd_reduce_quad(float v)
 {
     float v0 = v;
-    float v1 = subgroupQuadSwapHorizontal(v);
-    float v2 = subgroupQuadSwapVertical(v);
-    float v3 = subgroupQuadSwapDiagonal(v);
+    float v1 = QuadReadAcrossX(v);
+    float v2 = QuadReadAcrossY(v);
+    float v3 = QuadReadAcrossDiagonal(v);
 
     return spd_reduce_4(v0, v1, v2, v3);
 }
 
-float spd_reduce_coherent_load(ivec2 base, uint slice)
+float spd_reduce_coherent_load(int2 base, uint slice)
 {
     uint idx = pc.dst_id + 5;
 
-    float v0 = imageLoad(images_r32f_coherent[idx], base).r;
-    float v1 = imageLoad(images_r32f_coherent[idx], base + ivec2(0, 1)).r;
-    float v2 = imageLoad(images_r32f_coherent[idx], base + ivec2(1, 0)).r;
-    float v3 = imageLoad(images_r32f_coherent[idx], base + ivec2(1, 1)).r;
+    float v0 = images_r32f_coherent[idx].Load(base).r;
+    float v1 = images_r32f_coherent[idx].Load(base + int2(0, 1)).r;
+    float v2 = images_r32f_coherent[idx].Load(base + int2(1, 0)).r;
+    float v3 = images_r32f_coherent[idx].Load(base + int2(1, 1)).r;
 
     return spd_reduce_4(v0, v1, v2, v3);
 }
 
-void spd_downsample_mips_0_1(uint x, uint y, uvec2 wg_id, uint local_id, uint mips, uint slice)
+void spd_downsample_mips_0_1(uint x, uint y, uint2 wg_id, uint local_id, uint mips, uint slice)
 {
     float v[4];
 
-    ivec2 tex = ivec2(wg_id * 64) + ivec2(x * 2, y * 2);
-    vec2 uv = (vec2(tex) + vec2(0.5)) * pc.rcp_resolution;
-    ivec2 pix = ivec2(wg_id * 32) + ivec2(x, y);
+    int2 tex = int2(wg_id * 64) + int2(x * 2, y * 2);
+    float2 uv = (float2(tex) + float2(0.5)) * pc.rcp_resolution;
+    int2 pix = int2(wg_id * 32) + int2(x, y);
     v[0] = sample_texture(pc.src_id, pc.sampler_id, uv, 0);
     spd_store(pix, v[0], 0, slice);
 
-    tex = ivec2(wg_id * 64) + ivec2(x * 2 + 32, y * 2);
-    uv = (vec2(tex) + vec2(0.5)) * pc.rcp_resolution;
-    pix = ivec2(wg_id * 32) + ivec2(x + 16, y);
+    tex = int2(wg_id * 64) + int2(x * 2 + 32, y * 2);
+    uv = (float2(tex) + float2(0.5)) * pc.rcp_resolution;
+    pix = int2(wg_id * 32) + int2(x + 16, y);
     v[1] = sample_texture(pc.src_id, pc.sampler_id, uv, 0);
     spd_store(pix, v[1], 0, slice);
 
-    tex = ivec2(wg_id * 64) + ivec2(x * 2, y * 2 + 32);
-    uv = (vec2(tex) + vec2(0.5)) * pc.rcp_resolution;
-    pix = ivec2(wg_id * 32) + ivec2(x, y + 16);
+    tex = int2(wg_id * 64) + int2(x * 2, y * 2 + 32);
+    uv = (float2(tex) + float2(0.5)) * pc.rcp_resolution;
+    pix = int2(wg_id * 32) + int2(x, y + 16);
     v[2] = sample_texture(pc.src_id, pc.sampler_id, uv, 0);
     spd_store(pix, v[2], 0, slice);
 
-    tex = ivec2(wg_id * 64) + ivec2(x * 2 + 32, y * 2 + 32);
-    uv = (vec2(tex) + vec2(0.5)) * pc.rcp_resolution;
-    pix = ivec2(wg_id * 32) + ivec2(x + 16, y + 16);
+    tex = int2(wg_id * 64) + int2(x * 2 + 32, y * 2 + 32);
+    uv = (float2(tex) + float2(0.5)) * pc.rcp_resolution;
+    pix = int2(wg_id * 32) + int2(x + 16, y + 16);
     v[3] = sample_texture(pc.src_id, pc.sampler_id, uv, 0);
     spd_store(pix, v[3], 0, slice);
 
@@ -168,37 +162,37 @@ void spd_downsample_mips_0_1(uint x, uint y, uvec2 wg_id, uint local_id, uint mi
 
     if ((local_id % 4) == 0)
     {
-        pix = ivec2(wg_id) * 16 + ivec2(x / 2, y / 2);
+        pix = int2(wg_id) * 16 + int2(x / 2, y / 2);
         spd_store(pix, v[0], 1, slice);
         spd_store_intermediate(x / 2, y / 2, v[0]);
 
-        pix = ivec2(wg_id) * 16 + ivec2(x / 2 + 8, y / 2);
+        pix = int2(wg_id) * 16 + int2(x / 2 + 8, y / 2);
         spd_store(pix, v[1], 1, slice);
         spd_store_intermediate(x / 2 + 8, y / 2, v[1]);
 
-        pix = ivec2(wg_id) * 16 + ivec2(x / 2, y / 2 + 8);
+        pix = int2(wg_id) * 16 + int2(x / 2, y / 2 + 8);
         spd_store(pix, v[2], 1, slice);
         spd_store_intermediate(x / 2, y / 2 + 8, v[2]);
 
-        pix = ivec2(wg_id) * 16 + ivec2(x / 2 + 8, y / 2 + 8);
+        pix = int2(wg_id) * 16 + int2(x / 2 + 8, y / 2 + 8);
         spd_store(pix, v[3], 1, slice);
         spd_store_intermediate(x / 2 + 8, y / 2 + 8, v[3]);
     }
 }
 
-void spd_downsample_mip_2(uint x, uint y, uvec2 wg_id, uint local_id, uint mip, uint slice)
+void spd_downsample_mip_2(uint x, uint y, uint2 wg_id, uint local_id, uint mip, uint slice)
 {
     float v = spd_load_intermediate(x, y);
     v = spd_reduce_quad(v);
 
     if (local_id % 4 == 0)
     {
-        spd_store(ivec2(wg_id * 8) + ivec2(x / 2, y / 2), v, mip, slice);
+        spd_store(int2(wg_id * 8) + int2(x / 2, y / 2), v, mip, slice);
         spd_store_intermediate(x + (y / 2) % 2, y, v);
     }
 }
 
-void spd_downsample_mip_3(uint x, uint y, uvec2 wg_id, uint local_id, uint mip, uint slice)
+void spd_downsample_mip_3(uint x, uint y, uint2 wg_id, uint local_id, uint mip, uint slice)
 {
     if (local_id < 64)
     {
@@ -207,13 +201,13 @@ void spd_downsample_mip_3(uint x, uint y, uvec2 wg_id, uint local_id, uint mip, 
 
         if (local_id % 4 == 0)
         {
-            spd_store(ivec2(wg_id * 4) + ivec2(x / 2, y / 2), v, mip, slice);
+            spd_store(int2(wg_id * 4) + int2(x / 2, y / 2), v, mip, slice);
             spd_store_intermediate(x * 2 + y / 2, y * 2, v);
         }
     }
 }
 
-void spd_downsample_mip_4(uint x, uint y, uvec2 wg_id, uint local_id, uint mip, uint slice)
+void spd_downsample_mip_4(uint x, uint y, uint2 wg_id, uint local_id, uint mip, uint slice)
 {
     if (local_id < 16)
     {
@@ -222,13 +216,13 @@ void spd_downsample_mip_4(uint x, uint y, uvec2 wg_id, uint local_id, uint mip, 
 
         if (local_id % 4 == 0)
         {
-            spd_store(ivec2(wg_id * 2) + ivec2(x / 2, y / 2), v, mip, slice);
+            spd_store(int2(wg_id * 2) + int2(x / 2, y / 2), v, mip, slice);
             spd_store_intermediate(x / 2 + y, 0, v);
         }
     }
 }
 
-void spd_downsample_mip_5(uvec2 wg_id, uint local_id, uint mip, uint slice)
+void spd_downsample_mip_5(uint2 wg_id, uint local_id, uint mip, uint slice)
 {
     if (local_id < 4)
     {
@@ -238,29 +232,29 @@ void spd_downsample_mip_5(uvec2 wg_id, uint local_id, uint mip, uint slice)
         if (local_id % 4 == 0)
         {
             if (mip == 5)
-                spd_store_coherent(ivec2(wg_id), v, slice);
+                spd_store_coherent(int2(wg_id), v, slice);
             else
-                spd_store(ivec2(wg_id), v, mip, slice);
+                spd_store(int2(wg_id), v, mip, slice);
         }
     }
 }
 
-void spd_downsample_next_four(uint x, uint y, uvec2 wg_id, uint local_id, uint base_mip, uint mips, uint slice)
+void spd_downsample_next_four(uint x, uint y, uint2 wg_id, uint local_id, uint base_mip, uint mips, uint slice)
 {
     if (mips <= base_mip) return;
-    barrier();
+    GroupMemoryBarrierWithGroupSync();
     spd_downsample_mip_2(x, y, wg_id, local_id, base_mip, slice);
 
     if (mips <= base_mip + 1) return;
-    barrier();
+    GroupMemoryBarrierWithGroupSync();
     spd_downsample_mip_3(x, y, wg_id, local_id, base_mip + 1, slice);
 
     if (mips <= base_mip + 2) return;
-    barrier();
+    GroupMemoryBarrierWithGroupSync();
     spd_downsample_mip_4(x, y, wg_id, local_id, base_mip + 2, slice);
 
     if (mips <= base_mip + 3) return;
-    barrier();
+    GroupMemoryBarrierWithGroupSync();
     spd_downsample_mip_5(wg_id, local_id, base_mip + 3, slice);
 }
 
@@ -268,9 +262,9 @@ bool spd_exit_workgroup(uint num_wgs, uint local_id, uint slice)
 {
     // spd_counter must be shared, not local
     if (local_id == 0)
-        spd_counter = atomicAdd(pc.spd_counter_buffer.counter, 1);
+        InterlockedAdd(*pc.spd_counter_buffer, 1, spd_counter);
 
-    barrier();
+    GroupMemoryBarrierWithGroupSync();
 
     // only 1 wg to proceed
     return spd_counter != (num_wgs - 1);
@@ -278,28 +272,28 @@ bool spd_exit_workgroup(uint num_wgs, uint local_id, uint slice)
 
 void spd_reset_atomic_counter(uint slice)
 {
-    pc.spd_counter_buffer.counter = 0;
+    *pc.spd_counter_buffer = 0;
 }
 
 void spd_downsample_mips_6_7(uint x, uint y, uint mips, uint slice)
 {
-    ivec2 tex = ivec2(x * 4 + 0, y * 4 + 0);
-    ivec2 pix = ivec2(x * 2 + 0, y * 2 + 0);
+    int2 tex = int2(x * 4 + 0, y * 4 + 0);
+    int2 pix = int2(x * 2 + 0, y * 2 + 0);
     float v0 = spd_reduce_coherent_load(tex, slice);
     spd_store(pix, v0, 6, slice);
 
-    tex = ivec2(x * 4 + 2, y * 4 + 0);
-    pix = ivec2(x * 2 + 1, y * 2 + 0);
+    tex = int2(x * 4 + 2, y * 4 + 0);
+    pix = int2(x * 2 + 1, y * 2 + 0);
     float v1 = spd_reduce_coherent_load(tex, slice);
     spd_store(pix, v1, 6, slice);
 
-    tex = ivec2(x * 4 + 0, y * 4 + 2);
-    pix = ivec2(x * 2 + 0, y * 2 + 1);
+    tex = int2(x * 4 + 0, y * 4 + 2);
+    pix = int2(x * 2 + 0, y * 2 + 1);
     float v2 = spd_reduce_coherent_load(tex, slice);
     spd_store(pix, v2, 6, slice);
 
-    tex = ivec2(x * 4 + 2, y * 4 + 2);
-    pix = ivec2(x * 2 + 1, y * 2 + 1);
+    tex = int2(x * 4 + 2, y * 4 + 2);
+    pix = int2(x * 2 + 1, y * 2 + 1);
     float v3 = spd_reduce_coherent_load(tex, slice);
     spd_store(pix, v3, 6, slice);
 
@@ -307,14 +301,14 @@ void spd_downsample_mips_6_7(uint x, uint y, uint mips, uint slice)
     // no barrier needed, working on values only from the same thread
 
     float v = spd_reduce_4(v0, v1, v2, v3);
-    spd_store(ivec2(x, y), v, 7, slice);
+    spd_store(int2(x, y), v, 7, slice);
     spd_store_intermediate(x, y, v);
 }
 
-void spd_downsample(uvec2 wg_id, uint local_id, uint mips, uint num_wgs, uint slice)
+void spd_downsample(uint2 wg_id, uint local_id, uint mips, uint num_wgs, uint slice)
 {
     // map to 2d shared memory
-    uvec2 sub_xy = ARmpRed8x8(local_id % 64);
+    uint2 sub_xy = ARmpRed8x8(local_id % 64);
     uint x = sub_xy.x + 8 * ((local_id >> 6) % 2);
     uint y = sub_xy.y + 8 * ((local_id >> 7));
 
@@ -332,16 +326,21 @@ void spd_downsample(uvec2 wg_id, uint local_id, uint mips, uint num_wgs, uint sl
         spd_reset_atomic_counter(slice);
 
     spd_downsample_mips_6_7(x, y, mips, slice);
-    spd_downsample_next_four(x, y, uvec2(0, 0), local_id, 8, mips, slice);
+    spd_downsample_next_four(x, y, uint2(0, 0), local_id, 8, mips, slice);
 }
 
-void main()
+[shader("compute")]
+[numthreads(256, 1, 1)]
+void main(
+    uint3 wg_id : SV_GroupID,
+    uint t_index : SV_GroupIndex
+)
 {
     spd_downsample(
-        gl_WorkGroupID.xy,
-        gl_LocalInvocationIndex,
+        wg_id.xy,
+        t_index,
         pc.mips,
         pc.num_wgs,
-        gl_WorkGroupID.z
+        wg_id.z
     );
 }
