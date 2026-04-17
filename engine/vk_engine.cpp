@@ -1515,11 +1515,13 @@ void VulkanEngine::init_vulkan()
 	features12.shaderInt8 = true;
 	features12.storageBuffer8BitAccess = true;
 	features12.shaderBufferInt64Atomics = true;
+	features12.storagePushConstant8 = true; // note: possible slang capability bug, setting to true so val layer doesn't complain
 
 	// vulkan 1.1 features
 	VkPhysicalDeviceVulkan11Features features11{};
 	features11.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
 	features11.storageBuffer16BitAccess = true;
+	features11.storagePushConstant16 = true; // note: possible slang capability bug, setting to true so val layer doesn't complain
 
 	// vulkan 1.0 features
 	VkPhysicalDeviceFeatures features10{};
