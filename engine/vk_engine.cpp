@@ -48,7 +48,7 @@ constexpr bool USE_VALIDATION_LAYERS = false;
 constexpr bool USE_VALIDATION_LAYERS = true;
 #endif
 
-#define SINGLE // uncomment if loading a proper scene
+// #define SINGLE // uncomment if loading a proper scene
 
 AutoCVar_Int CVAR_RENDER_VBUFFER{ "render.vbuffer", "Vbuffer path", 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_MESH_SHADERS{ "render.mesh_shaders", "Mesh shaders path", 1, CVarFlags::EditCheckbox };
@@ -1905,8 +1905,7 @@ void VulkanEngine::init_shaders()
 	shader_cache.add_shader(device, "meshlet.mesh", sizeof(GPUPushConstants));
 	shader_cache.add_shader(device, "mlab.frag", sizeof(GPUPushConstants));
 	shader_cache.add_shader(device, "depth.slang", sizeof(ShadowPushConstants));
-	shader_cache.add_shader(device, "vis_buffer.frag", sizeof(GPUPushConstants));
-	shader_cache.add_shader(device, "vis_meshlet.mesh", sizeof(GPUPushConstants));
+	shader_cache.add_shader(device, "vbuffer.slang", sizeof(GPUPushConstants));
 }
 
 void VulkanEngine::init_pipelines()
@@ -1979,9 +1978,9 @@ void VulkanEngine::init_pipelines()
 	color_blend_states.push_back(builder.disable_blending()); // 2 channel texture but RGBA write mask ok? no validation error
 	builder.set_blending_state(color_blend_states);
 	builder.set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-	shader_passes["visibility_mesh"] = builder.create_pipeline(device, { shader_cache["vis_meshlet.mesh"], shader_cache["vis_buffer.frag"] }, { VK_SHADER_STAGE_MESH_BIT_EXT, VK_SHADER_STAGE_FRAGMENT_BIT }, {}, { 1 });
+	shader_passes["visibility_mesh"] = builder.create_pipeline(device, { shader_cache["vbuffer.slang"] }, { VK_SHADER_STAGE_MESH_BIT_EXT, VK_SHADER_STAGE_FRAGMENT_BIT }, { "mesh_main", "ps_main" }, { 1 });
 	builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-	shader_passes["visibility_mesh_mask"] = builder.create_pipeline(device, { shader_cache["vis_meshlet.mesh"], shader_cache["vis_buffer.frag"] }, {VK_SHADER_STAGE_MESH_BIT_EXT, VK_SHADER_STAGE_FRAGMENT_BIT}, {}, { 0 });
+	shader_passes["visibility_mesh_mask"] = builder.create_pipeline(device, { shader_cache["vbuffer.slang"] }, {VK_SHADER_STAGE_MESH_BIT_EXT, VK_SHADER_STAGE_FRAGMENT_BIT}, { "mesh_main", "ps_main" }, { 0 });
 
 	// single render target
 	color_attachment_formats.clear();

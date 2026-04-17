@@ -2,6 +2,13 @@ import bindings;
 import types;
 import util;
 
+struct Interp
+{
+	float4 position : SV_Position;
+	float2 uv;
+	nointerpolation uint material_id;
+};
+
 struct PushConstants
 {
 	float4x4 view_proj;
@@ -11,13 +18,6 @@ struct PushConstants
 };
 
 [[vk::push_constant]] PushConstants pc;
-
-struct Interp
-{
-	float4 position : SV_Position;
-	float2 uv;
-	nointerpolation uint material_id; // how to handle flat?
-};
 
 [shader("vertex")]
 Interp vs_main(

@@ -1,61 +1,80 @@
-#version 460
+import bindings;
+import types;
+import util;
+import prefix_sum;
 
-#extension GL_GOOGLE_include_directive : require
-#extension GL_EXT_mesh_shader : require
-
-#include "bindings.glsl"
-#include "buffer_references.glsl"
-#include "util.glsl"
-#include "prefix_sum.glsl"
-
-layout(local_size_x = 128) in;
-layout(triangles, max_vertices = 64, max_primitives = 124) out; // not 126?
-
-layout (constant_id = 0) const int OPAQUE = 1;
-
-layout(push_constant) uniform constants
+struct Interp
 {
-    ObjectBuffer object_buffer;
-    VertexBuffer vertex_buffer;
-    MeshletBuffer meshlet_buffer;
-    MeshletIndicesBuffer meshlet_indices_buffer;
-    ClusterIndicesBuffer cluster_indices_buffer;
-    MaterialBuffer material_buffer;
-    OITBuffer oit_buffer;
-    PrefixSumBuffer prefix_sum_buffer;
-    vec4 jitter_offset;
+	float4 position : SV_Position;
+	float2 uv;
+	nointerpolation uint material_id;
+	// float4 clip_pos;
+	// float4 prev_clip_pos;
 };
 
-layout (location = 0) perprimitiveEXT out uint out_draw_id[];
-layout (location = 1) perprimitiveEXT out uint out_triangle_id[];
-layout (location = 2) out vec2 out_uv[];
-layout (location = 3) out uint out_material_id[];
-// layout (location = 4) out vec4 out_clip_pos[];
-// layout (location = 5) out vec4 out_prev_clip_pos[];
+struct PerPrimitive
+{
+    uint draw_id;
+	uint triangle_id;
+
+	bool cull_primitive : SV_CullPrimitive;
+};
+
+[vk::constant_id(0)]
+const int OPAQUE = 1;
+
+struct PushConstants
+{
+    ObjectData* object_buffer;
+    Vertex* vertex_buffer;
+    Meshlet* meshlet_buffer;
+    uint* meshlet_indices_buffer;
+    uint* cluster_indices_buffer;
+    MaterialData* material_buffer;
+    OITData* oit_buffer;
+    PrefixSum* prefix_sum_buffer;
+    float4 jitter_offset;
+};
+
+[[vk::push_constant]] PushConstants pc;
 
 #define TRIANGLE_CULLING
 
 #ifdef TRIANGLE_CULLING
-shared vec3 vertex_clip[64];
+groupshared float3 vertex_clip[64];
 #endif
 
-void main()
+#define WG_SIZE_X 128
+
+[shader("mesh")]
+[numthreads(WG_SIZE_X, 1, 1)]
+[outputtopology("triangle")]
+void mesh_main(
+    uint3 wg_id : SV_GroupID,
+    uint t_index : SV_GroupIndex,
+    out vertices Interp verts[64],
+    out indices uint3 tris[124],
+    out primitives PerPrimitive prims[124]
+)
 {
-    uint id = gl_WorkGroupID.x;
+    uint id = wg_id.x;
 
-    uint64_t counter = get_prefix_sum_counter(prefix_sum_buffer);
+    uint64_t counter = get_prefix_sum_counter(pc.prefix_sum_buffer);
 	uint total_meshlet_count = uint(counter);
-    uint target = cluster_indices_buffer.indices[id];
+    uint target = pc.cluster_indices_buffer[id];
 
-    uint prefix_sum_idx = prefix_sum_binary_search(prefix_sum_buffer, target);
-    PrefixSumData prefix_sum_data = prefix_sum_buffer.prefix_sum.data[prefix_sum_idx];
+    uint prefix_sum_idx = prefix_sum_binary_search(pc.prefix_sum_buffer, target);
+    PrefixSumData prefix_sum_data = pc.prefix_sum_buffer.data[prefix_sum_idx];
     uint meshlet_lod_offset = prefix_sum_data.lod_offset;
-    meshlet_lod_offset = bitfieldExtract(meshlet_lod_offset, 0, 31); // we do some packing hence this is essential!
+
+    // we do some packing during culling hence this is essential!
+    meshlet_lod_offset = bitfieldExtract(meshlet_lod_offset, 0u, 31u);
+
     uint object_id = prefix_sum_data.instance_id;
 
    	bool overflow = prefix_sum_idx == total_meshlet_count;
 
-	uint inclusive_sum = overflow ? total_meshlet_count : prefix_sum_buffer.prefix_sum.data[prefix_sum_idx + 1].sum;
+	uint inclusive_sum = overflow ? total_meshlet_count : pc.prefix_sum_buffer.data[prefix_sum_idx + 1].sum;
 	uint exclusive_sum = prefix_sum_data.sum;
 	uint local_meshlet_count = inclusive_sum - exclusive_sum;
 
@@ -63,68 +82,66 @@ void main()
 	uint local_meshlet_index = target - (inclusive_sum - local_meshlet_count);
 
 	uint meshlet_offset = local_meshlet_index + meshlet_lod_offset;
-	Meshlet meshlet = meshlet_buffer.meshlets[meshlet_offset];
+	Meshlet meshlet = pc.meshlet_buffer[meshlet_offset];
 
     uint vertex_count = meshlet.vertex_count;
     uint triangle_count = meshlet.triangle_count;
 
-    SetMeshOutputsEXT(vertex_count, triangle_count);
+    SetMeshOutputCounts(vertex_count, triangle_count);
 
-    ObjectData o = object_buffer.objects[object_id];
+    ObjectData o = pc.object_buffer[object_id];
 
     uint m_vertex_offset = meshlet.data_offset; // offset into meshlet_indices_buffer
     uint m_triangle_offset = m_vertex_offset + vertex_count;
 
-    uint ti = gl_LocalInvocationIndex;
-
-    for (uint i = ti; i < vertex_count; i += gl_WorkGroupSize.x)
+    for (uint i = t_index; i < vertex_count; i += WG_SIZE_X)
     {
-        uint vertex_index = meshlet_indices_buffer.indices[m_vertex_offset + i]; // vertex indices for meshlets are global, really need to document this
-        Vertex v = vertex_buffer.vertices[vertex_index];
+        uint vertex_index = pc.meshlet_indices_buffer[m_vertex_offset + i]; // vertex indices for meshlets are global, really need to document this
+        Vertex v = pc.vertex_buffer[vertex_index];
 
-        vec3 pos = vec3(v.px, v.py, v.pz);
-        vec4 world_pos = vec4(rotate_quat(pos, o.orientation) * o.scale + o.translation, 1.0);
+        float3 pos = float3(v.px, v.py, v.pz);
+        float4 world_pos = float4(rotate_quat(pos, o.orientation) * o.scale + o.translation, 1.0);
 
-        out_uv[i] = vec2(v.uv_x, v.uv_y);
-        out_material_id[i] = o.material_id; // only used for alpha clipping
+        verts[i].uv = float2(v.uv_x, v.uv_y);
+        verts[i].material_id = o.material_id; // only used for alpha clipping
 
-        vec4 clip_pos = uniforms.view_proj * world_pos;
+        float4 clip_pos = mul(uniforms.view_proj, world_pos);
 
         // TODO: only account for screen size if doing small primitive culling
 #ifdef TRIANGLE_CULLING
         if (OPAQUE == 1)
         {
-            vertex_clip[i] = vec3(clip_pos.xy / clip_pos.w * 0.5 + 0.5, clip_pos.w);
+            vertex_clip[i] = float3(clip_pos.xy / clip_pos.w * 0.5 + 0.5, clip_pos.w);
         }
 #endif
-        gl_MeshVerticesEXT[i].gl_Position = clip_pos;
+        verts[i].position = clip_pos;
     }
 
-    barrier();
+    GroupMemoryBarrierWithGroupSync();
 
-    for (uint i = ti; i < triangle_count; i += gl_WorkGroupSize.x)
+    for (uint i = t_index; i < triangle_count; i += WG_SIZE_X)
     {
-        out_draw_id[i] = object_id;
+        prims[i].draw_id = object_id;
 
         // WARNING: unsafe if meshlet_offset is large
-        out_triangle_id[i] = (i << 25) | meshlet_offset;
+        prims[i].triangle_id = (i << 25) | meshlet_offset;
 
-        uint idx0 = meshlet_indices_buffer.indices[m_triangle_offset + i * 3 + 0];
-        uint idx1 = meshlet_indices_buffer.indices[m_triangle_offset + i * 3 + 1];
-        uint idx2 = meshlet_indices_buffer.indices[m_triangle_offset + i * 3 + 2];
+        uint idx0 = pc.meshlet_indices_buffer[m_triangle_offset + i * 3 + 0];
+        uint idx1 = pc.meshlet_indices_buffer[m_triangle_offset + i * 3 + 1];
+        uint idx2 = pc.meshlet_indices_buffer[m_triangle_offset + i * 3 + 2];
 
-        gl_PrimitiveTriangleIndicesEXT[i] = uvec3(idx0, idx1, idx2);
+        tris[i] = uint3(idx0, idx1, idx2);
 
 #ifdef TRIANGLE_CULLING
         // backface + zero area culling
         if (OPAQUE == 1)
         {
-            vec2 va = vertex_clip[idx0].xy;
-            vec2 vb = vertex_clip[idx1].xy;
-            vec2 vc = vertex_clip[idx2].xy;
+            float2 va = vertex_clip[idx0].xy;
+            float2 vb = vertex_clip[idx1].xy;
+            float2 vc = vertex_clip[idx2].xy;
 
-            vec2 eb = vb - va;
-            vec2 ec = vc - va;
+            float2 eb = vb - va;
+            float2 ec = vc - va;
 
             // triangle backface + zero area culling
             bool culled = eb.x * ec.y <= eb.y * ec.x;
@@ -134,8 +151,30 @@ void main()
 
             // this cannot be in a runtime branch! compiler likely sets this to a default value after dead code removal if it cannot find gl_CullPrimitiveEXT
             // if it exists and we place it in a branch, we get flickering artifacts all over
-            gl_MeshPrimitivesEXT[i].gl_CullPrimitiveEXT = culled;
+            prims[i].cull_primitive = culled;
         }
 #endif
     }
+}
+
+[shader("pixel")]
+void ps_main(
+    Interp in,
+    PerPrimitive prim,
+    out uint2 visibility_id : SV_Target0,
+    // out float2 velocity_id : SV_Target1
+)
+{
+	if (OPAQUE == 0)
+	{
+		MaterialData m = pc.material_buffer[in.material_id];
+		float4 albedo = textures[m.diffuse_id].Sample(samplers[LINEAR_SAMPLER], in.uv);
+
+		if (albedo.a < 0.5)
+			discard;
+	}
+
+	// TODO: visibility_id can be packed into a single value
+	visibility_id = uint2(prim.draw_id, prim.triangle_id);
+	// velocity_id = float2(0.0);
 }
