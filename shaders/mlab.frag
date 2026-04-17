@@ -16,8 +16,6 @@ layout (location = 1) in vec2 in_uv;
 layout (location = 2) in vec4 in_tangent;
 layout (location = 3) in flat uint in_material_id;
 
-layout (location = 0) out vec4 out_color;
-
 layout(early_fragment_tests) in; // REQUIRED
 layout(pixel_interlock_ordered) in; // seems to work even without, not sure if spec mandates this qualifier
 
