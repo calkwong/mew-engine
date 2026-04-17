@@ -37,6 +37,7 @@
 #include <thread>
 #include <utility>
 #include <cstdlib>
+#include <vulkan/vulkan_core.h>
 
 VulkanEngine* loaded_engine{};
 
@@ -48,7 +49,7 @@ constexpr bool USE_VALIDATION_LAYERS = false;
 constexpr bool USE_VALIDATION_LAYERS = true;
 #endif
 
-// #define SINGLE // uncomment if loading a proper scene
+#define SINGLE // uncomment if loading a proper scene
 
 AutoCVar_Int CVAR_RENDER_VBUFFER{ "render.vbuffer", "Vbuffer path", 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_MESH_SHADERS{ "render.mesh_shaders", "Mesh shaders path", 1, CVarFlags::EditCheckbox };
@@ -1881,33 +1882,33 @@ void VulkanEngine::init_descriptors()
 
 void VulkanEngine::init_shaders()
 {
-	shader_cache.add_shader(device, "cluster_grid.slang", VK_SHADER_STAGE_COMPUTE_BIT);
-	shader_cache.add_shader(device, "light_culling.slang", VK_SHADER_STAGE_COMPUTE_BIT);
-	shader_cache.add_shader(device, "hiz.slang", VK_SHADER_STAGE_COMPUTE_BIT);
-	shader_cache.add_shader(device, "mesh_cull.slang", VK_SHADER_STAGE_COMPUTE_BIT);
-	shader_cache.add_shader(device, "meshlet_cull.slang", VK_SHADER_STAGE_COMPUTE_BIT);
-	shader_cache.add_shader(device, "shadow_cull.slang", VK_SHADER_STAGE_COMPUTE_BIT);
-	shader_cache.add_shader(device, "mesh.vert", VK_SHADER_STAGE_VERTEX_BIT);
-	shader_cache.add_shader(device, "geometry.frag", VK_SHADER_STAGE_FRAGMENT_BIT);
-	shader_cache.add_shader(device, "meshlet.mesh", VK_SHADER_STAGE_MESH_BIT_EXT);
-	shader_cache.add_shader(device, "mlab.frag", VK_SHADER_STAGE_FRAGMENT_BIT);
-	shader_cache.add_shader(device, "depth.vert", VK_SHADER_STAGE_VERTEX_BIT);
-	shader_cache.add_shader(device, "depth.frag", VK_SHADER_STAGE_FRAGMENT_BIT);
-	shader_cache.add_shader(device, "vis_buffer.frag", VK_SHADER_STAGE_FRAGMENT_BIT);
-	shader_cache.add_shader(device, "vis_meshlet.mesh", VK_SHADER_STAGE_MESH_BIT_EXT);
-	shader_cache.add_shader(device, "resolve_taa.slang", VK_SHADER_STAGE_COMPUTE_BIT);
-	shader_cache.add_shader(device, "equirectangular_to_cubemap.slang", VK_SHADER_STAGE_COMPUTE_BIT);
-	shader_cache.add_shader(device, "spherical_harmonics.slang", VK_SHADER_STAGE_COMPUTE_BIT);
-	shader_cache.add_shader(device, "irradiance.slang", VK_SHADER_STAGE_COMPUTE_BIT);
-	shader_cache.add_shader(device, "prefiltered.slang", VK_SHADER_STAGE_COMPUTE_BIT);
-	shader_cache.add_shader(device, "brdf.slang", VK_SHADER_STAGE_COMPUTE_BIT);
-	shader_cache.add_shader(device, "luminance_histogram.slang", VK_SHADER_STAGE_COMPUTE_BIT);
-	shader_cache.add_shader(device, "luminance_avg.slang", VK_SHADER_STAGE_COMPUTE_BIT);
-	shader_cache.add_shader(device, "tonemap.slang", VK_SHADER_STAGE_COMPUTE_BIT);
-	shader_cache.add_shader(device, "resolve_vbuffer.slang", VK_SHADER_STAGE_COMPUTE_BIT);
-	shader_cache.add_shader(device, "resolve_gbuffer.slang", VK_SHADER_STAGE_COMPUTE_BIT);
-	shader_cache.add_shader(device, "compact_dispatch.slang", VK_SHADER_STAGE_COMPUTE_BIT);
-	shader_cache.add_shader(device, "hiz_spd.slang", VK_SHADER_STAGE_COMPUTE_BIT);
+	shader_cache.add_shader(device, "cluster_grid.slang", sizeof(ClusterGridPushConstants));
+	shader_cache.add_shader(device, "light_culling.slang", sizeof(LightCullingPushConstants));
+	shader_cache.add_shader(device, "hiz.slang", sizeof(DepthPyramidPushConstants));
+	shader_cache.add_shader(device, "mesh_cull.slang", sizeof(CullData));
+	shader_cache.add_shader(device, "meshlet_cull.slang", sizeof(ClusterCullData));
+	shader_cache.add_shader(device, "shadow_cull.slang", sizeof(ShadowCullPushConstants));
+	shader_cache.add_shader(device, "mesh.vert", sizeof(GPUPushConstants));
+	shader_cache.add_shader(device, "geometry.frag", sizeof(GPUPushConstants));
+	shader_cache.add_shader(device, "meshlet.mesh", sizeof(GPUPushConstants));
+	shader_cache.add_shader(device, "mlab.frag", sizeof(GPUPushConstants));
+	shader_cache.add_shader(device, "depth.vert", sizeof(ShadowPushConstants));
+	shader_cache.add_shader(device, "depth.frag", sizeof(ShadowPushConstants));
+	shader_cache.add_shader(device, "vis_buffer.frag", sizeof(GPUPushConstants));
+	shader_cache.add_shader(device, "vis_meshlet.mesh", sizeof(GPUPushConstants));
+	shader_cache.add_shader(device, "resolve_taa.slang", sizeof(TAAPushConstants));
+	shader_cache.add_shader(device, "equirectangular_to_cubemap.slang", sizeof(IBLPushConstants));
+	shader_cache.add_shader(device, "spherical_harmonics.slang", sizeof(SHPushConstants));
+	shader_cache.add_shader(device, "irradiance.slang", sizeof(IBLPushConstants));
+	shader_cache.add_shader(device, "prefiltered.slang", sizeof(IBLPushConstants));
+	shader_cache.add_shader(device, "brdf.slang", sizeof(IBLPushConstants));
+	shader_cache.add_shader(device, "luminance_histogram.slang", sizeof(LuminanceBinsPushConstants));
+	shader_cache.add_shader(device, "luminance_avg.slang", sizeof(LuminanceBinsPushConstants));
+	shader_cache.add_shader(device, "tonemap.slang", sizeof(TonemapPushConstants));
+	shader_cache.add_shader(device, "resolve_vbuffer.slang", sizeof(DeferredPushConstants));
+	shader_cache.add_shader(device, "resolve_gbuffer.slang", sizeof(DeferredPushConstants));
+	shader_cache.add_shader(device, "compact_dispatch.slang", sizeof(CompactDispatchPushConstants));
+	shader_cache.add_shader(device, "hiz_spd.slang", sizeof(SpdPushConstants));
 }
 
 void VulkanEngine::init_pipelines()
@@ -1915,29 +1916,30 @@ void VulkanEngine::init_pipelines()
 	std::vector<VkDescriptorSetLayout> descriptor_layouts = { scene_descriptor_layout, bindless_image_layout, bindless_tex_layout, bindless_sampler_layout };
 
 	ComputePipelineBuilder compute_builder{};
+	compute_builder.set_descriptor_layouts({ scene_descriptor_layout, bindless_image_layout, bindless_tex_layout, bindless_sampler_layout });
+
 	PipelineBuilder builder{};
+	builder.set_descriptor_layouts({ scene_descriptor_layout, bindless_image_layout, bindless_tex_layout, bindless_sampler_layout });
 
-	shader_passes["cluster_grid"] = compute_builder.create_pipeline(device, shader_cache["cluster_grid.slang"], descriptor_layouts, sizeof(ClusterGridPushConstants));
-	shader_passes["light_culling"] = compute_builder.create_pipeline(device, shader_cache["light_culling.slang"], descriptor_layouts, sizeof(LightCullingPushConstants));
-
-	shader_passes["hiz"] = compute_builder.create_pipeline(device, shader_cache["hiz.slang"], descriptor_layouts, sizeof(DepthPyramidPushConstants));
-	shader_passes["mesh_cull"] = compute_builder.create_pipeline(device, shader_cache["mesh_cull.slang"], descriptor_layouts, sizeof(CullData));
-	shader_passes["meshlet_cull"] = compute_builder.create_pipeline(device, shader_cache["meshlet_cull.slang"], descriptor_layouts, sizeof(ClusterCullData)); // TODO: check if this is also culldata
-	shader_passes["equirectangular_to_cubemap"] = compute_builder.create_pipeline(device, shader_cache["equirectangular_to_cubemap.slang"], descriptor_layouts, sizeof(IBLPushConstants));
-	shader_passes["spherical_harmonics"] = compute_builder.create_pipeline(device, shader_cache["spherical_harmonics.slang"], descriptor_layouts, sizeof(SHPushConstants));
-	shader_passes["irradiance"] = compute_builder.create_pipeline(device, shader_cache["irradiance.slang"], descriptor_layouts, sizeof(IBLPushConstants));
-	shader_passes["prefiltered"] = compute_builder.create_pipeline(device, shader_cache["prefiltered.slang"], descriptor_layouts, sizeof(IBLPushConstants));
-	shader_passes["brdf"] = compute_builder.create_pipeline(device, shader_cache["brdf.slang"], descriptor_layouts, sizeof(IBLPushConstants));
-	shader_passes["luminance_histogram"] = compute_builder.create_pipeline(device, shader_cache["luminance_histogram.slang"], descriptor_layouts, sizeof(LuminanceBinsPushConstants));
-	shader_passes["luminance_avg"] = compute_builder.create_pipeline(device, shader_cache["luminance_avg.slang"], descriptor_layouts, sizeof(LuminanceBinsPushConstants));
-	shader_passes["tonemap"] = compute_builder.create_pipeline(device, shader_cache["tonemap.slang"], descriptor_layouts, sizeof(TonemapPushConstants));
-	shader_passes["shadow_cull"] = compute_builder.create_pipeline(device, shader_cache["shadow_cull.slang"], descriptor_layouts, sizeof(ShadowCullPushConstants));
-
-	shader_passes["resolve_vbuffer"] = compute_builder.create_pipeline(device, shader_cache["resolve_vbuffer.slang"], descriptor_layouts, sizeof(DeferredPushConstants));
-	shader_passes["resolve_gbuffer"] = compute_builder.create_pipeline(device, shader_cache["resolve_gbuffer.slang"], descriptor_layouts, sizeof(DeferredPushConstants));
-	shader_passes["compact_dispatch"] = compute_builder.create_pipeline(device, shader_cache["compact_dispatch.slang"], descriptor_layouts, sizeof(CompactDispatchPushConstants));
-	shader_passes["resolve_taa"] = compute_builder.create_pipeline(device, shader_cache["resolve_taa.slang"], descriptor_layouts, sizeof(TAAPushConstants));
-	shader_passes["hiz_spd"] = compute_builder.create_pipeline(device, shader_cache["hiz_spd.slang"], descriptor_layouts, sizeof(SpdPushConstants));
+	shader_passes["cluster_grid"] = compute_builder.create_pipeline(device, shader_cache["cluster_grid.slang"]);
+	shader_passes["light_culling"] = compute_builder.create_pipeline(device, shader_cache["light_culling.slang"]);
+	shader_passes["hiz"] = compute_builder.create_pipeline(device, shader_cache["hiz.slang"]);
+	shader_passes["mesh_cull"] = compute_builder.create_pipeline(device, shader_cache["mesh_cull.slang"]);
+	shader_passes["meshlet_cull"] = compute_builder.create_pipeline(device, shader_cache["meshlet_cull.slang"]); // TODO: check if this is also culldata
+	shader_passes["equirectangular_to_cubemap"] = compute_builder.create_pipeline(device, shader_cache["equirectangular_to_cubemap.slang"]);
+	shader_passes["spherical_harmonics"] = compute_builder.create_pipeline(device, shader_cache["spherical_harmonics.slang"]);
+	shader_passes["irradiance"] = compute_builder.create_pipeline(device, shader_cache["irradiance.slang"]);
+	shader_passes["prefiltered"] = compute_builder.create_pipeline(device, shader_cache["prefiltered.slang"]);
+	shader_passes["brdf"] = compute_builder.create_pipeline(device, shader_cache["brdf.slang"]);
+	shader_passes["luminance_histogram"] = compute_builder.create_pipeline(device, shader_cache["luminance_histogram.slang"]);
+	shader_passes["luminance_avg"] = compute_builder.create_pipeline(device, shader_cache["luminance_avg.slang"]);
+	shader_passes["tonemap"] = compute_builder.create_pipeline(device, shader_cache["tonemap.slang"]);
+	shader_passes["shadow_cull"] = compute_builder.create_pipeline(device, shader_cache["shadow_cull.slang"]);
+	shader_passes["resolve_vbuffer"] = compute_builder.create_pipeline(device, shader_cache["resolve_vbuffer.slang"]);
+	shader_passes["resolve_gbuffer"] = compute_builder.create_pipeline(device, shader_cache["resolve_gbuffer.slang"]);
+	shader_passes["compact_dispatch"] = compute_builder.create_pipeline(device, shader_cache["compact_dispatch.slang"]);
+	shader_passes["resolve_taa"] = compute_builder.create_pipeline(device, shader_cache["resolve_taa.slang"]);
+	shader_passes["hiz_spd"] = compute_builder.create_pipeline(device, shader_cache["hiz_spd.slang"]);
 
 	// mrt
 	builder.set_input_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
@@ -1961,14 +1963,14 @@ void VulkanEngine::init_pipelines()
 	builder.set_color_attachment_format(color_attachment_formats);
 	builder.set_blending_state(color_blend_states);
 	builder.set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-	shader_passes["geometry_vert"] = vkutil::build_shader(device, builder, { shader_cache["mesh.vert"], shader_cache["geometry.frag"] }, descriptor_layouts, sizeof(GPUPushConstants), { 1 });
+	shader_passes["geometry_vert"] = builder.create_pipeline(device, { shader_cache["mesh.vert"], shader_cache["geometry.frag"] }, { VK_SHADER_STAGE_VERTEX_BIT, VK_SHADER_STAGE_FRAGMENT_BIT }, {}, { 1 });
 	builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-	shader_passes["geometry_vert_mask"] = vkutil::build_shader(device, builder, { shader_cache["mesh.vert"], shader_cache["geometry.frag"] }, descriptor_layouts, sizeof(GPUPushConstants), { 0 });
+	shader_passes["geometry_vert_mask"] = builder.create_pipeline(device, { shader_cache["mesh.vert"], shader_cache["geometry.frag"] }, { VK_SHADER_STAGE_VERTEX_BIT, VK_SHADER_STAGE_FRAGMENT_BIT }, {}, { 0 });
 
 	builder.set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-	shader_passes["geometry_mesh"] = vkutil::build_shader(device, builder, { shader_cache["meshlet.mesh"], shader_cache["geometry.frag"] }, descriptor_layouts, sizeof(GPUPushConstants), { 1 });
+	shader_passes["geometry_mesh"] = builder.create_pipeline(device, { shader_cache["meshlet.mesh"], shader_cache["geometry.frag"] }, { VK_SHADER_STAGE_MESH_BIT_EXT, VK_SHADER_STAGE_FRAGMENT_BIT }, {}, { 1 });
 	builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-	shader_passes["geometry_mesh_mask"] = vkutil::build_shader(device, builder, { shader_cache["meshlet.mesh"], shader_cache["geometry.frag"] }, descriptor_layouts, sizeof(GPUPushConstants), { 0 });
+	shader_passes["geometry_mesh_mask"] = builder.create_pipeline(device, { shader_cache["meshlet.mesh"], shader_cache["geometry.frag"] }, { VK_SHADER_STAGE_MESH_BIT_EXT, VK_SHADER_STAGE_FRAGMENT_BIT }, {}, { 0 });
 
 	color_attachment_formats.clear();
 	color_attachment_formats.push_back(visibility_buffer.format);
@@ -1979,9 +1981,9 @@ void VulkanEngine::init_pipelines()
 	color_blend_states.push_back(builder.disable_blending()); // 2 channel texture but RGBA write mask ok? no validation error
 	builder.set_blending_state(color_blend_states);
 	builder.set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-	shader_passes["visibility_mesh"] = vkutil::build_shader(device, builder, { shader_cache["vis_meshlet.mesh"], shader_cache["vis_buffer.frag"] }, descriptor_layouts, sizeof(GPUPushConstants), { 1 });
+	shader_passes["visibility_mesh"] = builder.create_pipeline(device, { shader_cache["vis_meshlet.mesh"], shader_cache["vis_buffer.frag"] }, { VK_SHADER_STAGE_MESH_BIT_EXT, VK_SHADER_STAGE_FRAGMENT_BIT }, {}, { 1 });
 	builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-	shader_passes["visibility_mesh_mask"] = vkutil::build_shader(device, builder, { shader_cache["vis_meshlet.mesh"], shader_cache["vis_buffer.frag"] }, descriptor_layouts, sizeof(GPUPushConstants), { 0 });
+	shader_passes["visibility_mesh_mask"] = builder.create_pipeline(device, { shader_cache["vis_meshlet.mesh"], shader_cache["vis_buffer.frag"] }, {VK_SHADER_STAGE_MESH_BIT_EXT, VK_SHADER_STAGE_FRAGMENT_BIT}, {}, { 0 });
 
 	// single render target
 	color_attachment_formats.clear();
@@ -1994,9 +1996,9 @@ void VulkanEngine::init_pipelines()
 	builder.rasterization.depthClampEnable = VK_TRUE;
 	builder.dynamic_state.push_back(VK_DYNAMIC_STATE_DEPTH_BIAS);
 	builder.set_cull_mode(VK_CULL_MODE_FRONT_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-	shader_passes["depth"] = vkutil::build_shader(device, builder, { shader_cache["depth.vert"], shader_cache["depth.frag"] }, descriptor_layouts, sizeof(ShadowPushConstants), { 1 });
+	shader_passes["depth"] = builder.create_pipeline(device, { shader_cache["depth.vert"], shader_cache["depth.frag"] }, { VK_SHADER_STAGE_VERTEX_BIT, VK_SHADER_STAGE_FRAGMENT_BIT }, {}, { 1 });
 	builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-	shader_passes["depth_mask"] = vkutil::build_shader(device, builder, { shader_cache["depth.vert"], shader_cache["depth.frag"] }, descriptor_layouts, sizeof(ShadowPushConstants), { 0 });
+	shader_passes["depth_mask"] = builder.create_pipeline(device, { shader_cache["depth.vert"], shader_cache["depth.frag"] }, { VK_SHADER_STAGE_VERTEX_BIT, VK_SHADER_STAGE_FRAGMENT_BIT }, {}, { 0 });
 	builder.dynamic_state.pop_back(); // reset
 	builder.rasterization.depthClampEnable = VK_FALSE; // reset
 
@@ -2006,8 +2008,8 @@ void VulkanEngine::init_pipelines()
 	builder.set_color_attachment_format(color_attachment_formats);
 	builder.set_depth_format(depth_image.format);
 	builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-	shader_passes["mlab_vert"] = vkutil::build_shader(device, builder, { shader_cache["mesh.vert"], shader_cache["mlab.frag"] }, descriptor_layouts, sizeof(GPUPushConstants));
-	shader_passes["mlab_mesh"] = vkutil::build_shader(device, builder, { shader_cache["meshlet.mesh"], shader_cache["mlab.frag"] }, descriptor_layouts, sizeof(GPUPushConstants));
+	shader_passes["mlab_vert"] = builder.create_pipeline(device, { shader_cache["mesh.vert"], shader_cache["mlab.frag"] }, { VK_SHADER_STAGE_VERTEX_BIT, VK_SHADER_STAGE_FRAGMENT_BIT }, {});
+	shader_passes["mlab_mesh"] = builder.create_pipeline(device, { shader_cache["meshlet.mesh"], shader_cache["mlab.frag"] }, { VK_SHADER_STAGE_MESH_BIT_EXT, VK_SHADER_STAGE_FRAGMENT_BIT }, {});
 }
 
 void VulkanEngine::init_resources()

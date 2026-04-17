@@ -78,5 +78,5 @@ struct ShaderCache
 
 	ShaderProgram* operator[](const std::string& key);
 
-	void add_shader(VkDevice device, const char* path, VkShaderStageFlagBits stage, const char* entry = "main");
+	void add_shader(VkDevice device, const char* path, size_t push_constant_size);
 };

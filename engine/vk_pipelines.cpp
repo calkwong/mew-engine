@@ -10,6 +10,7 @@
 #include <array>
 #include <fstream>
 #include <cassert>
+#include <vulkan/vulkan_core.h>
 
 VkPipeline ComputePipelineBuilder::build_pipeline(VkDevice device) const
 {
@@ -27,7 +28,7 @@ VkPipeline ComputePipelineBuilder::build_pipeline(VkDevice device) const
 
 void ComputePipelineBuilder::set_shaders(const ShaderProgram* program)
 {
-	shader_stages[0] = vkinit::pipeline_shader_stage_create_info(program->stage, program->module, program->entry.c_str());
+	shader_stages[0] = vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_COMPUTE_BIT, program->module);
 	name = "";
 	name += program->name;
 }
@@ -102,17 +103,25 @@ VkPipeline PipelineBuilder::build_pipeline(VkDevice device) const
 	return pipeline;
 }
 
-void PipelineBuilder::set_shaders(std::initializer_list<ShaderProgram*> programs)
+void PipelineBuilder::set_shaders(std::initializer_list<ShaderProgram*> programs, ShaderStages stages, ShaderEntries entries)
 {
+    // TODO: uncomment after full slang port
+    // assert(stages.size() == entries.size() && stages.size() > 0);
+
 	shader_stages.clear();
 
 	name = "";
 
-	for (const auto program : programs)
+	// TODO: after full slang port we will only have 1 shaderprogram
+	auto program = programs.begin();
+	for (auto it = stages.begin(); it != stages.end(); it++)
 	{
-		shader_stages.push_back(vkinit::pipeline_shader_stage_create_info(program->stage, program->module, program->entry.c_str()));
+		shader_stages.push_back(vkinit::pipeline_shader_stage_create_info(*it, (*program)->module));
+		// TODO: better naming
+		name += (*program)->name + '/';
 
-		name += program->name + '/';
+		if (programs.size() == stages.size())
+		    program++;
 	}
 }
 
@@ -231,7 +240,19 @@ VkPipelineColorBlendAttachmentState PipelineBuilder::disable_blending()
 	return attachment_state;
 }
 
-std::unique_ptr<ShaderPass> ComputePipelineBuilder::create_pipeline(VkDevice device, const ShaderProgram* program, const std::vector<VkDescriptorSetLayout>& layouts, uint32_t pc_size, SpecConstants constants)
+void PipelineBuilder::set_descriptor_layouts(std::initializer_list<VkDescriptorSetLayout> layouts)
+{
+    for (auto layout : layouts)
+        descriptor_layouts.push_back(layout);
+}
+
+void ComputePipelineBuilder::set_descriptor_layouts(std::initializer_list<VkDescriptorSetLayout> layouts)
+{
+    for (auto layout : layouts)
+        descriptor_layouts.push_back(layout);
+}
+
+std::unique_ptr<ShaderPass> ComputePipelineBuilder::create_pipeline(VkDevice device, const ShaderProgram* program, SpecConstants constants)
 {
 	std::unique_ptr<ShaderPass> shader = std::make_unique<ShaderPass>();
 
@@ -264,14 +285,16 @@ std::unique_ptr<ShaderPass> ComputePipelineBuilder::create_pipeline(VkDevice dev
 
 	VkPipelineLayoutCreateInfo pipeline_layout_info{};
 	pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-	pipeline_layout_info.setLayoutCount = static_cast<uint32_t>(layouts.size());
-	pipeline_layout_info.pSetLayouts = layouts.data();
+	pipeline_layout_info.setLayoutCount = static_cast<uint32_t>(descriptor_layouts.size());
+	pipeline_layout_info.pSetLayouts = descriptor_layouts.data();
+
+	auto push_constant_size = program->pc_size;
 
 	VkPushConstantRange pc{};
 	pc.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-	pc.size = pc_size;
+	pc.size = push_constant_size;
 
-	pipeline_layout_info.pushConstantRangeCount = pc_size != 0 ? 1 : 0;
+	pipeline_layout_info.pushConstantRangeCount = push_constant_size != 0 ? 1 : 0;
 	pipeline_layout_info.pPushConstantRanges = &pc;
 
 	vkCreatePipelineLayout(device, &pipeline_layout_info, nullptr, &shader->layout);
@@ -292,13 +315,12 @@ std::unique_ptr<ShaderPass> ComputePipelineBuilder::create_pipeline(VkDevice dev
 	return shader;
 }
 
-std::unique_ptr<ShaderPass> vkutil::build_shader(VkDevice device, PipelineBuilder& builder, std::initializer_list<ShaderProgram*> programs, const std::vector<VkDescriptorSetLayout>& layouts, uint32_t pc_size, SpecConstants constants)
+std::unique_ptr<ShaderPass> PipelineBuilder::create_pipeline(VkDevice device, std::initializer_list<ShaderProgram*> program, ShaderStages stages, ShaderEntries entries, SpecConstants constants /*= {}*/)
 {
-	std::unique_ptr<ShaderPass> shader = std::make_unique<ShaderPass>();
+    std::unique_ptr<ShaderPass> shader = std::make_unique<ShaderPass>();
 
-	assert(programs.size() > 0);
-	builder.set_shaders(programs);
-
+	assert(program.size() > 0);
+	set_shaders(program, stages, entries);
 	std::vector<VkSpecializationMapEntry> specialization_entries(constants.size());
 
 	if (constants.size() > 0)
@@ -319,31 +341,39 @@ std::unique_ptr<ShaderPass> vkutil::build_shader(VkDevice device, PipelineBuilde
 	specialization_info.dataSize = constants.size() * sizeof(uint32_t);
 	specialization_info.pData = constants.size() != 0 ? constants.begin() : nullptr;
 
-	for (auto& shader_stage : builder.shader_stages)
+	for (auto& shader_stage : shader_stages)
 	{
 		shader_stage.pSpecializationInfo = &specialization_info;
 	}
 
 	VkPipelineLayoutCreateInfo pipeline_layout_info{};
 	pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-	pipeline_layout_info.setLayoutCount = static_cast<uint32_t>(layouts.size());
-	pipeline_layout_info.pSetLayouts = layouts.data();
+	pipeline_layout_info.setLayoutCount = static_cast<uint32_t>(descriptor_layouts.size());
+	pipeline_layout_info.pSetLayouts = descriptor_layouts.data();
+
+	// TODO: clean up after full slang port
+	uint32_t push_constant_size{};
+	for (auto& p : program)
+	{
+        push_constant_size = p->pc_size;
+	}
 
 	VkPushConstantRange pc{};
-	for (const auto& shader_stage : builder.shader_stages)
-	{
-		pc.stageFlags |= shader_stage.stage;
-	}
-	pc.size = pc_size;
 
-	pipeline_layout_info.pushConstantRangeCount = pc_size != 0 ? 1 : 0;
+	for (const auto& stage : stages)
+	{
+		pc.stageFlags |= stage;
+	}
+	pc.size = push_constant_size;
+
+	pipeline_layout_info.pushConstantRangeCount = push_constant_size != 0 ? 1 : 0;
 	pipeline_layout_info.pPushConstantRanges = &pc;
 
 	vkCreatePipelineLayout(device, &pipeline_layout_info, nullptr, &shader->layout);
 
-	builder.pipeline_layout = shader->layout;
+	pipeline_layout = shader->layout;
 
-	shader->pipeline = builder.build_pipeline(device);
+	shader->pipeline = build_pipeline(device);
 
 	// TODO: fix duplicated names for spec constants
 	if (vkSetDebugUtilsObjectNameEXT)
@@ -352,7 +382,7 @@ std::unique_ptr<ShaderPass> vkutil::build_shader(VkDevice device, PipelineBuilde
 		name_info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT;
 		name_info.objectType = VK_OBJECT_TYPE_PIPELINE;
 		name_info.objectHandle = (uint64_t)shader->pipeline;
-		name_info.pObjectName = builder.name.c_str();
+		name_info.pObjectName = name.c_str();
 		vkSetDebugUtilsObjectNameEXT(device, &name_info);
 	}
 
