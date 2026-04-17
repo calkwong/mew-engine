@@ -18,6 +18,33 @@ public struct LightGrid
 	public uint count;
 };
 
+public struct Vertex
+{
+	public float16_t px;
+	public float16_t py;
+	public float16_t pz;
+
+	public uint16_t tangent;
+
+	public uint normal;
+
+	public float16_t uv_x;
+	public float16_t uv_y;
+};
+
+public struct MaterialData
+{
+	public float4 base_color_factor;
+	public float metallic_factor;
+	public float roughness_factor;
+	public uint diffuse_id;
+	public uint metalroughness_id;
+	public uint normal_id;
+	public uint occlusion_id;
+	public uint emissive_id;
+	private uint padding;
+};
+
 public struct ObjectData
 {
 	public float3 translation;
@@ -50,7 +77,7 @@ public struct MeshData
 
 	public uint lod_count;
 	public uint vertex_offset;
-	public uint padding[2];
+	private uint padding[2];
 };
 
 public struct DrawCommand
@@ -80,5 +107,12 @@ public struct Meshlet
 	public uint data_offset; // index into MeshletIndices
 	public uint8_t vertex_count;
 	public uint8_t triangle_count;
-	public uint8_t padding[2];
+	private uint8_t padding[2];
+};
+
+public struct OITData
+{
+	public uint4 colors;
+	public uint4 depths;
+	public float4 transmissions; // could we pack this in color.a?
 };

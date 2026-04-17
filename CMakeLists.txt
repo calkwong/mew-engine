@@ -55,7 +55,7 @@ foreach(SLANG ${SLANG_MODULES})
   message(STATUS ${SLANG})
   add_custom_command(
     OUTPUT ${SLANG_MODULE}
-    COMMAND ${SLANG_COMPILER} ${SLANG} -o ${SLANG_MODULE}
+    COMMAND ${SLANG_COMPILER} ${SLANG} -matrix-layout-column-major -o ${SLANG_MODULE}
     DEPENDS ${SLANG})
   list(APPEND SPIRV_BINARY_FILES ${SLANG_MODULE})
 endforeach(SLANG)

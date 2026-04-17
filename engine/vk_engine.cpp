@@ -1892,8 +1892,8 @@ void VulkanEngine::init_shaders()
 	shader_cache.add_shader(device, "luminance_histogram.slang", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "luminance_avg.slang", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "tonemap.slang", VK_SHADER_STAGE_COMPUTE_BIT);
-	shader_cache.add_shader(device, "resolve_vbuffer.comp", VK_SHADER_STAGE_COMPUTE_BIT);
-	shader_cache.add_shader(device, "resolve_gbuffer.comp", VK_SHADER_STAGE_COMPUTE_BIT);
+	shader_cache.add_shader(device, "resolve_vbuffer.slang", VK_SHADER_STAGE_COMPUTE_BIT);
+	shader_cache.add_shader(device, "resolve_gbuffer.slang", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "compact_dispatch.slang", VK_SHADER_STAGE_COMPUTE_BIT);
 	shader_cache.add_shader(device, "hiz_spd.comp", VK_SHADER_STAGE_COMPUTE_BIT);
 }
@@ -1921,8 +1921,8 @@ void VulkanEngine::init_pipelines()
 	shader_passes["tonemap"] = compute_builder.create_pipeline(device, shader_cache["tonemap.slang"], descriptor_layouts, sizeof(TonemapPushConstants));
 	shader_passes["shadow_cull"] = compute_builder.create_pipeline(device, shader_cache["shadow_cull.slang"], descriptor_layouts, sizeof(ShadowCullPushConstants));
 
-	shader_passes["resolve_vbuffer"] = compute_builder.create_pipeline(device, shader_cache["resolve_vbuffer.comp"], descriptor_layouts, sizeof(DeferredPushConstants));
-	shader_passes["resolve_gbuffer"] = compute_builder.create_pipeline(device, shader_cache["resolve_gbuffer.comp"], descriptor_layouts, sizeof(DeferredPushConstants));
+	shader_passes["resolve_vbuffer"] = compute_builder.create_pipeline(device, shader_cache["resolve_vbuffer.slang"], descriptor_layouts, sizeof(DeferredPushConstants));
+	shader_passes["resolve_gbuffer"] = compute_builder.create_pipeline(device, shader_cache["resolve_gbuffer.slang"], descriptor_layouts, sizeof(DeferredPushConstants));
 	shader_passes["compact_dispatch"] = compute_builder.create_pipeline(device, shader_cache["compact_dispatch.slang"], descriptor_layouts, sizeof(CompactDispatchPushConstants));
 	shader_passes["resolve_taa"] = compute_builder.create_pipeline(device, shader_cache["resolve_taa.slang"], descriptor_layouts, sizeof(TAAPushConstants));
 	shader_passes["hiz_spd"] = compute_builder.create_pipeline(device, shader_cache["hiz_spd.comp"], descriptor_layouts, sizeof(SpdPushConstants));
