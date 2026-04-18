@@ -245,12 +245,16 @@ VkPipelineColorBlendAttachmentState PipelineBuilder::disable_blending()
 
 void PipelineBuilder::set_descriptor_layouts(std::initializer_list<VkDescriptorSetLayout> layouts)
 {
+    descriptor_layouts.clear();
+
     for (auto layout : layouts)
         descriptor_layouts.push_back(layout);
 }
 
 void ComputePipelineBuilder::set_descriptor_layouts(std::initializer_list<VkDescriptorSetLayout> layouts)
 {
+    descriptor_layouts.clear();
+
     for (auto layout : layouts)
         descriptor_layouts.push_back(layout);
 }

@@ -63,7 +63,7 @@ float3 composite_transparent(float3 input_color, uint2 screen_pos)
 		for (int i = 0; i < MLAB_NODES; i++)
 		{
 			float t = frags.transmissions[i];
-			composite = t != 1.0 ? float3(unpack_u8u32(frags.colors[i]).xyz) / 255.0 * t_accum + composite : composite;
+			composite = t != 1.0 ? float3(unpackUnorm4x8ToFloat(frags.colors[i]).xyz) * t_accum + composite : composite;
 			t_accum *= t;
 		}
 

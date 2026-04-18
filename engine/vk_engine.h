@@ -133,6 +133,7 @@ public:
 	VkDescriptorSetLayout bindless_tex_layout{};
 	VkDescriptorSetLayout bindless_sampler_layout{};
 	VkDescriptorSetLayout bindless_image_layout{};
+	VkDescriptorSetLayout rasterizer_ordered_buf_layout{};
 
 	VmaAllocator allocator{};
 
@@ -156,6 +157,7 @@ public:
 	VkDescriptorSet bindless_tex_descriptor{};
 	VkDescriptorSet bindless_sampler_descriptor{};
 	VkDescriptorSet bindless_image_descriptor{};
+	VkDescriptorSet rasterizer_ordered_buf_descriptor{};
 
 	std::unordered_map<std::string, std::unique_ptr<ShaderPass>> shader_passes{};
 

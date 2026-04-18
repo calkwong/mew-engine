@@ -162,6 +162,12 @@ namespace
 
 void VulkanEngine::init(int argc, char** argv)
 {
+#ifdef NDEBUG
+    fmt::println("Release mode");
+#else
+    fmt::println("Debug mode");
+#endif
+
 	assert(loaded_engine == nullptr);
 	loaded_engine = this;
 
@@ -1835,6 +1841,7 @@ void VulkanEngine::init_descriptors()
 		{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
 		{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000 },
 		{ VK_DESCRIPTOR_TYPE_SAMPLER, 20 },
+		{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1 }
 	};
 
 	global_descriptor_allocator.init(device, 1, sizes);
@@ -1867,6 +1874,12 @@ void VulkanEngine::init_descriptors()
 		builder.bindings[0].descriptorCount = 1000;
 
 		bindless_image_layout = builder.build(device, &binding_flags_info);
+
+		builder.clear();
+		builder.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT);
+		builder.bindings[0].descriptorCount = 1;
+
+		rasterizer_ordered_buf_layout = builder.build(device);
 	}
 
 	main_deletion_queue.push_function([&]()
@@ -1876,6 +1889,7 @@ void VulkanEngine::init_descriptors()
 		vkDestroyDescriptorSetLayout(device, bindless_tex_layout, nullptr);
 		vkDestroyDescriptorSetLayout(device, bindless_sampler_layout, nullptr);
 		vkDestroyDescriptorSetLayout(device, bindless_image_layout, nullptr);
+		vkDestroyDescriptorSetLayout(device, rasterizer_ordered_buf_layout, nullptr);
 	});
 }
 
@@ -1902,11 +1916,12 @@ void VulkanEngine::init_shaders()
 	shader_cache.add_shader(device, "hiz_spd.slang", sizeof(SpdPushConstants));
 	shader_cache.add_shader(device, "mesh.vert", sizeof(GPUPushConstants));
 	shader_cache.add_shader(device, "meshlet.mesh", sizeof(GPUPushConstants));
-	shader_cache.add_shader(device, "mlab.frag", sizeof(GPUPushConstants));
 	shader_cache.add_shader(device, "depth.slang", sizeof(ShadowPushConstants));
 	shader_cache.add_shader(device, "vbuffer.slang", sizeof(GPUPushConstants));
 	shader_cache.add_shader(device, "gbuffer_vert.slang", sizeof(GPUPushConstants));
 	shader_cache.add_shader(device, "gbuffer_mesh.slang", sizeof(GPUPushConstants));
+	shader_cache.add_shader(device, "mlab_vert.slang", sizeof(GPUPushConstants));
+	shader_cache.add_shader(device, "mlab_mesh.slang", sizeof(GPUPushConstants));
 }
 
 void VulkanEngine::init_pipelines()
@@ -2006,8 +2021,9 @@ void VulkanEngine::init_pipelines()
 	builder.set_color_attachment_format(color_attachment_formats);
 	builder.set_depth_format(depth_image.format);
 	builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-	shader_passes["mlab_vert"] = builder.create_pipeline(device, { shader_cache["mesh.vert"], shader_cache["mlab.frag"] }, { VK_SHADER_STAGE_VERTEX_BIT, VK_SHADER_STAGE_FRAGMENT_BIT }, {});
-	shader_passes["mlab_mesh"] = builder.create_pipeline(device, { shader_cache["meshlet.mesh"], shader_cache["mlab.frag"] }, { VK_SHADER_STAGE_MESH_BIT_EXT, VK_SHADER_STAGE_FRAGMENT_BIT }, {});
+	builder.set_descriptor_layouts({ scene_descriptor_layout, bindless_image_layout, bindless_tex_layout, bindless_sampler_layout, rasterizer_ordered_buf_layout });
+	shader_passes["mlab_vert"] = builder.create_pipeline(device, { shader_cache["mlab_vert.slang"] }, { VK_SHADER_STAGE_VERTEX_BIT, VK_SHADER_STAGE_FRAGMENT_BIT }, { "vs_main", "ps_main" });
+	shader_passes["mlab_mesh"] = builder.create_pipeline(device, { shader_cache["mlab_mesh.slang"] }, { VK_SHADER_STAGE_MESH_BIT_EXT, VK_SHADER_STAGE_FRAGMENT_BIT }, { "mesh_main", "ps_main" });
 }
 
 void VulkanEngine::init_resources()
@@ -2800,6 +2816,14 @@ void VulkanEngine::upload_buffers()
 		{
 			vkCmdFillBuffer(cmd, render_scene.oit_buffer.buffer, 0, VK_WHOLE_SIZE, 0x3F800000);
 		});
+
+		// note: just to get things working - this should not be here
+		rasterizer_ordered_buf_descriptor = global_descriptor_allocator.allocate(device, rasterizer_ordered_buf_layout);
+
+		DescriptorWriter writer{};
+		writer.clear();
+		writer.write_buffer(0, render_scene.oit_buffer.buffer, VK_WHOLE_SIZE, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+		writer.update_set(device, rasterizer_ordered_buf_descriptor);
 	}
 
 	{
@@ -3162,6 +3186,7 @@ void VulkanEngine::render_transparent(VkCommandBuffer cmd, uint32_t query)
 		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
 		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
 		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
+		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 4, 1, &rasterizer_ordered_buf_descriptor, 0, nullptr);
 
 		vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GPUPushConstants), &pc);
 
@@ -3181,6 +3206,7 @@ void VulkanEngine::render_transparent(VkCommandBuffer cmd, uint32_t query)
 		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
 		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
 		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
+		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 4, 1, &rasterizer_ordered_buf_descriptor, 0, nullptr);
 
 		vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GPUPushConstants), &pc);
 
