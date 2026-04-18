@@ -3,6 +3,8 @@ import types;
 import util;
 import prefix_sum;
 
+#define TRIANGLE_CULLING
+
 struct Interp
 {
 	float4 position : SV_Position;
@@ -17,7 +19,11 @@ struct PerPrimitive
     uint draw_id;
 	uint triangle_id;
 
+	// note: unsure if redundant
+	// in GLSL we never want to expose CullPrimitiveEXT if unused as theres overhead
+#ifdef TRIANGLE_CULLING
 	bool cull_primitive : SV_CullPrimitive;
+#endif
 };
 
 [vk::constant_id(0)]
@@ -37,8 +43,6 @@ struct PushConstants
 };
 
 [[vk::push_constant]] PushConstants pc;
-
-#define TRIANGLE_CULLING
 
 #ifdef TRIANGLE_CULLING
 groupshared float3 vertex_clip[64];
@@ -149,8 +153,7 @@ void mesh_main(
             // triangle culling only works if all triangles are in front of camera
             culled = culled && (vertex_clip[idx0].z > 0 && vertex_clip[idx1].z > 0 && vertex_clip[idx2].z > 0);
 
-            // this cannot be in a runtime branch! compiler likely sets this to a default value after dead code removal if it cannot find gl_CullPrimitiveEXT
-            // if it exists and we place it in a branch, we get flickering artifacts all over
+            // note: flickering artifacts when placed in runtime branch (last tested in GLSL)
             prims[i].cull_primitive = culled;
         }
 #endif
@@ -161,8 +164,8 @@ void mesh_main(
 void ps_main(
     Interp in,
     PerPrimitive prim,
-    out uint2 visibility_id : SV_Target0,
-    // out float2 velocity_id : SV_Target1
+    out uint2 out_visibility_id : SV_Target0,
+    // out float2 out_velocity_id : SV_Target1
 )
 {
 	if (OPAQUE == 0)
@@ -175,6 +178,6 @@ void ps_main(
 	}
 
 	// TODO: visibility_id can be packed into a single value
-	visibility_id = uint2(prim.draw_id, prim.triangle_id);
-	// velocity_id = float2(0.0);
+	out_visibility_id = uint2(prim.draw_id, prim.triangle_id);
+	// out_velocity_id = float2(0.0);
 }

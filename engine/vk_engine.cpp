@@ -48,7 +48,7 @@ constexpr bool USE_VALIDATION_LAYERS = false;
 constexpr bool USE_VALIDATION_LAYERS = true;
 #endif
 
-// #define SINGLE // uncomment if loading a proper scene
+#define SINGLE // uncomment if loading a proper scene
 
 AutoCVar_Int CVAR_RENDER_VBUFFER{ "render.vbuffer", "Vbuffer path", 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_MESH_SHADERS{ "render.mesh_shaders", "Mesh shaders path", 1, CVarFlags::EditCheckbox };
@@ -1901,11 +1901,12 @@ void VulkanEngine::init_shaders()
 	shader_cache.add_shader(device, "compact_dispatch.slang", sizeof(CompactDispatchPushConstants));
 	shader_cache.add_shader(device, "hiz_spd.slang", sizeof(SpdPushConstants));
 	shader_cache.add_shader(device, "mesh.vert", sizeof(GPUPushConstants));
-	shader_cache.add_shader(device, "geometry.frag", sizeof(GPUPushConstants));
 	shader_cache.add_shader(device, "meshlet.mesh", sizeof(GPUPushConstants));
 	shader_cache.add_shader(device, "mlab.frag", sizeof(GPUPushConstants));
 	shader_cache.add_shader(device, "depth.slang", sizeof(ShadowPushConstants));
 	shader_cache.add_shader(device, "vbuffer.slang", sizeof(GPUPushConstants));
+	shader_cache.add_shader(device, "gbuffer_vert.slang", sizeof(GPUPushConstants));
+	shader_cache.add_shader(device, "gbuffer_mesh.slang", sizeof(GPUPushConstants));
 }
 
 void VulkanEngine::init_pipelines()
@@ -1960,14 +1961,14 @@ void VulkanEngine::init_pipelines()
 	builder.set_color_attachment_format(color_attachment_formats);
 	builder.set_blending_state(color_blend_states);
 	builder.set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-	shader_passes["geometry_vert"] = builder.create_pipeline(device, { shader_cache["mesh.vert"], shader_cache["geometry.frag"] }, { VK_SHADER_STAGE_VERTEX_BIT, VK_SHADER_STAGE_FRAGMENT_BIT }, {}, { 1 });
+	shader_passes["geometry_vert"] = builder.create_pipeline(device, { shader_cache["gbuffer_vert.slang"] }, { VK_SHADER_STAGE_VERTEX_BIT, VK_SHADER_STAGE_FRAGMENT_BIT }, { "vs_main", "ps_main" }, { 1 });
 	builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-	shader_passes["geometry_vert_mask"] = builder.create_pipeline(device, { shader_cache["mesh.vert"], shader_cache["geometry.frag"] }, { VK_SHADER_STAGE_VERTEX_BIT, VK_SHADER_STAGE_FRAGMENT_BIT }, {}, { 0 });
+	shader_passes["geometry_vert_mask"] = builder.create_pipeline(device, { shader_cache["gbuffer_vert.slang"] }, { VK_SHADER_STAGE_VERTEX_BIT, VK_SHADER_STAGE_FRAGMENT_BIT }, { "vs_main", "ps_main" }, { 0 });
 
 	builder.set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-	shader_passes["geometry_mesh"] = builder.create_pipeline(device, { shader_cache["meshlet.mesh"], shader_cache["geometry.frag"] }, { VK_SHADER_STAGE_MESH_BIT_EXT, VK_SHADER_STAGE_FRAGMENT_BIT }, {}, { 1 });
+	shader_passes["geometry_mesh"] = builder.create_pipeline(device, { shader_cache["gbuffer_mesh.slang"] }, { VK_SHADER_STAGE_MESH_BIT_EXT, VK_SHADER_STAGE_FRAGMENT_BIT }, { "mesh_main", "ps_main" }, { 1 });
 	builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-	shader_passes["geometry_mesh_mask"] = builder.create_pipeline(device, { shader_cache["meshlet.mesh"], shader_cache["geometry.frag"] }, { VK_SHADER_STAGE_MESH_BIT_EXT, VK_SHADER_STAGE_FRAGMENT_BIT }, {}, { 0 });
+	shader_passes["geometry_mesh_mask"] = builder.create_pipeline(device, { shader_cache["gbuffer_mesh.slang"] }, { VK_SHADER_STAGE_MESH_BIT_EXT, VK_SHADER_STAGE_FRAGMENT_BIT }, { "mesh_main", "ps_main" }, { 0 });
 
 	color_attachment_formats.clear();
 	color_attachment_formats.push_back(visibility_buffer.format);
