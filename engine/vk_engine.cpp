@@ -1914,8 +1914,6 @@ void VulkanEngine::init_shaders()
 	shader_cache.add_shader(device, "resolve_gbuffer.slang", sizeof(DeferredPushConstants));
 	shader_cache.add_shader(device, "compact_dispatch.slang", sizeof(CompactDispatchPushConstants));
 	shader_cache.add_shader(device, "hiz_spd.slang", sizeof(SpdPushConstants));
-	shader_cache.add_shader(device, "mesh.vert", sizeof(GPUPushConstants));
-	shader_cache.add_shader(device, "meshlet.mesh", sizeof(GPUPushConstants));
 	shader_cache.add_shader(device, "depth.slang", sizeof(ShadowPushConstants));
 	shader_cache.add_shader(device, "vbuffer.slang", sizeof(GPUPushConstants));
 	shader_cache.add_shader(device, "gbuffer_vert.slang", sizeof(GPUPushConstants));
