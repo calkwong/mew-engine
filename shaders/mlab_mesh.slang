@@ -3,6 +3,8 @@
 // https://github.com/Devsh-Graphics-Programming/Nabla/blob/master/include/nbl/builtin/glsl/ext/OIT/insert_node.glsl
 // https://interplayoflight.wordpress.com/2022/07/02/order-independent-transparency-part-2/
 
+// note: no culling for transparency
+
 import bindings;
 import types;
 import util;
@@ -89,10 +91,6 @@ void insert_node(uint2 coords, uint color, uint depth, float transmission)
 	oit_buffer[index] = oit_data;
 }
 
-#ifdef TRIANGLE_CULLING
-groupshared float3 vertex_clip[64];
-#endif
-
 #define WG_SIZE_X 128
 
 [shader("mesh")]
@@ -102,10 +100,7 @@ void mesh_main(
     uint3 wg_id : SV_GroupID,
     uint t_index : SV_GroupIndex,
     out vertices Interp verts[64],
-    out indices uint3 tris[124],
-#ifdef TRIANGLE_CULLING
-    out primitives PerPrimitive prims[124]
-#endif
+    out indices uint3 tris[124]
 )
 {
 	uint id = wg_id.x;
@@ -165,13 +160,6 @@ void mesh_main(
 
 	    float4 clip_pos = mul(uniforms.view_proj, world_pos);
 
-		// TODO: only account for screen size if doing small primitive culling
-#ifdef TRIANGLE_CULLING
-		if (OPAQUE == 1)
-		{
-            vertex_clip[i] = float3(clip_pos.xy / clip_pos.w * 0.5 + 0.5, clip_pos.w);
-        }
-#endif
 		verts[i].position = clip_pos;
 	}
 
@@ -186,32 +174,6 @@ void mesh_main(
 		uint idx2 = pc.meshlet_indices_buffer[m_triangle_offset + i * 3 + 2];
 
 		tris[i] = uint3(idx0, idx1, idx2);
-
-#ifdef TRIANGLE_CULLING
-		// TODO: With our stress test scene, triangle culling reduces ~7M (50%) of clipping invocations
-		//       but performance oddly takes a hit from ~3.6ms to ~4.3ms. Disabling triangle culling via bool
-		//       improves performance slightly to ~4.1ms, but still a considerable performance hit.
-		//       No idea why - possibly payload related?
-        if (OPAQUE == 1)
-        {
-            float2 va = vertex_clip[idx0].xy;
-            float2 vb = vertex_clip[idx1].xy;
-            float2 vc = vertex_clip[idx2].xy;
-
-            float2 eb = vb - va;
-            float2 ec = vc - va;
-
-            // backface + zero area culling
-            bool culled = eb.x * ec.y <= eb.y * ec.x;
-
-            // triangle culling only works if all triangles are in front of camera
-            culled = culled && (vertex_clip[idx0].z > 0 && vertex_clip[idx1].z > 0 && vertex_clip[idx2].z > 0);
-
-            // note: flickering artifacts when placed in runtime branch (last tested in GLSL)
-            prims[i].cull_primitive = culled;
-        }
-#endif
-
 	}
 }
 

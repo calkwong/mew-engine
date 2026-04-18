@@ -2815,7 +2815,7 @@ void VulkanEngine::upload_buffers()
 			vkCmdFillBuffer(cmd, render_scene.oit_buffer.buffer, 0, VK_WHOLE_SIZE, 0x3F800000);
 		});
 
-		// note: just to get things working - this should not be here
+		// TODO: just to get things working - this should not be here
 		rasterizer_ordered_buf_descriptor = global_descriptor_allocator.allocate(device, rasterizer_ordered_buf_layout);
 
 		DescriptorWriter writer{};
