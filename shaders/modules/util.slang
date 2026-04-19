@@ -81,12 +81,15 @@ public float linearize_depth(float near, float depth)
 	return near / depth;
 }
 
+#define CLUSTER_DEPTH_SLICES 24
 // equation (3): https://www.aortiz.me/2018/12/21/CG.html#part-2
 // slide 5: https://advances.realtimerendering.com/s2016/Siggraph2016_idTech6.pdf
 // view_z must be positive!
-public uint get_cluster_z_slice(float view_z, float scale, float bias, float slices)
+public uint get_cluster_z_slice(float view_z, float scale, float bias)
 {
-    return uint(floor(log(view_z) * scale - bias));
+    uint slice = uint(floor(log(view_z) * scale - bias));
+
+    return clamp(slice, 0, CLUSTER_DEPTH_SLICES - 1);
 }
 
 #define CLUSTER_X 16
@@ -95,6 +98,5 @@ public uint get_cluster_index(float2 frag_coord, float2 cluster_dim, uint slice)
 {
     uint2 clusters = uint2(floor(frag_coord / cluster_dim));
 
-    // TODO: hardcoded
     return clusters.x + CLUSTER_X * clusters.y + slice * CLUSTER_X * CLUSTER_Y;
 }

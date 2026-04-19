@@ -276,7 +276,7 @@ void main(
 	if (pc.light_culling == 1)
 	{
     	float view_z = linearize_depth(pc.near, depth); // alternative: calculate via matrix multiply, likely more expensive?
-    	uint slice = get_cluster_z_slice(view_z, pc.scale, pc.bias, pc.cluster_size.z);
+    	uint slice = get_cluster_z_slice(view_z, pc.scale, pc.bias);
     	uint cluster_index = get_cluster_index(float2(frag_coord.x, pc.screen_size.y - frag_coord.y), pc.cluster_size.xy, slice);
 
 		LightGrid grid = pc.light_grid_buffer[cluster_index];
