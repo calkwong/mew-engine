@@ -54,10 +54,10 @@ AutoCVar_Int CVAR_RENDER_VBUFFER{ "render.vbuffer", "Vbuffer path", 1, CVarFlags
 AutoCVar_Int CVAR_RENDER_MESH_SHADERS{ "render.mesh_shaders", "Mesh shaders path", 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_ALPHACLIP{ "render.alphaclip", "Alphaclip", 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_TRANSPARENT{ "render.transparent", "Transparent", 0, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_RENDER_POINT_LIGHTS{ "render.point_lights", "Point lights", 0, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_RENDER_POINT_LIGHTS{ "render.point_lights", "Point lights", 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_OCCLUSION_CULL{ "render.occlusion_cull", "Occlusion culling", 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_LOD{ "render.lod", "LODs", 1, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_RENDER_SHADOWS{ "render.shadows", "Shadows", 0, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_RENDER_SHADOWS{ "render.shadows", "Shadows", 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_TAA{ "render.taa", "TAA", 0, CVarFlags::EditCheckbox }; // | CVarFlags::EditHide };
 
 AutoCVar_Int CVAR_SHADOWS_PCF{ "shadows.pcf", "PCF", 1, CVarFlags::EditCheckbox };
@@ -2181,9 +2181,7 @@ void VulkanEngine::init_resources()
 	light_buffer = upload_buffer(this, allocator, light_data.data(), MAX_POINT_LIGHTS * sizeof(PointLight));
 	fmt::println("light_buffer: {}mb", size_in_bytes(light_buffer.info.size));
 
-	auto clusters_x = get_groupcount(window_extent.width, CLUSTER_DIM);
-	auto clusters_y = get_groupcount(window_extent.height, CLUSTER_DIM);
-	const uint32_t total_clusters = clusters_x * clusters_y * CLUSTER_DEPTH_SLICES;
+	const uint32_t total_clusters = CLUSTER_X * CLUSTER_Y * CLUSTER_DEPTH_SLICES;
 
 	light_cluster_buffer = create_buffer(allocator, total_clusters * sizeof(ClusterAABB), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
 	light_index_buffer = create_buffer(allocator, total_clusters * MAX_POINT_LIGHTS * sizeof(uint32_t), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT); // could use smaller more conservative size
@@ -3392,7 +3390,9 @@ void VulkanEngine::build_cluster_grid()
 	pc.inverse_proj = glm::inverse(main_camera.perspective);
 	pc.light_cluster_buffer_address = get_buffer_address(device, light_cluster_buffer.buffer);
 	pc.screen_size = glm::vec2(window_extent.width, window_extent.height);
-	pc.cluster_dim = CLUSTER_DIM;
+	auto cluster_x = ceil(static_cast<float>(window_extent.width) / CLUSTER_X); // # cluster dim
+	auto cluster_y = ceil(static_cast<float>(window_extent.height) / CLUSTER_Y); // # cluster dim
+	pc.cluster_dim = glm::vec2(cluster_x, cluster_y);
 	pc.near = main_camera.near; // reverse-z
 	pc.far = main_camera.far;
 	pc.depth_slices = CLUSTER_DEPTH_SLICES;
@@ -3424,12 +3424,9 @@ void VulkanEngine::execute_light_culling(VkCommandBuffer cmd)
 	pc.light_index_buffer_address = get_buffer_address(device, light_index_buffer.buffer);
 	pc.light_grid_buffer_address = get_buffer_address(device, light_grid_buffer.buffer);
 	pc.light_count_buffer_address = get_buffer_address(device, light_count_buffer.buffer);
-	auto groupcount_x = get_groupcount(window_extent.width, CLUSTER_DIM);
-	auto groupcount_y = get_groupcount(window_extent.height, CLUSTER_DIM);
-	pc.workgroups = glm::uvec2(groupcount_x, groupcount_y);
 
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(LightCullingPushConstants), &pc);
-	vkCmdDispatch(cmd, groupcount_x, groupcount_y, CLUSTER_DEPTH_SLICES);
+	vkCmdDispatch(cmd, 1, 1, CLUSTER_DEPTH_SLICES / CLUSTER_Z);
 }
 
 void VulkanEngine::resolve_shading(VkCommandBuffer cmd)
@@ -3453,9 +3450,9 @@ void VulkanEngine::resolve_shading(VkCommandBuffer cmd)
 
 	DeferredPushConstants pc{};
 
-	uint32_t cluster_x = get_groupcount(window_extent.width, CLUSTER_DIM); // # of clusters in x
-	uint32_t cluster_y = get_groupcount(window_extent.height, CLUSTER_DIM); // # of clusters in y
-	pc.cluster_size = glm::vec4(cluster_x, cluster_y, CLUSTER_DEPTH_SLICES, CLUSTER_DIM);
+	auto cluster_x = ceil(static_cast<float>(window_extent.width) / CLUSTER_X); // # cluster dim
+	auto cluster_y = ceil(static_cast<float>(window_extent.height) / CLUSTER_Y); // # cluster dim
+	pc.cluster_size = glm::vec4(cluster_x, cluster_y, CLUSTER_DEPTH_SLICES, 0.0);
 	pc.screen_size = glm::vec2(window_extent.width, window_extent.height);
 
 	pc.light_buffer_address = get_buffer_address(device, light_buffer.buffer);

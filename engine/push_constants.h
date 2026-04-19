@@ -156,7 +156,7 @@ struct ClusterGridPushConstants
 	glm::mat4 inverse_proj{};
 	VkDeviceAddress light_cluster_buffer_address{};
 	glm::vec2 screen_size{};
-	float cluster_dim{};
+	glm::vec2 cluster_dim{};
 	float near{};
 	float far{};
 	uint32_t depth_slices{};
@@ -171,7 +171,6 @@ struct LightCullingPushConstants
 	VkDeviceAddress light_index_buffer_address{};
 	VkDeviceAddress light_grid_buffer_address{};
 	VkDeviceAddress light_count_buffer_address{};
-	glm::uvec2 workgroups{};
 };
 
 struct CullData

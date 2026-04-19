@@ -6,7 +6,7 @@ import util;
 
 struct PushConstants
 {
-	float4 cluster_size; // xyz is cluster data struct dim, w is single cluster dim where width==height
+    float4 cluster_size; // xy is cluster dim, z is # of cluster slices
 	float2 screen_size;
 	PointLight* light_buffer;
 	uint* light_index_buffer;
@@ -166,6 +166,10 @@ float3 reconstruct_world_pos(float depth, float4x4 inverse_view_proj, float2 uv_
 #define DEBUG_MESHLETS 7
 #define DEBUG_VELOCITY 8
 
+// TODO: move to config
+#define CLUSTER_X 16
+#define CLUSTER_Y 8
+
 #define PBR
 #define IBL
 
@@ -282,19 +286,18 @@ void main(
 
 	if (pc.light_culling == 1)
 	{
-		int4 cluster_dim = int4(pc.cluster_size);
-		int2 cluster_xy = int2(floor(float2(screen_pos.x, pc.screen_size.y - screen_pos.y) / cluster_dim.w));
-		cluster_xy.x = clamp(cluster_xy.x, 0, cluster_dim.x - 1);
-		cluster_xy.y = clamp(cluster_xy.y, 0, cluster_dim.y - 1);
+    	int4 cluster_dim = int4(pc.cluster_size);
+    	int2 cluster_xy = int2(floor(float2(screen_pos.x, pc.screen_size.y - screen_pos.y) / cluster_dim.xy));
+    	cluster_xy.x = clamp(cluster_xy.x, 0, CLUSTER_X - 1);
+    	cluster_xy.y = clamp(cluster_xy.y, 0, CLUSTER_Y - 1);
+    	float viewZ = linearize_depth(pc.near, depth); // alternative: calculate via matrix multiply, likely more expensive?
 
-		float viewz = linearize_depth(pc.near, depth); // implicitly flipped
+    	// equation (3): https://www.aortiz.me/2018/12/21/CG.html#part-2
+    	// slide 5: https://advances.realtimerendering.com/s2016/Siggraph2016_idTech6.pdf
+    	uint slice = uint(floor(log(viewZ) * pc.scale - pc.bias));
+    	slice = clamp(slice, 0, cluster_dim.z - 1);
 
-		// equation (3): https://www.aortiz.me/2018/12/21/CG.html#part-2
-		// slide 5: https://advances.realtimerendering.com/s2016/Siggraph2016_idTech6.pdf
-		uint slice = uint(floor(log(viewz) * pc.scale - pc.bias));
-		slice = clamp(slice, 0, cluster_dim.z - 1);
-
-		uint cluster_index = cluster_xy.x + cluster_dim.x * cluster_xy.y + slice * cluster_dim.x * cluster_dim.y;
+    	uint cluster_index = cluster_xy.x + CLUSTER_X * cluster_xy.y + slice * CLUSTER_X * CLUSTER_Y;
 
 		LightGrid grid = pc.light_grid_buffer[cluster_index];
 		uint offset = grid.offset;

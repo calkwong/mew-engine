@@ -22,8 +22,10 @@
 
 // clustered shading
 #define CLUSTER_DEPTH_SLICES 24
-#define CLUSTER_DIM 64 // width == height
 #define MAX_POINT_LIGHTS 1000
+#define CLUSTER_X 16
+#define CLUSTER_Y 8
+#define CLUSTER_Z 4 // only for light_culling
 
 // meshlets
 #define MESHLET_MAX_VERTICES 64

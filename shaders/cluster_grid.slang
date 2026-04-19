@@ -6,7 +6,7 @@ struct PushConstants
 	float4x4 inverse_proj;
 	ClusterAABB* cluster_buffer;
 	float2 screen_size;
-	float cluster_dim; // width == height
+	float2 cluster_dim;
 	float nearz;
 	float farz;
 	uint depth_slices;
@@ -34,8 +34,8 @@ float3 line_intersection_to_zplane(float3 point, float z)
 	return t * point;
 }
 
-#define WG_SIZE_X 27
-#define WG_SIZE_Y 15
+#define WG_SIZE_X 16
+#define WG_SIZE_Y 8
 
 [shader("compute")]
 [numthreads(WG_SIZE_X, WG_SIZE_Y, 1)]

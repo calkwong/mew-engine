@@ -10,7 +10,6 @@ struct PushConstants
 	uint* light_index_buffer;
 	LightGrid* light_grid_buffer;
 	uint* light_count_buffer;
-	uint2 workgroups;
 };
 
 [[vk::push_constant]] PushConstants pc;
@@ -32,103 +31,68 @@ bool sphere_aabb_intersect(float4x4 view, float4x4 light_rot, ClusterAABB aabb, 
 
 // TODO: move this to a config file
 #define MAX_LIGHTS 1000
-#define SUBGROUP_SIZE 32
+#define WG_SIZE_X 16 // use CLUSTER_* directly after moving to config
+#define WG_SIZE_Y 8 // use CLUSTER_* directly after moving to config
+#define WG_SIZE_Z 4 // use CLUSTER_* directly after moving to config
+#define THREADS (WG_SIZE_X * WG_SIZE_Y * WG_SIZE_Z)
 
-#define WG_SIZE_X 128
-
-static const uint NUM_SUBGROUPS = WG_SIZE_X / SUBGROUP_SIZE; // nvidia
-groupshared uint shared_counts[NUM_SUBGROUPS];
-groupshared uint base_offset;
-static const uint BATCHES = (MAX_LIGHTS + WG_SIZE_X - 1) / WG_SIZE_X;
-static const uint GROUP_LIGHT_OFFSET = SUBGROUP_SIZE * BATCHES;
-groupshared uint group_light_list[NUM_SUBGROUPS][SUBGROUP_SIZE * BATCHES];
+groupshared PointLight shared_lights[THREADS];
 
 [shader("compute")]
-[numthreads(WG_SIZE_X, 1, 1)]
+[numthreads(WG_SIZE_X, WG_SIZE_Y, WG_SIZE_Z)]
 void main(
     uint3 wg_id : SV_GroupID,
     uint t_index : SV_GroupIndex,
 )
 {
-	uint cluster_index =
-		wg_id.x
-		+ pc.workgroups.x * wg_id.y
-		+ pc.workgroups.x * pc.workgroups.y * wg_id.z;
+    // clusters will never be OOB
+	uint cluster_index = wg_id.z * THREADS + t_index;
 
 	ClusterAABB cluster_aabb = pc.cluster_buffer[cluster_index];
 
-	uint local_light_list[BATCHES];
-	uint local_light_count = 0;
+	uint visible_light_count = 0;
+	// TODO: set light limit per cluster
+	uint visible_lights[MAX_LIGHTS];
+	uint light_offset = 0;
 
-	// each thread performs approx MAX_LIGHTS/threads light intersection test
-	for (uint batch = 0; batch < BATCHES; batch++)
+	while (light_offset < MAX_LIGHTS)
 	{
-		uint light_index = batch * WG_SIZE_X + t_index;
-		if (light_index >= MAX_LIGHTS)
-			break;
+	    uint batch_size = min(THREADS, MAX_LIGHTS - light_offset);
 
-		PointLight light = pc.light_buffer[light_index];
-		float3 light_pos = light.pos.xyz;
-		float light_radius = light.pos.w;
-
-		bool intersect = sphere_aabb_intersect(pc.view, pc.light_rot, cluster_aabb, light_pos, light_radius);
-
-		if (intersect)
+		if (t_index < batch_size)
 		{
-			local_light_list[local_light_count++] = light_index; // record light index
+		    shared_lights[t_index] = pc.light_buffer[light_offset + t_index];
 		}
-	}
 
-	// subgroup # of lights
-	uint group_light_count = WaveActiveSum(local_light_count);
+		GroupMemoryBarrierWithGroupSync();
 
-	// subgroup exclusive add idx
-	uint idx = WavePrefixSum(local_light_count);
+		for (uint i = 0; i < batch_size; i++)
+		{
+    		PointLight light = shared_lights[i];
+    		float3 light_pos = light.pos.xyz;
+    		float light_radius = light.pos.w;
 
-	// TODO: potentially not portable, assumption of wave size = 32
-	uint subgroup_id = t_index / WaveGetLaneCount();
+    		bool intersect = sphere_aabb_intersect(pc.view, pc.light_rot, cluster_aabb, light_pos, light_radius);
 
-	for (uint i = 0; i < local_light_count; i++)
-	{
-	    // note: every light is unique
-		group_light_list[subgroup_id][idx + i] = local_light_list[i];
-	}
+    		if (intersect)
+    		{
+                visible_lights[visible_light_count++] = light_offset + i;
+    		}
+		}
 
-	uint lane_id = WaveGetLaneIndex();
-
-	if (lane_id == 0)
-	{
-		shared_counts[subgroup_id] = group_light_count;
+		light_offset += THREADS;
 	}
 
 	GroupMemoryBarrierWithGroupSync();
 
-	if (t_index == 0)
+	uint offset;
+	InterlockedAdd(*pc.light_count_buffer, visible_light_count, offset);
+
+	pc.light_grid_buffer[cluster_index].offset = offset;
+	pc.light_grid_buffer[cluster_index].count = visible_light_count;
+
+	for (uint i = 0; i < visible_light_count; i++)
 	{
-	    // sum group_light_count per subgroup, and replace with exclusive sum
-	    uint exclusive_sum = 0;
-		uint total_count = shared_counts[0];
-		shared_counts[0] = exclusive_sum;
-
-		// TODO: optimization possible
-	    for (uint i = 1; i < NUM_SUBGROUPS; i++)
-		{
-		    exclusive_sum = total_count;
-			total_count += shared_counts[i];
-			shared_counts[i] = exclusive_sum;
-		}
-
-		InterlockedAdd(*pc.light_count_buffer, total_count, base_offset);
-
-        pc.light_grid_buffer[cluster_index].offset = base_offset;
-    	pc.light_grid_buffer[cluster_index].count = total_count;
-	}
-
-	GroupMemoryBarrierWithGroupSync();
-
-	for (uint i = lane_id; i < group_light_count; i = i + SUBGROUP_SIZE)
-	{
-        uint group_offset = shared_counts[subgroup_id];
-		pc.light_index_buffer[base_offset + group_offset + i] = group_light_list[subgroup_id][i];
+		pc.light_index_buffer[offset + i] = visible_lights[i];
 	}
 }
