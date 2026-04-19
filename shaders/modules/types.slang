@@ -42,7 +42,6 @@ public struct MaterialData
 	public uint normal_id;
 	public uint occlusion_id;
 	public uint emissive_id;
-	private uint padding;
 };
 
 public struct ObjectData
@@ -77,7 +76,6 @@ public struct MeshData
 
 	public uint lod_count;
 	public uint vertex_offset;
-	private uint padding[2];
 };
 
 public struct DrawCommand
@@ -107,7 +105,6 @@ public struct Meshlet
 	public uint data_offset; // index into MeshletIndices
 	public uint8_t vertex_count;
 	public uint8_t triangle_count;
-	private uint8_t padding[2];
 };
 
 public struct OITData

@@ -39,7 +39,7 @@ struct MeshLod
 	uint32_t meshlet_count{};
 };
 
-struct alignas(4) Meshlet
+struct Meshlet
 {
 	uint16_t cx{};
 	uint16_t cy{};
@@ -53,7 +53,6 @@ struct alignas(4) Meshlet
 
 	uint8_t vertex_count{};
 	uint8_t triangle_count{};
-
 };
 
 struct MaterialData
@@ -66,7 +65,6 @@ struct MaterialData
 	uint32_t normal_id{};
 	uint32_t occlusion_id{};
 	uint32_t emissive_id{};
-	uint32_t padding{};
 };
 
 struct SceneData
@@ -119,7 +117,7 @@ struct OITData
 	glm::vec4 transmissions{};
 };
 
-struct alignas(16) Mesh
+struct Mesh
 {
 	glm::vec3 center{};
 	float radius{};
@@ -128,7 +126,6 @@ struct alignas(16) Mesh
 
 	uint32_t lod_count{};
 	uint32_t vertex_offset{};
-	uint32_t padding[2];
 };
 
 struct RenderObject
