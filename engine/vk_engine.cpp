@@ -1538,6 +1538,7 @@ void VulkanEngine::init_vulkan()
 	features10.depthClamp = true;
 	features10.shaderInt16 = true;
 	features10.shaderInt64 = true;
+	features10.fragmentStoresAndAtomics = true;
 
 	VkPhysicalDeviceMeshShaderFeaturesEXT mesh_shader_features{};
 	mesh_shader_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT;
