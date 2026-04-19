@@ -3429,7 +3429,7 @@ void VulkanEngine::execute_light_culling(VkCommandBuffer cmd)
 	pc.workgroups = glm::uvec2(groupcount_x, groupcount_y);
 
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(LightCullingPushConstants), &pc);
-	vkCmdDispatch(cmd, groupcount_x, groupcount_y, CLUSTER_DIM);
+	vkCmdDispatch(cmd, groupcount_x, groupcount_y, CLUSTER_DEPTH_SLICES);
 }
 
 void VulkanEngine::resolve_shading(VkCommandBuffer cmd)
