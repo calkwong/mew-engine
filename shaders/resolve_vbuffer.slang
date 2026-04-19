@@ -38,21 +38,14 @@ struct PushConstants
 
 [[vk::push_constant]] PushConstants pc;
 
-// formula is for infinite far plane, reverse-z
-// returns positive z, negate depending on usage
-float linearize_depth(float near, float depth)
-{
-	return near / depth;
-}
-
 static const int CASCADE_COUNT = 4;
 static const int MLAB_NODES = 4;
 
-float3 composite_transparent(float3 input_color, uint2 screen_pos)
+float3 composite_transparent(float3 input_color, uint2 frag_coord)
 {
 	float3 color = input_color;
 
-		uint index = screen_pos.x + screen_pos.y * uint(pc.screen_size.x);
+		uint index = frag_coord.x + frag_coord.y * uint(pc.screen_size.x);
 		OITData frags = pc.oit_buffer[index];
 
 		// early return if nothing stored
@@ -161,10 +154,6 @@ float calculate_shadow(float3 world_pos, inout uint cascade_index)
 #define DEBUG_MESHLETS 7
 #define DEBUG_VELOCITY 8
 
-// TODO: move to config
-#define CLUSTER_X 16
-#define CLUSTER_Y 8
-
 #define PBR
 #define IBL
 
@@ -173,16 +162,16 @@ static const float PI = 3.14159265359;
 [shader("compute")]
 [numthreads(8, 8, 1)]
 void main(
-    uint3 global_id : SV_DispatchThreadID
+    uint3 global_id : SV_DispatchThreadID,
 )
 {
-    float2 screen_pos = float2(global_id.x, global_id.y);
+    float2 frag_coord = float2(global_id.x, global_id.y) + float2(0.5);
 
-    if (screen_pos.x >= pc.screen_size.x || screen_pos.y >= pc.screen_size.y)
+    if (frag_coord.x >= pc.screen_size.x || frag_coord.y >= pc.screen_size.y)
         return;
 
     float4 out_color;
-    float2 in_uv = (screen_pos + float2(0.5)) / pc.screen_size;
+    float2 in_uv = frag_coord / pc.screen_size;
 
 	uint2 data = textures_u[pc.gbuffer_id].SampleLevel(samplers[NEAREST_SAMPLER], in_uv, 0.0).rg;
 
@@ -355,7 +344,7 @@ void main(
 			float3 specular = prefiltered * (F * brdf.x + brdf.y);
 			ambient = diffuse + specular;
 			// out_color = float4(ambient, 1.0); // sphere test
-			// imageStore(images_rgba32f[0], int2(screen_pos), out_color); // sphere test
+			// imageStore(images_rgba32f[0], int2(frag_coord), out_color); // sphere test
 			// return; // sphere test
 		}
 	#endif
@@ -377,18 +366,9 @@ void main(
 	// TODO: potential issue where faces away from point light being lit, exposed by sponza test scene
 	if (pc.light_culling == 1)
 	{
-		int4 cluster_dim = int4(pc.cluster_size);
-		int2 cluster_xy = int2(floor(float2(screen_pos.x, pc.screen_size.y - screen_pos.y) / cluster_dim.xy));
-		cluster_xy.x = clamp(cluster_xy.x, 0, CLUSTER_X - 1);
-		cluster_xy.y = clamp(cluster_xy.y, 0, CLUSTER_Y - 1);
-		float viewZ = linearize_depth(pc.near, depth); // alternative: calculate via matrix multiply, likely more expensive?
-
-		// equation (3): https://www.aortiz.me/2018/12/21/CG.html#part-2
-		// slide 5: https://advances.realtimerendering.com/s2016/Siggraph2016_idTech6.pdf
-		uint slice = uint(floor(log(viewZ) * pc.scale - pc.bias));
-		slice = clamp(slice, 0, cluster_dim.z - 1);
-
-		uint cluster_index = cluster_xy.x + CLUSTER_X * cluster_xy.y + slice * CLUSTER_X * CLUSTER_Y;
+		float view_z = linearize_depth(pc.near, depth); // alternative: calculate via matrix multiply, likely more expensive?
+		uint slice = get_cluster_z_slice(view_z, pc.scale, pc.bias, pc.cluster_size.z);
+		uint cluster_index = get_cluster_index(float2(frag_coord.x, pc.screen_size.y - frag_coord.y), pc.cluster_size.xy, slice);
 
 		LightGrid grid = pc.light_grid_buffer[cluster_index];
 		uint offset = grid.offset;
@@ -438,7 +418,7 @@ void main(
 
 	if (pc.resolve_transparent == 1)
 	{
-		color = composite_transparent(color, uint2(screen_pos));
+		color = composite_transparent(color, uint2(frag_coord));
 	}
 
 	out_color = float4(color, 1.0);
@@ -511,5 +491,5 @@ void main(
 	}
 
     // TODO: hardcoded draw id to 0
-	images_rgba32f[0].Store(int2(screen_pos), out_color);
+	images_rgba32f[0].Store(int2(frag_coord), out_color);
 }

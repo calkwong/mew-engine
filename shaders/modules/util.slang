@@ -73,3 +73,28 @@ public uint hash(uint a)
    a = (a^0xb55a4f09) ^ (a>>16);
    return a;
 }
+
+// assumptions: infinite far plane, reverse-z
+// returns positive z, negate depending on usage
+public float linearize_depth(float near, float depth)
+{
+	return near / depth;
+}
+
+// equation (3): https://www.aortiz.me/2018/12/21/CG.html#part-2
+// slide 5: https://advances.realtimerendering.com/s2016/Siggraph2016_idTech6.pdf
+// view_z must be positive!
+public uint get_cluster_z_slice(float view_z, float scale, float bias, float slices)
+{
+    return uint(floor(log(view_z) * scale - bias));
+}
+
+#define CLUSTER_X 16
+#define CLUSTER_Y 8
+public uint get_cluster_index(float2 frag_coord, float2 cluster_dim, uint slice)
+{
+    uint2 clusters = uint2(floor(frag_coord / cluster_dim));
+
+    // TODO: hardcoded
+    return clusters.x + CLUSTER_X * clusters.y + slice * CLUSTER_X * CLUSTER_Y;
+}

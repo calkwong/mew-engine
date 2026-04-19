@@ -30,10 +30,10 @@ bool sphere_aabb_intersect(float4x4 view, float4x4 light_rot, ClusterAABB aabb, 
 }
 
 // TODO: move this to a config file
-#define MAX_LIGHTS 1000
-#define WG_SIZE_X 16 // use CLUSTER_* directly after moving to config
-#define WG_SIZE_Y 8 // use CLUSTER_* directly after moving to config
-#define WG_SIZE_Z 4 // use CLUSTER_* directly after moving to config
+#define MAX_LIGHTS 1000 // assumes all lights are set and active
+#define WG_SIZE_X 16 // CLUSTER_X
+#define WG_SIZE_Y 8 // CLUSTER_Y
+#define WG_SIZE_Z 4 // CLUSTER_Z
 #define THREADS (WG_SIZE_X * WG_SIZE_Y * WG_SIZE_Z)
 
 groupshared PointLight shared_lights[THREADS];
@@ -45,7 +45,7 @@ void main(
     uint t_index : SV_GroupIndex,
 )
 {
-    // clusters will never be OOB
+    // clusters will never be OOB due to fixed clusters
 	uint cluster_index = wg_id.z * THREADS + t_index;
 
 	ClusterAABB cluster_aabb = pc.cluster_buffer[cluster_index];
