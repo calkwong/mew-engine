@@ -37,7 +37,7 @@ struct PushConstants
 
 // 2D Polyhedral Bounds of a Clipped, Perspective-Projected 3D Sphere. Michael Mara, Morgan McGuire. 2013
 // https://zeux.io/2023/01/12/approximate-projected-bounds/
-bool project_sphere(float3 c, float r, float near, float p00, float p11, out float4 aabb)
+bool project_sphere(float3 c, float r, float near, float p00, float p11, inout float4 aabb)
 {
 	if (c.z < r + near)
 		return false;
