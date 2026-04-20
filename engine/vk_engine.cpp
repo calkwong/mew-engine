@@ -212,11 +212,11 @@ void VulkanEngine::init(int argc, char** argv)
 
 	init_renderables(argc, argv);
 
-	init_bindless();
+	upload_buffers();
+
+	update_descriptors();
 
 	init_imgui();
-
-	upload_buffers();
 
 	build_cluster_grid(); // TODO: support draw distance change and rebuilding
 	execute_baked_gi();
@@ -1830,12 +1830,6 @@ void VulkanEngine::init_descriptors()
 		});
 
 		frame.scene_buffer = create_buffer(allocator, sizeof(SceneData), VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
-
-		frame.scene_descriptor = frame.frame_descriptor_allocator.allocate(device, scene_descriptor_layout);
-
-		writer.clear();
-		writer.write_buffer(0, frame.scene_buffer.buffer, sizeof(SceneData), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
-		writer.update_set(device, frame.scene_descriptor);
 	}
 
 	std::vector<DescriptorAllocatorGrowable::PoolSizeRatio> sizes = {
@@ -1847,7 +1841,6 @@ void VulkanEngine::init_descriptors()
 
 	global_descriptor_allocator.init(device, 1, sizes);
 
-	//> building bindless layouts
 	{
 		DescriptorLayoutBuilder builder{};
 		builder.add_binding(0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
@@ -2333,9 +2326,8 @@ void VulkanEngine::init_renderables(int argc, char** argv)
 	render_scene.total_meshlets_bits = meshlet_visibility_offset;
 }
 
-void VulkanEngine::init_bindless()
+void VulkanEngine::update_descriptors()
 {
-	// TODO: move ds allocation out of this maybe?
 	std::array<uint32_t, 1> variable_desc_counts = {
 		static_cast<uint32_t>(texture_cache.image_infos.size())
 	};
@@ -2375,6 +2367,22 @@ void VulkanEngine::init_bindless()
 	writes.push_back(write);
 
 	vkUpdateDescriptorSets(device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+
+	rasterizer_ordered_buf_descriptor = global_descriptor_allocator.allocate(device, rasterizer_ordered_buf_layout);
+
+	DescriptorWriter writer{};
+	writer.clear();
+	writer.write_buffer(0, render_scene.oit_buffer.buffer, VK_WHOLE_SIZE, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+	writer.update_set(device, rasterizer_ordered_buf_descriptor);
+
+	for (auto& frame : frames)
+	{
+    	frame.scene_descriptor = frame.frame_descriptor_allocator.allocate(device, scene_descriptor_layout);
+
+    	writer.clear();
+    	writer.write_buffer(0, frame.scene_buffer.buffer, sizeof(SceneData), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+    	writer.update_set(device, frame.scene_descriptor);
+	}
 }
 
 void VulkanEngine::register_object(const Node* node, const glm::mat4& top_matrix)
@@ -2813,14 +2821,6 @@ void VulkanEngine::upload_buffers()
 		{
 			vkCmdFillBuffer(cmd, render_scene.oit_buffer.buffer, 0, VK_WHOLE_SIZE, 0x3F800000);
 		});
-
-		// TODO: just to get things working - this should not be here
-		rasterizer_ordered_buf_descriptor = global_descriptor_allocator.allocate(device, rasterizer_ordered_buf_layout);
-
-		DescriptorWriter writer{};
-		writer.clear();
-		writer.write_buffer(0, render_scene.oit_buffer.buffer, VK_WHOLE_SIZE, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-		writer.update_set(device, rasterizer_ordered_buf_descriptor);
 	}
 
 	{

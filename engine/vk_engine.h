@@ -226,7 +226,7 @@ private:
 	void init_pipelines();
 	void init_resources();
 	void init_renderables(int argc, char** argv);
-	void init_bindless();
+	void update_descriptors();
 	void execute_baked_gi();
 	void init_imgui();
 	void build_cluster_grid();
