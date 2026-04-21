@@ -23,9 +23,9 @@ struct PushConstants
 	uint* meshlet_indices_buffer;
 	uint* cluster_indices_buffer;
 	MaterialData* material_buffer;
-	OITData* oit_buffer;
 	// PrefixSum* prefix_sum_buffer;
 	uint* padding;
+	uint2 screen_size;
 	float4 jitter_offset;
 };
 

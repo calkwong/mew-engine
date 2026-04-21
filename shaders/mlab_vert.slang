@@ -6,6 +6,7 @@
 import bindings;
 import types;
 import util;
+import oit;
 
 [[vk::binding(0, 4)]] globallycoherent RasterizerOrderedStructuredBuffer<OITData> oit_buffer;
 
@@ -26,68 +27,13 @@ struct PushConstants
 	uint* meshlet_indices_buffer;
 	uint* cluster_indices_buffer;
 	MaterialData* material_buffer;
-	OITData* oit_buffer;
 	// PrefixSum* prefix_sum_buffer;
 	uint* padding;
+	uint2 screen_size;
 	float4 jitter_offset;
 };
 
 [[vk::push_constant]] PushConstants pc;
-
-void swap_node(inout uint color_a, inout uint depth_a, inout float transmission_a, inout uint color_b, inout uint depth_b, inout float transmission_b)
-{
-	uint colorT = color_a;
-	uint depthT = depth_a;
-	float transmissionT = transmission_a;
-
-	color_a = color_b;
-	depth_a = depth_b;
-	transmission_a = transmission_b;
-
-	color_b = colorT;
-	depth_b = depthT;
-	transmission_b = transmissionT;
-}
-
-void insert_node(uint2 coords, uint color, uint depth, float transmission)
-{
-	uint index = coords.x + coords.y * 1700; // TODO: hardcoded
-
-	OITData frag = oit_buffer[index];
-	uint4 colors = frag.colors;
-	uint4 depths = frag.depths;
-	float4 transmissions = frag.transmissions;
-
-	bool4 not_valid_bool = transmissions == float4(1.0);
-
-	float4 not_valid_mask = select(not_valid_bool, float4(1.0), float4(0.0));
-	depths = asuint(lerp(asfloat(depths), float4(0.0), not_valid_mask)); // reverse z
-	bool4 closer_mask = uint4(depth) >= depths; // potential precision issue?
-
-	// swap nodes if closer
-	if (closer_mask[0])
-		swap_node(colors[0], depths[0], transmissions[0], color, depth, transmission);
-	if (closer_mask[1])
-		swap_node(colors[1], depths[1], transmissions[1], color, depth, transmission);
-	if (closer_mask[2])
-		swap_node(colors[2], depths[2], transmissions[2], color, depth, transmission);
-	if (closer_mask[3])
-		swap_node(colors[3], depths[3], transmissions[3], color, depth, transmission);
-
-	// compress array if overflow
-	if (!not_valid_bool[MLAB_NODES-1])
-	{
-		colors[MLAB_NODES-1] = packUnorm4x8(unpackUnorm4x8ToFloat(colors[MLAB_NODES-1]) + unpackUnorm4x8ToFloat(color) * transmissions[MLAB_NODES-1]);
-		transmissions[MLAB_NODES-1] *= transmission;
-	}
-
-	OITData oit_data;
-	oit_data.colors = colors;
-	oit_data.depths = depths;
-	oit_data.transmissions = transmissions;
-
-	oit_buffer[index] = oit_data;
-}
 
 [shader("vertex")]
 Interp vs_main(
@@ -120,8 +66,6 @@ Interp vs_main(
 	return interp;
 }
 
-static const int MLAB_NODES = 4;
-
 [earlydepthstencil]
 [shader("pixel")]
 void ps_main(
@@ -142,5 +86,9 @@ void ps_main(
 
 	uint2 screen_coords = uint2(floor(in.position.xy));
 
-	insert_node(screen_coords, color, depth, transmission);
+	uint index = screen_coords.x + screen_coords.y * pc.screen_size.x;
+	OITData fragment = oit_buffer[index];
+	insert_node(fragment, color, depth, transmission);
+
+	oit_buffer[index] = fragment;
 }

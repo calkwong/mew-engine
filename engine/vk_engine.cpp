@@ -3133,11 +3133,11 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass, ui
 	pc.meshlet_indices_buffer_address = get_buffer_address(device, render_scene.meshlet_indices.buffer);
 	pc.cluster_indices_address = get_buffer_address(device, render_scene.cluster_indices.buffer);
 	pc.material_buffer_address = get_buffer_address(device, render_scene.material_buffer.buffer);
-	pc.oit_buffer_address = get_buffer_address(device, render_scene.oit_buffer.buffer);
 	pc.prefix_sum_buffer = get_buffer_address(device, render_scene.prefix_sum_buffer.buffer);
 	auto jitter_count = jitter_offset.size();
 	auto current_jitter = jitter_offset[frame_number % jitter_count];
 	auto previous_jitter = jitter_offset[(frame_number - 1) % jitter_count];
+	pc.screen_size = glm::uvec2(window_extent.width, window_extent.height);
 	pc.jitter_offset = glm::vec4(current_jitter, previous_jitter);
 
 	if (!CVAR_RENDER_MESH_SHADERS.get())
@@ -3223,8 +3223,9 @@ void VulkanEngine::render_transparent(VkCommandBuffer cmd, uint32_t query)
 	pc.meshlet_indices_buffer_address = get_buffer_address(device, render_scene.meshlet_indices.buffer);
 	pc.cluster_indices_address = get_buffer_address(device, render_scene.cluster_indices.buffer);
 	pc.material_buffer_address = get_buffer_address(device, render_scene.material_buffer.buffer);
-	pc.oit_buffer_address = get_buffer_address(device, render_scene.oit_buffer.buffer);
 	pc.prefix_sum_buffer = get_buffer_address(device, render_scene.prefix_sum_buffer.buffer);
+	// TODO: handle jitter offset for transparency
+	pc.screen_size = glm::uvec2(window_extent.width, window_extent.height);
 
 	if (!CVAR_RENDER_MESH_SHADERS.get())
 	{

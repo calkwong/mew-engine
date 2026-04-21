@@ -53,8 +53,8 @@ struct GPUPushConstants
 	VkDeviceAddress meshlet_indices_buffer_address{};
 	VkDeviceAddress cluster_indices_address{};
 	VkDeviceAddress material_buffer_address{};
-	VkDeviceAddress oit_buffer_address{};
 	VkDeviceAddress prefix_sum_buffer{};
+	glm::uvec2 screen_size{};
 	glm::vec4 jitter_offset{};
 };
 

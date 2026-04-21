@@ -4,6 +4,7 @@ import barycentrics;
 import pbr;
 import sh;
 import util;
+import oit;
 
 [[vk::binding(0, 4)]] RaytracingAccelerationStructure acceleration_structure;
 
@@ -41,37 +42,6 @@ struct PushConstants
 [[vk::push_constant]] PushConstants pc;
 
 static const int CASCADE_COUNT = 4;
-static const int MLAB_NODES = 4;
-
-float3 composite_transparent(float3 input_color, uint2 frag_coord)
-{
-	float3 color = input_color;
-
-		uint index = frag_coord.x + frag_coord.y * uint(pc.screen_size.x);
-		OITData frags = pc.oit_buffer[index];
-
-		// early return if nothing stored
-		if (frags.transmissions[0] == 1.0)
-		{
-			return color;
-		}
-
-		pc.oit_buffer[index].transmissions = float4(1.0); // reset so we can skip vkcmdfillbuffer
-
-		float3 composite = float3(0.);
-		float t_accum = 1.0;
-		for (int i = 0; i < MLAB_NODES; i++)
-		{
-			float t = frags.transmissions[i];
-			composite = t != 1.0 ? float3(unpackUnorm4x8ToFloat(frags.colors[i]).xyz) * t_accum + composite : composite;
-			t_accum *= t;
-		}
-
-		color *= t_accum;
-		color += composite;
-
-	return color;
-}
 
 float calculate_shadow(float3 world_pos, inout uint cascade_index)
 {
@@ -442,7 +412,8 @@ void main(
 
 	if (pc.resolve_transparent == 1)
 	{
-		color = composite_transparent(color, uint2(frag_coord));
+	    uint index = uint(frag_coord.x) + uint(frag_coord.y) * uint(pc.screen_size.x);
+		color = composite_transparent(pc.oit_buffer, index, color, uint2(frag_coord));
 	}
 
 	out_color = float4(color, 1.0);

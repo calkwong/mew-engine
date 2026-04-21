@@ -106,10 +106,3 @@ public struct Meshlet
 	public uint8_t vertex_count;
 	public uint8_t triangle_count;
 };
-
-public struct OITData
-{
-	public uint4 colors;
-	public uint4 depths;
-	public float4 transmissions; // could we pack this in color.a?
-};
