@@ -14,7 +14,11 @@ struct PushConstants
 	uint* light_index_buffer;
 	LightGrid* light_grid_buffer;
 	OITData* oit_buffer;
-	uint* padding[5]; // padding for visibility buffer variant
+	uint* meshlet_indices_buffer;
+	Meshlet* meshlet_buffer;
+	Vertex* vertex_buffer;
+	ObjectData* object_buffer;
+	MaterialData* material_buffer;
 	uint* index_buffer;
 	MeshData* mesh_buffer;
 	SH* sh_buffer;
@@ -27,6 +31,7 @@ struct PushConstants
 	float bias;
 	uint resolve_transparent;
 	uint shadows;
+	uint shadows_rt;
 	float max_prefiltered_lod;
 	float pc_metallic; // unused, for furnace test
 	float pc_roughness; // unused, for furnace test
@@ -162,8 +167,16 @@ void main(
 	uint cascade_index = 0;
 	if (pc.shadows == 1)
 	{
-		float occluded = calculate_shadow(world_pos, cascade_index, pc.shadowmap_id);
-        color *= occluded;
+	    if (pc.shadows_rt == 0)
+		{
+    		float occluded = calculate_shadow(world_pos, cascade_index, pc.shadowmap_id);
+            color *= occluded;
+		}
+	    else
+		{
+	        bool shadowed = in_shadow(world_pos, pc.object_buffer, pc.mesh_buffer, pc.material_buffer, pc.index_buffer, pc.vertex_buffer);
+            color = shadowed ? float3(0.0) : color;
+		}
 	}
 
 	color += ambient;

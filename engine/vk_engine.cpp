@@ -58,6 +58,7 @@ AutoCVar_Int CVAR_RENDER_POINT_LIGHTS{ "render.point_lights", "Point lights", 0,
 AutoCVar_Int CVAR_RENDER_OCCLUSION_CULL{ "render.occlusion_cull", "Occlusion culling", 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_LOD{ "render.lod", "LODs", 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_SHADOWS{ "render.shadows", "Shadows", 0, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_RENDER_SHADOWS_RT{ "render.shadows_rt", "Ray traced shadows", 0, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_TAA{ "render.taa", "TAA", 0, CVarFlags::EditCheckbox }; // | CVarFlags::EditHide };
 
 AutoCVar_Float CVAR_SHADOWS_CASCADE_SPLIT{ "shadows.cascade_split", "Cascades log factor", 0.95f, CVarFlags::EditDragFloat, 0.f, 1.f, 0.005f };
@@ -920,7 +921,7 @@ void VulkanEngine::draw()
 	}
 
 	// shadow pass
-	if (CVAR_RENDER_SHADOWS.get())
+	if (CVAR_RENDER_SHADOWS.get() && !CVAR_RENDER_SHADOWS_RT.get())
 	{
 		vkutil::transition_buffer(cmd, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
 
@@ -1363,6 +1364,13 @@ void VulkanEngine::run()
 						CVAR_MISC_HIZ_SPD.set(0);
 					else
 						CVAR_MISC_HIZ_SPD.set(1);
+				}
+				if (e.key.repeat == 0 && e.key.key == SDLK_F)
+				{
+					if (CVAR_RENDER_SHADOWS_RT.get() == 1)
+					    CVAR_RENDER_SHADOWS_RT.set(0);
+					else
+						CVAR_RENDER_SHADOWS_RT.set(1);
 				}
 				if (e.key.repeat == 0 && e.key.key == SDLK_Y)
 				{
@@ -1968,11 +1976,11 @@ void VulkanEngine::init_pipelines()
 	shader_passes["luminance_avg"] = compute_builder.create_pipeline(device, shader_cache["luminance_avg.slang"]);
 	shader_passes["tonemap"] = compute_builder.create_pipeline(device, shader_cache["tonemap.slang"]);
 	shader_passes["shadow_cull"] = compute_builder.create_pipeline(device, shader_cache["shadow_cull.slang"]);
-	shader_passes["resolve_gbuffer"] = compute_builder.create_pipeline(device, shader_cache["resolve_gbuffer.slang"]);
 	shader_passes["compact_dispatch"] = compute_builder.create_pipeline(device, shader_cache["compact_dispatch.slang"]);
 	shader_passes["resolve_taa"] = compute_builder.create_pipeline(device, shader_cache["resolve_taa.slang"]);
 	shader_passes["hiz_spd"] = compute_builder.create_pipeline(device, shader_cache["hiz_spd.slang"]);
 	compute_builder.set_descriptor_layouts({ scene_descriptor_layout, bindless_image_layout, bindless_tex_layout, bindless_sampler_layout, as_layout });
+	shader_passes["resolve_gbuffer"] = compute_builder.create_pipeline(device, shader_cache["resolve_gbuffer.slang"]);
 	shader_passes["resolve_vbuffer"] = compute_builder.create_pipeline(device, shader_cache["resolve_vbuffer.slang"]);
 
 	// mrt
@@ -2540,7 +2548,7 @@ void VulkanEngine::update_scene()
 	// scene_data.sunlight_dir = glm::vec4(0.001, 12.0, 0.0, 1.);
 	scene_data.sunlight_color = glm::vec4(15.0, 15.0, 15.0, 1.0);
 
-	if (CVAR_RENDER_SHADOWS.get())
+	if (CVAR_RENDER_SHADOWS.get() && !CVAR_RENDER_SHADOWS_RT.get())
 	{
 		update_cascade();
 		for (size_t i = 0; i < cascade_data.size(); i++)
@@ -3486,7 +3494,6 @@ void VulkanEngine::resolve_shading(VkCommandBuffer cmd)
 	if (visibility_rendering)
 	{
 		current_pass = *shader_passes["resolve_vbuffer"];
-		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 4, 1, &as_descriptor, 0, nullptr);
 	}
 	else
 	{
@@ -3498,6 +3505,7 @@ void VulkanEngine::resolve_shading(VkCommandBuffer cmd)
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 4, 1, &as_descriptor, 0, nullptr);
 
 	DeferredPushConstants pc{};
 
@@ -3530,6 +3538,7 @@ void VulkanEngine::resolve_shading(VkCommandBuffer cmd)
 	pc.bias = static_cast<float>(CLUSTER_DEPTH_SLICES) * std::log(main_camera.near) / std::log(ratio);
 	pc.resolve_transparent = CVAR_RENDER_TRANSPARENT.get();
 	pc.shadows = CVAR_RENDER_SHADOWS.get();
+	pc.shadows_rt = CVAR_RENDER_SHADOWS_RT.get();
 	pc.max_prefiltered_lod = static_cast<float>(std::floor(std::log2(static_cast<float>(std::max(prefiltered_envmap.extent.width, prefiltered_envmap.extent.height))))) + 1;
 	pc.metallic = CVAR_PBR_METALLIC.get();
 	pc.roughness = CVAR_PBR_ROUGHNESS.get();

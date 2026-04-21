@@ -83,6 +83,7 @@ struct DeferredPushConstants
 	float bias{};
 	uint32_t resolve_transparent{};
 	uint32_t shadows{};
+	uint32_t shadows_rt{};
 	float max_prefiltered_lod{};
 	float metallic{};
 	float roughness{};
