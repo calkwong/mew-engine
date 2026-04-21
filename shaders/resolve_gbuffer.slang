@@ -4,6 +4,7 @@ import pbr;
 import sh;
 import util;
 import oit;
+import shadows;
 
 struct PushConstants
 {
@@ -24,91 +25,13 @@ struct PushConstants
 	float bias;
 	uint resolve_transparent;
 	uint shadows;
-	uint pcf;
 	float max_prefiltered_lod;
 	float pc_metallic; // unused, for furnace test
 	float pc_roughness; // unused, for furnace test
 	uint debug;
-	uint map;
 };
 
 [[vk::push_constant]] PushConstants pc;
-
-static const int CASCADE_COUNT = 4;
-
-float calculate_shadow(float3 world_pos, inout uint cascade_index)
-{
-	float d = mul(uniforms.view, float4(world_pos, 1.0)).z; // view space z
-
-    for (uint i = 0; i < CASCADE_COUNT; i++)
-    {
-        if (d > uniforms.cascade_splits[i])
-        {
-            cascade_index = i;
-            break;
-        }
-    }
-
-    float3 ndc;
-    float current_depth;
-    if (pc.map == 1)
-    {
-        cascade_index = 0;
-
-        for (int i = 0; i < CASCADE_COUNT; i++)
-        {
-            ndc = mul(uniforms.shadow_transforms[i], float4(world_pos, 1.0)).xyz;
-            // z plane check is dependent on cascade selection strategy and potentially if we're doing pancaking?
-            if (abs(ndc.x) < 1.0 && abs(ndc.y) < 1.0 && ndc.z > 0.0 && ndc.z < 1.0)
-            {
-                cascade_index = i;
-                break;
-            }
-        }
-    }
-    else // interval-based selection
-    {
-        ndc = mul(uniforms.shadow_transforms[cascade_index], float4(world_pos, 1.0)).xyz;
-    }
-
-	current_depth = ndc.z;
-
-	if (current_depth < 0.0) // necessary
-        return 1.0;
-
-	float2 uv = ndc.xy * 0.5 + 0.5;
-	uv.y = 1.0 - uv.y;
-
-	float layers;
-	float2 offset;
-	textures[pc.shadowmap_id + cascade_index].GetDimensions(0, offset.x, offset.y, layers);
-	offset = float2(1.0) / offset;
-
-	float shadow = 0.0;
-	float closest_depth = 0.0;
-
-    // TODO: bias
-	if (pc.pcf == 1)
-	{
-		for (int y = -1; y <= 1; y++)
-		{
-			for (int x = -1; x <= 1; x++)
-			{
-				float2 sample_uv = float2(uv.x + x * offset.x, uv.y + y * offset.y);
-				closest_depth = textures[pc.shadowmap_id + cascade_index].SampleLevel(samplers[SHADOW_SAMPLER], sample_uv, 0.0).r;
-
-				if (closest_depth > current_depth)
-					shadow += 0.0;
-				else
-					shadow += 1.0;
-			}
-		}
-
-		shadow /= 9.0;
-	}
-
-	return shadow;
-}
 
 float3 reconstruct_world_pos(float depth, float4x4 inverse_view_proj, float2 uv_pos)
 {
@@ -237,7 +160,7 @@ void main(
 	uint cascade_index = 0;
 	if (pc.shadows == 1)
 	{
-		float occluded = calculate_shadow(world_pos, cascade_index);
+		float occluded = calculate_shadow(world_pos, cascade_index, pc.shadowmap_id);
         color *= occluded;
 	}
 

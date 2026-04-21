@@ -81,12 +81,10 @@ struct DeferredPushConstants
 	float bias{};
 	uint32_t resolve_transparent{};
 	uint32_t shadows{};
-	uint32_t pcf{};
 	float max_prefiltered_lod{};
 	float metallic{};
 	float roughness{};
 	uint32_t debug{};
-	uint32_t map{};
 };
 
 // rasterize shadows

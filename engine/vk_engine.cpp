@@ -60,10 +60,8 @@ AutoCVar_Int CVAR_RENDER_LOD{ "render.lod", "LODs", 1, CVarFlags::EditCheckbox }
 AutoCVar_Int CVAR_RENDER_SHADOWS{ "render.shadows", "Shadows", 0, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_TAA{ "render.taa", "TAA", 0, CVarFlags::EditCheckbox }; // | CVarFlags::EditHide };
 
-AutoCVar_Int CVAR_SHADOWS_PCF{ "shadows.pcf", "PCF", 1, CVarFlags::EditCheckbox };
 AutoCVar_Float CVAR_SHADOWS_CASCADE_SPLIT{ "shadows.cascade_split", "Cascades log factor", 0.95f, CVarFlags::EditDragFloat, 0.f, 1.f, 0.005f };
 AutoCVar_Int CVAR_SHADOWS_DISTANCE{ "shadows.distance", "Shadow draw distance", 48, CVarFlags::EditSliderInt, 20, 200, 5 };
-AutoCVar_Int CVAR_SHADOWS_CASCADE_SELECTION{ "shadows.cascade_selection", "Map based cascade selection", 1, CVarFlags::EditCheckbox };
 
 AutoCVar_Int CVAR_DEBUG_TEXTURES{ "debug.textures", "Debug textures", 0, CVarFlags::EditSliderInt, 0, DEBUG_COUNT, 1 };
 
@@ -3531,12 +3529,10 @@ void VulkanEngine::resolve_shading(VkCommandBuffer cmd)
 	pc.bias = static_cast<float>(CLUSTER_DEPTH_SLICES) * std::log(main_camera.near) / std::log(ratio);
 	pc.resolve_transparent = CVAR_RENDER_TRANSPARENT.get();
 	pc.shadows = CVAR_RENDER_SHADOWS.get();
-	pc.pcf = CVAR_SHADOWS_PCF.get();
 	pc.max_prefiltered_lod = static_cast<float>(std::floor(std::log2(static_cast<float>(std::max(prefiltered_envmap.extent.width, prefiltered_envmap.extent.height))))) + 1;
 	pc.metallic = CVAR_PBR_METALLIC.get();
 	pc.roughness = CVAR_PBR_ROUGHNESS.get();
 	pc.debug = CVAR_DEBUG_TEXTURES.get();
-	pc.map = CVAR_SHADOWS_CASCADE_SELECTION.get();
 
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(DeferredPushConstants), &pc);
 	auto groupcount_x = get_groupcount(draw_extent.width, 8);
