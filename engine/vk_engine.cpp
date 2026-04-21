@@ -1493,7 +1493,7 @@ void VulkanEngine::init_vulkan()
 	auto inst_ret = builder.set_app_name("Example Vulkan Application")
 	                    .request_validation_layers(USE_VALIDATION_LAYERS)
 	                    .use_default_debug_messenger()
-	                    .require_api_version(1, 3, 0)
+	                    .require_api_version(1, 4, 0)
 	                    .build();
 
 	vkb::Instance vkb_inst = inst_ret.value();
@@ -1505,6 +1505,9 @@ void VulkanEngine::init_vulkan()
 	volkLoadInstanceOnly(instance);
 
 	SDL_Vulkan_CreateSurface(window, instance, nullptr, &surface);
+
+	VkPhysicalDeviceVulkan14Features features14{};
+	features14.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES;
 
 	// vulkan 1.3 features
 	VkPhysicalDeviceVulkan13Features features13{};
@@ -1568,8 +1571,9 @@ void VulkanEngine::init_vulkan()
 	// we want a gpu that can write to the SDL surface and supports vulkan 1.3 with the correct features
 	vkb::PhysicalDeviceSelector selector{ vkb_inst };
 	vkb::PhysicalDevice physicalDevice = selector
-	                                         .set_minimum_version(1, 3)
+	                                         .set_minimum_version(1, 4)
 	                                         .set_required_features(features10)
+										     .set_required_features_14(features14)
 	                                         .set_required_features_13(features13)
 	                                         .set_required_features_12(features12)
 	                                         .set_required_features_11(features11)
@@ -1606,7 +1610,7 @@ void VulkanEngine::init_vulkan()
 	allocator_info.physicalDevice = chosen_gpu;
 	allocator_info.device = device;
 	allocator_info.instance = instance;
-	allocator_info.vulkanApiVersion = VK_API_VERSION_1_3;
+	allocator_info.vulkanApiVersion = VK_API_VERSION_1_4;
 	allocator_info.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT; // allows usage of GPU pointers
 
 	VmaVulkanFunctions vulkan_functions{};
@@ -1630,7 +1634,8 @@ void VulkanEngine::init_vulkan()
 	    VK_KHR_RAY_QUERY_EXTENSION_NAME,
 		VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
 		VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
-		VK_EXT_OPACITY_MICROMAP_EXTENSION_NAME
+		VK_EXT_OPACITY_MICROMAP_EXTENSION_NAME,
+		VK_KHR_UNIFIED_IMAGE_LAYOUTS_EXTENSION_NAME,
 	};
 
 	// check for extension support
@@ -2746,7 +2751,7 @@ void VulkanEngine::init_imgui()
 	// Setup Platform/Renderer backends
 	ImGui_ImplSDL3_InitForVulkan(window);
 	ImGui_ImplVulkan_InitInfo init_info{};
-	init_info.ApiVersion = VK_API_VERSION_1_3;
+	init_info.ApiVersion = VK_API_VERSION_1_4;
 	init_info.Instance = instance;
 	init_info.PhysicalDevice = chosen_gpu;
 	init_info.Device = device;
