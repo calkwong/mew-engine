@@ -1618,22 +1618,21 @@ void VulkanEngine::init_vulkan()
 	vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &count, nullptr);
 	std::vector<VkExtensionProperties> extensions(count);
 	vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &count, extensions.data());
+	std::vector<const char*> extension_names = {
+	    VK_KHR_RAY_QUERY_EXTENSION_NAME,
+		VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
+		VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
+		VK_EXT_OPACITY_MICROMAP_EXTENSION_NAME
+	};
 
 	// check for extension support
 	for (uint32_t i = 0; i < count; i++)
 	{
-	    if (strcmp(VK_KHR_RAY_QUERY_EXTENSION_NAME, extensions[i].extensionName) == 0)
-	    {
-	        fmt::println("VK_KHR_RAY_QUERY_EXTENSION_NAME supported");
-	    }
-		if (strcmp(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME, extensions[i].extensionName) == 0)
-	    {
-	        fmt::println("VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME supported");
-	    }
-		if (strcmp(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME, extensions[i].extensionName) == 0)
-	    {
-	        fmt::println("VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME supported");
-	    }
+		for (const auto* extension : extension_names)
+    	{
+           	if (strcmp(extension, extensions[i].extensionName) == 0)
+                fmt::println("{} supported", extension);
+    	}
 	}
 }
 
@@ -2475,7 +2474,7 @@ void VulkanEngine::register_object(const Node* node, const glm::mat4& top_matrix
 			{
 				obj.mesh_id = static_cast<uint32_t>(render_scene.meshes.size());
 
-				render_scene.meshes.emplace_back(Mesh{ .center = mesh.center, .radius = mesh.radius, .mesh_lods = mesh.mesh_lods, .lod_count = mesh.lod_count, .vertex_offset = mesh.vertex_offset });
+				render_scene.meshes.emplace_back(Mesh{ .center = mesh.center, .radius = mesh.radius, .lod_count = mesh.lod_count, .vertex_offset = mesh.vertex_offset, .mesh_lods = mesh.mesh_lods });
 			}
 
 			switch (mesh.pass)
@@ -3516,6 +3515,8 @@ void VulkanEngine::resolve_shading(VkCommandBuffer cmd)
 	pc.vertex_buffer_address = get_buffer_address(device, render_scene.vertex_buffer.buffer);
 	pc.object_buffer_address = get_buffer_address(device, render_scene.object_buffer.buffer);
 	pc.material_buffer_address = get_buffer_address(device, render_scene.material_buffer.buffer);
+	pc.index_buffer_address = get_buffer_address(device, render_scene.index_buffer.buffer);
+	pc.mesh_buffer_address = get_buffer_address(device, render_scene.mesh_buffer.buffer);
 	pc.sh_buffer_address = get_buffer_address(device, render_scene.sh_buffer.buffer);
 
 	pc.depth_id = texture_cache.get_depth_image();
@@ -3587,14 +3588,14 @@ void VulkanEngine::create_acceleration_structures()
         triangle_data.vertexFormat = VK_FORMAT_R16G16B16_SFLOAT;
         triangle_data.vertexData.deviceAddress = vb_address + sizeof(Vertex) * mesh.vertex_offset;
         triangle_data.vertexStride = sizeof(Vertex);
-        triangle_data.maxVertex = mesh.mesh_lods[lod_index].count - 1; // why -1? spec asks for this
+        triangle_data.maxVertex = mesh.mesh_lods[lod_index].count - 1; // max index accessed hence -1
         triangle_data.indexType = VK_INDEX_TYPE_UINT32;
         triangle_data.indexData.deviceAddress = ib_address + sizeof(uint32_t) * mesh.mesh_lods[lod_index].first_index;
 
         geometry.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
         geometry.geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
         geometry.geometry.triangles = triangle_data;
-        geometry.flags = VK_GEOMETRY_OPAQUE_BIT_KHR;
+        // geometry.flags = VK_GEOMETRY_OPAQUE_BIT_KHR;
 
         build_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
         build_info.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
@@ -3673,7 +3674,9 @@ void VulkanEngine::create_acceleration_structures()
         instances[i].transform.matrix[0][3] = obj.translation.x;
         instances[i].transform.matrix[1][3] = obj.translation.y;
         instances[i].transform.matrix[2][3] = obj.translation.z;
+        instances[i].instanceCustomIndex = i; // note: instanceCustomIndex 24 bits only
         instances[i].mask = 0xFF; //
+        instances[i].flags = obj.post_pass == 0 ? VK_GEOMETRY_INSTANCE_FORCE_OPAQUE_BIT_KHR : VK_GEOMETRY_INSTANCE_FORCE_NO_OPAQUE_BIT_KHR;
         instances[i].accelerationStructureReference = blas_addresses[obj.mesh_id];
     }
 

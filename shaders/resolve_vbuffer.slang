@@ -20,6 +20,8 @@ struct PushConstants
 	Vertex* vertex_buffer;
 	ObjectData* object_buffer;
 	MaterialData* material_buffer;
+	uint* index_buffer;
+	MeshData* mesh_buffer;
 	SH* sh_buffer;
 	uint depth_id;
 	uint gbuffer_id;
@@ -250,7 +252,7 @@ void main(
 	{
 		// float occluded = calculate_shadow(world_pos, cascade_index, pc.shadowmap_id);
         // color *= occluded;
-        bool shadowed = in_shadow(world_pos);
+        bool shadowed = in_shadow(world_pos, pc.object_buffer, pc.mesh_buffer, pc.material_buffer, pc.index_buffer, pc.vertex_buffer);
         color = shadowed ? float3(0.0) : color;
 	}
 

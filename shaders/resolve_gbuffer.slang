@@ -14,7 +14,9 @@ struct PushConstants
 	uint* light_index_buffer;
 	LightGrid* light_grid_buffer;
 	OITData* oit_buffer;
-	uint padding[10]; // padding for visibility buffer variant
+	uint* padding[5]; // padding for visibility buffer variant
+	uint* index_buffer;
+	MeshData* mesh_buffer;
 	SH* sh_buffer;
 	uint depth_id;
 	uint gbuffer_id;

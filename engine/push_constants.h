@@ -71,6 +71,8 @@ struct DeferredPushConstants
 	VkDeviceAddress vertex_buffer_address{}; // TESTING FOR VIS BUFFER ONLY
 	VkDeviceAddress object_buffer_address{}; // TESTING FOR VIS BUFFER ONLY
 	VkDeviceAddress material_buffer_address{}; // TESTING FOR VIS BUFFER ONLY
+	VkDeviceAddress index_buffer_address{};
+	VkDeviceAddress mesh_buffer_address{};
 	VkDeviceAddress sh_buffer_address{};
 	uint32_t depth_id{};
 	uint32_t gbuffer_id{};

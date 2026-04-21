@@ -122,10 +122,10 @@ struct Mesh
 	glm::vec3 center{};
 	float radius{};
 
-	std::array<MeshLod, 8> mesh_lods{};
-
 	uint32_t lod_count{};
 	uint32_t vertex_offset{};
+
+	std::array<MeshLod, 8> mesh_lods{};
 };
 
 struct RenderObject

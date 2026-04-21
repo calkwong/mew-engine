@@ -72,10 +72,10 @@ public struct MeshData
 	public float3 center;
 	public float radius;
 
-	public MeshLod lods[8];
-
 	public uint lod_count;
 	public uint vertex_offset;
+
+	public MeshLod lods[8];
 };
 
 public struct DrawCommand
