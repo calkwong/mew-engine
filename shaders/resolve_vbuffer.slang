@@ -5,6 +5,8 @@ import pbr;
 import sh;
 import util;
 
+[[vk::binding(0, 4)]] RaytracingAccelerationStructure acceleration_structure;
+
 struct PushConstants
 {
 	float4 cluster_size; // xy is cluster dim, z is # of cluster slices
@@ -143,6 +145,26 @@ float calculate_shadow(float3 world_pos, inout uint cascade_index)
 	}
 
 	return shadow;
+}
+
+bool in_shadow(float3 pos)
+{
+    RayDesc shadow_ray_desc;
+    shadow_ray_desc.Direction = normalize(uniforms.sunlight_dir.xyz);
+    shadow_ray_desc.Origin = pos;
+    shadow_ray_desc.TMin = 0.005;
+    shadow_ray_desc.TMax = 1e4;
+
+    RayQuery<RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> sq;
+
+    let ray_flags = RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH;
+
+    sq.TraceRayInline(acceleration_structure, ray_flags, 0xFF, shadow_ray_desc);
+    sq.Proceed();
+
+    bool hit = (sq.CommittedStatus() == COMMITTED_TRIANGLE_HIT);
+
+    return hit;
 }
 
 #define DEBUG_SHADING_NORMALS 1
@@ -355,8 +377,10 @@ void main(
 	uint cascade_index = 0;
 	if (pc.shadows == 1)
 	{
-		float occluded = calculate_shadow(world_pos, cascade_index);
-        color *= occluded;
+		// float occluded = calculate_shadow(world_pos, cascade_index);
+        // color *= occluded;
+        bool shadowed = in_shadow(world_pos);
+        color = shadowed ? color * 0.2 : color;
 	}
 
 	color += ambient;

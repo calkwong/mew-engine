@@ -134,6 +134,7 @@ public:
 	VkDescriptorSetLayout bindless_sampler_layout{};
 	VkDescriptorSetLayout bindless_image_layout{};
 	VkDescriptorSetLayout rasterizer_ordered_buf_layout{};
+	VkDescriptorSetLayout as_layout{};
 
 	VmaAllocator allocator{};
 
@@ -158,6 +159,7 @@ public:
 	VkDescriptorSet bindless_sampler_descriptor{};
 	VkDescriptorSet bindless_image_descriptor{};
 	VkDescriptorSet rasterizer_ordered_buf_descriptor{};
+	VkDescriptorSet as_descriptor{};
 
 	std::unordered_map<std::string, std::unique_ptr<ShaderPass>> shader_passes{};
 
@@ -183,6 +185,12 @@ public:
 	AllocatedBuffer light_index_buffer{};
 	AllocatedBuffer light_grid_buffer{};
 	AllocatedBuffer light_count_buffer{};
+
+	AllocatedBuffer blas_buffer{};
+	AllocatedBuffer tlas_buffer{};
+	AllocatedBuffer tlas_instance_buffer{};
+
+	VkAccelerationStructureKHR tlas_as{};
 
 	RenderScene render_scene{};
 
@@ -215,6 +223,7 @@ public:
 	void build_depth_pyramid(VkCommandBuffer cmd);
 	void execute_light_culling(VkCommandBuffer cmd);
 	void resolve_shading(VkCommandBuffer cmd);
+	void create_acceleration_structures();
 
 private:
 	void init_vulkan();

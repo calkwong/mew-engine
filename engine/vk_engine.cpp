@@ -54,10 +54,10 @@ AutoCVar_Int CVAR_RENDER_VBUFFER{ "render.vbuffer", "Vbuffer path", 1, CVarFlags
 AutoCVar_Int CVAR_RENDER_MESH_SHADERS{ "render.mesh_shaders", "Mesh shaders path", 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_ALPHACLIP{ "render.alphaclip", "Alphaclip", 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_TRANSPARENT{ "render.transparent", "Transparent", 0, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_RENDER_POINT_LIGHTS{ "render.point_lights", "Point lights", 1, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_RENDER_POINT_LIGHTS{ "render.point_lights", "Point lights", 0, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_OCCLUSION_CULL{ "render.occlusion_cull", "Occlusion culling", 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_LOD{ "render.lod", "LODs", 1, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_RENDER_SHADOWS{ "render.shadows", "Shadows", 1, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_RENDER_SHADOWS{ "render.shadows", "Shadows", 0, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_TAA{ "render.taa", "TAA", 0, CVarFlags::EditCheckbox }; // | CVarFlags::EditHide };
 
 AutoCVar_Int CVAR_SHADOWS_PCF{ "shadows.pcf", "PCF", 1, CVarFlags::EditCheckbox };
@@ -213,6 +213,8 @@ void VulkanEngine::init(int argc, char** argv)
 	init_renderables(argc, argv);
 
 	upload_buffers();
+
+	create_acceleration_structures();
 
 	update_descriptors();
 
@@ -1548,6 +1550,14 @@ void VulkanEngine::init_vulkan()
 	fragment_shader_interlock_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADER_INTERLOCK_FEATURES_EXT;
 	fragment_shader_interlock_features.fragmentShaderPixelInterlock = true;
 
+	VkPhysicalDeviceRayQueryFeaturesKHR ray_query_features{};
+	ray_query_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR;
+	ray_query_features.rayQuery = true;
+
+	VkPhysicalDeviceAccelerationStructureFeaturesKHR acceleration_structure_features{};
+	acceleration_structure_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR;
+	acceleration_structure_features.accelerationStructure = true;
+
 	// use vkbootstrap to select a gpu.
 	// we want a gpu that can write to the SDL surface and supports vulkan 1.3 with the correct features
 	vkb::PhysicalDeviceSelector selector{ vkb_inst };
@@ -1560,8 +1570,13 @@ void VulkanEngine::init_vulkan()
 	                                         .add_required_extension("VK_KHR_calibrated_timestamps")
 	                                         .add_required_extension("VK_EXT_mesh_shader")
 	                                         .add_required_extension("VK_EXT_fragment_shader_interlock")
-	                                         .add_required_extension_features(mesh_shader_features)
+											 .add_required_extension("VK_KHR_ray_query")
+	                                         .add_required_extension("VK_KHR_deferred_host_operations")
+										     .add_required_extension("VK_KHR_acceleration_structure")
+											 .add_required_extension_features(mesh_shader_features)
 	                                         .add_required_extension_features(fragment_shader_interlock_features)
+										     .add_required_extension_features(ray_query_features)
+											 .add_required_extension_features(acceleration_structure_features)
 	                                         .set_surface(surface)
 	                                         .select()
 	                                         .value();
@@ -1607,13 +1622,21 @@ void VulkanEngine::init_vulkan()
 	vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &count, extensions.data());
 
 	// check for extension support
-	// for (uint32_t i = 0; i < count; i++)
-	// {
-	//     if (strcmp(VK_KHR_RAY_QUERY_EXTENSION_NAME, extensions[i].extensionName) == 0)
-	//     {
-	//         fmt::println("VK_KHR_RAY_QUERY_EXTENSION_NAME supported");
-	//     }
-	// }
+	for (uint32_t i = 0; i < count; i++)
+	{
+	    if (strcmp(VK_KHR_RAY_QUERY_EXTENSION_NAME, extensions[i].extensionName) == 0)
+	    {
+	        fmt::println("VK_KHR_RAY_QUERY_EXTENSION_NAME supported");
+	    }
+		if (strcmp(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME, extensions[i].extensionName) == 0)
+	    {
+	        fmt::println("VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME supported");
+	    }
+		if (strcmp(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME, extensions[i].extensionName) == 0)
+	    {
+	        fmt::println("VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME supported");
+	    }
+	}
 }
 
 void VulkanEngine::init_swapchain()
@@ -1836,7 +1859,8 @@ void VulkanEngine::init_descriptors()
 		{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
 		{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000 },
 		{ VK_DESCRIPTOR_TYPE_SAMPLER, 20 },
-		{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1 }
+		{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1 },
+		{ VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1 }
 	};
 
 	global_descriptor_allocator.init(device, 1, sizes);
@@ -1874,6 +1898,12 @@ void VulkanEngine::init_descriptors()
 		builder.bindings[0].descriptorCount = 1;
 
 		rasterizer_ordered_buf_layout = builder.build(device);
+
+		builder.clear();
+		builder.add_binding(0, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, VK_SHADER_STAGE_COMPUTE_BIT);
+		builder.bindings[0].descriptorCount = 1;
+
+		as_layout = builder.build(device);
 	}
 
 	main_deletion_queue.push_function([&]()
@@ -1884,6 +1914,7 @@ void VulkanEngine::init_descriptors()
 		vkDestroyDescriptorSetLayout(device, bindless_sampler_layout, nullptr);
 		vkDestroyDescriptorSetLayout(device, bindless_image_layout, nullptr);
 		vkDestroyDescriptorSetLayout(device, rasterizer_ordered_buf_layout, nullptr);
+		vkDestroyDescriptorSetLayout(device, as_layout, nullptr);
 	});
 }
 
@@ -1940,11 +1971,12 @@ void VulkanEngine::init_pipelines()
 	shader_passes["luminance_avg"] = compute_builder.create_pipeline(device, shader_cache["luminance_avg.slang"]);
 	shader_passes["tonemap"] = compute_builder.create_pipeline(device, shader_cache["tonemap.slang"]);
 	shader_passes["shadow_cull"] = compute_builder.create_pipeline(device, shader_cache["shadow_cull.slang"]);
-	shader_passes["resolve_vbuffer"] = compute_builder.create_pipeline(device, shader_cache["resolve_vbuffer.slang"]);
 	shader_passes["resolve_gbuffer"] = compute_builder.create_pipeline(device, shader_cache["resolve_gbuffer.slang"]);
 	shader_passes["compact_dispatch"] = compute_builder.create_pipeline(device, shader_cache["compact_dispatch.slang"]);
 	shader_passes["resolve_taa"] = compute_builder.create_pipeline(device, shader_cache["resolve_taa.slang"]);
 	shader_passes["hiz_spd"] = compute_builder.create_pipeline(device, shader_cache["hiz_spd.slang"]);
+	compute_builder.set_descriptor_layouts({ scene_descriptor_layout, bindless_image_layout, bindless_tex_layout, bindless_sampler_layout, as_layout });
+	shader_passes["resolve_vbuffer"] = compute_builder.create_pipeline(device, shader_cache["resolve_vbuffer.slang"]);
 
 	// mrt
 	builder.set_input_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
@@ -2274,8 +2306,10 @@ void VulkanEngine::init_renderables(int argc, char** argv)
 	float ret = static_cast<float>(elapsed.count()) / 1000.0f;
 	fmt::println("load gltf: {}ms", ret);
 
-	render_scene.vertex_buffer = upload_buffer(this, allocator, loaded_scene->vertices.data(), loaded_scene->vertices.size() * sizeof(Vertex));
-	render_scene.index_buffer = upload_buffer(this, allocator, loaded_scene->indices.data(), loaded_scene->indices.size() * sizeof(uint32_t), VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+	VkBufferUsageFlags ray_tracing_flags = VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
+
+	render_scene.vertex_buffer = upload_buffer(this, allocator, loaded_scene->vertices.data(), loaded_scene->vertices.size() * sizeof(Vertex), ray_tracing_flags);
+	render_scene.index_buffer = upload_buffer(this, allocator, loaded_scene->indices.data(), loaded_scene->indices.size() * sizeof(uint32_t), VK_BUFFER_USAGE_INDEX_BUFFER_BIT | ray_tracing_flags);
 	render_scene.meshlet_indices = upload_buffer(this, allocator, loaded_scene->meshlet_indices.data(), loaded_scene->meshlet_indices.size() * sizeof(uint32_t));
 	render_scene.meshlet_buffer = upload_buffer(this, allocator, loaded_scene->meshlets.data(), loaded_scene->meshlets.size() * sizeof(Meshlet));
 	render_scene.material_buffer = upload_buffer(this, allocator, loaded_scene->materials.data(), loaded_scene->materials.size() * sizeof(MaterialData));
@@ -2374,6 +2408,23 @@ void VulkanEngine::update_descriptors()
 	writer.clear();
 	writer.write_buffer(0, render_scene.oit_buffer.buffer, VK_WHOLE_SIZE, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
 	writer.update_set(device, rasterizer_ordered_buf_descriptor);
+
+	as_descriptor = global_descriptor_allocator.allocate(device, as_layout);
+
+	VkWriteDescriptorSetAccelerationStructureKHR as_info{};
+	as_info.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR;
+	as_info.accelerationStructureCount = 1;
+	as_info.pAccelerationStructures = &tlas_as;
+
+	write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	write.pNext = &as_info;
+	write.dstSet = as_descriptor;
+	write.descriptorCount = 1;
+	write.descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+
+	vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+
+	write.pNext = nullptr; // in case of future reuse
 
 	for (auto& frame : frames)
 	{
@@ -3437,6 +3488,7 @@ void VulkanEngine::resolve_shading(VkCommandBuffer cmd)
 	if (visibility_rendering)
 	{
 		current_pass = *shader_passes["resolve_vbuffer"];
+		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 4, 1, &as_descriptor, 0, nullptr);
 	}
 	else
 	{
@@ -3489,4 +3541,203 @@ void VulkanEngine::resolve_shading(VkCommandBuffer cmd)
 	auto groupcount_x = get_groupcount(draw_extent.width, 8);
 	auto groupcount_y = get_groupcount(draw_extent.height, 8);
 	vkCmdDispatch(cmd, groupcount_x, groupcount_y, 1);
+}
+
+// TODO:
+// - separate into buildBLAS and buildTLAS
+// - build flags
+// - opaque/non opaque flags
+// - figure out alignment for scratch and BLAS
+// - update bit for rebuild
+// - lifetime of buffers
+void VulkanEngine::create_acceleration_structures()
+{
+    VkDeviceAddress vb_address = get_buffer_address(device, render_scene.vertex_buffer.buffer);
+    VkDeviceAddress ib_address = get_buffer_address(device, render_scene.index_buffer.buffer);
+
+    std::vector<Mesh>& meshes = render_scene.meshes;
+
+    AllocatedBuffer scratch_buffer{};
+    std::vector<VkAccelerationStructureKHR> blas_handles(meshes.size());
+
+    std::vector<uint32_t> primitive_counts(meshes.size());
+    std::vector<VkAccelerationStructureBuildGeometryInfoKHR> build_infos(meshes.size());
+    std::vector<VkAccelerationStructureGeometryKHR> geometries(meshes.size());
+
+    std::vector<size_t> as_offsets(meshes.size());
+    std::vector<size_t> as_sizes(meshes.size());
+    std::vector<size_t> scratch_offsets(meshes.size());
+
+    size_t total_as_size = 0;
+    size_t total_scratch_size = 0;
+
+    const size_t alignment = 256;
+
+    for (size_t i = 0; i < meshes.size(); ++i)
+    {
+        const auto& mesh = meshes[i];
+
+        auto& build_info = build_infos[i];
+        auto& geometry = geometries[i];
+        auto& primitive_count = primitive_counts[i];
+
+        uint32_t lod_index = 0;
+
+        primitive_count = mesh.mesh_lods[lod_index].count / 3;
+
+        VkAccelerationStructureGeometryTrianglesDataKHR triangle_data{};
+        triangle_data.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR;
+        triangle_data.vertexFormat = VK_FORMAT_R16G16B16_SFLOAT;
+        triangle_data.vertexData.deviceAddress = vb_address + sizeof(Vertex) * mesh.vertex_offset;
+        triangle_data.vertexStride = sizeof(Vertex);
+        triangle_data.maxVertex = mesh.mesh_lods[lod_index].count - 1; // why -1? spec asks for this
+        triangle_data.indexType = VK_INDEX_TYPE_UINT32;
+        triangle_data.indexData.deviceAddress = ib_address + sizeof(uint32_t) * mesh.mesh_lods[lod_index].first_index;
+
+        geometry.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
+        geometry.geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
+        geometry.geometry.triangles = triangle_data;
+        geometry.flags = VK_GEOMETRY_OPAQUE_BIT_KHR;
+
+        build_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
+        build_info.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
+        build_info.geometryCount = 1;
+        build_info.pGeometries = &geometry;
+        build_info.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+        // build_info.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
+
+        VkAccelerationStructureBuildSizesInfoKHR build_sizes{ .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR };
+
+        vkGetAccelerationStructureBuildSizesKHR(device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &build_info, &primitive_count, &build_sizes);
+
+        as_offsets[i] = total_as_size;
+        as_sizes[i] = build_sizes.accelerationStructureSize;
+        scratch_offsets[i] = total_scratch_size;
+
+        total_as_size = (total_as_size + build_sizes.accelerationStructureSize + alignment - 1) & ~(alignment - 1);
+        total_scratch_size = (total_scratch_size + build_sizes.buildScratchSize + alignment - 1) & ~(alignment - 1);
+    }
+
+    blas_buffer = create_buffer(allocator, total_as_size, 0, VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
+    scratch_buffer = create_buffer(allocator, total_scratch_size, 0, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
+
+    fmt::println("blas_buffer: {}", size_in_bytes(blas_buffer.info.size));
+    fmt::println("scratch_buffer: {}", size_in_bytes(scratch_buffer.info.size));
+
+    VkDeviceAddress scratch_address = get_buffer_address(device, scratch_buffer.buffer);
+    std::vector<VkAccelerationStructureBuildRangeInfoKHR> build_ranges(meshes.size());
+    std::vector<const VkAccelerationStructureBuildRangeInfoKHR*> build_ranges_ptrs(meshes.size());
+    for (size_t i = 0; i < meshes.size(); i++)
+    {
+        VkAccelerationStructureCreateInfoKHR as_info{
+            .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR,
+            .buffer = blas_buffer.buffer,
+            .offset = as_offsets[i],
+            .size = as_sizes[i],
+            .type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR
+        };
+
+        vkCreateAccelerationStructureKHR(device, &as_info, nullptr, &blas_handles[i]);
+
+        build_infos[i].scratchData.deviceAddress = scratch_address + scratch_offsets[i];
+        build_infos[i].dstAccelerationStructure = blas_handles[i];
+
+        build_ranges[i].primitiveCount = primitive_counts[i];
+        build_ranges_ptrs[i] = &build_ranges[i];
+    }
+
+    immediate_submit([&](VkCommandBuffer cmd){
+        vkCmdBuildAccelerationStructuresKHR(cmd, static_cast<uint32_t>(build_infos.size()), build_infos.data(), build_ranges_ptrs.data());
+    });
+
+    destroy_buffer(allocator, scratch_buffer);
+
+    std::vector<VkDeviceAddress> blas_addresses(meshes.size());
+
+    for (size_t i = 0; i < meshes.size(); i++)
+    {
+        VkAccelerationStructureDeviceAddressInfoKHR address_info{};
+        address_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR;
+        address_info.accelerationStructure = blas_handles[i];
+        blas_addresses[i] = vkGetAccelerationStructureDeviceAddressKHR(device, &address_info);
+    }
+
+    std::vector<VkAccelerationStructureInstanceKHR> instances(render_scene.renderables.size());
+    for (size_t i = 0; i < render_scene.renderables.size(); i++)
+    {
+        RenderObject obj = render_scene.renderables[i];
+
+        glm::mat3 transform = glm::mat3_cast(obj.orientation) * obj.scale;
+
+        memcpy(instances[i].transform.matrix[0], &transform[0], sizeof(float) * 3);
+        memcpy(instances[i].transform.matrix[1], &transform[1], sizeof(float) * 3);
+        memcpy(instances[i].transform.matrix[2], &transform[2], sizeof(float) * 3);
+        instances[i].transform.matrix[0][3] = obj.translation.x;
+        instances[i].transform.matrix[1][3] = obj.translation.y;
+        instances[i].transform.matrix[2][3] = obj.translation.z;
+        instances[i].mask = 0xFF; //
+        instances[i].accelerationStructureReference = blas_addresses[obj.mesh_id];
+    }
+
+    tlas_instance_buffer = upload_buffer(this, allocator, instances.data(), instances.size() * sizeof(VkAccelerationStructureInstanceKHR), VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
+
+    VkAccelerationStructureGeometryKHR geometry{};
+    geometry.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
+    geometry.geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR;
+    geometry.geometry.instances.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR;
+    geometry.geometry.instances.data.deviceAddress = get_buffer_address(device, tlas_instance_buffer.buffer);
+
+    VkAccelerationStructureBuildGeometryInfoKHR build_info{};
+    build_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
+    build_info.flags = 0; // allow update bit for dynamic scene
+    build_info.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+    build_info.geometryCount = 1;
+    build_info.pGeometries = &geometry;
+
+    uint32_t draw_count = static_cast<uint32_t>(render_scene.renderables.size());
+
+    VkAccelerationStructureBuildSizesInfoKHR build_size{ .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR };
+    vkGetAccelerationStructureBuildSizesKHR(device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &build_info, &draw_count, &build_size);
+
+    tlas_buffer = create_buffer(allocator, build_size.accelerationStructureSize, 0, VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
+    scratch_buffer = create_buffer(allocator, build_size.buildScratchSize, 0, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
+    scratch_address = get_buffer_address(device, scratch_buffer.buffer);
+    fmt::println("tlas scratch_buffer: {}", size_in_bytes(scratch_buffer.info.size));
+    fmt::println("tlas instance buffer: {}", size_in_bytes(tlas_instance_buffer.info.size));
+    fmt::println("tlas buffer: {}", size_in_bytes(tlas_buffer.info.size));
+
+    VkAccelerationStructureCreateInfoKHR create_info{};
+    create_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR;
+    create_info.buffer = tlas_buffer.buffer;
+    create_info.size = build_size.accelerationStructureSize;
+    create_info.type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
+
+    vkCreateAccelerationStructureKHR(device, &create_info, nullptr, &tlas_as);
+
+    build_info.scratchData.deviceAddress = scratch_address;
+    build_info.dstAccelerationStructure = tlas_as;
+
+    VkAccelerationStructureBuildRangeInfoKHR build_range{};
+    build_range.primitiveCount = draw_count;
+
+    const VkAccelerationStructureBuildRangeInfoKHR* build_range_ptr = &build_range;
+
+    immediate_submit([&](VkCommandBuffer cmd){
+        vkCmdBuildAccelerationStructuresKHR(cmd, 1, &build_info, &build_range_ptr);
+    });
+
+    destroy_buffer(allocator, scratch_buffer);
+    destroy_buffer(allocator, tlas_instance_buffer);
+
+    main_deletion_queue.push_function([&, blas_handles](){
+        destroy_buffer(allocator, blas_buffer);
+        destroy_buffer(allocator, tlas_buffer);
+
+        for (auto& blas : blas_handles)
+        {
+            vkDestroyAccelerationStructureKHR(device, blas, nullptr);
+        }
+
+        vkDestroyAccelerationStructureKHR(device, tlas_as, nullptr);
+    });
 }
