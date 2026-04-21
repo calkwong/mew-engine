@@ -3665,6 +3665,7 @@ void VulkanEngine::create_acceleration_structures()
         RenderObject obj = render_scene.renderables[i];
 
         glm::mat3 transform = glm::mat3_cast(obj.orientation) * obj.scale;
+        transform = glm::transpose(transform);
 
         memcpy(instances[i].transform.matrix[0], &transform[0], sizeof(float) * 3);
         memcpy(instances[i].transform.matrix[1], &transform[1], sizeof(float) * 3);

@@ -251,7 +251,7 @@ void main(
 		// float occluded = calculate_shadow(world_pos, cascade_index, pc.shadowmap_id);
         // color *= occluded;
         bool shadowed = in_shadow(world_pos);
-        color = shadowed ? color * 0.05 : color;
+        color = shadowed ? float3(0.0) : color;
 	}
 
 	color += ambient;

@@ -3,6 +3,7 @@ module shadows;
 import bindings;
 
 internal static const int CASCADE_COUNT = 4;
+internal static const float EPSILON = 0.1; // avoids self intersection
 
 // TODO: this should be in the main shader file, not here, but for convenience's sake
 [[vk::binding(0, 4)]] internal RaytracingAccelerationStructure acceleration_structure;
@@ -12,7 +13,7 @@ public bool in_shadow(float3 pos)
     RayDesc shadow_ray_desc;
     shadow_ray_desc.Direction = normalize(uniforms.sunlight_dir.xyz);
     shadow_ray_desc.Origin = pos;
-    shadow_ray_desc.TMin = 0.005;
+    shadow_ray_desc.TMin = EPSILON;
     shadow_ray_desc.TMax = 1e4;
 
     RayQuery<RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> sq;
