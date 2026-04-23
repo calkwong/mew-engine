@@ -50,14 +50,20 @@ float3 reconstruct_world_pos(float depth, float4x4 inverse_view_proj, float2 uv_
 	return world_pos.xyz / world_pos.w;
 }
 
-#define DEBUG_SHADING_NORMALS 1
-#define DEBUG_TANGENTS 2
-#define DEBUG_TANGENT_SIGN 3
-#define DEBUG_UV 4
-#define DEBUG_SHADOWMAP 5
-#define DEBUG_CASCADES 6
-#define DEBUG_MESHLETS 7
-#define DEBUG_VELOCITY 8
+enum Debug
+{
+    Placeholder,
+    Normal, // shading not geometric
+    Albedo,
+    Metallic,
+    Roughness,
+    Tangent,
+    TangentSign,
+    Uv,
+    Shadow,
+    ShadowCascades,
+    Meshlets
+};
 
 #define PBR
 #define IBL
@@ -245,18 +251,27 @@ void main(
 
 	if (pc.debug != 0)
     {
-        switch (pc.debug)
+        switch (int(pc.debug))
         {
-        case DEBUG_SHADING_NORMALS:
+        case Debug::Normal:
             N = N * 0.5 + 0.5;
             out_color = float4(N, 1.0);
             break;
-        case DEBUG_TANGENTS:
-        case DEBUG_TANGENT_SIGN:
-        case DEBUG_UV:
+  		case Debug::Albedo:
+            out_color = float4(albedo.xyz, 1.0);
+            break;
+        case Debug::Metallic:
+            out_color = float4(float3(metallic), 1.0);
+            break;
+        case Debug::Roughness:
+            out_color = float4(float3(perceptual_roughness), 1.0);
+            break;
+        case Debug::Tangent:
+        case Debug::TangentSign:
+        case Debug::Uv:
             valid = false;
             break;
-        case DEBUG_SHADOWMAP:
+        case Debug::Shadow:
             float2 uv = in_uv;
 
             if (uv.x < 0.5 && uv.y < 0.5)
@@ -272,7 +287,7 @@ void main(
                 valid = true; // overwrite skybox
             }
             break;
-        case DEBUG_CASCADES:
+        case Debug::ShadowCascades:
             switch (cascade_index)
             {
             case 0:
@@ -289,7 +304,7 @@ void main(
                 break;
             }
             break;
-        case DEBUG_MESHLETS:
+        case Debug::Meshlets:
             valid = false;
             break;
         default:

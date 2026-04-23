@@ -41,14 +41,20 @@ struct PushConstants
 
 [[vk::push_constant]] PushConstants pc;
 
-#define DEBUG_SHADING_NORMALS 1
-#define DEBUG_TANGENTS 2
-#define DEBUG_TANGENT_SIGN 3
-#define DEBUG_UV 4
-#define DEBUG_SHADOWMAP 5
-#define DEBUG_CASCADES 6
-#define DEBUG_MESHLETS 7
-#define DEBUG_VELOCITY 8
+enum Debug
+{
+    Placeholder,
+    Normal, // shading not geometric
+    Albedo,
+    Metallic,
+    Roughness,
+    Tangent,
+    TangentSign,
+    Uv,
+    Shadow,
+    ShadowCascades,
+    Meshlets
+};
 
 #define PBR
 #define IBL
@@ -332,24 +338,33 @@ void main(
 
 	if (pc.debug != 0)
 	{
-		switch (pc.debug)
+		switch (int(pc.debug))
 		{
-		case DEBUG_SHADING_NORMALS:
+		case Debug::Normal:
 			N = N * 0.5 + 0.5;
 			out_color = float4(N, 1.0);
 			break;
-		case DEBUG_TANGENTS:
+		case Debug::Albedo:
+		    out_color = float4(albedo.xyz, 1.0);
+		    break;
+        case Debug::Metallic:
+            out_color = float4(float3(metallic), 1.0);
+            break;
+        case Debug::Roughness:
+            out_color = float4(float3(perceptual_roughness), 1.0);
+            break;
+		case Debug::Tangent:
 			T.xyz = T.xyz * 0.5 + 0.5;
 			out_color = float4(T.xyz, 1.0);
 			break;
-		case DEBUG_TANGENT_SIGN:
+		case Debug::TangentSign:
 		    float3 w = T.w > 0.0 ? float3(1.0) : float3(0.0);
 		    out_color = float4(w, 1.0);
             break;
-		case DEBUG_UV:
+		case Debug::Uv:
 			out_color = float4(debug_uv, 1.0);
 			break;
-		case DEBUG_SHADOWMAP:
+		case Debug::Shadow:
 		    float2 uv = in_uv;
 
 		    if (uv.x < 0.5 && uv.y < 0.5)
@@ -365,7 +380,7 @@ void main(
                 valid = true; // overwrite skybox
 		    }
 		    break;
-		case DEBUG_CASCADES:
+		case Debug::ShadowCascades:
             switch (cascade_index)
             {
             case 0:
@@ -382,7 +397,7 @@ void main(
                 break;
             }
 		    break;
-		case DEBUG_MESHLETS:
+		case Debug::Meshlets:
 		    uint mhash = hash(meshlet_id);
 			// uint mhash = hash(material_id);
             out_color.xyz = float3(float(mhash & 255), float((mhash >> 8) & 255), float((mhash >> 16) & 255)) / 255.0;
