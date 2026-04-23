@@ -1,0 +1,9 @@
+{
+  "lsp": {
+    "slangd": {
+      "settings": {
+        "slang.additionalSearchPaths": ["./shaders/modules"]
+      }
+    }
+  }
+}
