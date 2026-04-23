@@ -3584,6 +3584,8 @@ void VulkanEngine::create_acceleration_structures()
     size_t total_scratch_size = 0;
 
     const size_t alignment = 256;
+    VkBuildAccelerationStructureFlagsKHR blas_flags = VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_COMPACTION_BIT_KHR | VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
+    VkBuildAccelerationStructureFlagsKHR tlas_flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
 
     for (size_t i = 0; i < meshes.size(); ++i)
     {
@@ -3616,7 +3618,7 @@ void VulkanEngine::create_acceleration_structures()
         build_info.geometryCount = 1;
         build_info.pGeometries = &geometry;
         build_info.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
-        // build_info.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
+        build_info.flags = blas_flags;
 
         VkAccelerationStructureBuildSizesInfoKHR build_sizes{ .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR };
 
@@ -3633,8 +3635,8 @@ void VulkanEngine::create_acceleration_structures()
     blas_buffer = create_buffer(allocator, total_as_size, 0, VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
     scratch_buffer = create_buffer(allocator, total_scratch_size, 0, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
 
-    fmt::println("blas_buffer: {}", size_in_bytes(blas_buffer.info.size));
-    fmt::println("scratch_buffer: {}", size_in_bytes(scratch_buffer.info.size));
+    fmt::println("blas_buffer: {}", size_in_bytes(total_as_size));
+    fmt::println("scratch_buffer: {}", size_in_bytes(total_scratch_size));
 
     VkDeviceAddress scratch_address = get_buffer_address(device, scratch_buffer.buffer);
     std::vector<VkAccelerationStructureBuildRangeInfoKHR> build_ranges(meshes.size());
@@ -3685,11 +3687,11 @@ void VulkanEngine::create_acceleration_structures()
         memcpy(instances[i].transform.matrix[0], &transform[0], sizeof(float) * 3);
         memcpy(instances[i].transform.matrix[1], &transform[1], sizeof(float) * 3);
         memcpy(instances[i].transform.matrix[2], &transform[2], sizeof(float) * 3);
-        instances[i].transform.matrix[0][3] = obj.translation.x;
+        instances[i].transform.matrix[0][3] = obj.translation.x; // row-major
         instances[i].transform.matrix[1][3] = obj.translation.y;
         instances[i].transform.matrix[2][3] = obj.translation.z;
         instances[i].instanceCustomIndex = i; // note: instanceCustomIndex 24 bits only
-        instances[i].mask = 0xFF; //
+        instances[i].mask = 0xFF; // lets us programatically select set of instances to trace, without rebuilding TLAS
         instances[i].flags = obj.post_pass == 0 ? VK_GEOMETRY_INSTANCE_FORCE_OPAQUE_BIT_KHR : VK_GEOMETRY_INSTANCE_FORCE_NO_OPAQUE_BIT_KHR;
         instances[i].accelerationStructureReference = blas_addresses[obj.mesh_id];
     }
@@ -3704,7 +3706,7 @@ void VulkanEngine::create_acceleration_structures()
 
     VkAccelerationStructureBuildGeometryInfoKHR build_info{};
     build_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
-    build_info.flags = 0; // allow update bit for dynamic scene
+    build_info.flags = tlas_flags; // allow update bit for dynamic scene
     build_info.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
     build_info.geometryCount = 1;
     build_info.pGeometries = &geometry;
@@ -3717,9 +3719,9 @@ void VulkanEngine::create_acceleration_structures()
     tlas_buffer = create_buffer(allocator, build_size.accelerationStructureSize, 0, VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
     scratch_buffer = create_buffer(allocator, build_size.buildScratchSize, 0, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
     scratch_address = get_buffer_address(device, scratch_buffer.buffer);
-    fmt::println("tlas scratch_buffer: {}", size_in_bytes(scratch_buffer.info.size));
+    fmt::println("tlas scratch_buffer: {}", size_in_bytes(build_size.buildScratchSize));
     fmt::println("tlas instance buffer: {}", size_in_bytes(tlas_instance_buffer.info.size));
-    fmt::println("tlas buffer: {}", size_in_bytes(tlas_buffer.info.size));
+    fmt::println("tlas buffer: {}", size_in_bytes(build_size.accelerationStructureSize));
 
     VkAccelerationStructureCreateInfoKHR create_info{};
     create_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR;
