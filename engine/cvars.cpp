@@ -243,7 +243,7 @@ void CVarSystemImpl::draw_imgui_editor()
 		edit_parameters(get_cvar("render.shadows"));
 		edit_parameters(get_cvar("render.shadows_rt"));
 		edit_parameters(get_cvar("render.taa"));
-		edit_parameters(get_cvar("render.meshlet_contribution"));
+		edit_parameters(get_cvar("render.rt"));
 
 		ImGui::TreePop();
 	}

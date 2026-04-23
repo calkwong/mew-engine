@@ -60,6 +60,7 @@ AutoCVar_Int CVAR_RENDER_LOD{ "render.lod", "LODs", 1, CVarFlags::EditCheckbox }
 AutoCVar_Int CVAR_RENDER_SHADOWS{ "render.shadows", "Shadows", 0, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_SHADOWS_RT{ "render.shadows_rt", "Ray traced shadows", 0, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_TAA{ "render.taa", "TAA", 0, CVarFlags::EditCheckbox }; // | CVarFlags::EditHide };
+AutoCVar_Int CVAR_RENDER_RT{ "render.ray_tracing", "RT", 0, CVarFlags::EditCheckbox };
 
 AutoCVar_Float CVAR_SHADOWS_CASCADE_SPLIT{ "shadows.cascade_split", "Cascades log factor", 0.95f, CVarFlags::EditDragFloat, 0.f, 1.f, 0.005f };
 AutoCVar_Int CVAR_SHADOWS_DISTANCE{ "shadows.distance", "Shadow draw distance", 48, CVarFlags::EditSliderInt, 20, 200, 5 };
@@ -1041,7 +1042,7 @@ void VulkanEngine::draw()
 		image_barriers.clear();
 
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 14);
-		resolve_shading(cmd);
+		execute_shading(cmd);
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 15);
 	}
 
@@ -1337,7 +1338,7 @@ void VulkanEngine::run()
 					else
 						CVAR_TAA_VARIANCE_CLIP.set(1);
 				}
-				if (e.key.repeat == 0 && e.key.key == SDLK_X)
+				if (e.key.repeat == 0 && e.key.key == SDLK_J)
 				{
 					if (CVAR_TAA_CATMULL_ROM.get() == 1)
 						CVAR_TAA_CATMULL_ROM.set(0);
@@ -1371,6 +1372,13 @@ void VulkanEngine::run()
 					    CVAR_RENDER_SHADOWS_RT.set(0);
 					else
 						CVAR_RENDER_SHADOWS_RT.set(1);
+				}
+				if (e.key.repeat == 0 && e.key.key == SDLK_X)
+				{
+					if (CVAR_RENDER_RT.get() == 1)
+	                    CVAR_RENDER_RT.set(0);
+					else
+						CVAR_RENDER_RT.set(1);
 				}
 				if (e.key.repeat == 0 && e.key.key == SDLK_Y)
 				{
@@ -1955,6 +1963,7 @@ void VulkanEngine::init_shaders()
 	shader_cache.add_shader(device, "gbuffer_mesh.slang", sizeof(GPUPushConstants));
 	shader_cache.add_shader(device, "mlab_vert.slang", sizeof(GPUPushConstants));
 	shader_cache.add_shader(device, "mlab_mesh.slang", sizeof(GPUPushConstants));
+	shader_cache.add_shader(device, "rt.slang", sizeof(DeferredPushConstants));
 }
 
 void VulkanEngine::init_pipelines()
@@ -1987,6 +1996,7 @@ void VulkanEngine::init_pipelines()
 	compute_builder.set_descriptor_layouts({ scene_descriptor_layout, bindless_image_layout, bindless_tex_layout, bindless_sampler_layout, as_layout });
 	shader_passes["resolve_gbuffer"] = compute_builder.create_pipeline(device, shader_cache["resolve_gbuffer.slang"]);
 	shader_passes["resolve_vbuffer"] = compute_builder.create_pipeline(device, shader_cache["resolve_vbuffer.slang"]);
+	shader_passes["ray_tracing"] = compute_builder.create_pipeline(device, shader_cache["rt.slang"]);
 
 	// mrt
 	builder.set_input_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
@@ -3492,13 +3502,15 @@ void VulkanEngine::execute_light_culling(VkCommandBuffer cmd)
 	vkCmdDispatch(cmd, 1, 1, CLUSTER_DEPTH_SLICES / CLUSTER_Z);
 }
 
-void VulkanEngine::resolve_shading(VkCommandBuffer cmd)
+void VulkanEngine::execute_shading(VkCommandBuffer cmd)
 {
 	ShaderPass current_pass{};
 	bool visibility_rendering = CVAR_RENDER_VBUFFER.get() && CVAR_RENDER_MESH_SHADERS.get();
 	if (visibility_rendering)
 	{
 		current_pass = *shader_passes["resolve_vbuffer"];
+    	if (CVAR_RENDER_RT.get())
+    	    current_pass = *shader_passes["ray_tracing"]; // note: currently works on vbuffer path only
 	}
 	else
 	{

@@ -222,7 +222,7 @@ public:
 	void execute_spd(VkCommandBuffer cmd);
 	void build_depth_pyramid(VkCommandBuffer cmd);
 	void execute_light_culling(VkCommandBuffer cmd);
-	void resolve_shading(VkCommandBuffer cmd);
+	void execute_shading(VkCommandBuffer cmd);
 	void create_acceleration_structures();
 
 private:

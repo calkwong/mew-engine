@@ -993,7 +993,7 @@ namespace
 
     			if (generate_mikkt_tangents)
     			{
-    				fmt::println("generating tangents manually");
+    				// fmt::println("generating tangents manually");
     				MikkMesh mikk_mesh{ &vertices, &indices };
     				mikk_calculate_tangents(mikk_mesh);
     			}
@@ -1100,9 +1100,9 @@ namespace
     		node->refresh_transform(glm::mat4(1.0f));
     	}
 
-    	fmt::println("size of topnodes: {}", scene->top_nodes.size());
-    	fmt::println("size of nodes: {}", scene->nodes.size());
-    	fmt::println("size of gltf nodes: {}", asset.nodes.size());
+    	// fmt::println("size of topnodes: {}", scene->top_nodes.size());
+    	// fmt::println("size of nodes: {}", scene->nodes.size());
+    	// fmt::println("size of gltf nodes: {}", asset.nodes.size());
 
     	return true;
     }
