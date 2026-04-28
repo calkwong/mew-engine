@@ -9,8 +9,7 @@ internal static const float EPSILON = 0.01; // avoids self intersection
 // TODO: this should be in the main shader file, not here, but for convenience's sake
 [[vk::binding(0, 4)]] internal RaytracingAccelerationStructure acceleration_structure;
 
-internal float2 intersection_uv(uint mesh_id, uint prim_index, float2 barycentrics,
-    ObjectData* object_buffer, MeshData* mesh_buffer, uint* index_buffer, Vertex* vertex_buffer
+internal float2 intersection_uv(uint mesh_id, uint prim_index, float2 barycentrics, MeshData* mesh_buffer, uint* index_buffer, Vertex* vertex_buffer
 )
 {
     uint vertex_offset = mesh_buffer[mesh_id].vertex_offset;
@@ -31,12 +30,12 @@ internal float2 intersection_uv(uint mesh_id, uint prim_index, float2 barycentri
     return (uv0 * w0 + uv1 * w1 + uv2 * w2);
 }
 
-// note:
+// TODO:
 // - experiment with a RT buffer to reduce indirection - niagara tried this with no performance benefits
-// - try 2 ray approach
 // - opacity micromap
 // - soft shadows
 // - trace at lower resolution
+// - use offset_ray from ray tracing gems
 public bool in_shadow(float3 pos, ObjectData* object_buffer, MeshData* mesh_buffer, MaterialData* material_buffer, uint* index_buffer, Vertex* vertex_buffer)
 {
     RayDesc shadow_ray_desc;
@@ -59,15 +58,12 @@ public bool in_shadow(float3 pos, ObjectData* object_buffer, MeshData* mesh_buff
         uint mesh_id = object_buffer[instance_id].mesh_id;
         uint material_id = object_buffer[instance_id].material_id;
         uint albedo_id = material_buffer[material_id].diffuse_id;
-        float2 uv = intersection_uv(mesh_id, prim_index, rq.CandidateTriangleBarycentrics(), object_buffer, mesh_buffer, index_buffer, vertex_buffer);
+        float2 uv = intersection_uv(mesh_id, prim_index, rq.CandidateTriangleBarycentrics(), mesh_buffer, index_buffer, vertex_buffer);
 
-        // enable mip sampling or no?
+        // TODO: enable mip sampling?
         float4 color = textures[albedo_id].SampleLevel(samplers[LINEAR_SAMPLER], uv, 0.0);
         // float4 color = textures[albedo_id].Sample(samplers[LINEAR_SAMPLER], uv);
-        if (color.a < 0.5)
-        {
-        }
-        else
+        if (color.a >= 0.5)
         {
             rq.CommitNonOpaqueTriangleHit();
         }
