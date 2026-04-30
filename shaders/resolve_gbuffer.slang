@@ -33,8 +33,8 @@ struct PushConstants
 	uint shadows;
 	uint shadows_rt;
 	float max_prefiltered_lod;
-	float pc_metallic; // unused, for furnace test
-	float pc_roughness; // unused, for furnace test
+	float metallic; // unused, for furnace test
+	float roughness; // unused, for furnace test
 	uint debug;
 };
 
@@ -96,9 +96,7 @@ void main(
 	float3 world_pos = reconstruct_world_pos(depth, uniforms.inverse_view_proj, in_uv);
 
 	float3 color = float3(0.0);
-	float3 ambient = albedo.xyz * 0.1; // when IBL is off, likely going to look physically incorrect
 
-#ifdef PBR
 	float2 metal_roughness = textures[metalroughness_id].SampleLevel(samplers[NEAREST_SAMPLER], in_uv, 0.0).xy;
 	float metallic = metal_roughness.x;
 	float perceptual_roughness = metal_roughness.y;
@@ -110,65 +108,36 @@ void main(
 	float3 V = normalize(uniforms.camera_pos.xyz - world_pos);
 	float3 H = normalize(L + V);
 
-	float NdotL = max(dot(N, L), 0.0);
-	float NdotH = max(dot(N, H), 0.0);
-	float NdotV = max(dot(N, V), 0.001);
-	float VdotH = max(dot(V, H), 0.0);
-
-	float3 f0 = float3(0.04);
-	f0 = lerp(f0, albedo.xyz, metallic);
-
-	float3 F = F_Schlick(VdotH, f0);
-
-	float3 kS = F;
-	float3 kD = float3(1.0) - kS;
-
-	kD *= 1.0 - metallic;
-	float3 Fd = kD * albedo.xyz / PI;
-
-	float D = D_GGX(NdotH, roughness);
-	float G = V_SmithGGXCorrelated(NdotV, NdotL, roughness);
-	Fr = D * G * F;
-
 	float3 light_color = uniforms.sunlight_color.xyz;
-	color = (Fd + Fr) * light_color * NdotL;
+
+	BRDFData brdf_data = prepare_brdf_data(N, L, V, albedo.xyz, roughness, metallic);
+	color = eval_brdf(brdf_data, albedo.xyz, roughness, metallic) * light_color * brdf_data.NdotL;
 
 	#ifdef IBL
-		//perceptual_roughness = pc_roughness; // sphere test
-		//metallic = pc_metallic; // sphere test
-
 		float3 R = reflect(-V, N);
 		float prefiltered_mip = pc.max_prefiltered_lod * perceptual_roughness;
 
-		{
-			float3 irradiance = evaluate_sh(pc.sh_buffer->r_coefficients, pc.sh_buffer->g_coefficients, pc.sh_buffer->b_coefficients, N);
-			float3 prefiltered = textures_cube[uint(uniforms.textures[2])].SampleLevel(samplers[CUBE_SAMPLER], R, prefiltered_mip).xyz;
-			float2 brdf = textures[uint(uniforms.textures[3])].SampleLevel(samplers[LINEAR_CLAMP_SAMPLER], float2(NdotV, perceptual_roughness), 0.0).rg;
+		float3 irradiance = evaluate_sh(pc.sh_buffer->r_coefficients, pc.sh_buffer->g_coefficients, pc.sh_buffer->b_coefficients, N);
+		float3 prefiltered = textures_cube[uint(uniforms.textures[2])].SampleLevel(samplers[CUBE_SAMPLER], R, prefiltered_mip).xyz;
+		float2 brdf = textures[uint(uniforms.textures[3])].SampleLevel(samplers[LINEAR_CLAMP_SAMPLER], float2(brdf_data.NdotV, perceptual_roughness), 0.0).rg;
 
-			//float3 white = float3(1.0); // sphere test
-			//f0 = float3(0.04); // sphere test
-			f0 = lerp(f0, albedo.xyz, metallic);
-			//f0 = lerp(f0, white, metallic); // sphere test
+		float3 F = F_SchlickRoughness(brdf_data.NdotV, brdf_data.f0, perceptual_roughness);
 
-			F = F_SchlickRoughness(NdotV, f0, perceptual_roughness);
-			kS = F;
-			kD = float3(1.0) - kS;
-			kD *= 1.0 - metallic;
+		float3 FssEss = F * brdf.x + brdf.y;
 
-			// TODO: multiscattering?
-
-		    // TODO: we could bake the division by PI into SH
-			float3 diffuse = kD * irradiance * (1.0 / PI) * albedo.xyz;
-			float3 specular = prefiltered * (F * brdf.x + brdf.y);
-			ambient = diffuse + specular;
-			//out_color = float4(ambient, 1.0); // sphere test
-			// imageStore(images_rgba32f[0], int2(frag_coord), out_color); // sphere test
-			//return; // sphere test
-		}
+		// multiscattering
+		float Ems = 1.0 - (brdf.x + brdf.y);
+		float3 F_avg = brdf_data.f0 + (1.0 - brdf_data.f0) / 21.0;
+		float3 FmsEms = Ems * FssEss * F_avg / (1.0 - F_avg * Ems);
+		// TODO: using f0 as approximation, can we use burley here?
+		// no PI as its baked into irradiance/SH
+		float3 diffuse = albedo.xyz * (1.0 - metallic) * float3(1.0 - 0.04);
+		diffuse = diffuse * (1.0 - FssEss - FmsEms);
+		float3 ambient = FssEss * prefiltered + (FmsEms + diffuse) * irradiance; // multiscattering
+		// float3 ambient = FssEss * prefiltered + diffuse * irradiance; // singlescattering
+	#else
+	    float3 ambient = albedo.xyz * 0.1;
 	#endif
-#else
-	color += albedo.xyz;
-#endif
 
 	uint cascade_index = 0;
 	if (pc.shadows == 1)
@@ -209,21 +178,12 @@ void main(
 			light_pos = mul(uniforms.light_rot, float4(light_pos, 1.0)).xyz;
 			float3 distance = light_pos - world_pos;
 			float3 L = normalize(distance);
-			float NdotL = max(dot(N, L), 0.0);
+
+			update_brdf_data(brdf_data, L);
+
 #ifdef PBR
-			float3 Fr = float3(0.0);
-
-			float3 H = normalize(L + V);
-
-			float NdotH = max(dot(N, H), 0.0);
-
-			// some intermediate values taken from dir light as they are unchanged
-			float D = D_GGX(NdotH, roughness);
-			float G = V_SmithGGXCorrelated(NdotV, NdotL, roughness);
-			Fr = D * G * F;
-
-			float attenuation = get_square_falloff_attenuation(distance, light_radius);
-			color += (Fd + Fr) * light_color * attenuation * NdotL;
+            float attenuation = get_square_falloff_attenuation(distance, light_radius);
+			color += eval_brdf(brdf_data, albedo.xyz, roughness, metallic) * light_color * attenuation * brdf_data.NdotL;
 #else
 			float attenuation = get_square_falloff_attenuation(distance, light_radius);
 			color += (albedo.xyz * light_color * attenuation * NdotL);
