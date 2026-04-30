@@ -88,6 +88,7 @@ public SH9 sh_zero()
 }
 
 // https://www.pbr-book.org/3ed-2018/Monte_Carlo_Integration/2D_Sampling_with_Multidimensional_Transformations#fragment-SamplingFunctionDefinitions-6
+// no sin(theta) correction needed
 public float3 uniform_sample_sphere(float az, float ze)
 {
 	float phi = 2.0 * PI * az;
@@ -100,15 +101,15 @@ public float3 uniform_sample_sphere(float az, float ze)
 public float3 evaluate_sh(SH9 r_coefficients, SH9 g_coefficients, SH9 b_coefficients, float3 direction)
 {
 	SH9 coefficients;
-	coefficients.c[0] = 0.282095;
-	coefficients.c[1] = -0.488603;
-	coefficients.c[2] = 0.488603;
-	coefficients.c[3] = -0.488603;
-	coefficients.c[4] = 1.092548;
-	coefficients.c[5] = -1.092548;
-	coefficients.c[6] = 0.315392;
-	coefficients.c[7] = -1.092548;
-	coefficients.c[8] = 0.546274;
+	coefficients.c[0] =  0.5 * sqrt(1.0 / PI);
+	coefficients.c[1] = -0.5 * sqrt(3.0 / PI);
+	coefficients.c[2] =  0.5 * sqrt(3.0 / PI);
+	coefficients.c[3] = -0.5 * sqrt(3.0 / PI);
+	coefficients.c[4] =  0.5 * sqrt(15.0 / PI);
+	coefficients.c[5] = -0.5 * sqrt(15.0 / PI);
+	coefficients.c[6] = 0.25 * sqrt(5.0 / PI);
+	coefficients.c[7] = -0.5 * sqrt(15.0 / PI);
+	coefficients.c[8] = 0.25 * sqrt(15.0 / PI);
 
 	SH9 base = sh_basis(direction);
 

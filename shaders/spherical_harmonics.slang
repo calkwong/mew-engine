@@ -50,7 +50,7 @@ void main(
 	shared_g[t_index] = G;
 	shared_b[t_index] = B;
 
-	// note: careful not to omit barrier if using wg_size > warp_size
+	GroupMemoryBarrierWithGroupSync();
 
 	if (t_index == 0)
 	{
@@ -70,16 +70,17 @@ void main(
 		G = sh_scale(G, factor);
 		B = sh_scale(B, factor);
 
+		// we bake 1 / PI into this instead of computing at runtime
 		SH9 coefficients;
-		coefficients.c[0] = 3.141593 * 0.282095;
-		coefficients.c[1] = 2.094395 * -0.488603;
-		coefficients.c[2] = 2.094395 * 0.488603;
-		coefficients.c[3] = 2.094395 * -0.488603;
-		coefficients.c[4] = 0.785398 * 1.092548;
-		coefficients.c[5] = 0.785398 * -1.092548;
-		coefficients.c[6] = 0.785398 * 0.315392;
-		coefficients.c[7] = 0.785398 * -1.092548;
-		coefficients.c[8] = 0.785398 * 0.546274;
+		coefficients.c[0] =                0.5 * sqrt(1.0 / PI);
+		coefficients.c[1] = (2.0 / 3.0) * -0.5 * sqrt(3.0 / PI);
+		coefficients.c[2] = (2.0 / 3.0) *  0.5 * sqrt(3.0 / PI);
+		coefficients.c[3] = (2.0 / 3.0) * -0.5 * sqrt(3.0 / PI);
+		coefficients.c[4] =        0.25 *  0.5 * sqrt(15.0 / PI);
+		coefficients.c[5] =        0.25 * -0.5 * sqrt(15.0 / PI);
+		coefficients.c[6] =        0.25 * 0.25 * sqrt(5.0 / PI);
+		coefficients.c[7] =        0.25 * -0.5 * sqrt(15.0 / PI);
+		coefficients.c[8] =        0.25 * 0.25 * sqrt(15.0 / PI);
 
 		R = sh_mul(R, coefficients);
 		G = sh_mul(G, coefficients);
