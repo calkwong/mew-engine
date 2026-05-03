@@ -166,10 +166,9 @@ void main(
 
 	if (m.normal_id != 0)
 	{
-		float3 B = sign * cross(N, T.xyz);
 		float3 shading_normal = textures[m.normal_id].SampleGrad(samplers[LINEAR_SAMPLER], uv, uv_ddx, uv_ddy).xyz;
 		shading_normal = shading_normal * 2.0 - 1.0;
-		N = normalize(shading_normal.x * T.xyz + shading_normal.y * B + shading_normal.z * N);
+		N = tangent_to_world_space(shading_normal, T, N);
 	}
 	else
 	    N = normalize(N);

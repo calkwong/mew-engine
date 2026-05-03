@@ -105,20 +105,20 @@ void ps_main(
 
 	if (m.normal_id != 0)
 	{
-		float3 T = in.tangent.xyz; // mikktspace
+		float4 T = in.tangent; // mikktspace
 		float sign = in.tangent.w; // sign is flipped during tangent generation so mikktspace is consistent with glTF handedness
 
 		if (OPAQUE == 0)
 			sign = is_front_face ? sign : -sign;
 
-		float3 B = sign * cross(N, T);
-
 		float3 shading_normal = textures[m.normal_id].Sample(samplers[LINEAR_SAMPLER], in.uv).xyz;
 		shading_normal = shading_normal * 2.0 - 1.0;
-		N = shading_normal.x * T.xyz + shading_normal.y * B + shading_normal.z * N;
+		N = tangent_to_world_space(shading_normal, T, N);
 	}
-
-    N = normalize(N);
+	else
+	{
+        N = normalize(N);
+	}
 
 	metallic = m.metallic_factor;
 	float perceptual_roughness = m.roughness_factor;

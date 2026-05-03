@@ -114,5 +114,28 @@ public float random_value(inout uint seed)
     return float(pcg(seed)) / 4294967295.0; // 2^32 - 1
 }
 
+public float3 tangent_to_world_space(float3 sample, float3 N)
+{
+    float3 up = abs(N.z) < 0.999 ? float3(0.0, 0.0, 1.0) : float3(1.0, 0.0, 0.0);
+    float3 T = normalize(cross(up, N));
+    float3 B = cross(N, T);
+
+    return normalize(T * sample.x + B * sample.y + N * sample.z);
+}
+
+// mikktspace, TBN not normalized
+public float3 tangent_to_world_space(float3 sample, float4 T, float3 N)
+{
+    float3 B = cross(N, T.xyz) * T.w;
+
+    return normalize(T.xyz * sample.x + B * sample.y + N * sample.z);
+}
+
+public float3 tangent_to_world_space(float3 sample, float3 T, float3 B, float3 N)
+{
+    return normalize(T * sample.x + B * sample.y + N * sample.z);
+}
+
+
 // TODO: convert a sampled vector to world space
 // TODO: offset_ray, https://www.realtimerendering.com/raytracinggems/unofficial_RayTracingGems_v1.9.pdf Chapter 6

@@ -33,13 +33,9 @@ public float3 ImportanceSampleGGX(float2 Xi, float3 N, float linear_roughness)
     H.y = sin(phi) * sin_theta;
     H.z = cos_theta;
 
-    // from tangent-space vector to world-space sample vector
-    float3 up = abs(N.z) < 0.999 ? float3(0.0, 0.0, 1.0) : float3(1.0, 0.0, 0.0);
-    float3 tangent = normalize(cross(up, N));
-    float3 bitangent = cross(N, tangent);
+    float3 sample_dir = tangent_to_world_space(H, N);
 
-    float3 sample_dir = tangent * H.x + bitangent * H.y + N * H.z;
-    return normalize(sample_dir);
+    return sample_dir;
 }
 
 public float3 random_cosine_hemisphere(inout uint seed, float3 N)
@@ -51,15 +47,8 @@ public float3 random_cosine_hemisphere(inout uint seed, float3 N)
     float y = sin(phi) * sqrt(sample.y);
     float z = sqrt(1.0 - sample.y);
 
-    // TODO: move this out and return local/tangent space instead?
-
-    // world space transform
-    float3 up = abs(N.z) < 0.999 ? float3(0.0, 0.0, 1.0) : float3(1.0, 0.0, 0.0);
-    float3 tangent = normalize(cross(up, N));
-    float3 bitangent = cross(N, tangent);
-
-    // TODO: normalize?
-    return normalize(tangent * x + bitangent * y + N * z);
+    // local/tangent space
+    return normalize(float3(x, y, z));
 }
 
 // TODO: sample VNDF function
