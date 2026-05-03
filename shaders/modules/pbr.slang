@@ -140,3 +140,5 @@ public float3 eval_brdf(BRDFData brdf_data, float3 albedo, float roughness, floa
 	// conflicting info on whether to modulate diffuse, leave it out unless we use Fd_Lambert
 	return diffuse + specular;
 }
+
+// TODO: bsdf sampling

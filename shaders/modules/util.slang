@@ -100,3 +100,19 @@ public uint get_cluster_index(float2 frag_coord, float2 cluster_dim, uint slice)
 
     return clusters.x + CLUSTER_X * clusters.y + slice * CLUSTER_X * CLUSTER_Y;
 }
+
+// https://www.shadertoy.com/view/XlGcRh
+public uint pcg(inout uint seed)
+{
+    uint state = seed * 747796405u + 2891336453u;
+	uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+	return (word >> 22u) ^ word;
+}
+
+public float random_value(inout uint seed)
+{
+    return float(pcg(seed)) / 4294967295.0; // 2^32 - 1
+}
+
+// TODO: convert a sampled vector to world space
+// TODO: offset_ray, https://www.realtimerendering.com/raytracinggems/unofficial_RayTracingGems_v1.9.pdf Chapter 6

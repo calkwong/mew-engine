@@ -1,6 +1,6 @@
 module sampling;
 
-import random;
+import util;
 
 static const float PI = 3.14159265359;
 
@@ -61,3 +61,6 @@ public float3 random_cosine_hemisphere(inout uint seed, float3 N)
     // TODO: normalize?
     return normalize(tangent * x + bitangent * y + N * z);
 }
+
+// TODO: sample VNDF function
+// TODO: power/balance heuristic
