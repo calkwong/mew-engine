@@ -1963,7 +1963,7 @@ void VulkanEngine::init_shaders()
 	shader_cache.add_shader(device, "gbuffer_mesh.slang", sizeof(GPUPushConstants));
 	shader_cache.add_shader(device, "mlab_vert.slang", sizeof(GPUPushConstants));
 	shader_cache.add_shader(device, "mlab_mesh.slang", sizeof(GPUPushConstants));
-	shader_cache.add_shader(device, "rt.slang", sizeof(DeferredPushConstants));
+	// shader_cache.add_shader(device, "rt.slang", sizeof(DeferredPushConstants));
 }
 
 void VulkanEngine::init_pipelines()
@@ -1996,7 +1996,7 @@ void VulkanEngine::init_pipelines()
 	compute_builder.set_descriptor_layouts({ scene_descriptor_layout, bindless_image_layout, bindless_tex_layout, bindless_sampler_layout, as_layout });
 	shader_passes["resolve_gbuffer"] = compute_builder.create_pipeline(device, shader_cache["resolve_gbuffer.slang"]);
 	shader_passes["resolve_vbuffer"] = compute_builder.create_pipeline(device, shader_cache["resolve_vbuffer.slang"]);
-	shader_passes["ray_tracing"] = compute_builder.create_pipeline(device, shader_cache["rt.slang"]);
+	// shader_passes["ray_tracing"] = compute_builder.create_pipeline(device, shader_cache["rt.slang"]);
 
 	// mrt
 	builder.set_input_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
@@ -3509,8 +3509,8 @@ void VulkanEngine::execute_shading(VkCommandBuffer cmd)
 	if (visibility_rendering)
 	{
 		current_pass = *shader_passes["resolve_vbuffer"];
-    	if (CVAR_RENDER_RT.get())
-    	    current_pass = *shader_passes["ray_tracing"]; // note: currently works on vbuffer path only
+    	// if (CVAR_RENDER_RT.get())
+    	//     current_pass = *shader_passes["ray_tracing"];
 	}
 	else
 	{

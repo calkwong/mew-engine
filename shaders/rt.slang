@@ -1,9 +1,14 @@
+// note: not functional, needs complete rewrite
+
 import bindings;
 import types;
 import barycentrics;
 import util;
 import sh;
 import pbr;
+import rt_helpers;
+
+[[vk::binding(0, 4)]] RaytracingAccelerationStructure acceleration_structure;
 
 struct PushConstants
 {
@@ -33,8 +38,8 @@ struct PushConstants
 	uint shadows;
 	uint shadows_rt;
 	float max_prefiltered_lod;
-	float pc_metallic; // unused, for furnace test
-	float pc_roughness; // unused, for furnace test
+	float metallic; // unused, for furnace test
+	float roughness; // unused, for furnace test
 	uint debug;
 };
 
@@ -43,6 +48,48 @@ struct PushConstants
 #define PBR
 
 static const float PI = 3.14159265359;
+
+// https://www.shadertoy.com/view/XlGcRh
+uint pcg(inout uint seed)
+{
+    uint state = seed * 747796405u + 2891336453u;
+	uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+	return (word >> 22u) ^ word;
+}
+
+float random_value(inout uint seed)
+{
+    return float(pcg(seed)) / 4294967295.0; // 2^32 - 1
+}
+
+float3 random_cosine_hemisphere(inout uint seed, float3 N)
+{
+    float2 sample = float2(random_value(seed), random_value(seed));
+
+    float phi = 2.0 * PI * sample.x;
+    float x = cos(phi) * sqrt(sample.y);
+    float y = sin(phi) * sqrt(sample.y);
+    float z = sqrt(1.0 - sample.y);
+
+    // TODO: move this out and return local/tangent space instead?
+
+    // world space transform
+    float3 up = abs(N.z) < 0.999 ? float3(0.0, 0.0, 1.0) : float3(1.0, 0.0, 0.0);
+    float3 tangent = normalize(cross(up, N));
+    float3 bitangent = cross(N, tangent);
+
+    // TODO: normalize?
+    return normalize(tangent * x + bitangent * y + N * z);
+}
+
+float3 get_environment_lighting(/* float y */)
+{
+    // return lerp(float3(1.0), float3(0.5, 0.7, 1.0), y);
+    return float3(0.5, 0.7, 1.0);
+}
+
+// notes:
+// hybrid implementation where visibility is determined by rasterization, while RT drives everything else
 
 [shader("compute")]
 [numthreads(8, 8, 1)]
@@ -136,7 +183,7 @@ void main(
 		albedo.xyz *= textures[m.diffuse_id].SampleGrad(samplers[LINEAR_SAMPLER], uv, uv_ddx, uv_ddy).xyz;
 	}
 
-	float3 color = float3(0.0);
+	float3 color = albedo.xyz;
 
 	float4 t0 = float4(rotate_quat(tp0.xyz, obj.orientation), tp0.w);
 	float4 t1 = float4(rotate_quat(tp1.xyz, obj.orientation), tp1.w);
@@ -171,33 +218,33 @@ void main(
 	perceptual_roughness = max(perceptual_roughness, 0.045); // frostbite engine clamp value for analytical lights (fp32)
 	float roughness = perceptual_roughness * perceptual_roughness;
 
-	float3 Fr = float3(0.0);
+	// float3 Fr = float3(0.0);
 
-	float3 L = normalize(uniforms.sunlight_dir.xyz);
-	float3 H = normalize(L + V);
+	// float3 L = normalize(uniforms.sunlight_dir.xyz);
+	// float3 H = normalize(L + V);
 
-	float NdotL = max(dot(N, L), 0.0);
-	float NdotH = max(dot(N, H), 0.0);
-	float NdotV = max(dot(N, V), 0.001);
-	float VdotH = max(dot(V, H), 0.0);
+	// float NdotL = max(dot(N, L), 0.0);
+	// float NdotH = max(dot(N, H), 0.0);
+	// float NdotV = max(dot(N, V), 0.001);
+	// float VdotH = max(dot(V, H), 0.0);
 
-	float3 f0 = float3(0.04);
-	f0 = lerp(f0, albedo.xyz, metallic);
+	// float3 f0 = float3(0.04);
+	// f0 = lerp(f0, albedo.xyz, metallic);
 
-	float3 F = F_Schlick(VdotH, f0);
+	// float3 F = F_Schlick(VdotH, f0);
 
-	float3 kS = F;
-	float3 kD = float3(1.0) - kS;
+	// float3 kS = F;
+	// float3 kD = float3(1.0) - kS;
 
-	kD *= 1.0 - metallic;
-	float3 Fd = kD * albedo.xyz / PI;
+	// kD *= 1.0 - metallic;
+	// float3 Fd = kD * albedo.xyz / PI;
 
-	float D = D_GGX(NdotH, roughness);
-	float G = V_SmithGGXCorrelated(NdotV, NdotL, roughness);
-	Fr = D * G * F;
+	// float D = D_GGX(NdotH, roughness);
+	// float G = V_SmithGGXCorrelated(NdotV, NdotL, roughness);
+	// Fr = D * G * F;
 
-	float3 light_color = uniforms.sunlight_color.xyz;
-	color = (Fd + Fr) * light_color * NdotL;
+	// float3 light_color = uniforms.sunlight_color.xyz;
+	// color = (Fd + Fr) * light_color * NdotL;
 
 #else
 	color += albedo.xyz;
@@ -207,10 +254,16 @@ void main(
 
 	if (depth == 0.0)
 	{
-        color = float3(0.2);
+        color = float3(1.0);
 	}
 
+	uint seed = global_id.x + global_id.y * 1700;
+	float3 scatter_dir = random_cosine_hemisphere(seed, N);
+
+	// TODO: fix
+
 	out_color = float4(color, 1.0);
+
     // TODO: hardcoded draw id to 0
 	images_rgba32f[0].Store(int2(frag_coord), out_color);
 }
