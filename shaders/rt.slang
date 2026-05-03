@@ -6,6 +6,7 @@ import barycentrics;
 import util;
 import sh;
 import pbr;
+import importance_sampling;
 import rt_helpers;
 
 [[vk::binding(0, 4)]] RaytracingAccelerationStructure acceleration_structure;
@@ -48,39 +49,6 @@ struct PushConstants
 #define PBR
 
 static const float PI = 3.14159265359;
-
-// https://www.shadertoy.com/view/XlGcRh
-uint pcg(inout uint seed)
-{
-    uint state = seed * 747796405u + 2891336453u;
-	uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
-	return (word >> 22u) ^ word;
-}
-
-float random_value(inout uint seed)
-{
-    return float(pcg(seed)) / 4294967295.0; // 2^32 - 1
-}
-
-float3 random_cosine_hemisphere(inout uint seed, float3 N)
-{
-    float2 sample = float2(random_value(seed), random_value(seed));
-
-    float phi = 2.0 * PI * sample.x;
-    float x = cos(phi) * sqrt(sample.y);
-    float y = sin(phi) * sqrt(sample.y);
-    float z = sqrt(1.0 - sample.y);
-
-    // TODO: move this out and return local/tangent space instead?
-
-    // world space transform
-    float3 up = abs(N.z) < 0.999 ? float3(0.0, 0.0, 1.0) : float3(1.0, 0.0, 0.0);
-    float3 tangent = normalize(cross(up, N));
-    float3 bitangent = cross(N, tangent);
-
-    // TODO: normalize?
-    return normalize(tangent * x + bitangent * y + N * z);
-}
 
 float3 get_environment_lighting(/* float y */)
 {

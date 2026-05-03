@@ -1,5 +1,7 @@
 module importance_sampling;
 
+import random;
+
 static const float PI = 3.14159265359;
 
 public float RadicalInverse_VdC(uint bits)
@@ -38,4 +40,24 @@ public float3 ImportanceSampleGGX(float2 Xi, float3 N, float linear_roughness)
 
     float3 sample_dir = tangent * H.x + bitangent * H.y + N * H.z;
     return normalize(sample_dir);
+}
+
+public float3 random_cosine_hemisphere(inout uint seed, float3 N)
+{
+    float2 sample = float2(random_value(seed), random_value(seed));
+
+    float phi = 2.0 * PI * sample.x;
+    float x = cos(phi) * sqrt(sample.y);
+    float y = sin(phi) * sqrt(sample.y);
+    float z = sqrt(1.0 - sample.y);
+
+    // TODO: move this out and return local/tangent space instead?
+
+    // world space transform
+    float3 up = abs(N.z) < 0.999 ? float3(0.0, 0.0, 1.0) : float3(1.0, 0.0, 0.0);
+    float3 tangent = normalize(cross(up, N));
+    float3 bitangent = cross(N, tangent);
+
+    // TODO: normalize?
+    return normalize(tangent * x + bitangent * y + N * z);
 }
