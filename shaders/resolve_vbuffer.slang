@@ -199,23 +199,10 @@ void main(
 		float prefiltered_mip = pc.max_prefiltered_lod * perceptual_roughness;
 
 		float3 irradiance = evaluate_sh(pc.sh_buffer->r_coefficients, pc.sh_buffer->g_coefficients, pc.sh_buffer->b_coefficients, N);
-		float3 prefiltered = textures_cube[uint(uniforms.textures[2])].SampleLevel(samplers[CUBE_SAMPLER], R, prefiltered_mip).xyz;
-		float2 brdf = textures[uint(uniforms.textures[3])].SampleLevel(samplers[LINEAR_CLAMP_SAMPLER], float2(brdf_data.NdotV, perceptual_roughness), 0.0).rg;
+		float3 radiance = textures_cube[uint(uniforms.textures[2])].SampleLevel(samplers[CUBE_SAMPLER], R, prefiltered_mip).xyz;
+		float2 brdf_lut = textures[uint(uniforms.textures[3])].SampleLevel(samplers[LINEAR_CLAMP_SAMPLER], float2(brdf_data.NdotV, perceptual_roughness), 0.0).rg;
 
-		float3 F = F_SchlickRoughness(brdf_data.NdotV, brdf_data.f0, perceptual_roughness);
-
-		float3 FssEss = F * brdf.x + brdf.y;
-
-		// multiscattering
-		float Ems = 1.0 - (brdf.x + brdf.y);
-		float3 F_avg = brdf_data.f0 + (1.0 - brdf_data.f0) / 21.0;
-		float3 FmsEms = Ems * FssEss * F_avg / (1.0 - F_avg * Ems);
-		// TODO: using f0 as approximation, can we use burley here?
-		// no PI as its baked into irradiance/SH
-		float3 diffuse = albedo.xyz * (1.0 - metallic) * float3(1.0 - 0.04);
-		diffuse = diffuse * (1.0 - FssEss - FmsEms);
-		float3 ambient = FssEss * prefiltered + (FmsEms + diffuse) * irradiance; // multiscattering
-		// float3 ambient = FssEss * prefiltered + diffuse * irradiance; // singlescattering
+		float3 ambient = eval_indirect_multiscattering(brdf_data, irradiance, radiance, brdf_lut, albedo.xyz, perceptual_roughness, metallic);
 	#else
 	    float3 ambient = albedo.xyz * 0.1;
 	#endif
@@ -239,7 +226,6 @@ void main(
 
 	float depth = textures[pc.depth_id].SampleLevel(samplers[NEAREST_SAMPLER], in_uv, 0.0).r;
 
-	// TODO: potential issue where faces away from point light being lit, exposed by sponza test scene
 	if (pc.light_culling == 1)
 	{
 		float view_z = linearize_depth(pc.near, depth); // alternative: calculate via matrix multiply, likely more expensive?
