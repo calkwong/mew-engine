@@ -6,7 +6,7 @@ import barycentrics;
 import util;
 import sh;
 import pbr;
-import importance_sampling;
+import sampling;
 import rt_helpers;
 
 [[vk::binding(0, 4)]] RaytracingAccelerationStructure acceleration_structure;

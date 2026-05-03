@@ -1,4 +1,4 @@
-module importance_sampling;
+module sampling;
 
 import random;
 

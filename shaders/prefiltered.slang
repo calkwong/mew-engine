@@ -1,5 +1,5 @@
 import bindings;
-import importance_sampling;
+import sampling;
 import pbr;
 
 struct PushConstants
