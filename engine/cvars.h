@@ -51,3 +51,9 @@ struct AutoCVar_Float : AutoCVar<float>
 	float get() const;
 	void set(float value);
 };
+
+int get_int_cvars(const std::string& name);
+float get_float_cvars(const std::string& name);
+
+void set_int_cvars(const std::string& name, int value);
+void set_float_cvars(const std::string& name, float value);

@@ -375,3 +375,33 @@ void CVarSystemImpl::edit_parameters(CVarParameter* param)
 		break;
 	}
 }
+
+// TODO: refactor error handling, maybe remove pimpl too?
+
+int get_int_cvars(const std::string& name)
+{
+	uint32_t index = CVarSystemImpl::get()->get_cvar(name)->array_index;
+
+	return CVarSystemImpl::get()->get_cvars_array<int>()->get_current(index);
+}
+
+void set_int_cvars(const std::string& name, int value)
+{
+    uint32_t index = CVarSystemImpl::get()->get_cvar(name)->array_index;
+
+	CVarSystemImpl::get()->get_cvars_array<int>()->set_current(value, index);
+}
+
+float get_float_cvars(const std::string& name)
+{
+	uint32_t index = CVarSystemImpl::get()->get_cvar(name)->array_index;
+
+	return CVarSystemImpl::get()->get_cvars_array<float>()->get_current(index);
+}
+
+void set_float_cvars(const std::string& name, float value)
+{
+    uint32_t index = CVarSystemImpl::get()->get_cvar(name)->array_index;
+
+	CVarSystemImpl::get()->get_cvars_array<float>()->set_current(value, index);
+}
