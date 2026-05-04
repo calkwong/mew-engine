@@ -1,4 +1,4 @@
-#include "camera.h"
+#include "inputs.h"
 #include "vk_math.h"
 
 #include <SDL3/SDL_events.h>

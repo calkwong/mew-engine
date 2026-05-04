@@ -1,7 +1,7 @@
 #pragma once
 
 #include "cache.h"
-#include "camera.h"
+#include "inputs.h"
 #include "vk_descriptors.h"
 #include "vk_loader.h"
 #include "vk_pipelines.h"

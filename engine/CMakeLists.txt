@@ -19,8 +19,8 @@ set(imgui_sources
 )
 
 target_sources(engine PRIVATE
-	camera.cpp
-	camera.h
+	inputs.cpp
+	inputs.h
 	main.cpp
 	vk_descriptors.cpp
 	vk_descriptors.h
@@ -43,8 +43,8 @@ target_sources(engine PRIVATE
 	cache.h
 	cache.cpp
 	extern.cpp
-    config.h
-    push_constants.h
+  config.h
+  push_constants.h
 	${imgui_sources}
 )
 
