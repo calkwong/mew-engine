@@ -50,6 +50,9 @@ constexpr bool USE_VALIDATION_LAYERS = true;
 
 #define SINGLE // uncomment if loading a proper scene
 
+AutoCVar_Int CVAR_RENDER_IMGUI{ "render.imgui", "Imgui", 1, CVarFlags::EditCheckbox | CVarFlags::EditHide };
+AutoCVar_Int CVAR_DISABLE_CAMERA{ "render.disable_camera", "Disable camera", 0, CVarFlags::EditCheckbox | CVarFlags::EditHide };
+
 AutoCVar_Int CVAR_RENDER_VBUFFER{ "render.vbuffer", "Vbuffer path", 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_MESH_SHADERS{ "render.mesh_shaders", "Mesh shaders path", 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_ALPHACLIP{ "render.alphaclip", "Alphaclip", 1, CVarFlags::EditCheckbox };
@@ -1248,7 +1251,7 @@ void VulkanEngine::draw()
 	);
 
 	{
-		if (render_imgui)
+		if (CVAR_RENDER_IMGUI.get())
 			draw_imgui(cmd, swapchain_image_views[swapchain_image_idx]);
 	}
 
@@ -1321,14 +1324,25 @@ void VulkanEngine::run()
 			{
 				if (e.key.repeat == 0 && e.key.key == SDLK_SPACE)
 				{
-					stop_movement = !stop_movement;
-					stop_movement ? SDL_SetWindowRelativeMouseMode(window, false) : SDL_SetWindowRelativeMouseMode(window, true);
+    				if (CVAR_DISABLE_CAMERA.get() == 1)
+                    {
+       					CVAR_DISABLE_CAMERA.set(0);
+                        SDL_SetWindowRelativeMouseMode(window, true);
+                    }
+    				else
+                    {
+    					CVAR_DISABLE_CAMERA.set(1);
+                        SDL_SetWindowRelativeMouseMode(window, false);
+                    }
 				}
 
 				// toggle IMGUI render
 				if (e.key.repeat == 0 && e.key.key == SDLK_R)
 				{
-					render_imgui = !render_imgui;
+    				if (CVAR_RENDER_IMGUI.get() == 1)
+       					CVAR_RENDER_IMGUI.set(0);
+    				else
+    					CVAR_RENDER_IMGUI.set(1);
 				}
 				// TAA
 				if (e.key.repeat == 0 && e.key.key == SDLK_Z)
@@ -1386,7 +1400,7 @@ void VulkanEngine::run()
 				}
 			}
 
-			if (!stop_movement)
+			if (SDL_GetWindowRelativeMouseMode(window))
 				main_camera.process_sdl_event(e);
 
 			if (reload_shaders)

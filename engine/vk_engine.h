@@ -94,10 +94,8 @@ public:
 	bool is_initialized{ false };
 	uint32_t frame_number{ 0 };
 	bool stop_rendering{ false };
-	bool stop_movement{ false };
 	bool freeze_camera{ false };
 	bool first_frame{ true };
-	bool render_imgui{ true };
 	bool reload_shaders{ false };
 	glm::mat4 last_view{};
 	glm::mat4 last_proj{};
