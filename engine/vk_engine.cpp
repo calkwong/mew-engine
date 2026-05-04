@@ -3,6 +3,7 @@
 #include "vk_math.h"
 #include "vk_engine.h"
 #include "cvars.h"
+#include "inputs.h"
 #include "vk_descriptors.h"
 #include "resources.h"
 #include "vk_initializers.h"
@@ -52,6 +53,7 @@ constexpr bool USE_VALIDATION_LAYERS = true;
 
 AutoCVar_Int CVAR_RENDER_IMGUI{ "render.imgui", "Imgui", 1, CVarFlags::EditCheckbox | CVarFlags::EditHide };
 AutoCVar_Int CVAR_DISABLE_CAMERA{ "render.disable_camera", "Disable camera", 0, CVarFlags::EditCheckbox | CVarFlags::EditHide };
+AutoCVar_Int CVAR_HOT_RELOAD{ "render.hot_reload", "Hot reload shaders", 0, CVarFlags::EditCheckbox | CVarFlags::EditHide };
 
 AutoCVar_Int CVAR_RENDER_VBUFFER{ "render.vbuffer", "Vbuffer path", 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_MESH_SHADERS{ "render.mesh_shaders", "Mesh shaders path", 1, CVarFlags::EditCheckbox };
@@ -1309,7 +1311,6 @@ void VulkanEngine::run()
 		stats.deltatime = static_cast<float>(deltatime.count()) / 1000000.0f; // microseconds to seconds
 		last_frame = start;
 
-		// Handle events on queue
 		while (SDL_PollEvent(&e) != 0)
 		{
 			if (e.type == SDL_EVENT_QUIT)
@@ -1320,92 +1321,14 @@ void VulkanEngine::run()
 			if (e.type == SDL_EVENT_WINDOW_RESTORED)
 				stop_rendering = false;
 
-			if (e.type == SDL_EVENT_KEY_DOWN)
-			{
-				if (e.key.repeat == 0 && e.key.key == SDLK_SPACE)
-				{
-    				if (CVAR_DISABLE_CAMERA.get() == 1)
-                    {
-       					CVAR_DISABLE_CAMERA.set(0);
-                        SDL_SetWindowRelativeMouseMode(window, true);
-                    }
-    				else
-                    {
-    					CVAR_DISABLE_CAMERA.set(1);
-                        SDL_SetWindowRelativeMouseMode(window, false);
-                    }
-				}
-
-				// toggle IMGUI render
-				if (e.key.repeat == 0 && e.key.key == SDLK_R)
-				{
-    				if (CVAR_RENDER_IMGUI.get() == 1)
-       					CVAR_RENDER_IMGUI.set(0);
-    				else
-    					CVAR_RENDER_IMGUI.set(1);
-				}
-				// TAA
-				if (e.key.repeat == 0 && e.key.key == SDLK_Z)
-				{
-					if (CVAR_TAA_VARIANCE_CLIP.get() == 1)
-						CVAR_TAA_VARIANCE_CLIP.set(0);
-					else
-						CVAR_TAA_VARIANCE_CLIP.set(1);
-				}
-				if (e.key.repeat == 0 && e.key.key == SDLK_J)
-				{
-					if (CVAR_TAA_CATMULL_ROM.get() == 1)
-						CVAR_TAA_CATMULL_ROM.set(0);
-					else
-						CVAR_TAA_CATMULL_ROM.set(1);
-				}
-				if (e.key.repeat == 0 && e.key.key == SDLK_C)
-				{
-					if (CVAR_TAA_YCOCG.get() == 1)
-						CVAR_TAA_YCOCG.set(0);
-					else
-						CVAR_TAA_YCOCG.set(1);
-				}
-				if (e.key.repeat == 0 && e.key.key == SDLK_T)
-				{
-					if (CVAR_RENDER_TAA.get() == 1)
-						CVAR_RENDER_TAA.set(0);
-					else
-						CVAR_RENDER_TAA.set(1);
-				}
-				if (e.key.repeat == 0 && e.key.key == SDLK_G)
-				{
-					if (CVAR_MISC_HIZ_SPD.get() == 1)
-						CVAR_MISC_HIZ_SPD.set(0);
-					else
-						CVAR_MISC_HIZ_SPD.set(1);
-				}
-				if (e.key.repeat == 0 && e.key.key == SDLK_F)
-				{
-					if (CVAR_RENDER_SHADOWS_RT.get() == 1)
-					    CVAR_RENDER_SHADOWS_RT.set(0);
-					else
-						CVAR_RENDER_SHADOWS_RT.set(1);
-				}
-				if (e.key.repeat == 0 && e.key.key == SDLK_X)
-				{
-					if (CVAR_RENDER_RT.get() == 1)
-	                    CVAR_RENDER_RT.set(0);
-					else
-						CVAR_RENDER_RT.set(1);
-				}
-				if (e.key.repeat == 0 && e.key.key == SDLK_Y)
-				{
-					reload_shaders = true;
-				}
-			}
+			key_callback(window, e);
 
 			if (SDL_GetWindowRelativeMouseMode(window))
 				main_camera.process_sdl_event(e);
 
-			if (reload_shaders)
+			if (get_int_cvars("render.hot_reload") == 1)
 			{
-				reload_shaders = false;
+			    set_int_cvars("render.hot_reload", 0);
 
 				int recompile = std::system("ninja -C bin Shaders");
 

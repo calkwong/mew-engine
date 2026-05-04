@@ -24,3 +24,8 @@ public:
 	void process_sdl_event(const SDL_Event& e);
 	void update(float deltatime);
 };
+
+struct SDL_Window;
+union SDL_Event;
+
+void key_callback(SDL_Window* window, SDL_Event& e);

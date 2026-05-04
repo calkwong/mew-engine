@@ -1,5 +1,6 @@
 #include "inputs.h"
 #include "vk_math.h"
+#include "cvars.h"
 
 #include <SDL3/SDL_events.h>
 
@@ -62,4 +63,59 @@ void Camera::set_perspective_matrix(float fovy, float aspect, float znear)
 	    0.0f, 0.0f, 0.0f, -1.0f,
 	    0.0f, 0.0f, znear, 0.0f
 	);
+}
+
+void toggle_cvar(const std::string& name)
+{
+    if (get_int_cvars(name) == 1)
+        set_int_cvars(name, 0);
+    else
+        set_int_cvars(name, 1);
+}
+
+void key_callback(SDL_Window* window, SDL_Event& e)
+{
+    if (e.type == SDL_EVENT_KEY_DOWN)
+	{
+		if (e.key.repeat == 0 && e.key.key == SDLK_SPACE)
+		{
+			if (get_int_cvars("render.disable_camera") == 1)
+            {
+				set_int_cvars("render.disable_camera", 0);
+                SDL_SetWindowRelativeMouseMode(window, true);
+            }
+			else
+            {
+                set_int_cvars("render.disable_camera", 1);
+                SDL_SetWindowRelativeMouseMode(window, false);
+            }
+		}
+
+		if (e.key.repeat == 0 && e.key.key == SDLK_R)
+			toggle_cvar("render.imgui");
+
+		if (e.key.repeat == 0 && e.key.key == SDLK_Z)
+		    toggle_cvar("taa.variance_clip");
+
+		if (e.key.repeat == 0 && e.key.key == SDLK_J)
+		    toggle_cvar("taa.catmull_rom");
+
+		if (e.key.repeat == 0 && e.key.key == SDLK_C)
+		    toggle_cvar("taa.ycogy");
+
+		if (e.key.repeat == 0 && e.key.key == SDLK_T)
+		    toggle_cvar("render.taa");
+
+		if (e.key.repeat == 0 && e.key.key == SDLK_G)
+		    toggle_cvar("misc.hiz_spd");
+
+		if (e.key.repeat == 0 && e.key.key == SDLK_F)
+		    toggle_cvar("render.shadows_rt");
+
+		if (e.key.repeat == 0 && e.key.key == SDLK_X)
+		    toggle_cvar("render.ray_tracing");
+
+		if (e.key.repeat == 0 && e.key.key == SDLK_Y)
+		    set_int_cvars("render.hot_reload", 1);
+	}
 }
