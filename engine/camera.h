@@ -19,7 +19,7 @@ public:
 	glm::mat4 perspective{};
 
 	glm::mat4 get_view_matrix() const;
-	glm::mat4 get_rotation_matrix() const;
+	glm::quat get_rotation_matrix() const;
 	void set_perspective_matrix(float fovy, float aspect, float znear);
 	void process_sdl_event(const SDL_Event& e);
 	void update(float deltatime);
