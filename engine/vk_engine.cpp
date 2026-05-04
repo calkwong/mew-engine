@@ -163,6 +163,27 @@ namespace
 		rotation[qc ^ 2] = qs * (r20 + qs2 * r02);
 		rotation[qc ^ 3] = qs * (r12 + qs3 * r21);
 	}
+
+	VkBool32 custom_debug_callback(
+	    VkDebugUtilsMessageSeverityFlagBitsEXT message_severity,
+		VkDebugUtilsMessageTypeFlagsEXT message_type,
+		const VkDebugUtilsMessengerCallbackDataEXT* p_callback_data,
+		void* p_user_data
+	)
+	{
+	    auto ms = vkb::to_string_message_severity(message_severity);
+        auto mt = vkb::to_string_message_type(message_type);
+        if (message_type & VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT)
+        {
+            if (strcmp(p_callback_data->pMessageIdName, "VUID-RuntimeSpirv-OpVariable-08746") == 0)
+                return VK_FALSE;
+            fmt::println("[{}: {}] - {}\n{}\n", ms, mt, p_callback_data->pMessageIdName, p_callback_data->pMessage);
+        }
+        else
+            fmt::println("[{}: {}]\n{}\n", ms, mt, p_callback_data->pMessage);
+
+        return VK_FALSE;
+	}
 } // namespace
 
 void VulkanEngine::init(int argc, char** argv)
@@ -1437,7 +1458,7 @@ void VulkanEngine::init_vulkan()
 	// create vulkan instance, with basic debug features
 	auto inst_ret = builder.set_app_name("Example Vulkan Application")
 	                    .request_validation_layers(USE_VALIDATION_LAYERS)
-	                    .use_default_debug_messenger()
+	                    .set_debug_callback(custom_debug_callback)
 	                    .require_api_version(1, 4, 0)
 	                    .build();
 
