@@ -136,13 +136,13 @@ VkImageViewCreateInfo vkinit::imageview_create_info(VkFormat format, VkImage ima
 	return info;
 }
 
-VkRenderingAttachmentInfo vkinit::attachment_info(VkImageView view, const VkClearValue* clear, VkImageLayout layout /*= VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL*/)
+VkRenderingAttachmentInfo vkinit::attachment_info(VkImageView view, const VkClearValue* clear)
 {
 	VkRenderingAttachmentInfo info{};
 
 	info.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
 	info.imageView = view;
-	info.imageLayout = layout;
+	info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 	info.loadOp = clear ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
 	info.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 	if (clear)
@@ -151,12 +151,12 @@ VkRenderingAttachmentInfo vkinit::attachment_info(VkImageView view, const VkClea
 	return info;
 }
 
-VkRenderingAttachmentInfo vkinit::depth_attachment_info(VkImageView view, VkImageLayout layout /*= VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL*/)
+VkRenderingAttachmentInfo vkinit::depth_attachment_info(VkImageView view)
 {
 	VkRenderingAttachmentInfo info{};
 	info.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
 	info.imageView = view;
-	info.imageLayout = layout;
+	info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 	info.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR; // depth pyramid?
 	info.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 	info.clearValue.depthStencil.depth = 0.f;

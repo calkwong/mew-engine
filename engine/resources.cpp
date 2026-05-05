@@ -241,9 +241,9 @@ void vkutil::copy_image(VkCommandBuffer cmd, VkImage src, VkImage dst, VkExtent2
 	VkBlitImageInfo2 blit_info{};
 	blit_info.sType = VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2;
 	blit_info.dstImage = dst;
-	blit_info.dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+	blit_info.dstImageLayout = VK_IMAGE_LAYOUT_GENERAL;
 	blit_info.srcImage = src;
-	blit_info.srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+	blit_info.srcImageLayout = VK_IMAGE_LAYOUT_GENERAL;
 	blit_info.filter = VK_FILTER_LINEAR;
 	blit_info.regionCount = 1;
 	blit_info.pRegions = &blit;
