@@ -361,7 +361,7 @@ namespace
 				info.pNext = nullptr;
 				info.srcBuffer = scratch.buffer;
 				info.dstImage = images[upload_info.image_index].image;
-				info.dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+				info.dstImageLayout = VK_IMAGE_LAYOUT_GENERAL;
 				info.regionCount = 1;
 				info.pRegions = &copy;
 			}
@@ -394,7 +394,7 @@ namespace
 		for (int i = 0; i < image_barriers.size(); i++)
 		{
 			image_barriers[i] = image_barrier(
-			    images[i].image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0,
+			    images[i].image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, 0,
 			    VK_PIPELINE_STAGE_2_TRANSFER_BIT, 0, VK_ACCESS_2_TRANSFER_WRITE_BIT
 			);
 		}
@@ -405,15 +405,10 @@ namespace
 
 			flush_uploads();
 
-			// assumes all textures are either ktx2 or not, otherwise may break
-			VkImageLayout src_layout = (image_upload_info.size() != raw_images.size())
-			                               ? VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
-			                               : VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-
 			for (int i = 0; i < image_barriers.size(); i++)
 			{
 				image_barriers[i] = image_barrier(
-				    images[i].image, src_layout, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+				    images[i].image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL,
 				    VK_PIPELINE_STAGE_2_TRANSFER_BIT,
 				    VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
 				    VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT

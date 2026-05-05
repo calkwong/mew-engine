@@ -274,8 +274,8 @@ void vkutil::generate_mipmaps(VkCommandBuffer cmd, VkImage image, VkExtent2D ext
 			barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
 			barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
 
-			barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-			barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+			barrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+			barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
 			barrier.image = image;
 
 			VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -317,9 +317,9 @@ void vkutil::generate_mipmaps(VkCommandBuffer cmd, VkImage image, VkExtent2D ext
 				VkBlitImageInfo2 blit_info{};
 				blit_info.sType = VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2;
 				blit_info.dstImage = image;
-				blit_info.dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+				blit_info.dstImageLayout = VK_IMAGE_LAYOUT_GENERAL;
 				blit_info.srcImage = image;
-				blit_info.srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+				blit_info.srcImageLayout = VK_IMAGE_LAYOUT_GENERAL;
 				blit_info.filter = VK_FILTER_LINEAR;
 				blit_info.regionCount = 1;
 				blit_info.pRegions = &blit_region;

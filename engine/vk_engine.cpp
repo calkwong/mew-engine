@@ -416,11 +416,11 @@ void VulkanEngine::execute_baked_gi()
 		auto updated_hdri_id = texture_cache.get_hdri() + 1;
 		texture_cache.set_hdri(updated_hdri_id);
 
-		vkutil::transition_image(imm_command_buffer, hdri_cubemap.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_BLIT_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+		vkutil::transition_image(imm_command_buffer, hdri_cubemap.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_BLIT_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
 
 		vkutil::generate_mipmaps(imm_command_buffer, hdri_cubemap.image, VkExtent2D(hdri_cubemap.extent.width, hdri_cubemap.extent.height), 6);
 
-		vkutil::transition_image(imm_command_buffer, hdri_cubemap.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_BLIT_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT, VK_ACCESS_2_SHADER_READ_BIT);
+		vkutil::transition_image(imm_command_buffer, hdri_cubemap.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_BLIT_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT, VK_ACCESS_2_SHADER_READ_BIT);
 	}
 
 	// compute SH coefficients
@@ -460,7 +460,7 @@ void VulkanEngine::execute_baked_gi()
 		auto groupcount_y = get_groupcount(irradiance_cubemap.extent.height, WARP_SIZE);
 		vkCmdDispatch(imm_command_buffer, groupcount_x, groupcount_y, 6);
 
-		vkutil::transition_image(imm_command_buffer, irradiance_cubemap.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_READ_BIT);
+		vkutil::transition_image(imm_command_buffer, irradiance_cubemap.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_READ_BIT);
 	}
 
 	// TODO: fix - we are dispatching wg_size that is more than necessary here
@@ -489,7 +489,7 @@ void VulkanEngine::execute_baked_gi()
 			vkCmdDispatch(imm_command_buffer, groupcount_x, groupcount_y, 6);
 		}
 		brdf_id = image_cache.get_hdri() + 2 + mips;
-		vkutil::transition_image(imm_command_buffer, prefiltered_envmap.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_READ_BIT);
+		vkutil::transition_image(imm_command_buffer, prefiltered_envmap.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_READ_BIT);
 	}
 
 	// brdf lut
@@ -511,7 +511,7 @@ void VulkanEngine::execute_baked_gi()
 		auto groupcount_y = get_groupcount(brdf_lut.extent.height, WARP_SIZE);
 		vkCmdDispatch(imm_command_buffer, groupcount_x, groupcount_y, 1);
 
-		vkutil::transition_image(imm_command_buffer, brdf_lut.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_READ_BIT);
+		vkutil::transition_image(imm_command_buffer, brdf_lut.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_READ_BIT);
 	}
 
 	// for SH coefficients buffer
