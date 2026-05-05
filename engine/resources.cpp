@@ -334,7 +334,7 @@ void vkutil::generate_mipmaps(VkCommandBuffer cmd, VkImage image, VkExtent2D ext
 	}
 }
 
-void vkutil::transition_buffer(
+void stage_barrier(
     VkCommandBuffer cmd,
     VkPipelineStageFlags2 src_stage_mask,
     VkPipelineStageFlags2 dst_stage_mask,
@@ -405,4 +405,11 @@ void pipeline_barrier(VkCommandBuffer cmd, VkMemoryBarrier2* p_buffer, size_t co
 	info.imageMemoryBarrierCount = static_cast<uint32_t>(count_image);
 	info.pImageMemoryBarriers = p_image;
 	vkCmdPipelineBarrier2(cmd, &info);
+}
+
+void stage_barrier(VkCommandBuffer cmd, VkPipelineStageFlags2 src_stage_mask, VkPipelineStageFlags2 dst_stage_mask)
+{
+	VkAccessFlags2 flags = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
+
+	stage_barrier(cmd, src_stage_mask, dst_stage_mask, flags, flags);
 }

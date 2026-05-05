@@ -50,14 +50,6 @@ namespace vkutil
 
 	// assumes entire image begins in transfer_dst format, and returns in transfer_src format
 	void generate_mipmaps(VkCommandBuffer cmd, VkImage image, VkExtent2D extent, uint32_t layers = 1);
-
-	void transition_buffer(
-	    VkCommandBuffer cmd,
-	    VkPipelineStageFlags2 src_stage_mask,
-	    VkPipelineStageFlags2 dst_stage_mask,
-	    VkAccessFlags2 src_access_mask,
-	    VkAccessFlags2 dst_access_mask
-	);
 }
 
 VkMemoryBarrier2 buffer_barrier(
@@ -79,3 +71,13 @@ VkImageMemoryBarrier2 image_barrier(
 );
 
 void pipeline_barrier(VkCommandBuffer cmd, VkMemoryBarrier2* p_buffer, size_t count_buffer, VkImageMemoryBarrier2* p_image, size_t count_image);
+
+void stage_barrier(
+    VkCommandBuffer cmd,
+    VkPipelineStageFlags2 src_stage_mask,
+    VkPipelineStageFlags2 dst_stage_mask,
+    VkAccessFlags2 src_access_mask,
+    VkAccessFlags2 dst_access_mask
+);
+
+void stage_barrier(VkCommandBuffer cmd, VkPipelineStageFlags2 src_stage_mask, VkPipelineStageFlags2 dst_stage_mask);
