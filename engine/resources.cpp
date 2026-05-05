@@ -94,7 +94,7 @@ AllocatedImage upload_image(VulkanEngine* engine, VkDevice device, VmaAllocator 
 
 	engine->immediate_submit([&](VkCommandBuffer cmd)
 	{
-		vkutil::transition_image(
+		stage_barrier(
 		    cmd, new_image.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 		    0,
 		    VK_PIPELINE_STAGE_2_TRANSFER_BIT,
@@ -122,7 +122,7 @@ AllocatedImage upload_image(VulkanEngine* engine, VkDevice device, VmaAllocator 
 		}
 		else
 		{
-			vkutil::transition_image(
+			stage_barrier(
 			    cmd, new_image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 			    VK_PIPELINE_STAGE_2_TRANSFER_BIT,
 			    VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
@@ -184,7 +184,7 @@ VkDeviceAddress get_buffer_address(VkDevice device, VkBuffer buffer)
 	return vkGetBufferDeviceAddress(device, &address_info);
 }
 
-void vkutil::transition_image(
+void stage_barrier(
     VkCommandBuffer cmd,
     VkImage image,
     VkImageLayout old_layout,
@@ -369,6 +369,30 @@ VkMemoryBarrier2 buffer_barrier(
 	barrier.dstStageMask = dst_stage_mask;
 	barrier.srcAccessMask = src_access_mask;
 	barrier.dstAccessMask = dst_access_mask;
+	return barrier;
+}
+
+VkImageMemoryBarrier2 image_barrier(
+    VkImage image,
+    VkImageLayout old_layout,
+    VkImageLayout new_layout,
+    VkPipelineStageFlags2 src_stage_mask,
+    VkPipelineStageFlags2 dst_stage_mask,
+    VkImageAspectFlags aspect
+)
+{
+    VkAccessFlags2 flags = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
+
+	VkImageMemoryBarrier2 barrier{};
+	barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+	barrier.srcStageMask = src_stage_mask;
+	barrier.dstStageMask = dst_stage_mask;
+	barrier.srcAccessMask = flags;
+	barrier.dstAccessMask = flags;
+	barrier.oldLayout = old_layout;
+	barrier.newLayout = new_layout;
+	barrier.subresourceRange = vkinit::image_subresource_range(aspect);
+	barrier.image = image;
 	return barrier;
 }
 

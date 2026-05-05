@@ -254,13 +254,13 @@ void VulkanEngine::init(int argc, char** argv)
 		immediate_submit([&](VkCommandBuffer cmd)
 		{
 			// frame 0 history buffer
-			vkutil::transition_image(cmd, accumulation_buffers[(frame_number + 1) % 2].image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, 0, 0, 0, 0);
+			stage_barrier(cmd, accumulation_buffers[(frame_number + 1) % 2].image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, 0, 0, 0, 0);
 
 			vkCmdFillBuffer(cmd, render_scene.luminance_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
 			// TODO: figure out a good default for luminance avg
 			vkCmdFillBuffer(cmd, render_scene.luminance_avg_buffer.buffer, 0, VK_WHOLE_SIZE, 0x40000000); // 0x40000000 = 2.0f
 
-			stage_barrier(cmd, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+			stage_barrier(cmd, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
 		});
 	}
 
@@ -394,7 +394,7 @@ void VulkanEngine::execute_baked_gi()
 
 	// spherical map -> cubemap
 	{
-		vkutil::transition_image(imm_command_buffer, hdri_cubemap.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, 0, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, 0, VK_ACCESS_2_SHADER_WRITE_BIT);
+		stage_barrier(imm_command_buffer, hdri_cubemap.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, 0, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, 0, VK_ACCESS_2_SHADER_WRITE_BIT);
 
 		ShaderPass current_pass = *shader_passes["equirectangular_to_cubemap"];
 		IBLPushConstants pc{};
@@ -416,11 +416,11 @@ void VulkanEngine::execute_baked_gi()
 		auto updated_hdri_id = texture_cache.get_hdri() + 1;
 		texture_cache.set_hdri(updated_hdri_id);
 
-		vkutil::transition_image(imm_command_buffer, hdri_cubemap.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_BLIT_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+		stage_barrier(imm_command_buffer, hdri_cubemap.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_BLIT_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
 
 		vkutil::generate_mipmaps(imm_command_buffer, hdri_cubemap.image, VkExtent2D(hdri_cubemap.extent.width, hdri_cubemap.extent.height), 6);
 
-		vkutil::transition_image(imm_command_buffer, hdri_cubemap.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_BLIT_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT, VK_ACCESS_2_SHADER_READ_BIT);
+		stage_barrier(imm_command_buffer, hdri_cubemap.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_BLIT_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT, VK_ACCESS_2_SHADER_READ_BIT);
 	}
 
 	// compute SH coefficients
@@ -442,7 +442,7 @@ void VulkanEngine::execute_baked_gi()
 
 	// compute irradiance cubemap for SH reference
 	{
-		vkutil::transition_image(imm_command_buffer, irradiance_cubemap.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, 0, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, 0, VK_ACCESS_2_SHADER_WRITE_BIT);
+		stage_barrier(imm_command_buffer, irradiance_cubemap.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, 0, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, 0, VK_ACCESS_2_SHADER_WRITE_BIT);
 
 		ShaderPass current_pass = *shader_passes["irradiance"];
 		IBLPushConstants pc{};
@@ -460,14 +460,14 @@ void VulkanEngine::execute_baked_gi()
 		auto groupcount_y = get_groupcount(irradiance_cubemap.extent.height, WARP_SIZE);
 		vkCmdDispatch(imm_command_buffer, groupcount_x, groupcount_y, 6);
 
-		vkutil::transition_image(imm_command_buffer, irradiance_cubemap.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_READ_BIT);
+		stage_barrier(imm_command_buffer, irradiance_cubemap.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_READ_BIT);
 	}
 
 	// TODO: fix - we are dispatching wg_size that is more than necessary here
 	// prefiltered envmap
 	uint32_t brdf_id{};
 	{
-		vkutil::transition_image(imm_command_buffer, prefiltered_envmap.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, 0, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, 0, VK_ACCESS_2_SHADER_WRITE_BIT);
+		stage_barrier(imm_command_buffer, prefiltered_envmap.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, 0, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, 0, VK_ACCESS_2_SHADER_WRITE_BIT);
 
 		ShaderPass current_pass = *shader_passes["prefiltered"];
 		vkCmdBindPipeline(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
@@ -489,12 +489,12 @@ void VulkanEngine::execute_baked_gi()
 			vkCmdDispatch(imm_command_buffer, groupcount_x, groupcount_y, 6);
 		}
 		brdf_id = image_cache.get_hdri() + 2 + mips;
-		vkutil::transition_image(imm_command_buffer, prefiltered_envmap.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_READ_BIT);
+		stage_barrier(imm_command_buffer, prefiltered_envmap.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_READ_BIT);
 	}
 
 	// brdf lut
 	{
-		vkutil::transition_image(imm_command_buffer, brdf_lut.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, 0, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, 0, VK_ACCESS_2_SHADER_WRITE_BIT);
+		stage_barrier(imm_command_buffer, brdf_lut.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, 0, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, 0, VK_ACCESS_2_SHADER_WRITE_BIT);
 
 		ShaderPass current_pass = *shader_passes["brdf"];
 		IBLPushConstants pc{};
@@ -511,11 +511,11 @@ void VulkanEngine::execute_baked_gi()
 		auto groupcount_y = get_groupcount(brdf_lut.extent.height, WARP_SIZE);
 		vkCmdDispatch(imm_command_buffer, groupcount_x, groupcount_y, 1);
 
-		vkutil::transition_image(imm_command_buffer, brdf_lut.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_READ_BIT);
+		stage_barrier(imm_command_buffer, brdf_lut.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_READ_BIT);
 	}
 
 	// for SH coefficients buffer
-	stage_barrier(imm_command_buffer, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+	stage_barrier(imm_command_buffer, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
 
 	VK_CHECK(vkEndCommandBuffer(imm_command_buffer));
 	VkCommandBufferSubmitInfo cmd_info = vkinit::command_buffer_submit_info(imm_command_buffer);
@@ -643,7 +643,6 @@ void VulkanEngine::draw()
 		vkCmdFillBuffer(cmd, render_scene.draw_indirect_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
 		vkCmdFillBuffer(cmd, render_scene.prefix_sum_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
 
-		// stage_barrier(cmd, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
 		stage_barrier(cmd, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT);
 
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 0);
@@ -651,11 +650,10 @@ void VulkanEngine::draw()
 		if (CVAR_RENDER_MESH_SHADERS.get())
 		{
 			// compact dispatch
-			// stage_barrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
 			stage_barrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT);
 			execute_compact_dispatch(cmd);
 
-			stage_barrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT);
+			stage_barrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT);
 
 			// note: indirect dispatch
 			execute_compute_cull(cmd, render_scene.opaque_pass, forward_cluster_cull_data, render_scene.dispatch_buffer.buffer, 0, false, 0);
@@ -665,7 +663,7 @@ void VulkanEngine::draw()
 		buffer_barriers.emplace_back(buffer_barrier(
 		    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
 		    VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-		    VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+		    VK_ACCESS_2_SHADER_WRITE_BIT,
 		    VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT
 		));
 
@@ -674,8 +672,7 @@ void VulkanEngine::draw()
 		    depth_image.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
 		    VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
 		    VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
-		    VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-		    VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT, VK_IMAGE_ASPECT_DEPTH_BIT
+			VK_IMAGE_ASPECT_DEPTH_BIT
 		));
 
 		// TODO: we don't need to transition all
@@ -686,18 +683,14 @@ void VulkanEngine::draw()
 			    VK_IMAGE_LAYOUT_UNDEFINED,
 			    VK_IMAGE_LAYOUT_GENERAL,
 			    VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-			    VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-			    VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-			    VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT
+			    VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT
 			));
 			image_barriers.emplace_back(image_barrier(
 			    velocity_buffer.image,
 			    VK_IMAGE_LAYOUT_UNDEFINED,
 			    VK_IMAGE_LAYOUT_GENERAL,
 			    VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-			    VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-			    VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-			    VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT
+			    VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT
 			));
 		}
 		else
@@ -709,9 +702,7 @@ void VulkanEngine::draw()
 				    VK_IMAGE_LAYOUT_UNDEFINED,
 				    VK_IMAGE_LAYOUT_GENERAL,
 				    VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-				    VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-				    VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-				    VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT
+				    VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT
 				));
 			}
 		}
@@ -732,8 +723,6 @@ void VulkanEngine::draw()
 			    VK_IMAGE_LAYOUT_GENERAL,
 			    VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
 			    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-			    VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-			    VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
 			    VK_IMAGE_ASPECT_DEPTH_BIT
 			));
 
@@ -743,8 +732,6 @@ void VulkanEngine::draw()
 			    VK_IMAGE_LAYOUT_GENERAL,
 			    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
 			    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-			    VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-			    VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT,
 			    VK_IMAGE_ASPECT_COLOR_BIT
 			));
 
@@ -759,14 +746,14 @@ void VulkanEngine::draw()
 			vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 29);
 
 			// next use in compute occlusion cull; if freeze_camera, we will always be in the right image layout
-			vkutil::transition_image(
+			stage_barrier(
 			    cmd,
 			    depth_pyramid.image,
 			    VK_IMAGE_LAYOUT_GENERAL,
 			    VK_IMAGE_LAYOUT_GENERAL,
 			    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
 			    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-			    VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT,
+			    VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT,
 			    VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
 			    VK_IMAGE_ASPECT_COLOR_BIT
 			);
@@ -777,7 +764,6 @@ void VulkanEngine::draw()
     		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 29);
 		}
 
-		// stage_barrier(cmd, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
 		stage_barrier(cmd, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_PIPELINE_STAGE_2_CLEAR_BIT);
 
 		vkCmdFillBuffer(cmd, render_scene.dispatch_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
@@ -785,7 +771,6 @@ void VulkanEngine::draw()
 		vkCmdFillBuffer(cmd, render_scene.draw_indirect_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
 		vkCmdFillBuffer(cmd, render_scene.prefix_sum_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
 
-		// stage_barrier(cmd, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
 		stage_barrier(cmd, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT);
 
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 4);
@@ -794,11 +779,10 @@ void VulkanEngine::draw()
 		if (CVAR_RENDER_MESH_SHADERS.get())
 		{
 			// compact dispatch
-			// stage_barrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
 			stage_barrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT);
 			execute_compact_dispatch(cmd);
 
-			stage_barrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT);
+			stage_barrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT);
 
 			// note: indirect dispatch
 			execute_compute_cull(cmd, render_scene.opaque_pass, forward_cluster_cull_data, render_scene.dispatch_buffer.buffer, 0, true, 0);
@@ -806,12 +790,12 @@ void VulkanEngine::draw()
 
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 5);
 
-		stage_barrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+		stage_barrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
 
 		if (!freeze_camera)
 		{
 			// last use was for building hi-z; it never leaves depth attachment layout if freeze_camera == true
-			vkutil::transition_image(
+			stage_barrier(
 			    cmd,
 			    depth_image.image,
 			    VK_IMAGE_LAYOUT_GENERAL,
@@ -832,7 +816,6 @@ void VulkanEngine::draw()
 	// TODO: alphaclip pass; skipped early pass
 	if (CVAR_RENDER_ALPHACLIP.get())
 	{
-		// stage_barrier(cmd, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
 		stage_barrier(cmd, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_PIPELINE_STAGE_2_CLEAR_BIT);
 
 		vkCmdFillBuffer(cmd, render_scene.dispatch_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
@@ -840,7 +823,6 @@ void VulkanEngine::draw()
 		vkCmdFillBuffer(cmd, render_scene.draw_indirect_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
 		vkCmdFillBuffer(cmd, render_scene.prefix_sum_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
 
-		// stage_barrier(cmd, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
 		stage_barrier(cmd, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT);
 
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 8);
@@ -849,11 +831,10 @@ void VulkanEngine::draw()
 		if (CVAR_RENDER_MESH_SHADERS.get())
 		{
 			// compact dispatch
-			// stage_barrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
 			stage_barrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT);
 			execute_compact_dispatch(cmd);
 
-			stage_barrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT);
+			stage_barrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT);
 
 			// note: indirect dispatch
 			execute_compute_cull(cmd, render_scene.mask_pass, forward_cluster_cull_data, render_scene.dispatch_buffer.buffer, 0, true, 1);
@@ -861,7 +842,6 @@ void VulkanEngine::draw()
 
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 9);
 
-		// stage_barrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
 		stage_barrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT);
 
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 10);
@@ -881,7 +861,6 @@ void VulkanEngine::draw()
 	// TODO: transparent pass - no early pass, use final depth buffer when we start using final depth buffer for other things?
 	if (CVAR_RENDER_TRANSPARENT.get())
 	{
-		// stage_barrier(cmd, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
 		stage_barrier(cmd, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_PIPELINE_STAGE_2_CLEAR_BIT);
 
 		vkCmdFillBuffer(cmd, render_scene.dispatch_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
@@ -889,7 +868,6 @@ void VulkanEngine::draw()
 		vkCmdFillBuffer(cmd, render_scene.draw_indirect_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
 		vkCmdFillBuffer(cmd, render_scene.prefix_sum_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
 
-		// stage_barrier(cmd, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
 		stage_barrier(cmd, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT);
 
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 16);
@@ -898,11 +876,10 @@ void VulkanEngine::draw()
 		if (CVAR_RENDER_MESH_SHADERS.get())
 		{
 			// compact dispatch
-			// stage_barrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
 			stage_barrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT);
 			execute_compact_dispatch(cmd);
 
-			stage_barrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT);
+			stage_barrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT);
 
 			// note: indirect dispatch
 			execute_compute_cull(cmd, render_scene.transparent_pass, forward_cluster_cull_data, render_scene.dispatch_buffer.buffer, 0, true, 2);
@@ -910,10 +887,10 @@ void VulkanEngine::draw()
 
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 17);
 
-		stage_barrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+		stage_barrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
 
 		// is this necessary - ensure depth image in use is final; skipping this worked ok, not sure if pixel interlock interference compensates for it
-		vkutil::transition_image(
+		stage_barrier(
 		    cmd,
 		    depth_image.image,
 		    VK_IMAGE_LAYOUT_GENERAL,
@@ -926,7 +903,6 @@ void VulkanEngine::draw()
 		);
 
 		// TODO: barrier for OIT buffer from last frame? this is likely unnecessary
-		// stage_barrier(cmd, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
 		stage_barrier(cmd, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT);
 
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 18);
@@ -948,20 +924,17 @@ void VulkanEngine::draw()
 	// light culling pass
 	if (CVAR_RENDER_POINT_LIGHTS.get())
 	{
-		// stage_barrier(cmd, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_SHADER_READ_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
 		stage_barrier(cmd, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_2_CLEAR_BIT);
 
 		// TODO: can we just move this to start of frame?
 		vkCmdFillBuffer(cmd, light_count_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
 
-		// stage_barrier(cmd, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_ACCESS_2_SHADER_WRITE_BIT);
 		stage_barrier(cmd, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT);
 
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 12);
 		execute_light_culling(cmd);
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 13);
 
-		// stage_barrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_READ_BIT);
 		stage_barrier(cmd, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT);
 	}
 	else
@@ -973,14 +946,12 @@ void VulkanEngine::draw()
 	// shadow pass
 	if (CVAR_RENDER_SHADOWS.get() && !CVAR_RENDER_SHADOWS_RT.get())
 	{
-		// stage_barrier(cmd, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
 		stage_barrier(cmd, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_PIPELINE_STAGE_2_CLEAR_BIT);
 
 		vkCmdFillBuffer(cmd, render_scene.dispatch_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
 		// vkCmdFillBuffer(cmd, render_scene.meshlet_dispatch_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
 		vkCmdFillBuffer(cmd, render_scene.draw_indirect_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
 
-		// stage_barrier(cmd, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
 		stage_barrier(cmd, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT);
 
 		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 20);
@@ -990,13 +961,13 @@ void VulkanEngine::draw()
 		buffer_barriers.emplace_back(buffer_barrier(
 		    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
 		    VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, // | VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT,
-		    VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+		    VK_ACCESS_2_SHADER_WRITE_BIT,
 		    VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT
 		));
 
 		for (auto& i : cascade_data)
 		{
-			image_barriers.emplace_back(image_barrier(i.shadow_map.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT, VK_IMAGE_ASPECT_DEPTH_BIT));
+			image_barriers.emplace_back(image_barrier(i.shadow_map.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT, VK_IMAGE_ASPECT_DEPTH_BIT));
 		}
 		pipeline_barrier(cmd, buffer_barriers.data(), buffer_barriers.size(), image_barriers.data(), image_barriers.size());
 		buffer_barriers.clear();
@@ -1013,7 +984,7 @@ void VulkanEngine::draw()
 
 		for (auto& i : cascade_data)
 		{
-			image_barriers.emplace_back(image_barrier(i.shadow_map.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, VK_IMAGE_ASPECT_DEPTH_BIT));
+			image_barriers.emplace_back(image_barrier(i.shadow_map.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_IMAGE_ASPECT_DEPTH_BIT));
 		}
 		pipeline_barrier(cmd, nullptr, 0, image_barriers.data(), image_barriers.size());
 		image_barriers.clear();
@@ -1037,9 +1008,7 @@ void VulkanEngine::draw()
 			    VK_IMAGE_LAYOUT_GENERAL,
 			    VK_IMAGE_LAYOUT_GENERAL,
 			    VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-			    VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-			    VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-			    VK_ACCESS_2_SHADER_SAMPLED_READ_BIT
+			    VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT
 			));
 			// could technically transition this only if TAA is enabled, but we transition anyway
 			image_barriers.emplace_back(image_barrier(
@@ -1047,9 +1016,7 @@ void VulkanEngine::draw()
 			    VK_IMAGE_LAYOUT_GENERAL,
 			    VK_IMAGE_LAYOUT_GENERAL,
 			    VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-			    VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-			    VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-			    VK_ACCESS_2_SHADER_SAMPLED_READ_BIT
+			    VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT
 			));
 		}
 		else
@@ -1061,9 +1028,7 @@ void VulkanEngine::draw()
 				    VK_IMAGE_LAYOUT_GENERAL,
 				    VK_IMAGE_LAYOUT_GENERAL,
 				    VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-				    VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-				    VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-				    VK_ACCESS_2_SHADER_SAMPLED_READ_BIT
+				    VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT
 				));
 			}
 		}
@@ -1074,8 +1039,6 @@ void VulkanEngine::draw()
 		    VK_IMAGE_LAYOUT_GENERAL,
 		    VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
 		    VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-		    VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-		    VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
 		    VK_IMAGE_ASPECT_DEPTH_BIT
 		));
 
@@ -1084,9 +1047,7 @@ void VulkanEngine::draw()
 		    VK_IMAGE_LAYOUT_UNDEFINED, // from prev frame's blit to swapchain
 		    VK_IMAGE_LAYOUT_GENERAL,
 		    VK_PIPELINE_STAGE_2_BLIT_BIT,
-		    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-		    VK_ACCESS_2_TRANSFER_READ_BIT,
-		    VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT
+		    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT
 		));
 
 		pipeline_barrier(cmd, nullptr, 0, image_barriers.data(), image_barriers.size());
@@ -1104,9 +1065,7 @@ void VulkanEngine::draw()
 		    VK_IMAGE_LAYOUT_GENERAL,
 		    VK_IMAGE_LAYOUT_GENERAL,
 		    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-		    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-		    VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-		    VK_ACCESS_2_SHADER_SAMPLED_READ_BIT
+		    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT
 		)); // barrier in taa pass
 	}
 	else // tonemap or post process
@@ -1116,9 +1075,7 @@ void VulkanEngine::draw()
 		    VK_IMAGE_LAYOUT_GENERAL,
 		    VK_IMAGE_LAYOUT_GENERAL,
 		    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-		    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-		    VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-		    VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT // src & dst for tonemap
+		    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT
 		));
 
 		pipeline_barrier(cmd, buffer_barriers.data(), buffer_barriers.size(), image_barriers.data(), image_barriers.size());
@@ -1130,7 +1087,7 @@ void VulkanEngine::draw()
 	if (CVAR_MISC_AUTOEXPOSURE.get())
 	{
 	    buffer_barriers.emplace_back(buffer_barrier(VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-	        VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT));
+	        VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT));
 	}
 
 	// TODO: re-add barrier here
@@ -1164,7 +1121,7 @@ void VulkanEngine::draw()
 	    vkCmdDispatch(cmd, groupcount_x, groupcount_y, 1);
 
 	    stage_barrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-	        VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT
+	        VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT
 	    );
 
 	    current_pass = *shader_passes["luminance_avg"];
@@ -1172,7 +1129,7 @@ void VulkanEngine::draw()
 	    vkCmdDispatch(cmd, 1, 1, 1);
 
 	    stage_barrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-	        VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT
+	        VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT
 	    );
 	}
 	*/
@@ -1185,9 +1142,7 @@ void VulkanEngine::draw()
 		    VK_IMAGE_LAYOUT_UNDEFINED,
 		    VK_IMAGE_LAYOUT_GENERAL,
 		    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-		    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-		    VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-		    VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT
+		    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT
 		));
 
 		// history buffer
@@ -1196,9 +1151,7 @@ void VulkanEngine::draw()
 		    VK_IMAGE_LAYOUT_GENERAL,
 		    VK_IMAGE_LAYOUT_GENERAL,
 		    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-		    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-		    VK_ACCESS_2_SHADER_STORAGE_READ_BIT,
-		    VK_ACCESS_2_SHADER_SAMPLED_READ_BIT
+		    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT
 		));
 
 		pipeline_barrier(cmd, nullptr, 0, image_barriers.data(), image_barriers.size());
@@ -1214,9 +1167,7 @@ void VulkanEngine::draw()
 		    VK_IMAGE_LAYOUT_GENERAL,
 		    VK_IMAGE_LAYOUT_GENERAL,
 		    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-		    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-		    VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-		    VK_ACCESS_2_SHADER_STORAGE_READ_BIT
+		    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT
 		));
 
 		image_barriers.emplace_back(image_barrier(
@@ -1224,9 +1175,7 @@ void VulkanEngine::draw()
 		    VK_IMAGE_LAYOUT_GENERAL,
 		    VK_IMAGE_LAYOUT_GENERAL,
 		    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-		    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-		    VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-		    VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT
+		    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT
 		));
 
 		pipeline_barrier(cmd, nullptr, 0, image_barriers.data(), image_barriers.size());
@@ -1267,9 +1216,7 @@ void VulkanEngine::draw()
 	    VK_IMAGE_LAYOUT_GENERAL,
 	    VK_IMAGE_LAYOUT_GENERAL,
 	    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-	    VK_PIPELINE_STAGE_2_BLIT_BIT,
-	    VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-	    VK_ACCESS_2_TRANSFER_READ_BIT
+	    VK_PIPELINE_STAGE_2_BLIT_BIT
 	));
 
 	image_barriers.emplace_back(image_barrier(
@@ -1287,7 +1234,7 @@ void VulkanEngine::draw()
 
 	vkutil::copy_image(cmd, draw_image.image, swapchain_images[swapchain_image_idx], draw_extent, swapchain_extent);
 
-	vkutil::transition_image(
+	stage_barrier(
 	    cmd,
 	    swapchain_images[swapchain_image_idx],
 	    VK_IMAGE_LAYOUT_GENERAL,
@@ -1303,7 +1250,7 @@ void VulkanEngine::draw()
 			draw_imgui(cmd, swapchain_image_views[swapchain_image_idx]);
 	}
 
-	vkutil::transition_image(
+	stage_barrier(
 	    cmd,
 	    swapchain_images[swapchain_image_idx],
 	    VK_IMAGE_LAYOUT_GENERAL,
@@ -3390,7 +3337,7 @@ void VulkanEngine::build_depth_pyramid(VkCommandBuffer cmd)
 			barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
 			barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
 			barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-			barrier.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+			barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
 			barrier.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
 			barrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
 			barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;

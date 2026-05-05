@@ -34,18 +34,6 @@ VkDeviceAddress get_buffer_address(VkDevice device, VkBuffer buffer);
 
 namespace vkutil
 {
-	void transition_image(
-	    VkCommandBuffer cmd,
-	    VkImage image,
-	    VkImageLayout old_layout,
-	    VkImageLayout new_layout,
-	    VkPipelineStageFlags2 src_stage_mask,
-	    VkPipelineStageFlags2 dst_stage_mask,
-	    VkAccessFlags2 src_access_mask,
-	    VkAccessFlags2 dst_access_mask,
-	    VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT
-	);
-
 	void copy_image(VkCommandBuffer cmd, VkImage src, VkImage dst, VkExtent2D src_extent, VkExtent2D dst_extent);
 
 	// assumes entire image begins in transfer_dst format, and returns in transfer_src format
@@ -59,6 +47,16 @@ VkMemoryBarrier2 buffer_barrier(
 	VkAccessFlags2 dst_access_mask
 );
 
+// TODO: implement an invalidate_image_barriers that pools together images with the exact same stage and layout changes
+VkImageMemoryBarrier2 image_barrier(
+	VkImage image,
+	VkImageLayout old_layout,
+	VkImageLayout new_layout,
+	VkPipelineStageFlags2 src_stage_mask,
+	VkPipelineStageFlags2 dst_stage_mask,
+	VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT
+);
+
 VkImageMemoryBarrier2 image_barrier(
 	VkImage image,
 	VkImageLayout old_layout,
@@ -66,7 +64,7 @@ VkImageMemoryBarrier2 image_barrier(
 	VkPipelineStageFlags2 src_stage_mask,
 	VkPipelineStageFlags2 dst_stage_mask,
 	VkAccessFlags2 src_access_mask,
-	VkAccessFlags2 dst_access_mask,
+    VkAccessFlags2 dst_access_mask,
 	VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT
 );
 
@@ -78,6 +76,18 @@ void stage_barrier(
     VkPipelineStageFlags2 dst_stage_mask,
     VkAccessFlags2 src_access_mask,
     VkAccessFlags2 dst_access_mask
+);
+
+void stage_barrier(
+    VkCommandBuffer cmd,
+    VkImage image,
+    VkImageLayout old_layout,
+    VkImageLayout new_layout,
+    VkPipelineStageFlags2 src_stage_mask,
+    VkPipelineStageFlags2 dst_stage_mask,
+    VkAccessFlags2 src_access_mask,
+    VkAccessFlags2 dst_access_mask,
+    VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT
 );
 
 void stage_barrier(VkCommandBuffer cmd, VkPipelineStageFlags2 src_stage_mask, VkPipelineStageFlags2 dst_stage_mask);
