@@ -1413,7 +1413,6 @@ void VulkanEngine::run()
 			ImGui::Begin("Stats");
 			ImGui::Text("Total render time:    %.3f ms", stats.cpu_time);
 			ImGui::Text("Gpu render time:      %.3f ms", stats.gpu_time);
-			ImGui::Text("Draw calls:           %i", stats.draw_count);
 			// ImGui::Text("scene update time %f ms", stats.scene_update_time);
 			ImGui::Text("Early cull:           %.3f ms", stats.early_cull);
 			ImGui::Text("Late  cull:           %.3f ms", stats.late_cull);
@@ -2495,8 +2494,6 @@ void VulkanEngine::register_object(const Node* node, const glm::mat4& top_matrix
 
 void VulkanEngine::update_scene()
 {
-	stats.draw_count = 0;
-
 	main_camera.far = static_cast<float>(CVAR_MISC_DRAW_DISTANCE.get());
 	main_camera.update(static_cast<float>(stats.deltatime));
 
@@ -3135,8 +3132,6 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass, ui
 
 		// reuse opaque section for rendering alphaClipped geometry; alphaClipped reserved for shadows
 		vkCmdDrawIndexedIndirectCount(cmd, render_scene.draw_indirect_buffer.buffer, 2 * sizeof(uint32_t), render_scene.draw_indirect_buffer.buffer, 0, MAX_MESH_DRAWS, sizeof(VkDrawIndexedIndirectCommand));
-
-		stats.draw_count++;
 	}
 	else // mesh shading path
 	{
@@ -3159,8 +3154,6 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass, ui
 
 		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
 		vkCmdDrawMeshTasksIndirectEXT(cmd, render_scene.meshlet_dispatch_buffer.buffer, 0, 1, 0);
-
-		stats.draw_count++;
 	}
 
 	vkCmdEndRendering(cmd);
@@ -3222,8 +3215,6 @@ void VulkanEngine::render_transparent(VkCommandBuffer cmd, uint32_t query)
 		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
 
 		vkCmdDrawIndexedIndirectCount(cmd, render_scene.draw_indirect_buffer.buffer, 2 * sizeof(uint32_t), render_scene.draw_indirect_buffer.buffer, 0, MAX_MESH_DRAWS, sizeof(VkDrawIndexedIndirectCommand));
-
-		stats.draw_count++;
 	}
 	else // mesh shading path
 	{
@@ -3239,8 +3230,6 @@ void VulkanEngine::render_transparent(VkCommandBuffer cmd, uint32_t query)
 
 		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
 		vkCmdDrawMeshTasksIndirectEXT(cmd, render_scene.meshlet_dispatch_buffer.buffer, 0, 1, 0);
-
-		stats.draw_count++;
 	}
 
 	vkCmdEndRendering(cmd);
@@ -3298,7 +3287,6 @@ void VulkanEngine::render_shadows(VkCommandBuffer cmd, uint32_t cascade_idx, uin
 
 		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
 		vkCmdDrawIndexedIndirectCount(cmd, render_scene.draw_indirect_buffer.buffer, 2 * sizeof(uint32_t) + cascade_offset, render_scene.draw_indirect_buffer.buffer, 0 + cascade_offset, MAX_OPAQUE_DRAWS, sizeof(VkDrawIndexedIndirectCommand));
-		stats.draw_count++;
 
 		if (CVAR_RENDER_ALPHACLIP.get())
 		{
@@ -3310,7 +3298,6 @@ void VulkanEngine::render_shadows(VkCommandBuffer cmd, uint32_t cascade_idx, uin
 			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
 			vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(ShadowPushConstants), &pc);
 			vkCmdDrawIndexedIndirectCount(cmd, render_scene.draw_indirect_buffer.buffer, 2 * sizeof(uint32_t) + MAX_OPAQUE_DRAWS * sizeof(VkDrawIndexedIndirectCommand) + cascade_offset, render_scene.draw_indirect_buffer.buffer, sizeof(uint32_t) + cascade_offset, MAX_ALPHACLIP_DRAWS, sizeof(VkDrawIndexedIndirectCommand));
-			stats.draw_count++;
 		}
 	}
 

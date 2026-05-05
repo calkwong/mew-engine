@@ -59,7 +59,6 @@ struct FrameData
 
 struct EngineStats
 {
-	int draw_count{};
 	unsigned int triangle_count{};
 	double deltatime{};
 	double cpu_time{};
