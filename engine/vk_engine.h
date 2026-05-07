@@ -159,9 +159,6 @@ public:
 
 	std::unordered_map<std::string, std::unique_ptr<ShaderPass>> shader_passes{};
 
-	std::vector<VkImageMemoryBarrier2> image_barriers{};
-	std::vector<VkMemoryBarrier2> buffer_barriers{};
-
 	AllocatedImage draw_image{};
 	AllocatedImage depth_image{};
 	AllocatedImage visibility_buffer{};

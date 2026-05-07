@@ -42,9 +42,7 @@ namespace vkutil
 
 VkMemoryBarrier2 buffer_barrier(
 	VkPipelineStageFlags2 src_stage_mask,
-	VkPipelineStageFlags2 dst_stage_mask,
-	VkAccessFlags2 src_access_mask,
-	VkAccessFlags2 dst_access_mask
+	VkPipelineStageFlags2 dst_stage_mask
 );
 
 // TODO: implement an invalidate_image_barriers that pools together images with the exact same stage and layout changes
@@ -91,3 +89,5 @@ void stage_barrier(
 );
 
 void stage_barrier(VkCommandBuffer cmd, VkPipelineStageFlags2 src_stage_mask, VkPipelineStageFlags2 dst_stage_mask);
+
+void invalidate_barriers(VkCommandBuffer cmd, VkPipelineStageFlags2 stages, std::vector<VkImage>& images, std::vector<VkImage>& depth_images);

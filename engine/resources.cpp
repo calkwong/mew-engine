@@ -358,17 +358,17 @@ void stage_barrier(
 
 VkMemoryBarrier2 buffer_barrier(
     VkPipelineStageFlags2 src_stage_mask,
-    VkPipelineStageFlags2 dst_stage_mask,
-    VkAccessFlags2 src_access_mask,
-    VkAccessFlags2 dst_access_mask
+    VkPipelineStageFlags2 dst_stage_mask
 )
 {
+    VkAccessFlags2 flags = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
+
 	VkMemoryBarrier2 barrier{};
 	barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
 	barrier.srcStageMask = src_stage_mask;
 	barrier.dstStageMask = dst_stage_mask;
-	barrier.srcAccessMask = src_access_mask;
-	barrier.dstAccessMask = dst_access_mask;
+	barrier.srcAccessMask = flags;
+	barrier.dstAccessMask = flags;
 	return barrier;
 }
 
@@ -436,4 +436,17 @@ void stage_barrier(VkCommandBuffer cmd, VkPipelineStageFlags2 src_stage_mask, Vk
 	VkAccessFlags2 flags = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
 
 	stage_barrier(cmd, src_stage_mask, dst_stage_mask, flags, flags);
+}
+
+void invalidate_barriers(VkCommandBuffer cmd, VkPipelineStageFlags2 stages, std::vector<VkImage>& images, std::vector<VkImage>& depth_images)
+{
+    std::vector<VkImageMemoryBarrier2> barriers{};
+
+    for (auto& image : images)
+        barriers.emplace_back(image_barrier(image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, stages, stages));
+
+    for (auto& image : depth_images)
+        barriers.emplace_back(image_barrier(image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, stages, stages, VK_IMAGE_ASPECT_DEPTH_BIT));
+
+    pipeline_barrier(cmd, nullptr, 0, barriers.data(), barriers.size());
 }
