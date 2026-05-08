@@ -2,8 +2,6 @@
 #include "rendergraph.h"
 #include "resources.h"
 
-#include <fmt/core.h>
-
 void RenderGraph::add_resource(VkImage image)
 {
     resources.emplace_back(TrackedResource{ image });
@@ -89,8 +87,6 @@ void RenderGraph::add_pass(const std::string& name, Pass::PassType pass_type, st
 	Pass& pass = passes.emplace_back(Pass{ .graph = this, .name = name, .pass_type = pass_type, .callback = execute });
 
 	setup(pass);
-
-	debug.push_back(name);
 }
 
 // No support for resource aliasing, transient resources, renderpass, pass reordering, sorting, pass/barrier merging.
@@ -101,6 +97,7 @@ void RenderGraph::bake()
 
 // We group up all images that need UNDEFINED -> GENERAL before running any passes
 // Write only images that discard between pass executions not currently supported as we don't have such cases.
+// For buffers we just emit gigabarriers.
 void RenderGraph::build_barriers()
 {
     struct State
@@ -141,14 +138,22 @@ void RenderGraph::build_barriers()
             auto& res = resources[index];
 
             // Only interested in write-only images that need early discard
-            if (state.read == 0 && state.write != 0 && res.image)
-                early_discards.push_back(index);
+            if (state.read == 0 && state.write != 0 && res.image != VK_NULL_HANDLE)
+            {
+                if (state.write & VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT)
+                    early_depth_discards.push_back(index);
+                else
+                    early_discards.push_back(index);
+            }
         }
     }
 }
 
 void RenderGraph::execute(VkCommandBuffer cmd)
 {
+    if (passes.size() <= 0)
+        return;
+
     std::vector<VkImageMemoryBarrier2> image_memory_barriers{};
     std::vector<VkMemoryBarrier2> memory_barriers{};
     for (auto& index : early_discards)
@@ -158,24 +163,35 @@ void RenderGraph::execute(VkCommandBuffer cmd)
         ));
     }
 
+    for (auto& index : early_depth_discards)
+    {
+        image_memory_barriers.emplace_back(image_barrier(resources[index].image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
+            VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_IMAGE_ASPECT_DEPTH_BIT
+        ));
+    }
+
     memory_barriers.emplace_back(buffer_barrier(VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT));
     pipeline_barrier(cmd, memory_barriers.data(), 1, image_memory_barriers.data(), image_memory_barriers.size());
+
+    // TODO: make this safer
     passes[0].callback();
 
     // Gigabarrier everything else, this is the most efficient but for development sanity
     for (size_t i = 1; i < passes.size(); i++)
     {
         auto& pass = passes[i];
-		giga_barrier(cmd);
-		pass.callback();
+  		giga_barrier(cmd);
+  		pass.callback();
     }
+
+    giga_barrier(cmd);
 }
 
 void RenderGraph::print() const
 {
-    fmt::println("PRINTING RENDERGRAPH PASSES...");
-    for (const auto& pass_name : debug)
+    for (const auto& pass : passes)
     {
-        fmt::println("{}", pass_name);
+        fmt::println("{}", pass.name);
     }
+    fmt::println("--------------");
 }

@@ -536,8 +536,6 @@ void VulkanEngine::execute_baked_gi()
 	graph.bake();
 	graph.execute(imm_command_buffer);
 
-	graph.print();
-
 	VK_CHECK(vkEndCommandBuffer(imm_command_buffer));
 	VkCommandBufferSubmitInfo cmd_info = vkinit::command_buffer_submit_info(imm_command_buffer);
 	VkSubmitInfo2 submit = vkinit::submit_info(&cmd_info, nullptr, nullptr);
@@ -550,12 +548,9 @@ void VulkanEngine::draw()
 	{
 		VK_CHECK(vkWaitForFences(device, 1, &get_current_frame().render_fence, true, 1000000000));
 	}
-
 	VK_CHECK(vkResetFences(device, 1, &get_current_frame().render_fence));
 
 	get_current_frame().deletion_queue.flush();
-
-	bool visibility_rendering = CVAR_RENDER_VBUFFER.get() && CVAR_RENDER_MESH_SHADERS.get();
 
 	auto* scene_uniform_data = static_cast<SceneData*>(get_current_frame().scene_buffer.info.pMappedData);
 	*scene_uniform_data = scene_data;
@@ -653,393 +648,451 @@ void VulkanEngine::draw()
 
 	vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 26);
 
-	// two-pass mesh/cluster occlusion culling
+	auto zero_buffers = [&]() {
+    	vkCmdFillBuffer(cmd, render_scene.dispatch_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
+    	vkCmdFillBuffer(cmd, render_scene.meshlet_dispatch_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
+    	vkCmdFillBuffer(cmd, render_scene.draw_indirect_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
+    	vkCmdFillBuffer(cmd, render_scene.prefix_sum_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
+	};
+
+	auto two_pass_occlusion_culling = [&](RenderGraph& graph, const std::string& prefix, RenderScene::MeshPass& mesh_pass, uint32_t offset, bool late, uint32_t post_pass, uint32_t query, uint32_t timestamp, bool clear = false) {
+        graph.add_pass(prefix+"zero_buffers", Pass::PassType::ComputePass,
+               [&](Pass& pass) {
+                   pass.add_storage_buffer_write("dispatch");
+                   pass.add_storage_buffer_write("meshlet_dispatch");
+                   pass.add_storage_buffer_write("draw_indirect");
+                   pass.add_storage_buffer_write("prefix_sum");
+               },
+               [&]() {
+                   zero_buffers();
+               }
+        );
+
+        graph.add_pass(prefix+"cull_meshes", Pass::PassType::ComputePass,
+               [&](Pass& pass) {
+                   pass.add_storage_buffer_write("object");
+                   pass.add_storage_buffer_write("mesh");
+                   pass.add_storage_buffer_write("indices");
+                   pass.add_storage_buffer_write("draw_indirect");
+                   pass.add_storage_buffer_write("dispatch");
+                   pass.add_storage_buffer_write("vis");
+                   pass.add_storage_buffer_write("prefix_sum");
+                   if (late)
+                   {
+                       pass.add_image_read("depth", depth_image.image);
+                       pass.add_image_read("hiz", depth_pyramid.image);
+                   }
+               },
+               [&, late, post_pass, timestamp]() {
+                   vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, timestamp + 0);
+                   execute_compute_cull(cmd, mesh_pass, forward_mesh_cull_data, late, post_pass);
+                   if (!CVAR_RENDER_MESH_SHADERS.get())
+                       vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, timestamp + 1);
+               }
+        );
+
+        if (CVAR_RENDER_MESH_SHADERS.get())
+        {
+            graph.add_pass(prefix+"compact_dispatch", Pass::PassType::ComputePass,
+                   [&](Pass& pass) {
+                       pass.add_storage_buffer_read("dispatch");
+                       pass.add_storage_buffer_write("dispatch");
+                       pass.add_storage_buffer_write("prefix_sum");
+                   },
+                   [&]() {
+                       execute_compact_dispatch(cmd);
+                   }
+            );
+
+            graph.add_pass(prefix+"cull_meshlets", Pass::PassType::ComputePass,
+                   [&](Pass& pass) {
+                       pass.add_storage_buffer_write("object");
+                       pass.add_storage_buffer_write("meshlet");
+                       pass.add_storage_buffer_write("cluster_indices");
+                       pass.add_storage_buffer_write("meshlet_dispatch");
+                       pass.add_storage_buffer_write("cluster_vis");
+                       pass.add_storage_buffer_write("prefix_sum");
+                       if (late)
+                       {
+                           pass.add_image_read("depth", depth_image.image);
+                           pass.add_image_read("hiz", depth_pyramid.image);
+                       }
+                   },
+                   [&, mesh_pass, offset, late, post_pass, timestamp]() {
+                       execute_compute_cull(cmd, forward_cluster_cull_data, render_scene.dispatch_buffer.buffer, offset, late, post_pass);
+                       vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, timestamp + 1);
+                   }
+            );
+        }
+
+        graph.add_pass(prefix+"rasterization", Pass::PassType::GraphicsPass,
+            [&, clear](Pass& pass) {
+                pass.add_storage_buffer_write("object");
+                pass.add_storage_buffer_write("meshlet");
+                pass.add_storage_buffer_write("meshlet_indices");
+                pass.add_storage_buffer_write("cluster_indices");
+                pass.add_storage_buffer_write("material");
+                pass.add_storage_buffer_write("prefix_sum");
+                pass.add_depth_stencil_output("depth", depth_image.image);
+                bool visibility_rendering = CVAR_RENDER_VBUFFER.get() && CVAR_RENDER_MESH_SHADERS.get();
+                if (visibility_rendering)
+                {
+                    pass.add_color_output("vis_buffer", visibility_buffer.image);
+                    pass.add_color_output("velocity", velocity_buffer.image);
+                    if (!clear)
+                    {
+                        pass.add_image_read("vis_buffer", visibility_buffer.image);
+                        pass.add_image_read("velocity", velocity_buffer.image);
+                    }
+                }
+                else
+                {
+                    pass.add_color_output("gbuffer0", gbuffers[0].image);
+                    pass.add_color_output("gbuffer1", gbuffers[1].image);
+                    pass.add_color_output("gbuffer2", gbuffers[2].image);
+                    pass.add_color_output("gbuffer3", gbuffers[3].image);
+                    if (!clear)
+                    {
+                        pass.add_image_read("gbuffer0", gbuffers[0].image);
+                        pass.add_image_read("gbuffer1", gbuffers[1].image);
+                        pass.add_image_read("gbuffer2", gbuffers[2].image);
+                        pass.add_image_read("gbuffer3", gbuffers[3].image);
+                    }
+                }
+            },
+            [&, late, post_pass, query, timestamp]() {
+                vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, timestamp + 2);
+                render(cmd, late, post_pass, query);
+               	vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, timestamp + 3);
+            }
+        );
+	};
+
+	auto transparent_pass = [&](RenderGraph& graph, const std::string& prefix, uint32_t offset, bool late, uint32_t post_pass, uint32_t query, uint32_t timestamp) {
+  		graph.add_pass(prefix+"zero_buffers", Pass::PassType::ComputePass,
+            [&](Pass& pass) {
+                pass.add_storage_buffer_write("dispatch");
+                pass.add_storage_buffer_write("meshlet_dispatch");
+                pass.add_storage_buffer_write("draw_indirect");
+                pass.add_storage_buffer_write("prefix_sum");
+            },
+            [&]() {
+                zero_buffers();
+            }
+        );
+
+        graph.add_pass(prefix+"cull_meshes", Pass::PassType::ComputePass,
+            [&](Pass& pass) {
+                pass.add_storage_buffer_write("object");
+                pass.add_storage_buffer_write("mesh");
+                pass.add_storage_buffer_write("indices");
+                pass.add_storage_buffer_write("draw_indirect");
+                pass.add_storage_buffer_write("dispatch");
+                pass.add_storage_buffer_write("vis");
+                pass.add_storage_buffer_write("prefix_sum");
+                if (late)
+                {
+                    pass.add_image_read("depth", depth_image.image);
+                    pass.add_image_read("hiz", depth_pyramid.image);
+                }
+            },
+            [&, late, post_pass, timestamp]() {
+                vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, timestamp + 0);
+                execute_compute_cull(cmd, render_scene.transparent_pass, forward_mesh_cull_data, late, post_pass);
+                if (!CVAR_RENDER_MESH_SHADERS.get())
+                    vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, timestamp + 1);
+            }
+        );
+
+        if (CVAR_RENDER_MESH_SHADERS.get())
+        {
+            graph.add_pass(prefix+"compact_dispatch", Pass::PassType::ComputePass,
+                [&](Pass& pass) {
+                    pass.add_storage_buffer_read("dispatch");
+                    pass.add_storage_buffer_write("dispatch");
+                    pass.add_storage_buffer_write("prefix_sum");
+                },
+                [&]() {
+                    execute_compact_dispatch(cmd);
+                }
+            );
+
+            graph.add_pass(prefix+"cull_meshlets", Pass::PassType::ComputePass,
+                [&](Pass& pass) {
+                    pass.add_storage_buffer_write("object");
+                    pass.add_storage_buffer_write("meshlet");
+                    pass.add_storage_buffer_write("cluster_indices");
+                    pass.add_storage_buffer_write("meshlet_dispatch");
+                    pass.add_storage_buffer_write("cluster_vis");
+                    pass.add_storage_buffer_write("prefix_sum");
+                    if (late)
+                    {
+                        pass.add_image_read("depth", depth_image.image);
+                        pass.add_image_read("hiz", depth_pyramid.image);
+                    }
+                },
+                [&, offset, late, post_pass, timestamp]() {
+                    execute_compute_cull(cmd, forward_cluster_cull_data, render_scene.dispatch_buffer.buffer, offset, late, post_pass);
+                    vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, timestamp + 1);
+                }
+            );
+        }
+
+        graph.add_pass("transparent_forward", Pass::PassType::GraphicsPass,
+            [&](Pass& pass) {
+                pass.add_storage_buffer_write("oit");
+                pass.add_storage_buffer_write("object");
+                pass.add_storage_buffer_write("meshlet");
+                pass.add_storage_buffer_write("meshlet_indices");
+                pass.add_storage_buffer_write("cluster_indices");
+                pass.add_storage_buffer_write("material");
+                pass.add_storage_buffer_write("prefix_sum");
+                pass.add_image_read("depth", depth_image.image);
+            },
+            [&, query, timestamp]() {
+                vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, timestamp + 2);
+                render_transparent(cmd, query);
+               	vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, timestamp + 3);
+            }
+        );
+    };
+
+    RenderGraph graph{};
 	{
-	    // transition all undefined -> general immediately
-	    {
-			std::vector<VkImage> images = { draw_image.image, depth_pyramid.image, swapchain_images[swapchain_image_idx] };
-			if (visibility_rendering)
-			{
-			    images.push_back(visibility_buffer.image);
-				images.push_back(velocity_buffer.image); // TODO: just remove this
-			}
-			else
-			{
-			    for (int i = 0; i < GBUFFER_COUNT; i++)
-					images.push_back(gbuffers[i].image);
-		    }
-			if (CVAR_RENDER_TAA.get())
-			    images.push_back(accumulation_buffers[frame_number % 2].image);
-
-			std::vector<VkImage> depth_images = { depth_image.image };
-			if (CVAR_RENDER_SHADOWS.get() && !CVAR_RENDER_SHADOWS_RT.get())
-			{
-                for (int i = 0; i < cascade_data.size(); i++)
-                   	depth_images.push_back(cascade_data[i].shadow_map.image);
-			}
-
-            VkPipelineStageFlags2 stages =
-                VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
-                VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
-                VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT |
-                VK_PIPELINE_STAGE_2_BLIT_BIT;
-            invalidate_barriers(cmd, stages, images, depth_images);
-		}
-
-
-		stage_barrier(cmd, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_PIPELINE_STAGE_2_CLEAR_BIT);
-
-		vkCmdFillBuffer(cmd, render_scene.dispatch_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
-		vkCmdFillBuffer(cmd, render_scene.meshlet_dispatch_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
-		vkCmdFillBuffer(cmd, render_scene.draw_indirect_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
-		vkCmdFillBuffer(cmd, render_scene.prefix_sum_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
-
-		stage_barrier(cmd, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT);
-
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 0);
-		execute_compute_cull(cmd, render_scene.opaque_pass, forward_mesh_cull_data, false, 0);
-		if (CVAR_RENDER_MESH_SHADERS.get())
-		{
-			// compact dispatch
-			stage_barrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT);
-			execute_compact_dispatch(cmd);
-
-			stage_barrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT);
-
-			execute_compute_cull(cmd, render_scene.opaque_pass, forward_cluster_cull_data, render_scene.dispatch_buffer.buffer, 0, false, 0);
-		}
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 1);
-
-		stage_barrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT);
-
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 2);
-		render(cmd, false, 0, 0);
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 3);
+		two_pass_occlusion_culling(graph, "opaque_early_", render_scene.opaque_pass, 0, false, 0, 0, 0, true);
 
 		if (!freeze_camera)
 		{
-			stage_barrier(cmd, VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT);
-
-			vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 28);
-			if (CVAR_MISC_HIZ_SPD.get())
-			    execute_spd(cmd);
-			else
-			    build_depth_pyramid(cmd);
-			vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 29);
-
-			// next use in compute occlusion cull; if freeze_camera, we will always be in the right image layout
-			stage_barrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT);
+            graph.add_pass("hiz", Pass::PassType::ComputePass,
+                [&](Pass& pass) {
+                    if (CVAR_MISC_HIZ_SPD.get())
+                    {
+                        pass.add_storage_buffer_write("spd_counter");
+                        pass.add_storage_buffer_read("spd_counter");
+                    }
+                    pass.add_image_read("depth", depth_image.image);
+                    pass.add_image_write("hiz", depth_pyramid.image);
+                },
+                [&]() {
+                    vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 28);
+                    if (CVAR_MISC_HIZ_SPD.get())
+                        execute_spd(cmd);
+                    else
+                        build_depth_pyramid(cmd);
+                    vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 29);
+                }
+            );
 		}
 		else
 		{
     		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 28);
-    		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 29);
+      		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 29);
 		}
 
-		stage_barrier(cmd, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_PIPELINE_STAGE_2_CLEAR_BIT);
+		two_pass_occlusion_culling(graph, "opaque_late_", render_scene.opaque_pass, 0, true, 0, 1, 4);
 
-		vkCmdFillBuffer(cmd, render_scene.dispatch_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
-		vkCmdFillBuffer(cmd, render_scene.meshlet_dispatch_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
-		vkCmdFillBuffer(cmd, render_scene.draw_indirect_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
-		vkCmdFillBuffer(cmd, render_scene.prefix_sum_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
-
-		stage_barrier(cmd, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT);
-
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 4);
-		execute_compute_cull(cmd, render_scene.opaque_pass, forward_mesh_cull_data, true, 0);
-
-		if (CVAR_RENDER_MESH_SHADERS.get())
+		// alphaclip postpass only, this is using early pass hiz for culling
+		if (CVAR_RENDER_ALPHACLIP.get())
+		    two_pass_occlusion_culling(graph, "alphaclip_late_", render_scene.mask_pass, 0, true, 1, 2, 8);
+		else
 		{
-			// compact dispatch
-			stage_barrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT);
-			execute_compact_dispatch(cmd);
-
-			stage_barrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT);
-
-			execute_compute_cull(cmd, render_scene.opaque_pass, forward_cluster_cull_data, render_scene.dispatch_buffer.buffer, 0, true, 0);
+            vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 8);
+    		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 9);
+    		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 10);
+    		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 11);
+    		vkCmdBeginQuery(cmd, get_current_frame().query_pool_pipelines, 2, 0);
+    		vkCmdEndQuery(cmd, get_current_frame().query_pool_pipelines, 2);
 		}
 
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 5);
-
-		stage_barrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT);
-
-		if (!freeze_camera)
+		if (CVAR_RENDER_TRANSPARENT.get())
+		    transparent_pass(graph, "transparent_late_", 0, true, 2, 3, 16);
+		else
 		{
-			// last use was for building hi-z; it never leaves depth attachment layout if freeze_camera == true
-			// note: this is for depth image
-			stage_barrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT);
-		}
+    		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 16);
+    		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 17);
+    		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 18);
+    		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 19);
+    		vkCmdBeginQuery(cmd, get_current_frame().query_pool_pipelines, 3, 0);
+    		vkCmdEndQuery(cmd, get_current_frame().query_pool_pipelines, 3);
+		};
 
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 6);
-		render(cmd, true, 0, 1);
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 7);
-	}
-
-	// TODO: alphaclip pass; skipped early pass
-	if (CVAR_RENDER_ALPHACLIP.get())
-	{
-		stage_barrier(cmd, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_PIPELINE_STAGE_2_CLEAR_BIT);
-
-		vkCmdFillBuffer(cmd, render_scene.dispatch_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
-		vkCmdFillBuffer(cmd, render_scene.meshlet_dispatch_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
-		vkCmdFillBuffer(cmd, render_scene.draw_indirect_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
-		vkCmdFillBuffer(cmd, render_scene.prefix_sum_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
-
-		stage_barrier(cmd, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT);
-
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 8);
-		execute_compute_cull(cmd, render_scene.mask_pass, forward_mesh_cull_data, true, 1);
-
-		if (CVAR_RENDER_MESH_SHADERS.get())
+		if (CVAR_RENDER_POINT_LIGHTS.get())
 		{
-			// compact dispatch
-			stage_barrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT);
-			execute_compact_dispatch(cmd);
+    		// TODO: combine this somewhere
+    		// TODO: handle as Transfer instead of setting to Compute?
+    		graph.add_pass("zero light buffers", Pass::PassType::ComputePass,
+                [&](Pass& pass) {
+                    pass.add_storage_buffer_write("light_count");
+                },
+                [&]() {
+                    vkCmdFillBuffer(cmd, light_count_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
+                }
+            );
 
-			stage_barrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT);
-
-			execute_compute_cull(cmd, render_scene.mask_pass, forward_cluster_cull_data, render_scene.dispatch_buffer.buffer, 0, true, 1);
+    		graph.add_pass("light_culling", Pass::PassType::ComputePass,
+                [&](Pass& pass) {
+                    pass.add_storage_buffer_read("light_cluster");
+                    pass.add_storage_buffer_read("light");
+                    pass.add_storage_buffer_write("light_index");
+                    pass.add_storage_buffer_write("light_grid");
+                    pass.add_storage_buffer_write("light_count");
+                },
+                [&]() {
+                    vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 12);
+              		execute_light_culling(cmd);
+              		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 13);
+                }
+            );
 		}
-
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 9);
-
-		stage_barrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT);
-
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 10);
-		render(cmd, true, 1, 2);
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 11);
-	}
-	else
-	{
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 8);
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 9);
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 10);
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 11);
-		vkCmdBeginQuery(cmd, get_current_frame().query_pool_pipelines, 2, 0);
-		vkCmdEndQuery(cmd, get_current_frame().query_pool_pipelines, 2);
-	}
-
-	// TODO: transparent pass - no early pass, use final depth buffer when we start using final depth buffer for other things?
-	if (CVAR_RENDER_TRANSPARENT.get())
-	{
-		stage_barrier(cmd, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_PIPELINE_STAGE_2_CLEAR_BIT);
-
-		vkCmdFillBuffer(cmd, render_scene.dispatch_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
-		vkCmdFillBuffer(cmd, render_scene.meshlet_dispatch_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
-		vkCmdFillBuffer(cmd, render_scene.draw_indirect_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
-		vkCmdFillBuffer(cmd, render_scene.prefix_sum_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
-
-		stage_barrier(cmd, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT);
-
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 16);
-		execute_compute_cull(cmd, render_scene.transparent_pass, forward_mesh_cull_data, true, 2);
-
-		if (CVAR_RENDER_MESH_SHADERS.get())
+		else
 		{
-			// compact dispatch
-			stage_barrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT);
-			execute_compact_dispatch(cmd);
-
-			stage_barrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT);
-
-			execute_compute_cull(cmd, render_scene.transparent_pass, forward_cluster_cull_data, render_scene.dispatch_buffer.buffer, 0, true, 2);
+            vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 12);
+		    vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 13);
 		}
 
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 17);
-
-		stage_barrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT);
-
-		// is this necessary - ensure depth image in use is final; skipping this worked ok, not sure if pixel interlock interference compensates for it
-		// note: we removed barrier for depth here
-
-		// TODO: barrier for OIT buffer from last frame? this is likely unnecessary
-		stage_barrier(cmd, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT);
-
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 18);
-		// note: this reuses hi-z from first pass. we could technically update and rebuild hi-z after second pass.
-		// TODO: perform some sort of sorting or compaction to guarantee insertion order, which is what i suspect to be causing flickering only for overflowed pixels at the moment
-		render_transparent(cmd, 3);
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 19);
-	}
-	else
-	{
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 16);
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 17);
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 18);
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 19);
-		vkCmdBeginQuery(cmd, get_current_frame().query_pool_pipelines, 3, 0);
-		vkCmdEndQuery(cmd, get_current_frame().query_pool_pipelines, 3);
-	}
-
-	// light culling pass
-	if (CVAR_RENDER_POINT_LIGHTS.get())
-	{
-		stage_barrier(cmd, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_2_CLEAR_BIT);
-
-		// TODO: can we just move this to start of frame?
-		vkCmdFillBuffer(cmd, light_count_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
-
-		stage_barrier(cmd, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT);
-
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 12);
-		execute_light_culling(cmd);
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 13);
-
-		stage_barrier(cmd, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT);
-	}
-	else
-	{
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 12);
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 13);
-	}
-
-	// shadow pass
-	if (CVAR_RENDER_SHADOWS.get() && !CVAR_RENDER_SHADOWS_RT.get())
-	{
-		stage_barrier(cmd, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_PIPELINE_STAGE_2_CLEAR_BIT);
-
-		vkCmdFillBuffer(cmd, render_scene.dispatch_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
-		// vkCmdFillBuffer(cmd, render_scene.meshlet_dispatch_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
-		vkCmdFillBuffer(cmd, render_scene.draw_indirect_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
-
-		stage_barrier(cmd, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT);
-
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 20);
-		execute_shadow_cull(cmd);
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 21);
-
-		stage_barrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT);
-
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 22);
-		uint32_t query_index = 4;
-		for (size_t i = 0; i < cascade_data.size(); i++)
+		if (CVAR_RENDER_SHADOWS.get() && !CVAR_RENDER_SHADOWS_RT.get())
 		{
-			render_shadows(cmd, static_cast<uint32_t>(i), query_index);
-			query_index++;
+            graph.add_pass("zero shadow buffers", Pass::PassType::ComputePass,
+                [&](Pass& pass) {
+                    pass.add_storage_buffer_write("draw_indirect");
+                    pass.add_storage_buffer_write("dispatch");
+                },
+                [&]() {
+                    vkCmdFillBuffer(cmd, render_scene.dispatch_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
+                    vkCmdFillBuffer(cmd, render_scene.draw_indirect_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
+                }
+            );
+
+            graph.add_pass("cull shadow casters", Pass::PassType::ComputePass,
+                [&](Pass& pass) {
+                    pass.add_storage_buffer_read("object");
+                    pass.add_storage_buffer_read("mesh");
+                    pass.add_storage_buffer_write("indices");
+                    pass.add_storage_buffer_write("draw_indirect");
+                },
+                [&]() {
+                    vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 20);
+                    execute_shadow_cull(cmd);
+		            vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 21);
+                }
+            );
+
+            graph.add_pass("render shadows", Pass::PassType::GraphicsPass,
+                [&](Pass& pass) {
+                    pass.add_storage_buffer_write("material");
+                    pass.add_storage_buffer_write("object");
+                    for (size_t i = 0; i < cascade_data.size(); i++)
+                        pass.add_depth_stencil_output("shadowmap_"+std::to_string(i), cascade_data[i].shadow_map.image);
+                },
+                [&]() {
+                    vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 22);
+              		uint32_t query_index = 4;
+              		for (size_t i = 0; i < cascade_data.size(); i++, query_index++)
+                        render_shadows(cmd, static_cast<uint32_t>(i), query_index);
+              		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 23);
+                }
+            );
 		}
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 23);
+		else
+		{
+            vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 20);
+    		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 21);
+    		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 22);
+    		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 23);
+    		vkCmdBeginQuery(cmd, get_current_frame().query_pool_pipelines, 4, 0);
+    		vkCmdEndQuery(cmd, get_current_frame().query_pool_pipelines, 4);
+		}
 
-		stage_barrier(cmd, VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT);
-	}
-	else
-	{
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 20);
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 21);
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 22);
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 23);
-		vkCmdBeginQuery(cmd, get_current_frame().query_pool_pipelines, 4, 0);
-		vkCmdEndQuery(cmd, get_current_frame().query_pool_pipelines, 4);
-	}
+		graph.add_pass("lighting pass", Pass::PassType::ComputePass,
+            [&](Pass& pass) {
+                pass.add_storage_buffer_read("light");
+                pass.add_storage_buffer_read("light_index");
+                pass.add_storage_buffer_read("light_grid");
+                pass.add_storage_buffer_read("oit");
+                pass.add_storage_buffer_write("oit");
+                pass.add_storage_buffer_read("meshlet_indices");
+                pass.add_storage_buffer_read("meshlet");
+                pass.add_storage_buffer_read("object");
+                pass.add_storage_buffer_read("material");
+                pass.add_storage_buffer_read("mesh");
+                pass.add_storage_buffer_read("sh");
+                // TODO: technically not a color attachment here
+                pass.add_color_output("draw", draw_image.image);
+            },
+            [&]() {
+                vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 14);
+          		execute_shading(cmd);
+          		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 15);
+            }
+        );
 
-	// deferred lighting pass
-	{
-	    stage_barrier(cmd,
-			VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
-			VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT
-		);
+        // TODO: fix autoexposure
 
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 14);
-		execute_shading(cmd);
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 15);
-	}
+        if (CVAR_RENDER_TAA.get())
+        {
+            graph.add_pass("taa", Pass::PassType::ComputePass,
+                [&](Pass& pass) {
+                    pass.add_image_read("velocity", velocity_buffer.image);
+                    pass.add_image_read("draw", draw_image.image);
+                    pass.add_image_read("taa_history", accumulation_buffers[(frame_number + 1) % 2].image);
+                    pass.add_image_write("taa_resolve", accumulation_buffers[frame_number % 2].image);
+                },
+                [&]() {
+                    vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 24);
+              		resolve_taa(cmd);
+              		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 25);
+                }
+            );
+        }
+        else
+        {
+           	vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 24);
+            vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 25);
+        }
 
-	/* currently broken, do not reenable
-	// last frame luminance avg & luminance buffer
-	if (CVAR_MISC_AUTOEXPOSURE.get())
-	{
-	    buffer_barriers.emplace_back(buffer_barrier(VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-	        VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT));
-	}
+        if (CVAR_MISC_TONEMAP.get() && CVAR_DEBUG_TEXTURES.get() == 0)
+        {
+            graph.add_pass("tonemapping", Pass::PassType::ComputePass,
+                [&](Pass& pass) {
+                    pass.add_storage_buffer_read("luminance_avg");
+                    pass.add_storage_buffer_read("draw");
+                    pass.add_storage_buffer_write("draw");
+                },
+                [&]() {
+                    ShaderPass current_pass = *shader_passes["tonemap"];
+              		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
+              		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
+              		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
+              		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
+              		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
 
-	// TODO: re-add barrier here
+              		TonemapPushConstants pc{};
+              		pc.luminance_avg_buffer = get_buffer_address(device, render_scene.luminance_avg_buffer.buffer);
+              		pc.screen_size = glm::vec2(draw_image.extent.width, draw_image.extent.height);
+              		pc.src_id = CVAR_RENDER_TAA.get() ? image_cache.get_accumulation_buffer(frame_number % 2) : image_cache.get_draw_image();
+              		pc.dst_id = image_cache.get_draw_image();
+              		// pc.autoexposure = CVAR_MISC_AUTOEXPOSURE.get();
+              		pc.tonemap_func = CVAR_MISC_TONEMAP_FUNC.get();
 
-	// note: for preexposed lights we possibly want exposure to be temporal?
-	// build luminance histogram & luminance avg
-	if (CVAR_MISC_AUTOEXPOSURE.get())
-	{
-	    ShaderPass current_pass = *shader_passes["luminance_histogram"];
-	    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
-	    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-	    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
-	    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
-	    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
+              		vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(TonemapPushConstants), &pc);
+              		auto groupcount_x = get_groupcount(draw_image.extent.width, WARP_SIZE);
+              		auto groupcount_y = get_groupcount(draw_image.extent.height, WARP_SIZE);
+              		vkCmdDispatch(cmd, groupcount_x, groupcount_y, 1);
+                }
+            );
 
-	    LuminanceBinsPushConstants pc{};
-	    pc.luminance_buffer = get_buffer_address(device, render_scene.luminance_buffer.buffer);
-	    pc.luminance_avg_buffer = get_buffer_address(device, render_scene.luminance_avg_buffer.buffer);
-	    pc.screen_size = glm::vec2(draw_image.extent.width, draw_image.extent.height);
-	    pc.image_id = image_cache.get_draw_image();
-	    pc.min_log_luminance = -10.0f;
-	    float max_log_luminance = 2.0f;
-	    pc.one_over_log_luminance_range = 1.0f / (max_log_luminance - pc.min_log_luminance);
-	    pc.pixel_count = draw_image.extent.width * draw_image.extent.height;
-	    pc.tau = 2.f;
-	    pc.delta_time = static_cast<float>(stats.deltatime);
+        }
 
-	    vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(LuminanceBinsPushConstants), &pc);
-	    auto groupcount_x = get_groupcount(draw_image.extent.width, LUMINANCE_BINS);
-	    auto groupcount_y = get_groupcount(draw_image.extent.height, LUMINANCE_BINS);
-	    vkCmdDispatch(cmd, groupcount_x, groupcount_y, 1);
-
-	    stage_barrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-	        VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT
-	    );
-
-	    current_pass = *shader_passes["luminance_avg"];
-	    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
-	    vkCmdDispatch(cmd, 1, 1, 1);
-
-	    stage_barrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-	        VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT
-	    );
-	}
-	*/
-
-	if (CVAR_RENDER_TAA.get())
-	{
-		stage_barrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT);
-
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 24);
-		resolve_taa(cmd);
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 25);
-
-	}
-	else
-	{
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 24);
-		vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 25);
-
-	}
-
-	// note: with or without TAA, we need this here
-	stage_barrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT);
-
-	// tonemapping pass
-	if (CVAR_MISC_TONEMAP.get() && CVAR_DEBUG_TEXTURES.get() == 0)
-	{
-		ShaderPass current_pass = *shader_passes["tonemap"];
-		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
-		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
-		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
-		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
-
-		TonemapPushConstants pc{};
-		pc.luminance_avg_buffer = get_buffer_address(device, render_scene.luminance_avg_buffer.buffer);
-		pc.screen_size = glm::vec2(draw_image.extent.width, draw_image.extent.height);
-		pc.src_id = CVAR_RENDER_TAA.get() ? image_cache.get_accumulation_buffer(frame_number % 2) : image_cache.get_draw_image();
-		pc.dst_id = image_cache.get_draw_image();
-		// pc.autoexposure = CVAR_MISC_AUTOEXPOSURE.get();
-		pc.tonemap_func = CVAR_MISC_TONEMAP_FUNC.get();
-
-		vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(TonemapPushConstants), &pc);
-		auto groupcount_x = get_groupcount(draw_image.extent.width, WARP_SIZE);
-		auto groupcount_y = get_groupcount(draw_image.extent.height, WARP_SIZE);
-		vkCmdDispatch(cmd, groupcount_x, groupcount_y, 1);
+        // graph.print();
+    	graph.bake();
+    	graph.execute(cmd);
 	}
 
-	// note: draw image
-	stage_barrier(cmd, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_BLIT_BIT);
+	// TODO: move this into rendergraph
+	stage_barrier(cmd, swapchain_images[swapchain_image_idx], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
+        VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+        VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT, VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT
+	);
 
 	vkutil::copy_image(cmd, draw_image.image, swapchain_images[swapchain_image_idx], draw_extent, swapchain_extent);
 
@@ -2661,8 +2714,7 @@ void VulkanEngine::ready_mesh_cull(RenderScene::MeshPass& pass, CullData& cull_d
 	cull_data.object_buffer_address = get_buffer_address(device, render_scene.object_buffer.buffer);
 	cull_data.mesh_buffer_address = get_buffer_address(device, render_scene.mesh_buffer.buffer);
 	cull_data.draw_indirect_address = get_buffer_address(device, render_scene.draw_indirect_buffer.buffer);
-	cull_data.count_buffer_address = get_buffer_address(device, render_scene.dispatch_buffer.buffer);
-	;
+	cull_data.dispatch_buffer_address = get_buffer_address(device, render_scene.dispatch_buffer.buffer);
 	cull_data.vis_buffer_address = get_buffer_address(device, render_scene.vis_buffer.buffer);
 	cull_data.prefix_sum_buffer = get_buffer_address(device, render_scene.prefix_sum_buffer.buffer);
 
@@ -2749,7 +2801,7 @@ void VulkanEngine::execute_compact_dispatch(VkCommandBuffer cmd)
 	vkCmdDispatch(cmd, 1, 1, 1);
 }
 
-void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, const RenderScene::MeshPass& pass, CullData& cull_data, bool late, uint32_t post_pass)
+void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPass& pass, CullData& cull_data, bool late, uint32_t post_pass)
 {
 	ShaderPass current_pass = *shader_passes["mesh_cull"];
 	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
@@ -2770,7 +2822,7 @@ void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, const RenderScene::
 	vkCmdDispatch(cmd, groupcount_x, 1, 1);
 }
 
-void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPass& pass, ClusterCullData& cull_data, VkBuffer count_buffer, uint32_t offset, bool late, uint32_t post_pass)
+void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, ClusterCullData& cull_data, VkBuffer dispatch_buffer, uint32_t offset, bool late, uint32_t post_pass)
 {
 	ShaderPass current_pass = *shader_passes["meshlet_cull"];
 	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
@@ -2786,7 +2838,8 @@ void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPa
 
 	vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ClusterCullData), &cull_data);
 
-	vkCmdDispatchIndirect(cmd, count_buffer, offset);
+	// TODO: offset is always 0 as alphaclip and transparent (latter probably leaving it as is in the future) are not culled with opaque, hence we write over opaque's space
+	vkCmdDispatchIndirect(cmd, dispatch_buffer, offset);
 }
 
 void VulkanEngine::execute_shadow_cull(VkCommandBuffer cmd)

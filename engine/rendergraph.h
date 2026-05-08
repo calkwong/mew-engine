@@ -1,5 +1,7 @@
 #pragma once
 
+#include <fmt/core.h>
+
 #include <functional>
 #include <string>
 #include <vector>
@@ -42,6 +44,10 @@ public:
     std::vector<Barrier> invalidates{};
 };
 
+// Rendergraph is intentionally simple and dumb. It performs UNDEFINED -> GENERAL transitions on startup, and emits gigabarriers for each pass.
+// It takes advantage of VK_KHR_unified_image_layouts.
+// Future work: sorting, culling, pass reordering, merging passes
+// More adventurous work: aliasing, transient, cross-queue sync
 class RenderGraph
 {
 public:
@@ -61,12 +67,11 @@ private:
 
     struct TrackedResource
     {
-        // VkPipelineStageFlags2 current_stages{};
         VkImage image = VK_NULL_HANDLE;
     };
 
     std::vector<Pass> passes{};
     std::vector<TrackedResource> resources{};
     std::vector<uint32_t> early_discards{};
-    std::vector<std::string> debug{};
+    std::vector<uint32_t> early_depth_discards{};
 };
