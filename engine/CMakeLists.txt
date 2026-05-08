@@ -45,6 +45,8 @@ target_sources(engine PRIVATE
 	extern.cpp
   config.h
   push_constants.h
+  rendergraph.h
+  rendergraph.cpp
 	${imgui_sources}
 )
 

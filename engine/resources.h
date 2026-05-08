@@ -89,5 +89,5 @@ void stage_barrier(
 );
 
 void stage_barrier(VkCommandBuffer cmd, VkPipelineStageFlags2 src_stage_mask, VkPipelineStageFlags2 dst_stage_mask);
-
 void invalidate_barriers(VkCommandBuffer cmd, VkPipelineStageFlags2 stages, std::vector<VkImage>& images, std::vector<VkImage>& depth_images);
+void giga_barrier(VkCommandBuffer cmd);

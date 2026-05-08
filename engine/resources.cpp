@@ -450,3 +450,8 @@ void invalidate_barriers(VkCommandBuffer cmd, VkPipelineStageFlags2 stages, std:
 
     pipeline_barrier(cmd, nullptr, 0, barriers.data(), barriers.size());
 }
+
+void giga_barrier(VkCommandBuffer cmd)
+{
+    stage_barrier(cmd, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT);
+}
