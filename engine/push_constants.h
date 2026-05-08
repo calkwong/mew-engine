@@ -182,7 +182,7 @@ struct CullData
 	VkDeviceAddress mesh_buffer_address{};
 	VkDeviceAddress indices_buffer_address{};
 	VkDeviceAddress draw_indirect_address{};
-	VkDeviceAddress count_buffer_address{};
+	VkDeviceAddress dispatch_buffer_address{};
 	VkDeviceAddress vis_buffer_address{};
 	VkDeviceAddress prefix_sum_buffer{};
 	uint32_t count{};
