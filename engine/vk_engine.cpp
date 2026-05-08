@@ -12,6 +12,7 @@
 #include "vk_scene.h"
 #include "cache.h"
 #include "push_constants.h"
+#include "rendergraph.h"
 
 #include <filesystem>
 #include <vk_mem_alloc.h>
@@ -392,130 +393,150 @@ void VulkanEngine::execute_baked_gi()
 	VkCommandBufferBeginInfo cmd_begin_info = vkinit::command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
 	VK_CHECK(vkBeginCommandBuffer(imm_command_buffer, &cmd_begin_info));
 
-	// spherical map -> cubemap
-	{
-		stage_barrier(imm_command_buffer, hdri_cubemap.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, 0, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, 0, VK_ACCESS_2_SHADER_WRITE_BIT);
+	RenderGraph graph{};
 
-		ShaderPass current_pass = *shader_passes["equirectangular_to_cubemap"];
-		IBLPushConstants pc{};
-		pc.image_size = glm::vec2(hdri_cubemap.extent.width, hdri_cubemap.extent.height);
-		pc.texture_id = texture_cache.get_hdri();
-		pc.image_id = image_cache.get_hdri();
+	graph.add_pass("skybox", Pass::PassType::ComputePass,
+        [&](Pass& pass) {
+            pass.add_image_write("skybox", hdri_cubemap.image);
+        },
+        [&]() {
+           	ShaderPass current_pass = *shader_passes["equirectangular_to_cubemap"];
+    		IBLPushConstants pc{};
+    		pc.image_size = glm::vec2(hdri_cubemap.extent.width, hdri_cubemap.extent.height);
+    		pc.texture_id = texture_cache.get_hdri();
+    		pc.image_id = image_cache.get_hdri();
 
-		vkCmdBindPipeline(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
-		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
-		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
-		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
-		vkCmdPushConstants(imm_command_buffer, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IBLPushConstants), &pc);
-		auto groupcount_x = get_groupcount(hdri_cubemap.extent.width, WARP_SIZE);
-		auto groupcount_y = get_groupcount(hdri_cubemap.extent.height, WARP_SIZE);
-		vkCmdDispatch(imm_command_buffer, groupcount_x, groupcount_y, 6);
+    		vkCmdBindPipeline(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
+    		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
+    		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
+    		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
+    		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
+    		vkCmdPushConstants(imm_command_buffer, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IBLPushConstants), &pc);
+    		auto groupcount_x = get_groupcount(hdri_cubemap.extent.width, WARP_SIZE);
+    		auto groupcount_y = get_groupcount(hdri_cubemap.extent.height, WARP_SIZE);
+    		vkCmdDispatch(imm_command_buffer, groupcount_x, groupcount_y, 6);
 
-		// set to cubemap/skybo
-		auto updated_hdri_id = texture_cache.get_hdri() + 1;
-		texture_cache.set_hdri(updated_hdri_id);
+    		// set to cubemap/skybo
+    		auto updated_hdri_id = texture_cache.get_hdri() + 1;
+    		texture_cache.set_hdri(updated_hdri_id);
+        }
+	);
 
-		stage_barrier(imm_command_buffer, hdri_cubemap.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_BLIT_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+	graph.add_pass("skybox_mipmap", Pass::PassType::ComputePass,
+        [&](Pass& pass) {
+            pass.add_image_read("skybox", hdri_cubemap.image);
+            pass.add_image_write("skybox", hdri_cubemap.image);
+        },
+        [&]() {
+            vkutil::generate_mipmaps(imm_command_buffer, hdri_cubemap.image, VkExtent2D(hdri_cubemap.extent.width, hdri_cubemap.extent.height), 6);
+        }
+	);
 
-		vkutil::generate_mipmaps(imm_command_buffer, hdri_cubemap.image, VkExtent2D(hdri_cubemap.extent.width, hdri_cubemap.extent.height), 6);
+	graph.add_pass("spherical_harmonics", Pass::PassType::ComputePass,
+        [&](Pass& pass) {
+            pass.add_image_read("skybox", hdri_cubemap.image);
+            pass.add_storage_buffer_write("sh");
+        },
+        [&]() {
+            ShaderPass current_pass = *shader_passes["spherical_harmonics"];
+    		SHPushConstants pc{};
+    		pc.sh_buffer_address = get_buffer_address(device, render_scene.sh_buffer.buffer);
+    		pc.cubemap_id = static_cast<uint32_t>(scene_data.textures[0]);
 
-		stage_barrier(imm_command_buffer, hdri_cubemap.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_BLIT_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT, VK_ACCESS_2_SHADER_READ_BIT);
-	}
+    		vkCmdBindPipeline(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
+    		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
+    		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
+    		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
+    		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
+    		vkCmdPushConstants(imm_command_buffer, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(SHPushConstants), &pc);
 
-	// compute SH coefficients
-	{
-		ShaderPass current_pass = *shader_passes["spherical_harmonics"];
-		SHPushConstants pc{};
-		pc.sh_buffer_address = get_buffer_address(device, render_scene.sh_buffer.buffer);
-		pc.cubemap_id = static_cast<uint32_t>(scene_data.textures[0]);
+    		vkCmdDispatch(imm_command_buffer, 1, 1, 1);
+        }
+	);
 
-		vkCmdBindPipeline(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
-		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
-		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
-		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
-		vkCmdPushConstants(imm_command_buffer, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(SHPushConstants), &pc);
+	graph.add_pass("irradiance", Pass::PassType::ComputePass,
+        [&](Pass& pass) {
+            pass.add_image_read("skybox", hdri_cubemap.image);
+            pass.add_image_write("irradiance", irradiance_cubemap.image);
+        },
+        [&]() {
+            ShaderPass current_pass = *shader_passes["irradiance"];
+    		IBLPushConstants pc{};
+    		pc.image_size = glm::vec2(irradiance_cubemap.extent.width, irradiance_cubemap.extent.height);
+    		pc.texture_id = static_cast<uint32_t>(scene_data.textures[0]);
+    		pc.image_id = image_cache.get_hdri() + 1;
 
-		vkCmdDispatch(imm_command_buffer, 1, 1, 1);
-	}
+    		vkCmdBindPipeline(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
+    		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
+    		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
+    		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
+    		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
+    		vkCmdPushConstants(imm_command_buffer, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IBLPushConstants), &pc);
+    		auto groupcount_x = get_groupcount(irradiance_cubemap.extent.width, WARP_SIZE);
+    		auto groupcount_y = get_groupcount(irradiance_cubemap.extent.height, WARP_SIZE);
+    		vkCmdDispatch(imm_command_buffer, groupcount_x, groupcount_y, 6);
+        }
+	);
 
-	// compute irradiance cubemap for SH reference
-	{
-		stage_barrier(imm_command_buffer, irradiance_cubemap.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, 0, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, 0, VK_ACCESS_2_SHADER_WRITE_BIT);
-
-		ShaderPass current_pass = *shader_passes["irradiance"];
-		IBLPushConstants pc{};
-		pc.image_size = glm::vec2(irradiance_cubemap.extent.width, irradiance_cubemap.extent.height);
-		pc.texture_id = static_cast<uint32_t>(scene_data.textures[0]);
-		pc.image_id = image_cache.get_hdri() + 1;
-
-		vkCmdBindPipeline(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
-		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
-		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
-		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
-		vkCmdPushConstants(imm_command_buffer, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IBLPushConstants), &pc);
-		auto groupcount_x = get_groupcount(irradiance_cubemap.extent.width, WARP_SIZE);
-		auto groupcount_y = get_groupcount(irradiance_cubemap.extent.height, WARP_SIZE);
-		vkCmdDispatch(imm_command_buffer, groupcount_x, groupcount_y, 6);
-
-		stage_barrier(imm_command_buffer, irradiance_cubemap.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_READ_BIT);
-	}
-
-	// TODO: fix - we are dispatching wg_size that is more than necessary here
-	// prefiltered envmap
+	// TODO: fix this, potentially problematic
 	uint32_t brdf_id{};
-	{
-		stage_barrier(imm_command_buffer, prefiltered_envmap.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, 0, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, 0, VK_ACCESS_2_SHADER_WRITE_BIT);
 
-		ShaderPass current_pass = *shader_passes["prefiltered"];
-		vkCmdBindPipeline(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
-		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
-		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
-		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
-		IBLPushConstants pc{};
-		pc.texture_id = static_cast<uint32_t>(scene_data.textures[0]);
+	graph.add_pass("prefiltered", Pass::PassType::ComputePass,
+        [&](Pass& pass) {
+            pass.add_image_read("skybox", hdri_cubemap.image);
+            pass.add_image_write("prefiltered", prefiltered_envmap.image);
+        },
+        // TODO: fix - we are dispatching wg_size that is more than necessary here
+        [&]() {
+            ShaderPass current_pass = *shader_passes["prefiltered"];
+    		vkCmdBindPipeline(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
+    		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
+    		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
+    		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
+    		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
+    		IBLPushConstants pc{};
+    		pc.texture_id = static_cast<uint32_t>(scene_data.textures[0]);
 
-		auto mips = static_cast<uint32_t>(std::floor(std::log2(static_cast<float>(std::max(prefiltered_envmap.extent.width, prefiltered_envmap.extent.height))))) + 1;
-		for (uint32_t i = 0; i < mips; i++)
-		{
-			pc.image_id = image_cache.get_hdri() + 2 + i;
-			pc.roughness = static_cast<float>(i) / static_cast<float>(mips);
-			vkCmdPushConstants(imm_command_buffer, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IBLPushConstants), &pc);
-			auto groupcount_x = get_groupcount(prefiltered_envmap.extent.width, WARP_SIZE);
-			auto groupcount_y = get_groupcount(prefiltered_envmap.extent.height, WARP_SIZE);
-			vkCmdDispatch(imm_command_buffer, groupcount_x, groupcount_y, 6);
-		}
-		brdf_id = image_cache.get_hdri() + 2 + mips;
-		stage_barrier(imm_command_buffer, prefiltered_envmap.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_READ_BIT);
-	}
+    		auto mips = static_cast<uint32_t>(std::floor(std::log2(static_cast<float>(std::max(prefiltered_envmap.extent.width, prefiltered_envmap.extent.height))))) + 1;
+    		for (uint32_t i = 0; i < mips; i++)
+    		{
+    			pc.image_id = image_cache.get_hdri() + 2 + i;
+    			pc.roughness = static_cast<float>(i) / static_cast<float>(mips);
+    			vkCmdPushConstants(imm_command_buffer, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IBLPushConstants), &pc);
+    			auto groupcount_x = get_groupcount(prefiltered_envmap.extent.width, WARP_SIZE);
+    			auto groupcount_y = get_groupcount(prefiltered_envmap.extent.height, WARP_SIZE);
+    			vkCmdDispatch(imm_command_buffer, groupcount_x, groupcount_y, 6);
+    		}
+    		brdf_id = image_cache.get_hdri() + 2 + mips;
+        }
+	);
 
-	// brdf lut
-	{
-		stage_barrier(imm_command_buffer, brdf_lut.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, 0, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, 0, VK_ACCESS_2_SHADER_WRITE_BIT);
+	graph.add_pass("brdf_lut", Pass::PassType::ComputePass,
+        [&](Pass& pass) {
+            pass.add_image_write("brdf_lut", brdf_lut.image);
+        },
+        [&]() {
+            ShaderPass current_pass = *shader_passes["brdf"];
+    		IBLPushConstants pc{};
+    		pc.image_size = glm::vec2(brdf_lut.extent.width, brdf_lut.extent.height);
+    		pc.image_id = brdf_id;
 
-		ShaderPass current_pass = *shader_passes["brdf"];
-		IBLPushConstants pc{};
-		pc.image_size = glm::vec2(brdf_lut.extent.width, brdf_lut.extent.height);
-		pc.image_id = brdf_id;
+    		vkCmdBindPipeline(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
+    		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
+    		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
+    		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
+    		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
+    		vkCmdPushConstants(imm_command_buffer, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IBLPushConstants), &pc);
+    		auto groupcount_x = get_groupcount(brdf_lut.extent.width, WARP_SIZE);
+    		auto groupcount_y = get_groupcount(brdf_lut.extent.height, WARP_SIZE);
+    		vkCmdDispatch(imm_command_buffer, groupcount_x, groupcount_y, 1);
+        }
+	);
 
-		vkCmdBindPipeline(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
-		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
-		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
-		vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
-		vkCmdPushConstants(imm_command_buffer, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IBLPushConstants), &pc);
-		auto groupcount_x = get_groupcount(brdf_lut.extent.width, WARP_SIZE);
-		auto groupcount_y = get_groupcount(brdf_lut.extent.height, WARP_SIZE);
-		vkCmdDispatch(imm_command_buffer, groupcount_x, groupcount_y, 1);
+	graph.bake();
+	graph.execute(imm_command_buffer);
 
-		stage_barrier(imm_command_buffer, brdf_lut.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_READ_BIT);
-	}
-
-	// for SH coefficients buffer
-	stage_barrier(imm_command_buffer, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+	graph.print();
 
 	VK_CHECK(vkEndCommandBuffer(imm_command_buffer));
 	VkCommandBufferSubmitInfo cmd_info = vkinit::command_buffer_submit_info(imm_command_buffer);
