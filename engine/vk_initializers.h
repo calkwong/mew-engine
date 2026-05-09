@@ -2,33 +2,33 @@
 
 namespace vkinit
 {
-	VkCommandPoolCreateInfo command_pool_create_info(uint32_t queueFamilyIndex, VkCommandPoolCreateFlags flags = 0);
+VkCommandPoolCreateInfo command_pool_create_info(uint32_t queueFamilyIndex, VkCommandPoolCreateFlags flags = 0);
 
-	VkCommandBufferAllocateInfo command_buffer_allocate_info(VkCommandPool pool, uint32_t count = 1);
+VkCommandBufferAllocateInfo command_buffer_allocate_info(VkCommandPool pool, uint32_t count = 1);
 
-	VkFenceCreateInfo fence_create_info(VkFenceCreateFlags flags = 0);
+VkFenceCreateInfo fence_create_info(VkFenceCreateFlags flags = 0);
 
-	VkSemaphoreCreateInfo semaphore_create_info(VkSemaphoreCreateFlags flags = 0);
+VkSemaphoreCreateInfo semaphore_create_info(VkSemaphoreCreateFlags flags = 0);
 
-	VkCommandBufferBeginInfo command_buffer_begin_info(VkCommandBufferUsageFlags flags = 0);
+VkCommandBufferBeginInfo command_buffer_begin_info(VkCommandBufferUsageFlags flags = 0);
 
-	VkImageSubresourceRange image_subresource_range(VkImageAspectFlags aspect_mask);
+VkImageSubresourceRange image_subresource_range(VkImageAspectFlags aspect_mask);
 
-	VkSemaphoreSubmitInfo semaphore_submit_info(VkPipelineStageFlags2 stage_mask, VkSemaphore semaphore);
+VkSemaphoreSubmitInfo semaphore_submit_info(VkPipelineStageFlags2 stage_mask, VkSemaphore semaphore);
 
-	VkCommandBufferSubmitInfo command_buffer_submit_info(VkCommandBuffer cmd);
+VkCommandBufferSubmitInfo command_buffer_submit_info(VkCommandBuffer cmd);
 
-	VkSubmitInfo2 submit_info(const VkCommandBufferSubmitInfo* submit_cmd_info, const VkSemaphoreSubmitInfo* signal_semaphore_info, const VkSemaphoreSubmitInfo* wait_semaphore_info);
+VkSubmitInfo2 submit_info(const VkCommandBufferSubmitInfo* submit_cmd_info, const VkSemaphoreSubmitInfo* signal_semaphore_info, const VkSemaphoreSubmitInfo* wait_semaphore_info);
 
-	VkImageCreateInfo image_create_info(VkFormat format, VkImageUsageFlags flags, VkExtent3D extent);
+VkImageCreateInfo image_create_info(VkFormat format, VkImageUsageFlags flags, VkExtent3D extent);
 
-	VkImageViewCreateInfo imageview_create_info(VkFormat format, VkImage image, VkImageAspectFlags aspect_mask);
+VkImageViewCreateInfo imageview_create_info(VkFormat format, VkImage image, VkImageAspectFlags aspect_mask);
 
-	VkRenderingAttachmentInfo attachment_info(VkImageView view, const VkClearValue* clear);
+VkRenderingAttachmentInfo attachment_info(VkImageView view, const VkClearValue* clear);
 
-	VkRenderingAttachmentInfo depth_attachment_info(VkImageView view);
+VkRenderingAttachmentInfo depth_attachment_info(VkImageView view);
 
-	VkPipelineShaderStageCreateInfo pipeline_shader_stage_create_info(VkShaderStageFlagBits stage, VkShaderModule shader_module, const char* entry = "main");
+VkPipelineShaderStageCreateInfo pipeline_shader_stage_create_info(VkShaderStageFlagBits stage, VkShaderModule shader_module, const char* entry = "main");
 
-	VkRenderingInfo rendering_info(VkExtent2D extent, const VkRenderingAttachmentInfo* color_attachment, const VkRenderingAttachmentInfo* depth_attachment);
+VkRenderingInfo rendering_info(VkExtent2D extent, const VkRenderingAttachmentInfo* color_attachment, const VkRenderingAttachmentInfo* depth_attachment);
 } // namespace vkinit
