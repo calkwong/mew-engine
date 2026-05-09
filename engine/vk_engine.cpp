@@ -1016,8 +1016,7 @@ void VulkanEngine::draw()
                 pass.add_storage_buffer_read("material");
                 pass.add_storage_buffer_read("mesh");
                 pass.add_storage_buffer_read("sh");
-                // TODO: technically not a color attachment here
-                pass.add_color_output("draw", draw_image.image);
+                pass.add_image_write("draw", draw_image.image);
             },
             [&]() {
                 vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 14);
@@ -1055,8 +1054,8 @@ void VulkanEngine::draw()
             graph.add_pass("tonemapping", Pass::PassType::ComputePass,
                 [&](Pass& pass) {
                     pass.add_storage_buffer_read("luminance_avg");
-                    pass.add_storage_buffer_read("draw");
-                    pass.add_storage_buffer_write("draw");
+                    pass.add_image_read("draw", draw_image.image);
+                    pass.add_image_write("draw", draw_image.image);
                 },
                 [&]() {
                     ShaderPass current_pass = *shader_passes["tonemap"];
@@ -1080,27 +1079,33 @@ void VulkanEngine::draw()
               		vkCmdDispatch(cmd, groupcount_x, groupcount_y, 1);
                 }
             );
+        }
 
+        graph.add_pass("copy to swapchain", Pass::PassType::ComputePass,
+            [&](Pass& pass) {
+                pass.add_image_write("swapchain", swapchain_images[swapchain_image_idx]);
+                pass.add_image_read("draw", draw_image.image);
+            },
+            [&]() {
+                vkutil::copy_image(cmd, draw_image.image, swapchain_images[swapchain_image_idx], draw_extent, swapchain_extent);
+            }
+        );
+
+        if (CVAR_RENDER_IMGUI.get())
+        {
+            graph.add_pass("imgui", Pass::PassType::GraphicsPass,
+                [&](Pass& pass) {
+                    pass.add_color_output("swapchain", swapchain_images[swapchain_image_idx]);
+                },
+                [&]() {
+                    draw_imgui(cmd, swapchain_image_views[swapchain_image_idx]);
+                }
+            );
         }
 
         // graph.print();
     	graph.bake();
     	graph.execute(cmd);
-	}
-
-	// TODO: move this into rendergraph
-	stage_barrier(cmd, swapchain_images[swapchain_image_idx], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
-        VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-        VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT, VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT
-	);
-
-	vkutil::copy_image(cmd, draw_image.image, swapchain_images[swapchain_image_idx], draw_extent, swapchain_extent);
-
-	stage_barrier(cmd, VK_PIPELINE_STAGE_2_BLIT_BIT, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT);
-
-	{
-		if (CVAR_RENDER_IMGUI.get())
-			draw_imgui(cmd, swapchain_image_views[swapchain_image_idx]);
 	}
 
 	stage_barrier(
@@ -1109,7 +1114,7 @@ void VulkanEngine::draw()
 	    VK_IMAGE_LAYOUT_GENERAL,
 	    VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
 	    VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-	    VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT,
+	    VK_PIPELINE_STAGE_2_NONE,
 	    VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
 	    0
 	);
