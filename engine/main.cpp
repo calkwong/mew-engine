@@ -2,18 +2,18 @@
 
 int main(int argc, char** argv)
 {
-	VulkanEngine engine{};
+    VulkanEngine engine{};
 
-	if (argc < 2)
-	{
-		return 1;
-	}
+    if (argc < 2)
+    {
+        return 1;
+    }
 
-	engine.init(argc, argv);
+    engine.init(argc, argv);
 
-	engine.run();
+    engine.run();
 
-	engine.cleanup();
+    engine.cleanup();
 
-	return 0;
+    return 0;
 }

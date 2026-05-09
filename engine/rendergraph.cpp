@@ -14,79 +14,79 @@ uint32_t RenderGraph::get_resources_size() const
 
 uint32_t Pass::get_resource_index(const std::string& name, VkImage image)
 {
-	uint32_t index = -1;
+    uint32_t index = -1;
 
-	// register resource into rendergraph
-	if (graph->resource_indices.find(name) == graph->resource_indices.end())
-	{
-		index = graph->get_resources_size();
-		graph->resource_indices[name] = index;
-		graph->add_resource(image);
-	}
-	else
-		index = graph->resource_indices[name];
+    // register resource into rendergraph
+    if (graph->resource_indices.find(name) == graph->resource_indices.end())
+    {
+        index = graph->get_resources_size();
+        graph->resource_indices[name] = index;
+        graph->add_resource(image);
+    }
+    else
+        index = graph->resource_indices[name];
 
-	return index;
+    return index;
 }
 
 void Pass::add_depth_stencil_output(const std::string& name, VkImage image)
 {
-	auto index = get_resource_index(name, image);
-	// for simplicity include both early and late
-	flushes.emplace_back(Barrier{ index, VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT });
+    auto index = get_resource_index(name, image);
+    // for simplicity include both early and late
+    flushes.emplace_back(Barrier{ index, VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT });
 }
 
 void Pass::add_color_output(const std::string& name, VkImage image)
 {
-	auto index = get_resource_index(name, image);
-	flushes.emplace_back(Barrier{ index, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT });
+    auto index = get_resource_index(name, image);
+    flushes.emplace_back(Barrier{ index, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT });
 }
 
 void Pass::add_image_read(const std::string& name, VkImage image)
 {
-	auto index = get_resource_index(name, image);
-	auto stage = pass_type == PassType::GraphicsPass ? VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT : VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-	invalidates.emplace_back(Barrier{ index, stage });
+    auto index = get_resource_index(name, image);
+    auto stage = pass_type == PassType::GraphicsPass ? VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT : VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    invalidates.emplace_back(Barrier{ index, stage });
 }
 
 void Pass::add_image_write(const std::string& name, VkImage image)
 {
-	auto index = get_resource_index(name, image);
-	auto stage = pass_type == PassType::GraphicsPass ? VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT : VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-	flushes.emplace_back(Barrier{ index, stage });
+    auto index = get_resource_index(name, image);
+    auto stage = pass_type == PassType::GraphicsPass ? VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT : VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    flushes.emplace_back(Barrier{ index, stage });
 }
 
 void Pass::add_storage_buffer_read(const std::string& name)
 {
-	auto index = get_resource_index(name);
-	auto stage = pass_type == PassType::GraphicsPass ? VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT : VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-	invalidates.emplace_back(Barrier{ index, stage });
+    auto index = get_resource_index(name);
+    auto stage = pass_type == PassType::GraphicsPass ? VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT : VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    invalidates.emplace_back(Barrier{ index, stage });
 }
 
 void Pass::add_storage_buffer_write(const std::string& name)
 {
-	auto index = get_resource_index(name);
-	auto stage = pass_type == PassType::GraphicsPass ? VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT : VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-	flushes.emplace_back(Barrier{ index, stage });
+    auto index = get_resource_index(name);
+    auto stage = pass_type == PassType::GraphicsPass ? VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT : VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    flushes.emplace_back(Barrier{ index, stage });
 }
 
 void Pass::add_indirect_buffer_read(const std::string& name)
 {
-	auto index = get_resource_index(name);
-	invalidates.emplace_back(Barrier{ index, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT });
+    auto index = get_resource_index(name);
+    invalidates.emplace_back(Barrier{ index, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT });
 }
 
 void RenderGraph::add_pass(const std::string& name, Pass::PassType pass_type, std::function<void(Pass& pass)> setup, std::function<void()> execute)
 {
-	if (pass_indices.find(name) != pass_indices.end())
-		assert(0);
+    if (pass_indices.find(name) != pass_indices.end())
+        assert(0);
 
-	uint32_t index = static_cast<uint32_t>(passes.size());
-	pass_indices[name] = index;
+    uint32_t index = static_cast<uint32_t>(passes.size());
+    pass_indices[name] = index;
 
-	Pass& pass = passes.emplace_back(Pass{ .graph = this, .name = name, .pass_type = pass_type, .callback = execute });
+    Pass& pass = passes.emplace_back(Pass{ .graph = this, .name = name, .pass_type = pass_type, .callback = execute });
 
-	setup(pass);
+    setup(pass);
 }
 
 // No support for resource aliasing, transient resources, renderpass, pass reordering, sorting, pass/barrier merging.
@@ -158,15 +158,24 @@ void RenderGraph::execute(VkCommandBuffer cmd)
     std::vector<VkMemoryBarrier2> memory_barriers{};
     for (auto& index : early_discards)
     {
-        image_memory_barriers.emplace_back(image_barrier(resources[index].image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
-            VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT
+        image_memory_barriers.emplace_back(image_barrier(
+            resources[index].image,
+            VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_IMAGE_LAYOUT_GENERAL,
+            VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+            VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT
         ));
     }
 
     for (auto& index : early_depth_discards)
     {
-        image_memory_barriers.emplace_back(image_barrier(resources[index].image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
-            VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_IMAGE_ASPECT_DEPTH_BIT
+        image_memory_barriers.emplace_back(image_barrier(
+            resources[index].image,
+            VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_IMAGE_LAYOUT_GENERAL,
+            VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+            VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+            VK_IMAGE_ASPECT_DEPTH_BIT
         ));
     }
 
@@ -180,8 +189,8 @@ void RenderGraph::execute(VkCommandBuffer cmd)
     for (size_t i = 1; i < passes.size(); i++)
     {
         auto& pass = passes[i];
-  		giga_barrier(cmd);
-  		pass.callback();
+        giga_barrier(cmd);
+        pass.callback();
     }
 
     giga_barrier(cmd);

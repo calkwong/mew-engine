@@ -10,60 +10,63 @@
 
 struct MeshData
 {
-	std::array<MeshLod, 8> mesh_lods{};
-	uint32_t lod_count{};
-	uint32_t vertex_offset{};
+    std::array<MeshLod, 8> mesh_lods{};
+    uint32_t lod_count{};
+    uint32_t vertex_offset{};
 
-	uint32_t material_id{};
+    uint32_t material_id{};
 
-	MaterialPass pass{};
+    MaterialPass pass{};
 
-	glm::vec3 center{};
-	float radius{};
+    glm::vec3 center{};
+    float radius{};
 
-	uint32_t meshlet_bits{}; // equals # of meshlets for LOD 0, for tracking visibility
+    uint32_t meshlet_bits{}; // equals # of meshlets for LOD 0, for tracking visibility
 };
 
 struct MeshAsset
 {
-	std::string name{};
-	std::vector<MeshData> mesh{};
+    std::string name{};
+    std::vector<MeshData> mesh{};
 };
 
 struct Node
 {
-	std::shared_ptr<MeshAsset> mesh_asset{};
-	// std::weak_ptr<Node> parent{};
-	std::vector<std::shared_ptr<Node>> children{};
+    std::shared_ptr<MeshAsset> mesh_asset{};
+    // std::weak_ptr<Node> parent{};
+    std::vector<std::shared_ptr<Node>> children{};
 
-	glm::mat4 local_transform{};
-	glm::mat4 world_transform{};
+    glm::mat4 local_transform{};
+    glm::mat4 world_transform{};
 
-	void refresh_transform(const glm::mat4& parent_matrix);
+    void refresh_transform(const glm::mat4& parent_matrix);
 };
 
 class VulkanEngine;
 
 struct LoadedGLTF
 {
-	std::unordered_map<std::string, std::shared_ptr<MeshAsset>> meshes{}; // obsolete?
-	std::unordered_map<std::string, std::shared_ptr<Node>> nodes{}; // obsolete?
-	std::unordered_map<std::string, AllocatedImage> images{}; // stores our GPU images
-	std::vector<std::shared_ptr<Node>> top_nodes{};
+    std::unordered_map<std::string, std::shared_ptr<MeshAsset>> meshes{}; // obsolete?
+    std::unordered_map<std::string, std::shared_ptr<Node>> nodes{}; // obsolete?
+    std::unordered_map<std::string, AllocatedImage> images{}; // stores our GPU images
+    std::vector<std::shared_ptr<Node>> top_nodes{};
 
-	std::vector<uint32_t> indices{};
-	std::vector<Vertex> vertices{};
-	std::vector<uint32_t> meshlet_indices{};
-	std::vector<Meshlet> meshlets{};
-	std::vector<MaterialData> materials{};
+    std::vector<uint32_t> indices{};
+    std::vector<Vertex> vertices{};
+    std::vector<uint32_t> meshlet_indices{};
+    std::vector<Meshlet> meshlets{};
+    std::vector<MaterialData> materials{};
 
-	VulkanEngine* creator{};
-	std::string asset_path{}; // asset folder
+    VulkanEngine* creator{};
+    std::string asset_path{}; // asset folder
 
-	~LoadedGLTF() { clear(); }
+    ~LoadedGLTF()
+    {
+        clear();
+    }
 
 private:
-	void clear();
+    void clear();
 };
 
 std::optional<std::unique_ptr<LoadedGLTF>> load_gltfs(VulkanEngine* engine, std::vector<std::string>& file_paths);
