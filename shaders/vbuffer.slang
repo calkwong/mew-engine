@@ -18,11 +18,14 @@ struct PerPrimitive
 {
     uint draw_id;
 	uint triangle_id;
+};
 
-	// note: unsure if redundant
-	// in GLSL we never want to expose CullPrimitiveEXT if unused as theres overhead
+// note: unsure if redundant
+// in GLSL we never want to expose CullPrimitiveEXT if unused as theres overhead
+struct PerPrimitiveCull
+{
 #ifdef TRIANGLE_CULLING
-	bool cull_primitive : SV_CullPrimitive;
+    bool cull_primitive : SV_CullPrimitive;
 #endif
 };
 
@@ -58,7 +61,10 @@ void mesh_main(
     uint t_index : SV_GroupIndex,
     out vertices Interp verts[64],
     out indices uint3 tris[124],
-    out primitives PerPrimitive prims[124]
+    out primitives PerPrimitive prims[124],
+#ifdef TRIANGLE_CULLING
+    out primitives PerPrimitiveCull cull_prims[124]
+#endif
 )
 {
     uint id = wg_id.x;
@@ -154,7 +160,7 @@ void mesh_main(
             culled = culled && (vertex_clip[idx0].z > 0 && vertex_clip[idx1].z > 0 && vertex_clip[idx2].z > 0);
 
             // note: flickering artifacts when placed in runtime branch (last tested in GLSL)
-            prims[i].cull_primitive = culled;
+            cull_prims[i].cull_primitive = culled;
         }
 #endif
     }
