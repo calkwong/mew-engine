@@ -24,6 +24,11 @@
 #include <SDL3/SDL_init.h>
 #include <SDL3/SDL_timer.h>
 #include <SDL3/SDL_vulkan.h>
+
+// TODO: remove these 2
+#include <SDL3/SDL_platform.h>
+#include <SDL3/SDL_hints.h>
+
 #include <imgui.h>
 #include <imgui_impl_sdl3.h>
 #include <imgui_impl_vulkan.h>
@@ -197,6 +202,7 @@ void VulkanEngine::init(int argc, char** argv)
 
     VK_CHECK(volkInitialize());
 
+    SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "x11");
     SDL_Init(SDL_INIT_VIDEO);
 
     auto window_flags = (SDL_WindowFlags)(SDL_WINDOW_VULKAN);
@@ -589,7 +595,13 @@ void VulkanEngine::draw()
 
     uint32_t swapchain_image_idx{};
     {
-        VK_CHECK(vkAcquireNextImageKHR(device, swapchain, 1000000000, get_current_frame().image_acquired_semaphore, nullptr, &swapchain_image_idx));
+        VkResult e = vkAcquireNextImageKHR(device, swapchain, 1000000000, get_current_frame().image_acquired_semaphore, nullptr, &swapchain_image_idx);
+
+        if (e == VK_ERROR_OUT_OF_DATE_KHR)
+        {
+            fmt::println("OUT_OF_DATE ACQUIRE, frame: {}", frame_number);
+            abort();
+        }
     }
 
     // record currentFrame-2's timestamps
@@ -1252,7 +1264,16 @@ void VulkanEngine::draw()
     present_info.pSwapchains = &swapchain;
     present_info.pImageIndices = &swapchain_image_idx;
 
-    VK_CHECK(vkQueuePresentKHR(graphics_queue, &present_info));
+    VkResult e = vkQueuePresentKHR(graphics_queue, &present_info);
+
+    // TODO: this is niri specific - implement a check to ensure size has indeed changed, if not, handle the false positive
+    // see: https://github.com/zeux/niagara/commit/a9b85a2997772f15da82cb924871a2d51936bf71
+    if (e == VK_ERROR_OUT_OF_DATE_KHR)
+    {
+        fmt::println("OUT_OF_DATE PRESENT, frame: {}", frame_number);
+        abort();
+    }
+
     // FrameMark;
     frame_number++;
 }
@@ -1559,7 +1580,7 @@ void VulkanEngine::init_swapchain()
 {
     create_swapchain(window_extent.width, window_extent.height);
 
-    VkExtent3D draw_image_extent{ window_extent.width, window_extent.height, 1 };
+    VkExtent3D draw_image_extent{ swapchain_extent.width, swapchain_extent.height, 1 };
 
     // TODO: after deferred - transfer_src & general only?
     VkImageUsageFlags draw_image_flags{
@@ -2971,7 +2992,7 @@ void VulkanEngine::upload_buffers()
 
     // TODO: refactor if window resize
     {
-        auto screen_pixels = window_extent.width * window_extent.height;
+        auto screen_pixels = swapchain_extent.width * swapchain_extent.height;
         render_scene.oit_buffer = create_buffer(
             allocator,
             screen_pixels * sizeof(OITData),
@@ -3259,7 +3280,7 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass, ui
     auto jitter_count = jitter_offset.size();
     auto current_jitter = jitter_offset[frame_number % jitter_count];
     auto previous_jitter = jitter_offset[(frame_number - 1) % jitter_count];
-    pc.screen_size = glm::uvec2(window_extent.width, window_extent.height);
+    pc.screen_size = glm::uvec2(swapchain_extent.width, swapchain_extent.height);
     pc.jitter_offset = glm::vec4(current_jitter, previous_jitter);
 
     if (!CVAR_RENDER_MESH_SHADERS.get())
@@ -3351,7 +3372,7 @@ void VulkanEngine::render_transparent(VkCommandBuffer cmd, uint32_t query)
     pc.material_buffer_address = get_buffer_address(device, render_scene.material_buffer.buffer);
     pc.prefix_sum_buffer = get_buffer_address(device, render_scene.prefix_sum_buffer.buffer);
     // TODO: handle jitter offset for transparency
-    pc.screen_size = glm::uvec2(window_extent.width, window_extent.height);
+    pc.screen_size = glm::uvec2(swapchain_extent.width, swapchain_extent.height);
 
     if (!CVAR_RENDER_MESH_SHADERS.get())
     {
@@ -3586,9 +3607,9 @@ void VulkanEngine::build_cluster_grid()
     ClusterGridPushConstants pc{};
     pc.inverse_proj = glm::inverse(main_camera.perspective);
     pc.light_cluster_buffer_address = get_buffer_address(device, light_cluster_buffer.buffer);
-    pc.screen_size = glm::vec2(window_extent.width, window_extent.height);
-    auto cluster_x = ceil(static_cast<float>(window_extent.width) / CLUSTER_X); // # cluster dim
-    auto cluster_y = ceil(static_cast<float>(window_extent.height) / CLUSTER_Y); // # cluster dim
+    pc.screen_size = glm::vec2(swapchain_extent.width, swapchain_extent.height);
+    auto cluster_x = ceil(static_cast<float>(swapchain_extent.width) / CLUSTER_X); // # cluster dim
+    auto cluster_y = ceil(static_cast<float>(swapchain_extent.height) / CLUSTER_Y); // # cluster dim
     pc.cluster_dim = glm::vec2(cluster_x, cluster_y);
     pc.near = main_camera.near; // reverse-z
     pc.far = main_camera.far;
@@ -3650,10 +3671,10 @@ void VulkanEngine::execute_shading(VkCommandBuffer cmd)
 
     DeferredPushConstants pc{};
 
-    auto cluster_x = ceil(static_cast<float>(window_extent.width) / CLUSTER_X); // # cluster dim
-    auto cluster_y = ceil(static_cast<float>(window_extent.height) / CLUSTER_Y); // # cluster dim
+    auto cluster_x = ceil(static_cast<float>(swapchain_extent.width) / CLUSTER_X); // # cluster dim
+    auto cluster_y = ceil(static_cast<float>(swapchain_extent.height) / CLUSTER_Y); // # cluster dim
     pc.cluster_size = glm::vec4(cluster_x, cluster_y, CLUSTER_DEPTH_SLICES, 0.0);
-    pc.screen_size = glm::vec2(window_extent.width, window_extent.height);
+    pc.screen_size = glm::vec2(swapchain_extent.width, swapchain_extent.height);
 
     pc.light_buffer_address = get_buffer_address(device, light_buffer.buffer);
     pc.light_index_buffer_address = get_buffer_address(device, light_index_buffer.buffer);
