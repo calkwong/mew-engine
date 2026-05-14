@@ -1,7 +1,7 @@
 add_library(glm INTERFACE)
 add_library(vma INTERFACE)
 add_library(stb INTERFACE)
-add_library(mikktspace STATIC)
+add_library(MikkTSpace STATIC)
 add_library(basis_universal STATIC)
 add_library(meshoptimizer STATIC)
 
@@ -19,11 +19,11 @@ target_include_directories(glm INTERFACE glm)
 target_include_directories(stb INTERFACE stb)
 
 # mikktspace
-target_include_directories(mikktspace PUBLIC mikktspace)
-target_sources(mikktspace PRIVATE
-	mikktspace/mikktspace.c
-	mikktspace/mikktspace.h
-	)
+target_include_directories(MikkTSpace PUBLIC MikkTSpace)
+target_sources(MikkTSpace PRIVATE
+ MikkTSpace/mikktspace.c
+ MikkTSpace/mikktspace.h
+ )
 
 # tracy
 option(TRACY_ENABLE "" ON)
@@ -33,24 +33,24 @@ add_subdirectory(tracy)
 # basis_universal
 target_include_directories(basis_universal PUBLIC basis_universal/transcoder basis_universal/zstd)
 target_sources(basis_universal PRIVATE
-	basis_universal/transcoder/basisu.h
-	basis_universal/transcoder/basisu_astc_hdr_core.h
-	basis_universal/transcoder/basisu_astc_helpers.h
-	basis_universal/transcoder/basisu_containers.h
-	basis_universal/transcoder/basisu_containers_impl.h
-	basis_universal/transcoder/basisu_file_headers.h
-	basis_universal/transcoder/basisu_transcoder.cpp
-	basis_universal/transcoder/basisu_transcoder.h
-	basis_universal/transcoder/basisu_transcoder_internal.h
-	basis_universal/transcoder/basisu_transcoder_uastc.h
-	basis_universal/zstd/zstddeclib.c
-	basis_universal/zstd/zstd.c
-	basis_universal/zstd/zstd.h
-	)
-	
+ basis_universal/transcoder/basisu.h
+ basis_universal/transcoder/basisu_astc_hdr_core.h
+ basis_universal/transcoder/basisu_astc_helpers.h
+ basis_universal/transcoder/basisu_containers.h
+ basis_universal/transcoder/basisu_containers_impl.h
+ basis_universal/transcoder/basisu_file_headers.h
+ basis_universal/transcoder/basisu_transcoder.cpp
+ basis_universal/transcoder/basisu_transcoder.h
+ basis_universal/transcoder/basisu_transcoder_internal.h
+ basis_universal/transcoder/basisu_transcoder_uastc.h
+ basis_universal/zstd/zstddeclib.c
+ basis_universal/zstd/zstd.c
+ basis_universal/zstd/zstd.h
+ )
+
 # meshoptimizer
 target_include_directories(meshoptimizer PUBLIC meshoptimizer/src)
-target_sources(meshoptimizer PRIVATE 
+target_sources(meshoptimizer PRIVATE
   meshoptimizer/src/meshoptimizer.h
   meshoptimizer/src/allocator.cpp
   meshoptimizer/src/clusterizer.cpp
@@ -72,4 +72,3 @@ target_sources(meshoptimizer PRIVATE
 
 # volk
 add_subdirectory(volk)
-
