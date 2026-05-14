@@ -7,7 +7,7 @@ import util;
 import sh;
 import pbr;
 import sampling;
-import rt_helpers;
+//import rt_helpers; // rewrite needed, lost this untracked file when switching os
 
 [[vk::binding(0, 4)]] RaytracingAccelerationStructure acceleration_structure;
 
