@@ -136,7 +136,7 @@ AllocatedImage upload_image(
                 cmd,
                 new_image.image,
                 VK_IMAGE_LAYOUT_UNDEFINED,
-                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                VK_IMAGE_LAYOUT_GENERAL,
                 0,
                 VK_PIPELINE_STAGE_2_TRANSFER_BIT,
                 0,
@@ -155,7 +155,7 @@ AllocatedImage upload_image(
 
             copy_region.imageExtent = extent;
 
-            vkCmdCopyBufferToImage(cmd, upload_buffer.buffer, new_image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy_region);
+            vkCmdCopyBufferToImage(cmd, upload_buffer.buffer, new_image.image, VK_IMAGE_LAYOUT_GENERAL, 1, &copy_region);
 
             if (mipmapped)
             {
@@ -166,8 +166,8 @@ AllocatedImage upload_image(
                 stage_barrier(
                     cmd,
                     new_image.image,
-                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                    VK_IMAGE_LAYOUT_GENERAL,
+                    VK_IMAGE_LAYOUT_GENERAL,
                     VK_PIPELINE_STAGE_2_TRANSFER_BIT,
                     VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                     VK_ACCESS_2_TRANSFER_WRITE_BIT,

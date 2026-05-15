@@ -97,7 +97,7 @@ uint32_t TextureCache::add_texture(const VkImageView& view)
             return static_cast<uint32_t>(i);
     }
 
-    image_infos.emplace_back(VkDescriptorImageInfo{ 0, view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL });
+    image_infos.emplace_back(VkDescriptorImageInfo{ 0, view, VK_IMAGE_LAYOUT_GENERAL });
 
     return static_cast<uint32_t>(image_infos.size() - 1);
 }

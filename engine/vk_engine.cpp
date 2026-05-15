@@ -1845,14 +1845,14 @@ void VulkanEngine::update_swapchain()
         );
 
         // update texture cache
-        texture_cache.image_infos[texture_cache.get_draw_image()] = VkDescriptorImageInfo{ 0, draw_image.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
-        texture_cache.image_infos[texture_cache.get_depth_image()] = VkDescriptorImageInfo{ 0, depth_image.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
-        texture_cache.image_infos[texture_cache.get_visibility_buffer()] = VkDescriptorImageInfo{ 0, visibility_buffer.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+        texture_cache.image_infos[texture_cache.get_draw_image()] = VkDescriptorImageInfo{ 0, draw_image.view, VK_IMAGE_LAYOUT_GENERAL };
+        texture_cache.image_infos[texture_cache.get_depth_image()] = VkDescriptorImageInfo{ 0, depth_image.view, VK_IMAGE_LAYOUT_GENERAL };
+        texture_cache.image_infos[texture_cache.get_visibility_buffer()] = VkDescriptorImageInfo{ 0, visibility_buffer.view, VK_IMAGE_LAYOUT_GENERAL };
         for (size_t i = 0; i < GBUFFER_COUNT; ++i)
         {
-            texture_cache.image_infos[texture_cache.get_first_gbuffer() + i] = VkDescriptorImageInfo{ 0, gbuffers[i].view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+            texture_cache.image_infos[texture_cache.get_first_gbuffer() + i] = VkDescriptorImageInfo{ 0, gbuffers[i].view, VK_IMAGE_LAYOUT_GENERAL };
         }
-        texture_cache.image_infos[texture_cache.get_depth_pyramid_image()] = VkDescriptorImageInfo{ 0, depth_pyramid.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+        texture_cache.image_infos[texture_cache.get_depth_pyramid_image()] = VkDescriptorImageInfo{ 0, depth_pyramid.view, VK_IMAGE_LAYOUT_GENERAL };
 
         // update image cache
         image_cache.image_infos[image_cache.get_draw_image()] = VkDescriptorImageInfo{ 0, draw_image.view, VK_IMAGE_LAYOUT_GENERAL };
