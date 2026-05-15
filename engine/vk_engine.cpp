@@ -203,8 +203,8 @@ void VulkanEngine::init(int argc, char** argv)
     SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "x11");
     SDL_Init(SDL_INIT_VIDEO);
 
-    // auto window_flags = static_cast<SDL_WindowFlags>(SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
-    auto window_flags = static_cast<SDL_WindowFlags>(SDL_WINDOW_VULKAN);
+    auto window_flags = static_cast<SDL_WindowFlags>(SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
+    // auto window_flags = static_cast<SDL_WindowFlags>(SDL_WINDOW_VULKAN);
 
     window = SDL_CreateWindow(
         "Vulkan Engine",
@@ -393,6 +393,15 @@ void VulkanEngine::cleanup()
             destroy_image(device, allocator, depth_image);
             destroy_image(device, allocator, accumulation_buffers[0]);
             destroy_image(device, allocator, accumulation_buffers[1]);
+
+            auto mip_levels = static_cast<uint32_t>(std::floor(std::log2(static_cast<float>(std::max(depth_pyramid.extent.width, depth_pyramid.extent.height))))) + 1;
+            auto depth_pyramid_id = image_cache.get_depth_pyramid_image();
+            for (size_t i = 0; i < mip_levels; ++i)
+            {
+                auto view = image_cache.image_infos[depth_pyramid_id + i].imageView;
+                vkDestroyImageView(device, view, nullptr);
+            }
+            destroy_image(device, allocator, depth_pyramid);
         }
 
         main_deletion_queue.flush();
@@ -1768,7 +1777,7 @@ void VulkanEngine::update_swapchain()
     int h{};
     SDL_GetWindowSizeInPixels(window, &w, &h);
 
-    // TODO: handle TAA and half broken depth pyramid
+    // TODO: handle TAA
 
     // overall handles lots of x11/wayland specific issues
     // also works around a possible niri + nvidia only issue,
@@ -1788,6 +1797,14 @@ void VulkanEngine::update_swapchain()
         for (size_t i = 0; i < GBUFFER_COUNT; ++i)
             destroy_image(device, allocator, gbuffers[i]);
         destroy_image(device, allocator, depth_image);
+        auto depth_pyramid_id = image_cache.get_depth_pyramid_image();
+        auto mip_levels = static_cast<uint32_t>(std::floor(std::log2(static_cast<float>(std::max(depth_pyramid.extent.width, depth_pyramid.extent.height))))) + 1;
+        for (size_t i = 0; i < mip_levels && i < CEIL_LOG2_1920; ++i)
+        {
+            auto view = image_cache.image_infos[depth_pyramid_id + i].imageView;
+            vkDestroyImageView(device, view, nullptr);
+        }
+        destroy_image(device, allocator, depth_pyramid);
 
         // create_swapchain auto updates swapchain_extent
         auto new_extent = VkExtent3D{ swapchain_extent.width, swapchain_extent.height, 1 };
@@ -1811,8 +1828,23 @@ void VulkanEngine::update_swapchain()
         gbuffers.emplace_back(create_image(device, allocator, new_extent, VK_FORMAT_R16G16B16A16_SFLOAT, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
         gbuffers.emplace_back(create_image(device, allocator, new_extent, VK_FORMAT_R8G8_SNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
 
-        // update cache -> update descriptors
-        // TODO: we can possibly merge image and texture cache after unified_image_layouts
+        VkExtent3D depth_pyramid_extent{};
+        depth_pyramid_extent.width = nearest_pow2(swapchain_extent.width);
+        depth_pyramid_extent.height = nearest_pow2(swapchain_extent.height);
+        depth_pyramid_extent.depth = 1;
+
+        depth_pyramid = create_image(
+            device,
+            allocator,
+            depth_pyramid_extent,
+            VK_FORMAT_R32_SFLOAT,
+            VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+            VK_IMAGE_ASPECT_COLOR_BIT,
+            0,
+            true
+        );
+
+        // update texture cache
         texture_cache.image_infos[texture_cache.get_draw_image()] = VkDescriptorImageInfo{ 0, draw_image.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
         texture_cache.image_infos[texture_cache.get_depth_image()] = VkDescriptorImageInfo{ 0, depth_image.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
         texture_cache.image_infos[texture_cache.get_visibility_buffer()] = VkDescriptorImageInfo{ 0, visibility_buffer.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
@@ -1820,10 +1852,30 @@ void VulkanEngine::update_swapchain()
         {
             texture_cache.image_infos[texture_cache.get_first_gbuffer() + i] = VkDescriptorImageInfo{ 0, gbuffers[i].view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
         }
+        texture_cache.image_infos[texture_cache.get_depth_pyramid_image()] = VkDescriptorImageInfo{ 0, depth_pyramid.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
 
+        // update image cache
         image_cache.image_infos[image_cache.get_draw_image()] = VkDescriptorImageInfo{ 0, draw_image.view, VK_IMAGE_LAYOUT_GENERAL };
+        mip_levels = static_cast<uint32_t>(std::floor(std::log2(static_cast<float>(std::max(depth_pyramid_extent.width, depth_pyramid_extent.height))))) + 1;
+
+        std::vector<VkImageView> pyramid_views(mip_levels);
+        VkImageViewCreateInfo img_view_info = vkinit::imageview_create_info(VK_FORMAT_R32_SFLOAT, depth_pyramid.image, VK_IMAGE_ASPECT_COLOR_BIT);
+        img_view_info.subresourceRange.levelCount = 1;
+        img_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+        for (uint32_t mip = 0; mip < CEIL_LOG2_1920; mip++)
+        {
+            if (mip < mip_levels)
+            {
+                img_view_info.subresourceRange.baseMipLevel = mip;
+                vkCreateImageView(device, &img_view_info, nullptr, &pyramid_views[mip]);
+                image_cache.image_infos[depth_pyramid_id + mip] = VkDescriptorImageInfo{ 0, pyramid_views[mip], VK_IMAGE_LAYOUT_GENERAL };
+            }
+            else
+                image_cache.image_infos[depth_pyramid_id + mip] = VkDescriptorImageInfo{ 0, pyramid_views[mip_levels - 1], VK_IMAGE_LAYOUT_GENERAL };
+        }
 
         // update descriptors
+        // TODO: we could potentially just update whats changed, but for simplicity we update everything
         std::vector<VkWriteDescriptorSet> writes{};
         VkWriteDescriptorSet write{};
         write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -2287,23 +2339,21 @@ void VulkanEngine::init_resources()
     id = image_cache.add_texture(pyramid_views[0]);
     image_cache.set_depth_pyramid_image(id);
 
-    for (uint32_t mip = 1; mip < mip_levels; mip++)
+    // we reserve enough slots in image_cache to handle 1920x1080
+    // this makes it easier updating descriptors if window is resized
+    for (uint32_t mip = 1; mip < CEIL_LOG2_1920; mip++)
     {
-        img_view_info.subresourceRange.baseMipLevel = mip;
-        vkCreateImageView(device, &img_view_info, nullptr, &pyramid_views[mip]);
-        image_cache.add_texture(pyramid_views[mip]);
-    }
-
-    main_deletion_queue.push_function(
-        [&, pyramid_views]()
+        if (mip < mip_levels)
         {
-            destroy_image(device, allocator, depth_pyramid);
-            for (auto pyramid_view : pyramid_views)
-            {
-                vkDestroyImageView(device, pyramid_view, nullptr);
-            }
+            img_view_info.subresourceRange.baseMipLevel = mip;
+            vkCreateImageView(device, &img_view_info, nullptr, &pyramid_views[mip]);
+            image_cache.add_texture(pyramid_views[mip]);
         }
-    );
+        else
+        {
+            image_cache.add_texture(pyramid_views[mip_levels - 1]);
+        }
+    }
 
     // global light list
     std::mt19937 mt(42);
