@@ -175,7 +175,6 @@ void ps_main(
     out float4 out_albedo : SV_Target0,
     out float4 out_normal : SV_Target1,
     out float2 out_metal_roughness : SV_Target2
-    // out float2 out_velocity : SV_Target3
 )
 {
 	MaterialData m = pc.material_buffer[in.material_id];

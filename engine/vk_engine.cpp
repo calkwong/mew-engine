@@ -822,11 +822,9 @@ void VulkanEngine::draw()
                 if (visibility_rendering)
                 {
                     pass.add_color_output("vis_buffer", visibility_buffer.image);
-                    pass.add_color_output("velocity", velocity_buffer.image);
                     if (!clear)
                     {
                         pass.add_image_read("vis_buffer", visibility_buffer.image);
-                        pass.add_image_read("velocity", velocity_buffer.image);
                     }
                 }
                 else
@@ -1168,7 +1166,6 @@ void VulkanEngine::draw()
                 Pass::PassType::ComputePass,
                 [&](Pass& pass)
                 {
-                    pass.add_image_read("velocity", velocity_buffer.image);
                     pass.add_image_read("draw", draw_image.image);
                     pass.add_image_read("taa_history", accumulation_buffers[(frame_number + 1) % 2].image);
                     pass.add_image_write("taa_resolve", accumulation_buffers[frame_number % 2].image);
@@ -1645,13 +1642,11 @@ void VulkanEngine::init_swapchain()
         VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
     };
 
-    // visibility path - visibility, velocity
+    // visibility path - visibility
     {
         visibility_buffer = create_image(device, allocator, draw_image_extent, VK_FORMAT_R32G32_UINT, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT);
         auto vis_id = texture_cache.add_texture(visibility_buffer.view);
         texture_cache.set_visibility_buffer(vis_id);
-        velocity_buffer = create_image(device, allocator, draw_image_extent, VK_FORMAT_R16G16_SFLOAT, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT);
-        texture_cache.add_texture(velocity_buffer.view);
 
         for (int i = 0; i < 2; ++i) // ping pong
         {
@@ -1667,7 +1662,7 @@ void VulkanEngine::init_swapchain()
         }
     }
 
-    // deferred path - albedo, normal, metalroughness, velocity
+    // deferred path - albedo, normal, metalroughness
     {
         gbuffers.emplace_back(create_image(device, allocator, draw_image_extent, VK_FORMAT_R8G8B8A8_UNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
         auto gbuffer_id = texture_cache.add_texture(gbuffers[0].view);
@@ -1676,8 +1671,6 @@ void VulkanEngine::init_swapchain()
         texture_cache.add_texture(gbuffers[1].view);
         gbuffers.emplace_back(create_image(device, allocator, draw_image_extent, VK_FORMAT_R8G8_SNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
         texture_cache.add_texture(gbuffers[2].view);
-        gbuffers.emplace_back(create_image(device, allocator, draw_image_extent, VK_FORMAT_R16G16_SFLOAT, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
-        texture_cache.add_texture(gbuffers[3].view);
     }
 
     depth_image.format = VK_FORMAT_D32_SFLOAT;
@@ -1694,8 +1687,6 @@ void VulkanEngine::init_swapchain()
             vmaDestroyImage(allocator, draw_image.image, draw_image.allocation);
             vkDestroyImageView(device, visibility_buffer.view, nullptr);
             vmaDestroyImage(allocator, visibility_buffer.image, visibility_buffer.allocation);
-            vkDestroyImageView(device, velocity_buffer.view, nullptr);
-            vmaDestroyImage(allocator, velocity_buffer.image, velocity_buffer.allocation);
             vkDestroyImageView(device, accumulation_buffers[0].view, nullptr);
             vmaDestroyImage(allocator, accumulation_buffers[0].image, accumulation_buffers[0].allocation);
             vkDestroyImageView(device, accumulation_buffers[1].view, nullptr);
@@ -2051,11 +2042,10 @@ void VulkanEngine::init_pipelines()
 
     color_attachment_formats.clear();
     color_attachment_formats.push_back(visibility_buffer.format);
-    color_attachment_formats.push_back(velocity_buffer.format);
     builder.set_color_attachment_format(color_attachment_formats);
     color_blend_states.clear();
-    color_blend_states.push_back(builder.disable_blending()); // 2 channel texture but RGBA write mask ok? no validation error
-    color_blend_states.push_back(builder.disable_blending()); // 2 channel texture but RGBA write mask ok? no validation error
+    // 2 channel texture but using RGBA write mask, no validation layer complaints
+    color_blend_states.push_back(builder.disable_blending());
     builder.set_blending_state(color_blend_states);
     builder.set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
     shader_passes["visibility_mesh"] = builder.create_pipeline(
@@ -2750,7 +2740,7 @@ void VulkanEngine::resolve_taa(VkCommandBuffer cmd)
     pc.history_id = texture_cache.get_accumulation_buffer((frame_number + 1) % 2);
     pc.resolve_id = image_cache.get_accumulation_buffer(frame_number % 2);
     pc.depth_id = texture_cache.get_depth_image();
-    pc.velocity_id = texture_cache.get_visibility_buffer() + 1; // TODO: hardcoded, maybe give velocity its own setter/getter?
+    pc.velocity_id = 0; // unused
     pc.variance_clipping = CVAR_TAA_VARIANCE_CLIP.get();
     pc.history_filter = CVAR_TAA_CATMULL_ROM.get();
     pc.local_filter = CVAR_TAA_MITCHELL.get();
@@ -3277,8 +3267,6 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass, ui
     // deferred
     VkClearColorValue clear_color_value{ { 0.f, 0.f, 0.f, 1.0f } };
     VkClearValue clear_value{ .color = clear_color_value };
-    VkClearColorValue clear_color_value2{ { 1.f, 1.f, 0.f, 1.0f } };
-    VkClearValue clear_value2{ .color = clear_color_value2 };
 
     std::vector<VkRenderingAttachmentInfo> rendering_attachment_infos{};
     bool visibility_rendering = CVAR_RENDER_VBUFFER.get() && CVAR_RENDER_MESH_SHADERS.get();
@@ -3287,8 +3275,6 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass, ui
         rendering_attachment_infos.push_back(
             late ? vkinit::attachment_info(visibility_buffer.view, nullptr) : vkinit::attachment_info(visibility_buffer.view, &clear_value)
         );
-
-        rendering_attachment_infos.push_back(late ? vkinit::attachment_info(velocity_buffer.view, nullptr) : vkinit::attachment_info(velocity_buffer.view, &clear_value));
     }
     else
     {
@@ -3296,9 +3282,6 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass, ui
         {
             rendering_attachment_infos.push_back(late ? vkinit::attachment_info(gbuffers[i].view, nullptr) : vkinit::attachment_info(gbuffers[i].view, &clear_value));
         }
-        rendering_attachment_infos.push_back(
-            late ? vkinit::attachment_info(gbuffers[GBUFFER_COUNT - 1].view, nullptr) : vkinit::attachment_info(gbuffers[GBUFFER_COUNT - 1].view, &clear_value2)
-        );
     }
 
     VkRenderingAttachmentInfo depth_attachment = vkinit::depth_attachment_info(depth_image.view);

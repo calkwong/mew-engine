@@ -171,7 +171,6 @@ void ps_main(
     Interp in,
     PerPrimitive prim,
     out uint2 out_visibility_id : SV_Target0,
-    // out float2 out_velocity_id : SV_Target1
 )
 {
 	if (OPAQUE == 0)
@@ -185,5 +184,4 @@ void ps_main(
 
 	// TODO: visibility_id can be packed into a single value
 	out_visibility_id = uint2(prim.draw_id, prim.triangle_id);
-	// out_velocity_id = float2(0.0);
 }

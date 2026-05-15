@@ -169,7 +169,6 @@ public:
     AllocatedImage draw_image{};
     AllocatedImage depth_image{};
     AllocatedImage visibility_buffer{};
-    AllocatedImage velocity_buffer{};
     std::array<AllocatedImage, 2> accumulation_buffers{};
     std::vector<AllocatedImage> gbuffers{};
     AllocatedImage depth_pyramid{};

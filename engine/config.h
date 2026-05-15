@@ -2,7 +2,7 @@
 
 #define SHADOW_MAP_SIZE 4096
 #define NUMBER_OF_CASCADES 4
-#define GBUFFER_COUNT 4
+#define GBUFFER_COUNT 3
 
 #define DEBUG_COUNT 10
 
