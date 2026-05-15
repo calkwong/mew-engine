@@ -58,16 +58,25 @@ struct ImageCache
     void set_hdri(uint32_t id);
     void set_draw_image(uint32_t id);
     void set_accumulation_buffer(uint32_t id);
+    void set_irradiance(uint32_t id);
+    void set_prefiltered(uint32_t id);
+    void set_brdf(uint32_t id);
     uint32_t get_depth_pyramid_image() const;
     uint32_t get_hdri() const;
     uint32_t get_draw_image() const;
     uint32_t get_accumulation_buffer(uint32_t offset) const;
+    uint32_t get_irradiance() const;
+    uint32_t get_prefiltered() const;
+    uint32_t get_brdf() const;
 
 private:
     uint32_t depth_pyramid_id{};
-    uint32_t hdri_id{};
+    uint32_t hdri_id{}; // this is skybox we load/store to
     uint32_t draw_id{};
     uint32_t accum_id{};
+    uint32_t irradiance_id{};
+    uint32_t prefiltered_id{};
+    uint32_t brdf_id{};
 };
 
 struct ShaderProgram;

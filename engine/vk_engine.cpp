@@ -199,11 +199,12 @@ void VulkanEngine::init(int argc, char** argv)
 
     VK_CHECK(volkInitialize());
 
-    SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "wayland");
-    // SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "x11");
+    // SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "wayland");
+    SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "x11");
     SDL_Init(SDL_INIT_VIDEO);
 
-    auto window_flags = static_cast<SDL_WindowFlags>(SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
+    // auto window_flags = static_cast<SDL_WindowFlags>(SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
+    auto window_flags = static_cast<SDL_WindowFlags>(SDL_WINDOW_VULKAN);
 
     window = SDL_CreateWindow(
         "Vulkan Engine",
@@ -445,10 +446,6 @@ void VulkanEngine::execute_baked_gi()
             auto groupcount_x = get_groupcount(hdri_cubemap.extent.width, WARP_SIZE);
             auto groupcount_y = get_groupcount(hdri_cubemap.extent.height, WARP_SIZE);
             vkCmdDispatch(imm_command_buffer, groupcount_x, groupcount_y, 6);
-
-            // set to cubemap/skybo
-            auto updated_hdri_id = texture_cache.get_hdri() + 1;
-            texture_cache.set_hdri(updated_hdri_id);
         }
     );
 
@@ -506,7 +503,7 @@ void VulkanEngine::execute_baked_gi()
             IBLPushConstants pc{};
             pc.image_size = glm::vec2(irradiance_cubemap.extent.width, irradiance_cubemap.extent.height);
             pc.texture_id = static_cast<uint32_t>(scene_data.textures[0]);
-            pc.image_id = image_cache.get_hdri() + 1;
+            pc.image_id = image_cache.get_irradiance();
 
             vkCmdBindPipeline(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
             vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
@@ -519,9 +516,6 @@ void VulkanEngine::execute_baked_gi()
             vkCmdDispatch(imm_command_buffer, groupcount_x, groupcount_y, 6);
         }
     );
-
-    // TODO: fix this, potentially problematic
-    uint32_t brdf_id{};
 
     graph.add_pass(
         "prefiltered",
@@ -546,14 +540,13 @@ void VulkanEngine::execute_baked_gi()
             auto mips = static_cast<uint32_t>(std::floor(std::log2(static_cast<float>(std::max(prefiltered_envmap.extent.width, prefiltered_envmap.extent.height))))) + 1;
             for (uint32_t i = 0; i < mips; i++)
             {
-                pc.image_id = image_cache.get_hdri() + 2 + i;
+                pc.image_id = image_cache.get_prefiltered() + i;
                 pc.roughness = static_cast<float>(i) / static_cast<float>(mips);
                 vkCmdPushConstants(imm_command_buffer, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IBLPushConstants), &pc);
                 auto groupcount_x = get_groupcount(prefiltered_envmap.extent.width, WARP_SIZE);
                 auto groupcount_y = get_groupcount(prefiltered_envmap.extent.height, WARP_SIZE);
                 vkCmdDispatch(imm_command_buffer, groupcount_x, groupcount_y, 6);
             }
-            brdf_id = image_cache.get_hdri() + 2 + mips;
         }
     );
 
@@ -569,7 +562,7 @@ void VulkanEngine::execute_baked_gi()
             ShaderPass current_pass = *shader_passes["brdf"];
             IBLPushConstants pc{};
             pc.image_size = glm::vec2(brdf_lut.extent.width, brdf_lut.extent.height);
-            pc.image_id = brdf_id;
+            pc.image_id = image_cache.get_brdf();
 
             vkCmdBindPipeline(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
             vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
@@ -2393,7 +2386,8 @@ void VulkanEngine::init_resources()
     );
 
     scene_data.textures[1] = static_cast<float>(texture_cache.add_texture(irradiance_cubemap.view));
-    image_cache.add_texture(irradiance_cubemap.view);
+    auto irradiance_id = image_cache.add_texture(irradiance_cubemap.view);
+    image_cache.set_irradiance(irradiance_id);
 
     prefiltered_envmap = create_cubemap(
         device,
@@ -2419,7 +2413,11 @@ void VulkanEngine::init_resources()
         imageview_info.subresourceRange.baseMipLevel = i;
         imageview_info.subresourceRange.levelCount = 1;
         vkCreateImageView(device, &imageview_info, nullptr, &prefiltered_views[i]);
-        image_cache.add_texture(prefiltered_views[i]);
+        auto prefiltered_id = image_cache.add_texture(prefiltered_views[i]);
+        if (i == 0)
+        {
+            image_cache.set_prefiltered(prefiltered_id);
+        }
     }
 
     brdf_lut = create_image(
@@ -2432,7 +2430,8 @@ void VulkanEngine::init_resources()
     );
 
     scene_data.textures[3] = static_cast<float>(texture_cache.add_texture(brdf_lut.view));
-    image_cache.add_texture(brdf_lut.view);
+    auto brdf_id = image_cache.add_texture(brdf_lut.view);
+    image_cache.set_brdf(brdf_id);
 
     main_deletion_queue.push_function(
         [&, prefiltered_mips, prefiltered_views]()

@@ -181,3 +181,33 @@ void ShaderCache::add_shader(VkDevice device, const char* path, size_t push_cons
         data[path] = std::make_unique<ShaderProgram>(module, static_cast<uint32_t>(push_constant_size), path, time);
     }
 }
+
+void ImageCache::set_irradiance(uint32_t id)
+{
+    irradiance_id = id;
+}
+
+void ImageCache::set_prefiltered(uint32_t id)
+{
+    prefiltered_id = id;
+}
+
+void ImageCache::set_brdf(uint32_t id)
+{
+    brdf_id = id;
+}
+
+uint32_t ImageCache::get_irradiance() const
+{
+    return irradiance_id;
+}
+
+uint32_t ImageCache::get_prefiltered() const
+{
+    return prefiltered_id;
+}
+
+uint32_t ImageCache::get_brdf() const
+{
+    return brdf_id;
+}
