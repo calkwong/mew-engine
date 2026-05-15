@@ -46,6 +46,7 @@ struct FrameData
 
     VkQueryPool query_pool_timestamps{};
     VkQueryPool query_pool_pipelines{};
+    VkQueryPool query_pool_mesh_primitives{};
 
     VkSemaphore image_acquired_semaphore{};
     VkFence render_fence{};
