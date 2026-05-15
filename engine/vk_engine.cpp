@@ -840,16 +840,16 @@ void VulkanEngine::draw()
                 }
                 else
                 {
-                    pass.add_color_output("gbuffer0", gbuffers[0].image);
-                    pass.add_color_output("gbuffer1", gbuffers[1].image);
-                    pass.add_color_output("gbuffer2", gbuffers[2].image);
-                    pass.add_color_output("gbuffer3", gbuffers[3].image);
+                    for (uint32_t i = 0; i < GBUFFER_COUNT; i++)
+                    {
+                        pass.add_color_output(fmt::format("gbuffer{}", i), gbuffers[i].image);
+                    }
                     if (!clear)
                     {
-                        pass.add_image_read("gbuffer0", gbuffers[0].image);
-                        pass.add_image_read("gbuffer1", gbuffers[1].image);
-                        pass.add_image_read("gbuffer2", gbuffers[2].image);
-                        pass.add_image_read("gbuffer3", gbuffers[3].image);
+                        for (uint32_t i = 0; i < GBUFFER_COUNT; i++)
+                        {
+                            pass.add_image_read(fmt::format("gbuffer{}", i), gbuffers[i].image);
+                        }
                     }
                 }
             },
@@ -3372,7 +3372,7 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass, ui
     }
     else
     {
-        for (int i = 0; i < GBUFFER_COUNT - 1; i++)
+        for (int i = 0; i < GBUFFER_COUNT; i++)
         {
             rendering_attachment_infos.push_back(late ? vkinit::attachment_info(gbuffers[i].view, nullptr) : vkinit::attachment_info(gbuffers[i].view, &clear_value));
         }
