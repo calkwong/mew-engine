@@ -119,7 +119,6 @@ public:
     std::vector<VkImage> swapchain_images{};
     std::vector<VkImageView> swapchain_image_views{};
     VkExtent2D swapchain_extent{};
-    VkExtent2D draw_extent{};
 
     FrameData frames[FRAME_OVERLAP]{};
 
