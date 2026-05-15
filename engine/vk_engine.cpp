@@ -58,7 +58,7 @@ constexpr bool USE_VALIDATION_LAYERS = false;
 constexpr bool USE_VALIDATION_LAYERS = true;
 #endif
 
-#define SINGLE // uncomment if loading a proper scene
+// #define SINGLE // uncomment if loading a proper scene
 
 AutoCVar_Int CVAR_RENDER_IMGUI{ "render.imgui", "Imgui", 1, CVarFlags::EditCheckbox | CVarFlags::EditHide };
 AutoCVar_Int CVAR_DISABLE_CAMERA{ "render.disable_camera", "Disable camera", 0, CVarFlags::EditCheckbox | CVarFlags::EditHide };
@@ -202,7 +202,8 @@ void VulkanEngine::init(int argc, char** argv)
 
     VK_CHECK(volkInitialize());
 
-    SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "x11");
+    SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "wayland");
+    // SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "x11");
     SDL_Init(SDL_INIT_VIDEO);
 
     auto window_flags = (SDL_WindowFlags)(SDL_WINDOW_VULKAN);
@@ -599,8 +600,8 @@ void VulkanEngine::draw()
 
         if (e == VK_ERROR_OUT_OF_DATE_KHR)
         {
-            fmt::println("OUT_OF_DATE ACQUIRE, frame: {}", frame_number);
-            abort();
+            swapchain_dirty = true;
+            return;
         }
     }
 
@@ -1270,8 +1271,8 @@ void VulkanEngine::draw()
     // see: https://github.com/zeux/niagara/commit/a9b85a2997772f15da82cb924871a2d51936bf71
     if (e == VK_ERROR_OUT_OF_DATE_KHR)
     {
-        fmt::println("OUT_OF_DATE PRESENT, frame: {}", frame_number);
-        abort();
+        swapchain_dirty = true;
+        return;
     }
 
     // FrameMark;
@@ -1358,6 +1359,13 @@ void VulkanEngine::run()
         {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
             continue;
+        }
+
+        if (swapchain_dirty)
+        {
+            update_swapchain();
+
+            swapchain_dirty = false;
         }
 
         freeze_camera = CVAR_MISC_FREEZE_CAMERA.get();
@@ -1761,6 +1769,26 @@ void VulkanEngine::create_swapchain(uint32_t width, uint32_t height)
     swapchain_image_views = vkbSwapchain.get_image_views().value();
 }
 
+void VulkanEngine::update_swapchain()
+{
+    // TODO:
+    // 1. handle width, height == 0
+    // 2. actual resize needed
+
+    int w{};
+    int h{};
+    SDL_GetWindowSizeInPixels(window, &w, &h);
+
+    // handles niri (and most possibly nvidia) related issue
+    if (swapchain_extent.width == w && swapchain_extent.height == h)
+    {
+        destroy_swapchain();
+        create_swapchain(w, h);
+
+        return;
+    }
+}
+
 void VulkanEngine::destroy_swapchain()
 {
     // destroys images held
@@ -1770,6 +1798,9 @@ void VulkanEngine::destroy_swapchain()
     {
         vkDestroyImageView(device, swapchain_image_view, nullptr);
     }
+
+    swapchain_images.clear();
+    swapchain_image_views.clear();
 }
 
 void VulkanEngine::init_descriptors()

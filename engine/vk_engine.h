@@ -95,6 +95,7 @@ public:
     bool stop_rendering{ false };
     bool freeze_camera{ false };
     bool first_frame{ true };
+    bool swapchain_dirty{ false };
     glm::mat4 last_view{};
     glm::mat4 last_proj{};
 
@@ -240,4 +241,5 @@ private:
 
     void create_swapchain(uint32_t width, uint32_t height);
     void destroy_swapchain();
+    void update_swapchain();
 };
