@@ -6,6 +6,7 @@
 #include "vk_loader.h"
 #include "vk_pipelines.h"
 #include "vk_scene.h"
+#include "swapchain.h"
 
 #include <VkBootstrap.h>
 #include <ranges>
@@ -96,7 +97,6 @@ public:
     bool stop_rendering{ false };
     bool freeze_camera{ false };
     bool first_frame{ true };
-    bool swapchain_dirty{ false };
     glm::mat4 last_view{};
     glm::mat4 last_proj{};
 
@@ -104,7 +104,7 @@ public:
 
     VkInstance instance{}; // vulkan library handle
     VkDebugUtilsMessengerEXT debug_messenger{}; // vulkan debug output handle
-    VkPhysicalDevice chosen_gpu{};
+    VkPhysicalDevice physical_device{};
     VkSurfaceKHR surface{}; // vulkan window surface
     SDL_Window* window{};
 
@@ -113,12 +113,7 @@ public:
     VkPhysicalDeviceProperties device_properties{};
     VkDevice device{};
 
-    VkSwapchainKHR swapchain{};
-    VkFormat swapchain_image_format{};
-
-    std::vector<VkImage> swapchain_images{};
-    std::vector<VkImageView> swapchain_image_views{};
-    VkExtent2D swapchain_extent{};
+    Swapchain swapchain{};
 
     FrameData frames[FRAME_OVERLAP]{};
 
@@ -237,8 +232,4 @@ private:
     void execute_baked_gi();
     void init_imgui();
     void build_cluster_grid();
-
-    void create_swapchain(uint32_t width, uint32_t height);
-    void destroy_swapchain();
-    bool update_swapchain();
 };

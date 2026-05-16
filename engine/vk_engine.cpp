@@ -13,6 +13,7 @@
 #include "cache.h"
 #include "push_constants.h"
 #include "rendergraph.h"
+#include "swapchain.h"
 
 #include <filesystem>
 #include <vk_mem_alloc.h>
@@ -235,7 +236,7 @@ void VulkanEngine::init(int argc, char** argv)
     main_camera.near = 0.01f;
     main_camera.fov = 70.0f;
     // TODO: refactor if window resize
-    main_camera.set_perspective_matrix(glm::radians(main_camera.fov), static_cast<float>(swapchain_extent.width) / static_cast<float>(swapchain_extent.height), main_camera.near);
+    main_camera.set_perspective_matrix(glm::radians(main_camera.fov), static_cast<float>(swapchain.extent.width) / static_cast<float>(swapchain.extent.height), main_camera.near);
 
     init_resources();
 
@@ -305,8 +306,8 @@ void VulkanEngine::init(int argc, char** argv)
     {
         float halton_x = 2.0f * Halton(i + 1, 2) - 1.0f;
         float halton_y = 2.0f * Halton(i + 1, 3) - 1.0f;
-        float x = halton_x / static_cast<float>(swapchain_extent.width); // TODO: image resize
-        float y = halton_y / static_cast<float>(swapchain_extent.height);
+        float x = halton_x / static_cast<float>(swapchain.extent.width); // TODO: image resize
+        float y = halton_y / static_cast<float>(swapchain.extent.height);
         jitter_offset[i] = glm::vec2(x, y);
     }
 
@@ -406,7 +407,7 @@ void VulkanEngine::cleanup()
 
         main_deletion_queue.flush();
 
-        destroy_swapchain();
+        destroy_swapchain(swapchain, device);
 
         vkDestroySurfaceKHR(instance, surface, nullptr);
         vkDestroyDevice(device, nullptr);
@@ -619,11 +620,11 @@ void VulkanEngine::draw()
 
     uint32_t swapchain_image_idx{};
     {
-        VkResult e = vkAcquireNextImageKHR(device, swapchain, 1000000000, get_current_frame().image_acquired_semaphore, nullptr, &swapchain_image_idx);
+        VkResult e = vkAcquireNextImageKHR(device, swapchain.swapchain, 1000000000, get_current_frame().image_acquired_semaphore, nullptr, &swapchain_image_idx);
 
         if (e == VK_ERROR_OUT_OF_DATE_KHR)
         {
-            swapchain_dirty = true;
+            swapchain.dirty = true;
             return;
         }
     }
@@ -1236,12 +1237,12 @@ void VulkanEngine::draw()
             Pass::PassType::ComputePass,
             [&](Pass& pass)
             {
-                pass.add_image_write("swapchain", swapchain_images[swapchain_image_idx]);
+                pass.add_image_write("swapchain", swapchain.images[swapchain_image_idx]);
                 pass.add_image_read("draw", draw_image.image);
             },
             [&]()
             {
-                vkutil::copy_image(cmd, draw_image.image, swapchain_images[swapchain_image_idx], swapchain_extent, swapchain_extent);
+                vkutil::copy_image(cmd, draw_image.image, swapchain.images[swapchain_image_idx], swapchain.extent, swapchain.extent);
             }
         );
 
@@ -1252,11 +1253,11 @@ void VulkanEngine::draw()
                 Pass::PassType::GraphicsPass,
                 [&](Pass& pass)
                 {
-                    pass.add_color_output("swapchain", swapchain_images[swapchain_image_idx]);
+                    pass.add_color_output("swapchain", swapchain.images[swapchain_image_idx]);
                 },
                 [&]()
                 {
-                    draw_imgui(cmd, swapchain_image_views[swapchain_image_idx]);
+                    draw_imgui(cmd, swapchain.image_views[swapchain_image_idx]);
                 }
             );
         }
@@ -1268,7 +1269,7 @@ void VulkanEngine::draw()
 
     stage_barrier(
         cmd,
-        swapchain_images[swapchain_image_idx],
+        swapchain.images[swapchain_image_idx],
         VK_IMAGE_LAYOUT_GENERAL,
         VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
         VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
@@ -1298,7 +1299,7 @@ void VulkanEngine::draw()
     present_info.waitSemaphoreCount = 1;
     present_info.pWaitSemaphores = &render_done_semaphores[swapchain_image_idx];
     present_info.swapchainCount = 1;
-    present_info.pSwapchains = &swapchain;
+    present_info.pSwapchains = &swapchain.swapchain;
     present_info.pImageIndices = &swapchain_image_idx;
 
     VkResult e = vkQueuePresentKHR(graphics_queue, &present_info);
@@ -1307,7 +1308,7 @@ void VulkanEngine::draw()
     // see: https://github.com/zeux/niagara/commit/a9b85a2997772f15da82cb924871a2d51936bf71
     if (e == VK_ERROR_OUT_OF_DATE_KHR)
     {
-        swapchain_dirty = true;
+        swapchain.dirty = true;
         return;
     }
 
@@ -1397,7 +1398,7 @@ void VulkanEngine::run()
             continue;
         }
 
-        bool update = update_swapchain();
+        bool update = update_swapchain(swapchain, window, physical_device, device, surface);
 
         // destroy and recreate textures
         // TODO: handle TAA
@@ -1417,7 +1418,7 @@ void VulkanEngine::run()
             }
             destroy_image(device, allocator, depth_pyramid);
 
-            auto new_extent = VkExtent3D{ swapchain_extent.width, swapchain_extent.height, 1 };
+            auto new_extent = VkExtent3D{ swapchain.extent.width, swapchain.extent.height, 1 };
 
             draw_image = create_image(
                 device,
@@ -1439,8 +1440,8 @@ void VulkanEngine::run()
             gbuffers.emplace_back(create_image(device, allocator, new_extent, VK_FORMAT_R8G8_SNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
 
             VkExtent3D depth_pyramid_extent{};
-            depth_pyramid_extent.width = nearest_pow2(swapchain_extent.width);
-            depth_pyramid_extent.height = nearest_pow2(swapchain_extent.height);
+            depth_pyramid_extent.width = nearest_pow2(swapchain.extent.width);
+            depth_pyramid_extent.height = nearest_pow2(swapchain.extent.height);
             depth_pyramid_extent.depth = 1;
 
             depth_pyramid = create_image(
@@ -1670,7 +1671,7 @@ void VulkanEngine::init_vulkan()
 
     // get the VkDevice handle used in the rest of a vulkan application
     device = vkbDevice.device;
-    chosen_gpu = physicalDevice.physical_device;
+    physical_device = physicalDevice.physical_device;
 
     volkLoadDevice(device);
 
@@ -1679,7 +1680,7 @@ void VulkanEngine::init_vulkan()
     graphics_queue_family = vkbDevice.get_queue_index(vkb::QueueType::graphics).value();
 
     VmaAllocatorCreateInfo allocator_info{};
-    allocator_info.physicalDevice = chosen_gpu;
+    allocator_info.physicalDevice = physical_device;
     allocator_info.device = device;
     allocator_info.instance = instance;
     allocator_info.vulkanApiVersion = VK_API_VERSION_1_4;
@@ -1697,7 +1698,7 @@ void VulkanEngine::init_vulkan()
         }
     );
 
-    vkGetPhysicalDeviceProperties(chosen_gpu, &device_properties);
+    vkGetPhysicalDeviceProperties(physical_device, &device_properties);
     assert(device_properties.limits.timestampComputeAndGraphics);
 
     uint32_t count = 0;
@@ -1723,11 +1724,12 @@ void VulkanEngine::init_vulkan()
     }
 }
 
+// TODO: rename this
 void VulkanEngine::init_swapchain()
 {
-    create_swapchain(window_extent.width, window_extent.height);
+    create_swapchain(swapchain, physical_device, device, surface, window_extent.width, window_extent.height);
 
-    auto image_extent = VkExtent3D{ swapchain_extent.width, swapchain_extent.height, 1 };
+    auto image_extent = VkExtent3D{ swapchain.extent.width, swapchain.extent.height, 1 };
 
     // if reverting to VK_FORMAT_R16G16B16A16_SFLOAT, need to preexpose lights
     draw_image = create_image(
@@ -1807,7 +1809,7 @@ void VulkanEngine::init_commands()
         VK_CHECK(vkAllocateCommandBuffers(device, &cmd_alloc_info, &frame.main_command_buffer));
     }
 
-    // tracy_ctx = TracyVkContextCalibrated(chosen_gpu, device, graphics_queue, frames[0].main_command_buffer, vkGetPhysicalDeviceCalibrateableTimeDomainsKHR, vkGetCalibratedTimestampsKHR);
+    // tracy_ctx = TracyVkContextCalibrated(physical_device, device, graphics_queue, frames[0].main_command_buffer, vkGetPhysicalDeviceCalibrateableTimeDomainsKHR, vkGetCalibratedTimestampsKHR);
 
     VK_CHECK(vkCreateCommandPool(device, &command_pool_info, nullptr, &imm_command_pool));
     VkCommandBufferAllocateInfo cmd_alloc_info = vkinit::command_buffer_allocate_info(
@@ -1835,7 +1837,7 @@ void VulkanEngine::init_sync_structures()
         VK_CHECK(vkCreateSemaphore(device, &semaphore_info, nullptr, &frame.image_acquired_semaphore));
     }
 
-    render_done_semaphores.resize(swapchain_images.size());
+    render_done_semaphores.resize(swapchain.images.size());
     for (auto& sem : render_done_semaphores)
     {
         VK_CHECK(vkCreateSemaphore(device, &semaphore_info, nullptr, &sem));
@@ -1849,71 +1851,6 @@ void VulkanEngine::init_sync_structures()
             vkDestroyFence(device, imm_fence, nullptr);
         }
     );
-}
-
-void VulkanEngine::create_swapchain(uint32_t width, uint32_t height)
-{
-    vkb::SwapchainBuilder swapchainBuilder{ chosen_gpu, device, surface };
-
-    swapchain_image_format = VK_FORMAT_B8G8R8A8_UNORM;
-    // swapchain_image_format = VK_FORMAT_B8G8R8A8_SRGB;
-
-    vkb::Swapchain vkbSwapchain =
-        swapchainBuilder
-            //.use_default_format_selection()
-            .set_desired_format(VkSurfaceFormatKHR{ .format = swapchain_image_format, .colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR })
-            // .set_desired_present_mode(VK_PRESENT_MODE_FIFO_KHR)
-            .set_desired_present_mode(VK_PRESENT_MODE_IMMEDIATE_KHR)
-            .set_desired_extent(width, height)
-            .add_image_usage_flags(VK_IMAGE_USAGE_TRANSFER_DST_BIT)
-            .build()
-            .value();
-
-    swapchain_extent = vkbSwapchain.extent;
-    // store swapchain and its related images
-    swapchain = vkbSwapchain.swapchain;
-    swapchain_images = vkbSwapchain.get_images().value();
-    swapchain_image_views = vkbSwapchain.get_image_views().value();
-}
-
-bool VulkanEngine::update_swapchain()
-{
-    // TODO: do we need to handle width == height == 0?
-
-    int w{};
-    int h{};
-    SDL_GetWindowSizeInPixels(window, &w, &h);
-
-    // overall handles lots of x11/wayland specific issues
-    // also works around a possible niri + nvidia only issue,
-    // see: https://github.com/niri-wm/niri/issues/2335
-    if (swapchain_extent.width != w || swapchain_extent.height != h || swapchain_dirty)
-    {
-        vkDeviceWaitIdle(device);
-
-        destroy_swapchain();
-        create_swapchain(w, h);
-        fmt::println("swapchain size: {}x{}", swapchain_extent.width, swapchain_extent.height);
-
-        swapchain_dirty = false;
-        return true;
-    }
-
-    return false;
-}
-
-void VulkanEngine::destroy_swapchain()
-{
-    // destroys images held
-    vkDestroySwapchainKHR(device, swapchain, nullptr);
-
-    for (auto& swapchain_image_view : swapchain_image_views)
-    {
-        vkDestroyImageView(device, swapchain_image_view, nullptr);
-    }
-
-    swapchain_images.clear();
-    swapchain_image_views.clear();
 }
 
 void VulkanEngine::init_descriptors()
@@ -2311,8 +2248,8 @@ void VulkanEngine::init_resources()
 
     //> create depth pyramid
     VkExtent3D depth_pyramid_extent{};
-    depth_pyramid_extent.width = nearest_pow2(swapchain_extent.width);
-    depth_pyramid_extent.height = nearest_pow2(swapchain_extent.height);
+    depth_pyramid_extent.width = nearest_pow2(swapchain.extent.width);
+    depth_pyramid_extent.height = nearest_pow2(swapchain.extent.height);
     depth_pyramid_extent.depth = 1;
 
     depth_pyramid = create_image(
@@ -2831,7 +2768,7 @@ void VulkanEngine::resolve_taa(VkCommandBuffer cmd)
     auto current_jitter = jitter_offset[frame_number % jitter_count];
     auto previous_jitter = jitter_offset[(frame_number - 1) % jitter_count];
     pc.jitter_offset = glm::vec4(current_jitter, previous_jitter);
-    pc.screen_size = glm::vec2(static_cast<float>(swapchain_extent.width), static_cast<float>(swapchain_extent.height));
+    pc.screen_size = glm::vec2(static_cast<float>(swapchain.extent.width), static_cast<float>(swapchain.extent.height));
     pc.current_id = texture_cache.get_draw_image();
     pc.history_id = texture_cache.get_accumulation_buffer((frame_number + 1) % 2);
     pc.resolve_id = image_cache.get_accumulation_buffer(frame_number % 2);
@@ -2846,8 +2783,8 @@ void VulkanEngine::resolve_taa(VkCommandBuffer cmd)
     first_frame = false; // set this elsewhere?
 
     vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(TAAPushConstants), &pc);
-    auto groupcount_x = get_groupcount(swapchain_extent.width, WARP_SIZE);
-    auto groupcount_y = get_groupcount(swapchain_extent.height, WARP_SIZE);
+    auto groupcount_x = get_groupcount(swapchain.extent.width, WARP_SIZE);
+    auto groupcount_y = get_groupcount(swapchain.extent.height, WARP_SIZE);
     vkCmdDispatch(cmd, groupcount_x, groupcount_y, 1);
 }
 
@@ -2878,7 +2815,7 @@ void VulkanEngine::update_cascade()
     // TODO: refactor when implementing window resize
     glm::mat4 proj = glm::perspective(
         glm::radians(main_camera.fov),
-        static_cast<float>(swapchain_extent.width) / static_cast<float>(swapchain_extent.height),
+        static_cast<float>(swapchain.extent.width) / static_cast<float>(swapchain.extent.height),
         static_cast<float>(CVAR_SHADOWS_DISTANCE.get()),
         main_camera.near
     );
@@ -2983,7 +2920,7 @@ void VulkanEngine::init_imgui()
     ImGui_ImplVulkan_InitInfo init_info{};
     init_info.ApiVersion = VK_API_VERSION_1_4;
     init_info.Instance = instance;
-    init_info.PhysicalDevice = chosen_gpu;
+    init_info.PhysicalDevice = physical_device;
     init_info.Device = device;
     init_info.QueueFamily = graphics_queue_family;
     init_info.Queue = graphics_queue;
@@ -2994,6 +2931,7 @@ void VulkanEngine::init_imgui()
     VkPipelineRenderingCreateInfo render_info{};
     render_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
     render_info.colorAttachmentCount = 1;
+    auto swapchain_image_format = VK_FORMAT_B8G8R8A8_UNORM;
     render_info.pColorAttachmentFormats = &swapchain_image_format;
     init_info.PipelineInfoMain.PipelineRenderingCreateInfo = render_info;
 
@@ -3023,7 +2961,7 @@ void VulkanEngine::init_imgui()
 void VulkanEngine::draw_imgui(VkCommandBuffer cmd, VkImageView swapchain_view)
 {
     VkRenderingAttachmentInfo color_attachment = vkinit::attachment_info(swapchain_view, nullptr);
-    VkRenderingInfo render_info = vkinit::rendering_info(swapchain_extent, &color_attachment, nullptr);
+    VkRenderingInfo render_info = vkinit::rendering_info(swapchain.extent, &color_attachment, nullptr);
 
     vkCmdBeginRendering(cmd, &render_info);
 
@@ -3140,7 +3078,7 @@ void VulkanEngine::upload_buffers()
 
     // TODO: refactor if window resize
     {
-        auto screen_pixels = swapchain_extent.width * swapchain_extent.height;
+        auto screen_pixels = swapchain.extent.width * swapchain.extent.height;
         render_scene.oit_buffer = create_buffer(
             allocator,
             screen_pixels * sizeof(OITData),
@@ -3214,7 +3152,7 @@ void VulkanEngine::ready_mesh_cull(RenderScene::MeshPass& pass, CullData& cull_d
 
     cull_data.resolution = glm::vec2(depth_pyramid.extent.width, depth_pyramid.extent.height);
     cull_data.texture_lod = static_cast<float>(std::floor(std::log2(static_cast<float>(std::max(depth_pyramid.extent.width, depth_pyramid.extent.height)))) + 1);
-    cull_data.lod_distance_factor = 2.0f / (cull_data.p11 * static_cast<float>(swapchain_extent.height));
+    cull_data.lod_distance_factor = 2.0f / (cull_data.p11 * static_cast<float>(swapchain.extent.height));
     cull_data.lod_enabled = CVAR_RENDER_LOD.get();
     cull_data.task_submit = CVAR_RENDER_MESH_SHADERS.get();
 }
@@ -3262,7 +3200,7 @@ void VulkanEngine::ready_meshlet_cull(RenderScene::MeshPass& pass, ClusterCullDa
 
     cull_data.resolution = glm::vec2(depth_pyramid.extent.width, depth_pyramid.extent.height);
     cull_data.texture_lod = static_cast<float>(std::floor(std::log2(static_cast<float>(std::max(depth_pyramid.extent.width, depth_pyramid.extent.height)))) + 1);
-    cull_data.lod_distance_factor = 2.0f / (cull_data.p11 * static_cast<float>(swapchain_extent.height));
+    cull_data.lod_distance_factor = 2.0f / (cull_data.p11 * static_cast<float>(swapchain.extent.height));
     cull_data.lod_enabled = CVAR_RENDER_LOD.get();
     cull_data.task_submit = CVAR_RENDER_MESH_SHADERS.get();
 }
@@ -3382,16 +3320,16 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass, ui
 
     VkRenderingAttachmentInfo depth_attachment = vkinit::depth_attachment_info(depth_image.view);
     depth_attachment.loadOp = late ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_CLEAR;
-    VkRenderingInfo render_info = vkinit::rendering_info(swapchain_extent, rendering_attachment_infos.data(), &depth_attachment);
+    VkRenderingInfo render_info = vkinit::rendering_info(swapchain.extent, rendering_attachment_infos.data(), &depth_attachment);
     render_info.colorAttachmentCount = static_cast<uint32_t>(rendering_attachment_infos.size());
 
     vkCmdBeginRendering(cmd, &render_info);
 
     VkViewport viewport{};
     viewport.x = 0;
-    viewport.y = static_cast<float>(swapchain_extent.height);
-    viewport.width = static_cast<float>(swapchain_extent.width);
-    viewport.height = -static_cast<float>(swapchain_extent.height);
+    viewport.y = static_cast<float>(swapchain.extent.height);
+    viewport.width = static_cast<float>(swapchain.extent.width);
+    viewport.height = -static_cast<float>(swapchain.extent.height);
     viewport.minDepth = 0.0f;
     viewport.maxDepth = 1.0f;
     vkCmdSetViewport(cmd, 0, 1, &viewport);
@@ -3399,8 +3337,8 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass, ui
     VkRect2D scissor{};
     scissor.offset.x = 0;
     scissor.offset.y = 0;
-    scissor.extent.width = swapchain_extent.width;
-    scissor.extent.height = swapchain_extent.height;
+    scissor.extent.width = swapchain.extent.width;
+    scissor.extent.height = swapchain.extent.height;
     vkCmdSetScissor(cmd, 0, 1, &scissor);
 
     // auto depth_bias = 0.f;
@@ -3419,7 +3357,7 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass, ui
     auto jitter_count = jitter_offset.size();
     auto current_jitter = jitter_offset[frame_number % jitter_count];
     auto previous_jitter = jitter_offset[(frame_number - 1) % jitter_count];
-    pc.screen_size = glm::uvec2(swapchain_extent.width, swapchain_extent.height);
+    pc.screen_size = glm::uvec2(swapchain.extent.width, swapchain.extent.height);
     pc.jitter_offset = glm::vec4(current_jitter, previous_jitter);
 
     if (!CVAR_RENDER_MESH_SHADERS.get())
@@ -3487,15 +3425,15 @@ void VulkanEngine::render_transparent(VkCommandBuffer cmd, uint32_t query)
     VkRenderingAttachmentInfo depth_attachment = vkinit::depth_attachment_info(depth_image.view);
     depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
 
-    VkRenderingInfo render_info = vkinit::rendering_info(swapchain_extent, nullptr, &depth_attachment);
+    VkRenderingInfo render_info = vkinit::rendering_info(swapchain.extent, nullptr, &depth_attachment);
 
     vkCmdBeginRendering(cmd, &render_info);
 
     VkViewport viewport{};
     viewport.x = 0;
-    viewport.y = static_cast<float>(swapchain_extent.height);
-    viewport.width = static_cast<float>(swapchain_extent.width);
-    viewport.height = -static_cast<float>(swapchain_extent.height);
+    viewport.y = static_cast<float>(swapchain.extent.height);
+    viewport.width = static_cast<float>(swapchain.extent.width);
+    viewport.height = -static_cast<float>(swapchain.extent.height);
     viewport.minDepth = 0.0f;
     viewport.maxDepth = 1.0f;
     vkCmdSetViewport(cmd, 0, 1, &viewport);
@@ -3503,8 +3441,8 @@ void VulkanEngine::render_transparent(VkCommandBuffer cmd, uint32_t query)
     VkRect2D scissor{};
     scissor.offset.x = 0;
     scissor.offset.y = 0;
-    scissor.extent.width = swapchain_extent.width;
-    scissor.extent.height = swapchain_extent.height;
+    scissor.extent.width = swapchain.extent.width;
+    scissor.extent.height = swapchain.extent.height;
     vkCmdSetScissor(cmd, 0, 1, &scissor);
 
     GPUPushConstants pc{};
@@ -3516,7 +3454,7 @@ void VulkanEngine::render_transparent(VkCommandBuffer cmd, uint32_t query)
     pc.material_buffer_address = get_buffer_address(device, render_scene.material_buffer.buffer);
     pc.prefix_sum_buffer = get_buffer_address(device, render_scene.prefix_sum_buffer.buffer);
     // TODO: handle jitter offset for transparency
-    pc.screen_size = glm::uvec2(swapchain_extent.width, swapchain_extent.height);
+    pc.screen_size = glm::uvec2(swapchain.extent.width, swapchain.extent.height);
 
     if (!CVAR_RENDER_MESH_SHADERS.get())
     {
@@ -3665,8 +3603,8 @@ void VulkanEngine::execute_spd(VkCommandBuffer cmd)
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
 
-    auto width = next_pow2(swapchain_extent.width);
-    auto height = next_pow2(swapchain_extent.height);
+    auto width = next_pow2(swapchain.extent.width);
+    auto height = next_pow2(swapchain.extent.height);
     auto groupcount_x = get_groupcount(width, 64);
     auto groupcount_y = get_groupcount(height, 64);
 
@@ -3758,9 +3696,9 @@ void VulkanEngine::build_cluster_grid()
     ClusterGridPushConstants pc{};
     pc.inverse_proj = glm::inverse(main_camera.perspective);
     pc.light_cluster_buffer_address = get_buffer_address(device, light_cluster_buffer.buffer);
-    pc.screen_size = glm::vec2(swapchain_extent.width, swapchain_extent.height);
-    auto cluster_x = ceil(static_cast<float>(swapchain_extent.width) / CLUSTER_X); // # cluster dim
-    auto cluster_y = ceil(static_cast<float>(swapchain_extent.height) / CLUSTER_Y); // # cluster dim
+    pc.screen_size = glm::vec2(swapchain.extent.width, swapchain.extent.height);
+    auto cluster_x = ceil(static_cast<float>(swapchain.extent.width) / CLUSTER_X); // # cluster dim
+    auto cluster_y = ceil(static_cast<float>(swapchain.extent.height) / CLUSTER_Y); // # cluster dim
     pc.cluster_dim = glm::vec2(cluster_x, cluster_y);
     pc.near = main_camera.near; // reverse-z
     pc.far = main_camera.far;
@@ -3822,10 +3760,10 @@ void VulkanEngine::execute_shading(VkCommandBuffer cmd)
 
     DeferredPushConstants pc{};
 
-    auto cluster_x = ceil(static_cast<float>(swapchain_extent.width) / CLUSTER_X); // # cluster dim
-    auto cluster_y = ceil(static_cast<float>(swapchain_extent.height) / CLUSTER_Y); // # cluster dim
+    auto cluster_x = ceil(static_cast<float>(swapchain.extent.width) / CLUSTER_X); // # cluster dim
+    auto cluster_y = ceil(static_cast<float>(swapchain.extent.height) / CLUSTER_Y); // # cluster dim
     pc.cluster_size = glm::vec4(cluster_x, cluster_y, CLUSTER_DEPTH_SLICES, 0.0);
-    pc.screen_size = glm::vec2(swapchain_extent.width, swapchain_extent.height);
+    pc.screen_size = glm::vec2(swapchain.extent.width, swapchain.extent.height);
 
     pc.light_buffer_address = get_buffer_address(device, light_buffer.buffer);
     pc.light_index_buffer_address = get_buffer_address(device, light_index_buffer.buffer);
@@ -3858,8 +3796,8 @@ void VulkanEngine::execute_shading(VkCommandBuffer cmd)
     pc.debug = CVAR_DEBUG_TEXTURES.get();
 
     vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(DeferredPushConstants), &pc);
-    auto groupcount_x = get_groupcount(swapchain_extent.width, 8);
-    auto groupcount_y = get_groupcount(swapchain_extent.height, 8);
+    auto groupcount_x = get_groupcount(swapchain.extent.width, 8);
+    auto groupcount_y = get_groupcount(swapchain.extent.height, 8);
     vkCmdDispatch(cmd, groupcount_x, groupcount_y, 1);
 }
 

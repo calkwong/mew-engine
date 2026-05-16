@@ -19,34 +19,36 @@ set(imgui_sources
 )
 
 target_sources(engine PRIVATE
- inputs.cpp
- inputs.h
- main.cpp
- vk_descriptors.cpp
- vk_descriptors.h
- vk_engine.cpp
- vk_engine.h
- resources.cpp
- resources.h
- vk_initializers.cpp
- vk_initializers.h
- vk_loader.cpp
- vk_loader.h
- vk_pipelines.cpp
- vk_pipelines.h
- #vk_scene.cpp
- vk_scene.h
- common.h
- cvars.h
- cvars.cpp
- vk_math.h
- cache.h
- cache.cpp
- extern.cpp
+  inputs.cpp
+  inputs.h
+  main.cpp
+  vk_descriptors.cpp
+  vk_descriptors.h
+  vk_engine.cpp
+  vk_engine.h
+  resources.cpp
+  resources.h
+  vk_initializers.cpp
+  vk_initializers.h
+  vk_loader.cpp
+  vk_loader.h
+  vk_pipelines.cpp
+  vk_pipelines.h
+  #vk_scene.cpp
+  vk_scene.h
+  common.h
+  cvars.h
+  cvars.cpp
+  vk_math.h
+  cache.h
+  cache.cpp
+  extern.cpp
   config.h
   push_constants.h
   rendergraph.h
   rendergraph.cpp
+  swapchain.h
+  swapchain.cpp
  ${imgui_sources}
 )
 
