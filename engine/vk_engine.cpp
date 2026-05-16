@@ -199,8 +199,8 @@ void VulkanEngine::init(int argc, char** argv)
 
     VK_CHECK(volkInitialize());
 
-    // SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "wayland");
-    SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "x11");
+    SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "wayland");
+    // SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "x11");
     SDL_SetHint(SDL_HINT_APP_ID, "mew-engine");
     SDL_Init(SDL_INIT_VIDEO);
 
@@ -1397,7 +1397,114 @@ void VulkanEngine::run()
             continue;
         }
 
-        update_swapchain();
+        bool update = update_swapchain();
+
+        // destroy and recreate textures
+        // TODO: handle TAA
+        if (update)
+        {
+            destroy_image(device, allocator, draw_image);
+            destroy_image(device, allocator, visibility_buffer);
+            for (size_t i = 0; i < GBUFFER_COUNT; ++i)
+                destroy_image(device, allocator, gbuffers[i]);
+            destroy_image(device, allocator, depth_image);
+            auto depth_pyramid_id = image_cache.get_depth_pyramid_image();
+            auto mip_levels = static_cast<uint32_t>(std::floor(std::log2(static_cast<float>(std::max(depth_pyramid.extent.width, depth_pyramid.extent.height))))) + 1;
+            for (size_t i = 0; i < mip_levels && i < CEIL_LOG2_1920; ++i)
+            {
+                auto view = image_cache.image_infos[depth_pyramid_id + i].imageView;
+                vkDestroyImageView(device, view, nullptr);
+            }
+            destroy_image(device, allocator, depth_pyramid);
+
+            auto new_extent = VkExtent3D{ swapchain_extent.width, swapchain_extent.height, 1 };
+
+            draw_image = create_image(
+                device,
+                allocator,
+                new_extent,
+                VK_FORMAT_R32G32B32A32_SFLOAT,
+                VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT,
+                VK_IMAGE_ASPECT_COLOR_BIT
+            );
+
+            depth_image = create_image(device, allocator, new_extent, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_DEPTH_BIT);
+            visibility_buffer = create_image(device, allocator, new_extent, VK_FORMAT_R32G32_UINT, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+
+            auto gbuffer_flags = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+
+            gbuffers.clear();
+            gbuffers.emplace_back(create_image(device, allocator, new_extent, VK_FORMAT_R8G8B8A8_UNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
+            gbuffers.emplace_back(create_image(device, allocator, new_extent, VK_FORMAT_R16G16B16A16_SFLOAT, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
+            gbuffers.emplace_back(create_image(device, allocator, new_extent, VK_FORMAT_R8G8_SNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
+
+            VkExtent3D depth_pyramid_extent{};
+            depth_pyramid_extent.width = nearest_pow2(swapchain_extent.width);
+            depth_pyramid_extent.height = nearest_pow2(swapchain_extent.height);
+            depth_pyramid_extent.depth = 1;
+
+            depth_pyramid = create_image(
+                device,
+                allocator,
+                depth_pyramid_extent,
+                VK_FORMAT_R32_SFLOAT,
+                VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                VK_IMAGE_ASPECT_COLOR_BIT,
+                0,
+                true
+            );
+
+            // update texture cache
+            texture_cache.image_infos[texture_cache.get_draw_image()] = VkDescriptorImageInfo{ 0, draw_image.view, VK_IMAGE_LAYOUT_GENERAL };
+            texture_cache.image_infos[texture_cache.get_depth_image()] = VkDescriptorImageInfo{ 0, depth_image.view, VK_IMAGE_LAYOUT_GENERAL };
+            texture_cache.image_infos[texture_cache.get_visibility_buffer()] = VkDescriptorImageInfo{ 0, visibility_buffer.view, VK_IMAGE_LAYOUT_GENERAL };
+            for (size_t i = 0; i < GBUFFER_COUNT; ++i)
+            {
+                texture_cache.image_infos[texture_cache.get_first_gbuffer() + i] = VkDescriptorImageInfo{ 0, gbuffers[i].view, VK_IMAGE_LAYOUT_GENERAL };
+            }
+            texture_cache.image_infos[texture_cache.get_depth_pyramid_image()] = VkDescriptorImageInfo{ 0, depth_pyramid.view, VK_IMAGE_LAYOUT_GENERAL };
+
+            // update image cache
+            image_cache.image_infos[image_cache.get_draw_image()] = VkDescriptorImageInfo{ 0, draw_image.view, VK_IMAGE_LAYOUT_GENERAL };
+            mip_levels = static_cast<uint32_t>(std::floor(std::log2(static_cast<float>(std::max(depth_pyramid_extent.width, depth_pyramid_extent.height))))) + 1;
+
+            std::vector<VkImageView> pyramid_views(mip_levels);
+            VkImageViewCreateInfo img_view_info = vkinit::imageview_create_info(VK_FORMAT_R32_SFLOAT, depth_pyramid.image, VK_IMAGE_ASPECT_COLOR_BIT);
+            img_view_info.subresourceRange.levelCount = 1;
+            img_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+            for (uint32_t mip = 0; mip < CEIL_LOG2_1920; mip++)
+            {
+                if (mip < mip_levels)
+                {
+                    img_view_info.subresourceRange.baseMipLevel = mip;
+                    vkCreateImageView(device, &img_view_info, nullptr, &pyramid_views[mip]);
+                    image_cache.image_infos[depth_pyramid_id + mip] = VkDescriptorImageInfo{ 0, pyramid_views[mip], VK_IMAGE_LAYOUT_GENERAL };
+                }
+                else
+                    image_cache.image_infos[depth_pyramid_id + mip] = VkDescriptorImageInfo{ 0, pyramid_views[mip_levels - 1], VK_IMAGE_LAYOUT_GENERAL };
+            }
+
+            // update descriptors
+            // TODO: we could potentially just update whats changed, but for simplicity we update everything
+            std::vector<VkWriteDescriptorSet> writes{};
+            VkWriteDescriptorSet write{};
+            write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write.dstSet = bindless_tex_descriptor;
+            write.dstBinding = 0;
+            // validation layer does not report if smaller count than req used
+            write.descriptorCount = static_cast<uint32_t>(texture_cache.image_infos.size());
+            write.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+            write.pImageInfo = texture_cache.image_infos.data();
+            writes.push_back(write);
+
+            write.dstSet = bindless_image_descriptor;
+            write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            write.pImageInfo = image_cache.image_infos.data();
+            write.descriptorCount = static_cast<uint32_t>(image_cache.image_infos.size());
+            writes.push_back(write);
+
+            vkUpdateDescriptorSets(device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+        }
 
         freeze_camera = CVAR_MISC_FREEZE_CAMERA.get();
 
@@ -1769,15 +1876,13 @@ void VulkanEngine::create_swapchain(uint32_t width, uint32_t height)
     swapchain_image_views = vkbSwapchain.get_image_views().value();
 }
 
-void VulkanEngine::update_swapchain()
+bool VulkanEngine::update_swapchain()
 {
     // TODO: do we need to handle width == height == 0?
 
     int w{};
     int h{};
     SDL_GetWindowSizeInPixels(window, &w, &h);
-
-    // TODO: handle TAA
 
     // overall handles lots of x11/wayland specific issues
     // also works around a possible niri + nvidia only issue,
@@ -1790,114 +1895,11 @@ void VulkanEngine::update_swapchain()
         create_swapchain(w, h);
         fmt::println("swapchain size: {}x{}", swapchain_extent.width, swapchain_extent.height);
 
-        // destroy old textures
-        // TODO: move this out
-        destroy_image(device, allocator, draw_image);
-        destroy_image(device, allocator, visibility_buffer);
-        for (size_t i = 0; i < GBUFFER_COUNT; ++i)
-            destroy_image(device, allocator, gbuffers[i]);
-        destroy_image(device, allocator, depth_image);
-        auto depth_pyramid_id = image_cache.get_depth_pyramid_image();
-        auto mip_levels = static_cast<uint32_t>(std::floor(std::log2(static_cast<float>(std::max(depth_pyramid.extent.width, depth_pyramid.extent.height))))) + 1;
-        for (size_t i = 0; i < mip_levels && i < CEIL_LOG2_1920; ++i)
-        {
-            auto view = image_cache.image_infos[depth_pyramid_id + i].imageView;
-            vkDestroyImageView(device, view, nullptr);
-        }
-        destroy_image(device, allocator, depth_pyramid);
-
-        // create_swapchain auto updates swapchain_extent
-        auto new_extent = VkExtent3D{ swapchain_extent.width, swapchain_extent.height, 1 };
-
-        draw_image = create_image(
-            device,
-            allocator,
-            new_extent,
-            VK_FORMAT_R32G32B32A32_SFLOAT,
-            VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT,
-            VK_IMAGE_ASPECT_COLOR_BIT
-        );
-
-        depth_image = create_image(device, allocator, new_extent, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_DEPTH_BIT);
-        visibility_buffer = create_image(device, allocator, new_extent, VK_FORMAT_R32G32_UINT, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
-
-        auto gbuffer_flags = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-
-        gbuffers.clear();
-        gbuffers.emplace_back(create_image(device, allocator, new_extent, VK_FORMAT_R8G8B8A8_UNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
-        gbuffers.emplace_back(create_image(device, allocator, new_extent, VK_FORMAT_R16G16B16A16_SFLOAT, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
-        gbuffers.emplace_back(create_image(device, allocator, new_extent, VK_FORMAT_R8G8_SNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
-
-        VkExtent3D depth_pyramid_extent{};
-        depth_pyramid_extent.width = nearest_pow2(swapchain_extent.width);
-        depth_pyramid_extent.height = nearest_pow2(swapchain_extent.height);
-        depth_pyramid_extent.depth = 1;
-
-        depth_pyramid = create_image(
-            device,
-            allocator,
-            depth_pyramid_extent,
-            VK_FORMAT_R32_SFLOAT,
-            VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-            VK_IMAGE_ASPECT_COLOR_BIT,
-            0,
-            true
-        );
-
-        // update texture cache
-        texture_cache.image_infos[texture_cache.get_draw_image()] = VkDescriptorImageInfo{ 0, draw_image.view, VK_IMAGE_LAYOUT_GENERAL };
-        texture_cache.image_infos[texture_cache.get_depth_image()] = VkDescriptorImageInfo{ 0, depth_image.view, VK_IMAGE_LAYOUT_GENERAL };
-        texture_cache.image_infos[texture_cache.get_visibility_buffer()] = VkDescriptorImageInfo{ 0, visibility_buffer.view, VK_IMAGE_LAYOUT_GENERAL };
-        for (size_t i = 0; i < GBUFFER_COUNT; ++i)
-        {
-            texture_cache.image_infos[texture_cache.get_first_gbuffer() + i] = VkDescriptorImageInfo{ 0, gbuffers[i].view, VK_IMAGE_LAYOUT_GENERAL };
-        }
-        texture_cache.image_infos[texture_cache.get_depth_pyramid_image()] = VkDescriptorImageInfo{ 0, depth_pyramid.view, VK_IMAGE_LAYOUT_GENERAL };
-
-        // update image cache
-        image_cache.image_infos[image_cache.get_draw_image()] = VkDescriptorImageInfo{ 0, draw_image.view, VK_IMAGE_LAYOUT_GENERAL };
-        mip_levels = static_cast<uint32_t>(std::floor(std::log2(static_cast<float>(std::max(depth_pyramid_extent.width, depth_pyramid_extent.height))))) + 1;
-
-        std::vector<VkImageView> pyramid_views(mip_levels);
-        VkImageViewCreateInfo img_view_info = vkinit::imageview_create_info(VK_FORMAT_R32_SFLOAT, depth_pyramid.image, VK_IMAGE_ASPECT_COLOR_BIT);
-        img_view_info.subresourceRange.levelCount = 1;
-        img_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
-        for (uint32_t mip = 0; mip < CEIL_LOG2_1920; mip++)
-        {
-            if (mip < mip_levels)
-            {
-                img_view_info.subresourceRange.baseMipLevel = mip;
-                vkCreateImageView(device, &img_view_info, nullptr, &pyramid_views[mip]);
-                image_cache.image_infos[depth_pyramid_id + mip] = VkDescriptorImageInfo{ 0, pyramid_views[mip], VK_IMAGE_LAYOUT_GENERAL };
-            }
-            else
-                image_cache.image_infos[depth_pyramid_id + mip] = VkDescriptorImageInfo{ 0, pyramid_views[mip_levels - 1], VK_IMAGE_LAYOUT_GENERAL };
-        }
-
-        // update descriptors
-        // TODO: we could potentially just update whats changed, but for simplicity we update everything
-        std::vector<VkWriteDescriptorSet> writes{};
-        VkWriteDescriptorSet write{};
-        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write.dstSet = bindless_tex_descriptor;
-        write.dstBinding = 0;
-        write.descriptorCount = static_cast<uint32_t>(texture_cache.image_infos.size()); // validation layer does not report if smaller count than req used
-        write.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-        write.pImageInfo = texture_cache.image_infos.data();
-        writes.push_back(write);
-
-        write.dstSet = bindless_image_descriptor;
-        write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-        write.pImageInfo = image_cache.image_infos.data();
-        write.descriptorCount = static_cast<uint32_t>(image_cache.image_infos.size());
-        writes.push_back(write);
-
-        vkUpdateDescriptorSets(device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+        swapchain_dirty = false;
+        return true;
     }
 
-    swapchain_dirty = false;
-
-    return;
+    return false;
 }
 
 void VulkanEngine::destroy_swapchain()
