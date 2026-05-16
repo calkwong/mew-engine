@@ -110,7 +110,7 @@ public:
 
     VkQueue graphics_queue{};
     uint32_t graphics_queue_family{};
-    VkPhysicalDeviceProperties device_properties{};
+    VkPhysicalDeviceProperties2 device_properties{};
     VkDevice device{};
 
     Swapchain swapchain{};

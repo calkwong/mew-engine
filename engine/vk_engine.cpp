@@ -665,7 +665,7 @@ void VulkanEngine::draw()
             VK_QUERY_RESULT_64_BIT
         );
 
-        double timestamp_period = device_properties.limits.timestampPeriod;
+        double timestamp_period = device_properties.properties.limits.timestampPeriod;
         auto get_time = [&](size_t start, size_t end) -> double
         {
             return static_cast<double>(timestamp_results[end] - timestamp_results[start]) * timestamp_period * 1e-6;
@@ -1697,8 +1697,9 @@ void VulkanEngine::init_vulkan()
 
     create_swapchain(swapchain, physical_device, device, surface, window_extent.width, window_extent.height);
 
-    vkGetPhysicalDeviceProperties(physical_device, &device_properties);
-    assert(device_properties.limits.timestampComputeAndGraphics);
+    device_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+    vkGetPhysicalDeviceProperties2(physical_device, &device_properties);
+    assert(device_properties.properties.limits.timestampComputeAndGraphics);
 
     uint32_t count = 0;
     vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &count, nullptr);
@@ -1710,6 +1711,7 @@ void VulkanEngine::init_vulkan()
         VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
         VK_EXT_OPACITY_MICROMAP_EXTENSION_NAME,
         VK_KHR_UNIFIED_IMAGE_LAYOUTS_EXTENSION_NAME,
+        VK_EXT_DESCRIPTOR_HEAP_EXTENSION_NAME
     };
 
     // check for extension support
