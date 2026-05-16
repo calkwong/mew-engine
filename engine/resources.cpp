@@ -509,3 +509,24 @@ void giga_barrier(VkCommandBuffer cmd)
 {
     stage_barrier(cmd, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT);
 }
+
+// border color effectively ignored if not CLAMP_TO_BORDER
+VkSamplerCreateInfo get_sampler_info(
+    VkFilter filter,
+    VkSamplerMipmapMode mipmap_mode,
+    VkSamplerAddressMode address_mode,
+    VkBorderColor border_color
+)
+{
+    VkSamplerCreateInfo result{};
+    result.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    result.magFilter = filter;
+    result.minFilter = filter;
+    result.mipmapMode = mipmap_mode;
+    result.addressModeU = address_mode;
+    result.addressModeV = address_mode;
+    result.addressModeW = address_mode;
+    result.maxLod = VK_LOD_CLAMP_NONE;
+    result.borderColor = border_color;
+    return result;
+}

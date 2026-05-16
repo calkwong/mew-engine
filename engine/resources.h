@@ -123,3 +123,10 @@ void stage_barrier(
 void stage_barrier(VkCommandBuffer cmd, VkPipelineStageFlags2 src_stage_mask, VkPipelineStageFlags2 dst_stage_mask);
 void invalidate_barriers(VkCommandBuffer cmd, VkPipelineStageFlags2 stages, std::vector<VkImage>& images, std::vector<VkImage>& depth_images);
 void giga_barrier(VkCommandBuffer cmd);
+
+VkSamplerCreateInfo get_sampler_info(
+    VkFilter filter,
+    VkSamplerMipmapMode mipmap_mode,
+    VkSamplerAddressMode address_mode,
+    VkBorderColor border_color = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK
+);
