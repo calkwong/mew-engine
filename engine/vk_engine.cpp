@@ -219,13 +219,13 @@ void VulkanEngine::init(int argc, char** argv)
 
     init_vulkan();
 
-    init_swapchain();
-
     init_commands();
 
     init_sync_structures();
 
+    // note: might need to swap this around once we adopt descriptor heaps
     init_descriptors();
+    init_resources();
 
     init_shaders();
 
@@ -237,9 +237,6 @@ void VulkanEngine::init(int argc, char** argv)
     main_camera.fov = 70.0f;
     // TODO: refactor if window resize
     main_camera.set_perspective_matrix(glm::radians(main_camera.fov), static_cast<float>(swapchain.extent.width) / static_cast<float>(swapchain.extent.height), main_camera.near);
-
-    init_resources();
-
     init_renderables(argc, argv);
 
     upload_buffers();
@@ -1698,6 +1695,8 @@ void VulkanEngine::init_vulkan()
         }
     );
 
+    create_swapchain(swapchain, physical_device, device, surface, window_extent.width, window_extent.height);
+
     vkGetPhysicalDeviceProperties(physical_device, &device_properties);
     assert(device_properties.limits.timestampComputeAndGraphics);
 
@@ -1722,74 +1721,6 @@ void VulkanEngine::init_vulkan()
                 fmt::println("{} supported", extension);
         }
     }
-}
-
-// TODO: rename this
-void VulkanEngine::init_swapchain()
-{
-    create_swapchain(swapchain, physical_device, device, surface, window_extent.width, window_extent.height);
-
-    auto image_extent = VkExtent3D{ swapchain.extent.width, swapchain.extent.height, 1 };
-
-    // if reverting to VK_FORMAT_R16G16B16A16_SFLOAT, need to preexpose lights
-    draw_image = create_image(
-        device,
-        allocator,
-        image_extent,
-        VK_FORMAT_R32G32B32A32_SFLOAT,
-        VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT,
-        VK_IMAGE_ASPECT_COLOR_BIT
-    );
-
-    auto id = texture_cache.add_texture(draw_image.view);
-    assert(id == 0); // hardcode to id 0
-    texture_cache.set_draw_image(id);
-
-    id = image_cache.add_texture(draw_image.view);
-    assert(id == 0); // hardcode to id 0
-    image_cache.set_draw_image(id);
-
-    VkImageUsageFlags gbuffer_flags{
-        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
-    };
-
-    // visibility path - visibility
-    {
-        visibility_buffer = create_image(device, allocator, image_extent, VK_FORMAT_R32G32_UINT, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT);
-        auto vis_id = texture_cache.add_texture(visibility_buffer.view);
-        texture_cache.set_visibility_buffer(vis_id);
-
-        for (int i = 0; i < 2; ++i) // ping pong
-        {
-            accumulation_buffers[i] = create_image(device, allocator, image_extent, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
-            auto texture_accum_id = texture_cache.add_texture(accumulation_buffers[i].view);
-            auto image_accum_id = image_cache.add_texture(accumulation_buffers[i].view);
-
-            if (i == 0)
-            {
-                texture_cache.set_accumulation_buffer(texture_accum_id);
-                image_cache.set_accumulation_buffer(image_accum_id);
-            }
-        }
-    }
-
-    // deferred path - albedo, normal, metalroughness
-    {
-        gbuffers.emplace_back(create_image(device, allocator, image_extent, VK_FORMAT_R8G8B8A8_UNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
-        auto gbuffer_id = texture_cache.add_texture(gbuffers[0].view);
-        texture_cache.set_gbuffers(gbuffer_id);
-        gbuffers.emplace_back(create_image(device, allocator, image_extent, VK_FORMAT_R16G16B16A16_SFLOAT, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
-        texture_cache.add_texture(gbuffers[1].view);
-        gbuffers.emplace_back(create_image(device, allocator, image_extent, VK_FORMAT_R8G8_SNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
-        texture_cache.add_texture(gbuffers[2].view);
-    }
-
-    depth_image.format = VK_FORMAT_D32_SFLOAT;
-
-    depth_image = create_image(device, allocator, image_extent, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_DEPTH_BIT);
-
-    id = texture_cache.add_texture(depth_image.view);
-    texture_cache.set_depth_image(id);
 }
 
 void VulkanEngine::init_commands()
@@ -2143,6 +2074,68 @@ void VulkanEngine::init_pipelines()
 
 void VulkanEngine::init_resources()
 {
+    auto image_extent = VkExtent3D{ swapchain.extent.width, swapchain.extent.height, 1 };
+
+    // if reverting to VK_FORMAT_R16G16B16A16_SFLOAT, need to preexpose lights
+    draw_image = create_image(
+        device,
+        allocator,
+        image_extent,
+        VK_FORMAT_R32G32B32A32_SFLOAT,
+        VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT,
+        VK_IMAGE_ASPECT_COLOR_BIT
+    );
+
+    auto id = texture_cache.add_texture(draw_image.view);
+    assert(id == 0); // hardcode to id 0
+    texture_cache.set_draw_image(id);
+
+    id = image_cache.add_texture(draw_image.view);
+    assert(id == 0); // hardcode to id 0
+    image_cache.set_draw_image(id);
+    VkImageUsageFlags gbuffer_flags{
+        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
+    };
+
+    // visibility path - visibility
+    {
+        visibility_buffer = create_image(device, allocator, image_extent, VK_FORMAT_R32G32_UINT, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT);
+        auto vis_id = texture_cache.add_texture(visibility_buffer.view);
+        texture_cache.set_visibility_buffer(vis_id);
+
+        for (int i = 0; i < 2; ++i) // ping pong
+        {
+            accumulation_buffers[i] = create_image(device, allocator, image_extent, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+            auto texture_accum_id = texture_cache.add_texture(accumulation_buffers[i].view);
+            auto image_accum_id = image_cache.add_texture(accumulation_buffers[i].view);
+
+            if (i == 0)
+            {
+                texture_cache.set_accumulation_buffer(texture_accum_id);
+                image_cache.set_accumulation_buffer(image_accum_id);
+            }
+        }
+    }
+
+    // deferred path - albedo, normal, metalroughness
+    {
+        gbuffers.emplace_back(create_image(device, allocator, image_extent, VK_FORMAT_R8G8B8A8_UNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
+        auto gbuffer_id = texture_cache.add_texture(gbuffers[0].view);
+        texture_cache.set_gbuffers(gbuffer_id);
+        gbuffers.emplace_back(create_image(device, allocator, image_extent, VK_FORMAT_R16G16B16A16_SFLOAT, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
+        texture_cache.add_texture(gbuffers[1].view);
+        gbuffers.emplace_back(create_image(device, allocator, image_extent, VK_FORMAT_R8G8_SNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
+        texture_cache.add_texture(gbuffers[2].view);
+    }
+
+    depth_image.format = VK_FORMAT_D32_SFLOAT;
+
+    depth_image = create_image(device, allocator, image_extent, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_DEPTH_BIT);
+
+    id = texture_cache.add_texture(depth_image.view);
+    texture_cache.set_depth_image(id);
+
+    // init samplers
     {
         VkSampler sampler{};
         VkSamplerCreateInfo sampler_info{};
@@ -2264,7 +2257,7 @@ void VulkanEngine::init_resources()
     );
 
     // sampling in occlusion culling
-    auto id = texture_cache.add_texture(depth_pyramid.view);
+    id = texture_cache.add_texture(depth_pyramid.view);
     texture_cache.set_depth_pyramid_image(id);
 
     uint32_t mip_levels = static_cast<uint32_t>(std::floor(std::log2(static_cast<float>(std::max(depth_pyramid_extent.width, depth_pyramid_extent.height))))) + 1;

@@ -220,7 +220,6 @@ public:
 
 private:
     void init_vulkan();
-    void init_swapchain();
     void init_commands();
     void init_sync_structures();
     void init_descriptors();
