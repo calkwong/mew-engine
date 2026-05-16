@@ -201,10 +201,10 @@ void VulkanEngine::init(int argc, char** argv)
 
     // SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "wayland");
     SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "x11");
+    SDL_SetHint(SDL_HINT_APP_ID, "mew-engine");
     SDL_Init(SDL_INIT_VIDEO);
 
     auto window_flags = static_cast<SDL_WindowFlags>(SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
-    // auto window_flags = static_cast<SDL_WindowFlags>(SDL_WINDOW_VULKAN);
 
     window = SDL_CreateWindow(
         "Vulkan Engine",
