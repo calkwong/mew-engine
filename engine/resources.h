@@ -131,3 +131,42 @@ VkSamplerCreateInfo get_sampler_info(
     VkSamplerMipmapMode mipmap,
     VkSamplerReductionModeCreateInfo* reduce = 0
 );
+
+struct DescriptorImageInfo
+{
+    AllocatedImage image{};
+    VkImageViewType view_type{};
+    VkImageAspectFlags aspect_flag{};
+    uint32_t mip = 0;
+};
+
+void get_sample_descriptor(
+    VkDevice device,
+    VkFilter filter,
+    VkSamplerMipmapMode mipmap,
+    VkSamplerAddressMode address,
+    VkSamplerReductionModeCreateInfo* reduce,
+    void* descriptor,
+    size_t descriptor_size
+);
+
+void get_image_descriptor(
+    VkDevice device,
+    AllocatedImage image,
+    VkImageViewType view_type,
+    VkImageAspectFlags aspect_flags,
+    VkDescriptorType descriptor_type,
+    void* descriptor,
+    size_t descriptor_size,
+    uint32_t mip = 0
+);
+
+void get_as_descriptor(
+    VkDevice device,
+    VkAccelerationStructureKHR as,
+    VkDeviceSize as_size,
+    void* descriptor,
+    size_t descriptor_size
+);
+
+void get_buffer_descriptor(VkDevice device, AllocatedBuffer buffer, VkDescriptorType descriptor_type, void* descriptor, size_t descriptor_size);

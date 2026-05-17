@@ -539,3 +539,97 @@ VkSamplerCreateInfo get_sampler_info(
 
     return result;
 }
+
+void get_sample_descriptor(
+    VkDevice device,
+    VkFilter filter,
+    VkSamplerMipmapMode mipmap,
+    VkSamplerAddressMode address,
+    VkSamplerReductionModeCreateInfo* reduce,
+    void* descriptor,
+    size_t descriptor_size
+)
+{
+    // border color hack
+    VkSamplerCreateInfo sampler_info = get_sampler_info(filter, address, mipmap, reduce);
+    VkHostAddressRangeEXT host_address_range{ descriptor, descriptor_size };
+    vkWriteSamplerDescriptorsEXT(device, 1, &sampler_info, &host_address_range);
+};
+
+void get_image_descriptor(
+    VkDevice device,
+    AllocatedImage image,
+    VkImageViewType view_type,
+    VkImageAspectFlags aspect_flags,
+    VkDescriptorType descriptor_type,
+    void* descriptor,
+    size_t descriptor_size,
+    uint32_t mip /* = 0 */
+)
+{
+    VkImageViewCreateInfo info = vkinit::imageview_create_info(image.format, image.image, aspect_flags);
+
+    info.viewType = view_type;
+    info.subresourceRange.baseMipLevel = mip;
+
+    VkImageDescriptorInfoEXT img_descriptor_info{};
+    img_descriptor_info.sType = VK_STRUCTURE_TYPE_IMAGE_DESCRIPTOR_INFO_EXT;
+    img_descriptor_info.pView = &info;
+    img_descriptor_info.layout = VK_IMAGE_LAYOUT_GENERAL;
+
+    VkResourceDescriptorDataEXT descriptor_data{};
+    descriptor_data.pImage = &img_descriptor_info;
+
+    VkResourceDescriptorInfoEXT descriptor_info{};
+    descriptor_info.sType = VK_STRUCTURE_TYPE_RESOURCE_DESCRIPTOR_INFO_EXT;
+    descriptor_info.type = descriptor_type;
+    descriptor_info.data = descriptor_data;
+
+    VkHostAddressRangeEXT host_address_range{ descriptor, descriptor_size };
+    vkWriteResourceDescriptorsEXT(device, 1, &descriptor_info, &host_address_range);
+};
+
+void get_as_descriptor(
+    VkDevice device,
+    VkAccelerationStructureKHR as,
+    VkDeviceSize as_size,
+    void* descriptor,
+    size_t descriptor_size
+)
+{
+    VkAccelerationStructureDeviceAddressInfoKHR address_info{};
+    address_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR;
+    address_info.accelerationStructure = as;
+    VkDeviceAddress addr = vkGetAccelerationStructureDeviceAddressKHR(device, &address_info);
+
+    VkDeviceAddressRangeEXT addr_range{ .address = addr, .size = as_size };
+
+    VkResourceDescriptorDataEXT descriptor_data{};
+    descriptor_data.pAddressRange = &addr_range;
+
+    VkResourceDescriptorInfoEXT descriptor_info{};
+    descriptor_info.sType = VK_STRUCTURE_TYPE_RESOURCE_DESCRIPTOR_INFO_EXT;
+    descriptor_info.type = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+    descriptor_info.data = descriptor_data;
+
+    VkHostAddressRangeEXT host_address_range{ descriptor, descriptor_size };
+    vkWriteResourceDescriptorsEXT(device, 1, &descriptor_info, &host_address_range);
+};
+
+void get_buffer_descriptor(VkDevice device, AllocatedBuffer buffer, VkDescriptorType descriptor_type, void* descriptor, size_t descriptor_size)
+{
+    VkDeviceAddress addr = get_buffer_address(device, buffer.buffer);
+
+    VkDeviceAddressRangeEXT addr_range{ .address = addr, .size = buffer.size };
+
+    VkResourceDescriptorDataEXT descriptor_data{};
+    descriptor_data.pAddressRange = &addr_range;
+
+    VkResourceDescriptorInfoEXT descriptor_info{};
+    descriptor_info.sType = VK_STRUCTURE_TYPE_RESOURCE_DESCRIPTOR_INFO_EXT;
+    descriptor_info.type = descriptor_type;
+    descriptor_info.data = descriptor_data;
+
+    VkHostAddressRangeEXT host_address_range{ descriptor, descriptor_size };
+    vkWriteResourceDescriptorsEXT(device, 1, &descriptor_info, &host_address_range);
+};

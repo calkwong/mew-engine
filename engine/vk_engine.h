@@ -187,8 +187,11 @@ public:
     AllocatedBuffer resource_heap{};
     AllocatedBuffer sampler_heap{};
 
-    uint32_t textures_set_offset{};
-    uint32_t images_set_offset{};
+    std::vector<DescriptorImageInfo> sampled_textures{};
+    std::vector<DescriptorImageInfo> rw_images{};
+
+    uint32_t sampled_textures_offset{};
+    uint32_t rw_images_offset{};
 
     VkAccelerationStructureKHR tlas_as{};
 
@@ -224,6 +227,9 @@ public:
     void execute_light_culling(VkCommandBuffer cmd);
     void execute_shading(VkCommandBuffer cmd);
     void create_acceleration_structures();
+    void update_descriptor_heap();
+    void refresh_sampled_textures();
+    void refresh_rw_images();
 
 private:
     void init_vulkan();
