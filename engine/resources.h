@@ -5,7 +5,7 @@
 struct AllocatedImage
 {
     VkImage image{};
-    VkImageView view{};
+    VkImageView view = VK_NULL_HANDLE;
     VmaAllocation allocation{};
     VkExtent3D extent{};
     VkFormat format{};
@@ -25,8 +25,20 @@ AllocatedBuffer create_buffer(VmaAllocator allocator, size_t alloc_size, VmaAllo
 AllocatedBuffer upload_buffer(VulkanEngine* engine, VmaAllocator allocator, const void* data, size_t data_size, VkBufferUsageFlags = 0);
 void destroy_buffer(VmaAllocator allocator, const AllocatedBuffer& buffer);
 
-// view has access to all mip and layers
+// this no longer creates a VkImageView
 AllocatedImage create_image(
+    VkDevice device,
+    VmaAllocator allocator,
+    VkExtent3D extent,
+    VkFormat format,
+    VkImageUsageFlags usage,
+    VkImageAspectFlags aspect,
+    VmaAllocationCreateFlags flags = 0,
+    bool mipmapped = false
+);
+
+// temporary hack - this creates a VkImageView to submit as color attachment
+AllocatedImage create_render_target(
     VkDevice device,
     VmaAllocator allocator,
     VkExtent3D extent,

@@ -94,6 +94,38 @@ AllocatedImage create_image(
 
     VK_CHECK(vmaCreateImage(allocator, &img_info, &alloc_info, &new_image.image, &new_image.allocation, nullptr));
 
+    return new_image;
+}
+
+AllocatedImage create_render_target(
+    VkDevice device,
+    VmaAllocator allocator,
+    VkExtent3D extent,
+    VkFormat format,
+    VkImageUsageFlags usage,
+    VkImageAspectFlags aspect,
+    VmaAllocationCreateFlags flags /*= 0*/,
+    bool mipmapped /*= false*/
+)
+{
+    AllocatedImage new_image{};
+    new_image.extent = extent;
+    new_image.format = format;
+
+    VkImageCreateInfo img_info = vkinit::image_create_info(format, usage, extent);
+    if (mipmapped)
+    {
+        img_info.mipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(extent.width, extent.height)))) + 1;
+        img_info.usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+    }
+
+    VmaAllocationCreateInfo alloc_info{};
+    alloc_info.flags = flags;
+    alloc_info.usage = VMA_MEMORY_USAGE_AUTO;
+    alloc_info.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+
+    VK_CHECK(vmaCreateImage(allocator, &img_info, &alloc_info, &new_image.image, &new_image.allocation, nullptr));
+
     VkImageViewCreateInfo img_view_info = vkinit::imageview_create_info(format, new_image.image, aspect);
 
     VK_CHECK(vkCreateImageView(device, &img_view_info, nullptr, &new_image.view));
@@ -183,6 +215,7 @@ AllocatedImage upload_image(
     return new_image;
 }
 
+// this no longer creates a VkImageView
 AllocatedImage create_cubemap(
     VkDevice device,
     VmaAllocator allocator,
@@ -215,19 +248,13 @@ AllocatedImage create_cubemap(
 
     VK_CHECK(vmaCreateImage(allocator, &img_info, &alloc_info, &new_image.image, &new_image.allocation, nullptr));
 
-    VkImageViewCreateInfo img_view_info{ vkinit::imageview_create_info(format, new_image.image, VK_IMAGE_ASPECT_COLOR_BIT) };
-    img_view_info.viewType = VK_IMAGE_VIEW_TYPE_CUBE;
-
-    VK_CHECK(vkCreateImageView(device, &img_view_info, nullptr, &new_image.view));
-
     return new_image;
 }
 
 void destroy_image(VkDevice device, VmaAllocator allocator, const AllocatedImage& image)
 {
-    if (image.view == nullptr)
-        fmt::println("was null");
-    vkDestroyImageView(device, image.view, nullptr);
+    if (image.view != VK_NULL_HANDLE)
+        vkDestroyImageView(device, image.view, nullptr);
     vmaDestroyImage(allocator, image.image, image.allocation);
 }
 

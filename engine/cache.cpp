@@ -8,6 +8,8 @@
 #include <unordered_map>
 #include <memory>
 
+// TODO: we can likely just remove this altogether and encode ids in UBO
+
 void TextureCache::set_draw_image(uint32_t id)
 {
     draw_id = id;
@@ -91,11 +93,11 @@ uint32_t TextureCache::get_shadowmap() const
 
 uint32_t TextureCache::add_texture(const VkImageView& view)
 {
-    for (size_t i = 0; i < image_infos.size(); i++)
-    {
-        if (image_infos[i].imageView == view)
-            return static_cast<uint32_t>(i);
-    }
+    // for (size_t i = 0; i < image_infos.size(); i++)
+    // {
+    //     if (image_infos[i].imageView == view)
+    //         return static_cast<uint32_t>(i);
+    // }
 
     image_infos.emplace_back(VkDescriptorImageInfo{ 0, view, VK_IMAGE_LAYOUT_GENERAL });
 
@@ -149,11 +151,11 @@ uint32_t ImageCache::get_depth_pyramid_image() const
 
 uint32_t ImageCache::add_texture(const VkImageView& view)
 {
-    for (size_t i = 0; i < image_infos.size(); i++)
-    {
-        if (image_infos[i].imageView == view)
-            return static_cast<uint32_t>(i);
-    }
+    // for (size_t i = 0; i < image_infos.size(); i++)
+    // {
+    //     if (image_infos[i].imageView == view)
+    //         return static_cast<uint32_t>(i);
+    // }
 
     image_infos.emplace_back(VkDescriptorImageInfo{ 0, view, VK_IMAGE_LAYOUT_GENERAL });
 

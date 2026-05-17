@@ -1499,15 +1499,15 @@ void VulkanEngine::run()
                 VK_IMAGE_ASPECT_COLOR_BIT
             );
 
-            depth_image = create_image(device, allocator, new_extent, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_DEPTH_BIT);
-            visibility_buffer = create_image(device, allocator, new_extent, VK_FORMAT_R32G32_UINT, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+            depth_image = create_render_target(device, allocator, new_extent, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_DEPTH_BIT);
+            visibility_buffer = create_render_target(device, allocator, new_extent, VK_FORMAT_R32G32_UINT, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
 
             auto gbuffer_flags = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
 
             gbuffers.clear();
-            gbuffers.emplace_back(create_image(device, allocator, new_extent, VK_FORMAT_R8G8B8A8_UNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
-            gbuffers.emplace_back(create_image(device, allocator, new_extent, VK_FORMAT_R16G16B16A16_SFLOAT, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
-            gbuffers.emplace_back(create_image(device, allocator, new_extent, VK_FORMAT_R8G8_SNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
+            gbuffers.emplace_back(create_render_target(device, allocator, new_extent, VK_FORMAT_R8G8B8A8_UNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
+            gbuffers.emplace_back(create_render_target(device, allocator, new_extent, VK_FORMAT_R16G16B16A16_SFLOAT, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
+            gbuffers.emplace_back(create_render_target(device, allocator, new_extent, VK_FORMAT_R8G8_SNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
 
             VkExtent3D depth_pyramid_extent{};
             depth_pyramid_extent.width = nearest_pow2(swapchain.extent.width);
@@ -2388,7 +2388,7 @@ void VulkanEngine::init_resources()
 
     // visibility path - visibility
     {
-        visibility_buffer = create_image(device, allocator, image_extent, VK_FORMAT_R32G32_UINT, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT);
+        visibility_buffer = create_render_target(device, allocator, image_extent, VK_FORMAT_R32G32_UINT, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT);
         auto vis_id = texture_cache.add_texture(visibility_buffer.view);
         texture_cache.set_visibility_buffer(vis_id);
 
@@ -2408,18 +2408,18 @@ void VulkanEngine::init_resources()
 
     // deferred path - albedo, normal, metalroughness
     {
-        gbuffers.emplace_back(create_image(device, allocator, image_extent, VK_FORMAT_R8G8B8A8_UNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
+        gbuffers.emplace_back(create_render_target(device, allocator, image_extent, VK_FORMAT_R8G8B8A8_UNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
         auto gbuffer_id = texture_cache.add_texture(gbuffers[0].view);
         texture_cache.set_gbuffers(gbuffer_id);
-        gbuffers.emplace_back(create_image(device, allocator, image_extent, VK_FORMAT_R16G16B16A16_SFLOAT, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
+        gbuffers.emplace_back(create_render_target(device, allocator, image_extent, VK_FORMAT_R16G16B16A16_SFLOAT, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
         texture_cache.add_texture(gbuffers[1].view);
-        gbuffers.emplace_back(create_image(device, allocator, image_extent, VK_FORMAT_R8G8_SNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
+        gbuffers.emplace_back(create_render_target(device, allocator, image_extent, VK_FORMAT_R8G8_SNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
         texture_cache.add_texture(gbuffers[2].view);
     }
 
     depth_image.format = VK_FORMAT_D32_SFLOAT;
 
-    depth_image = create_image(device, allocator, image_extent, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_DEPTH_BIT);
+    depth_image = create_render_target(device, allocator, image_extent, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_DEPTH_BIT);
 
     id = texture_cache.add_texture(depth_image.view);
     texture_cache.set_depth_image(id);
@@ -2448,7 +2448,7 @@ void VulkanEngine::init_resources()
     // shadowmaps
     for (size_t idx = 0; idx < cascade_data.size(); idx++)
     {
-        cascade_data[idx].shadow_map = create_image(
+        cascade_data[idx].shadow_map = create_render_target(
             device,
             allocator,
             VkExtent3D{ SHADOW_MAP_SIZE, SHADOW_MAP_SIZE, 1 },
@@ -2499,7 +2499,7 @@ void VulkanEngine::init_resources()
     img_view_info.subresourceRange.levelCount = 1;
     img_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
     img_view_info.subresourceRange.baseMipLevel = 0;
-    vkCreateImageView(device, &img_view_info, nullptr, &pyramid_views[0]);
+    // vkCreateImageView(device, &img_view_info, nullptr, &pyramid_views[0]);
     id = image_cache.add_texture(pyramid_views[0]);
     image_cache.set_depth_pyramid_image(id);
 
@@ -2510,7 +2510,7 @@ void VulkanEngine::init_resources()
         if (mip < mip_levels)
         {
             img_view_info.subresourceRange.baseMipLevel = mip;
-            vkCreateImageView(device, &img_view_info, nullptr, &pyramid_views[mip]);
+            // vkCreateImageView(device, &img_view_info, nullptr, &pyramid_views[mip]);
             image_cache.add_texture(pyramid_views[mip]);
         }
         else
@@ -2626,7 +2626,7 @@ void VulkanEngine::init_resources()
     {
         imageview_info.subresourceRange.baseMipLevel = i;
         imageview_info.subresourceRange.levelCount = 1;
-        vkCreateImageView(device, &imageview_info, nullptr, &prefiltered_views[i]);
+        // vkCreateImageView(device, &imageview_info, nullptr, &prefiltered_views[i]);
         auto prefiltered_id = image_cache.add_texture(prefiltered_views[i]);
         if (i == 0)
         {
