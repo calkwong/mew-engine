@@ -51,7 +51,7 @@ struct PipelineBuilder
     void clear();
 
     VkPipeline build_pipeline(VkDevice device) const;
-    void set_shaders(std::initializer_list<ShaderProgram*> programs, ShaderStages stages, ShaderEntries entries);
+    void set_shaders(std::initializer_list<ShaderProgram*> programs, ShaderStages stages, ShaderEntries entries, VkShaderDescriptorSetAndBindingMappingInfoEXT* desc_set_and_binding_mapping_info);
     void set_input_topology(VkPrimitiveTopology topology);
     void set_polygon_mode(VkPolygonMode mode);
     void set_cull_mode(VkCullModeFlags cull_mode, VkFrontFace front_face);
@@ -68,7 +68,8 @@ struct PipelineBuilder
         std::initializer_list<ShaderProgram*> program,
         ShaderStages stages,
         ShaderEntries entries = {},
-        SpecConstants constants = {}
+        SpecConstants constants = {},
+        VkShaderDescriptorSetAndBindingMappingInfoEXT* info = 0
     );
 
     // TODO: refactor into free functions
@@ -85,10 +86,10 @@ struct ComputePipelineBuilder
     std::string name{};
 
     VkPipeline build_pipeline(VkDevice device) const;
-    void set_shaders(const ShaderProgram* program);
+    void set_shaders(const ShaderProgram* program, VkShaderDescriptorSetAndBindingMappingInfoEXT* desc_set_and_binding_mapping_info);
     void set_shader_specialization(VkSpecializationInfo* spec_info);
     void set_descriptor_layouts(std::initializer_list<VkDescriptorSetLayout> layouts);
-    std::unique_ptr<ShaderPass> create_pipeline(VkDevice device, const ShaderProgram* program, SpecConstants constants = {});
+    std::unique_ptr<ShaderPass> create_pipeline(VkDevice device, const ShaderProgram* program, SpecConstants constants = {}, VkShaderDescriptorSetAndBindingMappingInfoEXT* info = 0);
 };
 
 namespace vkutil

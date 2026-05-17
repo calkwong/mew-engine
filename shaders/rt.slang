@@ -9,8 +9,6 @@ import pbr;
 import sampling;
 //import rt_helpers; // rewrite needed, lost this untracked file when switching os
 
-[[vk::binding(0, 4)]] RaytracingAccelerationStructure acceleration_structure;
-
 struct PushConstants
 {
 	float4 cluster_size; // xy is cluster dim, z is # of cluster slices

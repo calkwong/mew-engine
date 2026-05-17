@@ -8,8 +8,6 @@ import types;
 import util;
 import oit;
 
-[[vk::binding(0, 4)]] globallycoherent RasterizerOrderedStructuredBuffer<OITData> oit_buffer;
-
 struct Interp
 {
     float4 position : SV_Position;

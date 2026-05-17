@@ -63,7 +63,7 @@ bool update_swapchain(Swapchain& swapchain, SDL_Window* window, VkPhysicalDevice
 
         destroy_swapchain(swapchain, device);
         create_swapchain(swapchain, physical_device, device, surface, w, h);
-        // fmt::println("swapchain size: {}x{}", swapchain.extent.width, swapchain.extent.height);
+        fmt::println("swapchain size: {}x{}", swapchain.extent.width, swapchain.extent.height);
 
         swapchain.dirty = false;
         return true;

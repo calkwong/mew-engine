@@ -6,9 +6,6 @@ import types;
 internal static const int CASCADE_COUNT = 4;
 internal static const float EPSILON = 0.01; // avoids self intersection
 
-// TODO: this should be in the main shader file, not here, but for convenience's sake
-[[vk::binding(0, 4)]] internal RaytracingAccelerationStructure acceleration_structure;
-
 internal float2 intersection_uv(uint mesh_id, uint prim_index, float2 barycentrics, MeshData* mesh_buffer, uint* index_buffer, Vertex* vertex_buffer
 )
 {

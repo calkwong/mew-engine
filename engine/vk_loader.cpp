@@ -852,24 +852,15 @@ bool load_gltf(VulkanEngine* engine, LoadedGLTF* scene, const std::string& file_
     size_t texture_cache_offset = engine->texture_cache.image_infos.size(); // important! do this before loading images
 
     // TODO: currently supports ktx2 in URI only
-    std::vector<AllocatedImage> images{};
     auto start = std::chrono::system_clock::now();
 
     if (!asset.images.empty())
-        images = load_images(asset, engine, file.asset_path);
+        file.images = load_images(asset, engine, file.asset_path);
 
     auto end = std::chrono::system_clock::now();
     auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
     float ret = static_cast<float>(elapsed.count()) / 1000.0f;
     fmt::println("load_images: {}ms", ret);
-
-    // TODO: do we really need an unordered map here?
-    // some files don't have names, we name by indices for now
-    auto img_offset = file.images.size();
-    for (int i = 0; i < images.size(); i++)
-    {
-        file.images[std::to_string(i + img_offset).c_str()] = images[i];
-    }
 
     for (fastgltf::Material& mat : asset.materials)
     {
@@ -1214,7 +1205,7 @@ void LoadedGLTF::clear()
     const VkDevice device = creator->device;
     const VmaAllocator allocator = creator->allocator;
 
-    for (auto& [_, img] : images)
+    for (auto& img : images)
     {
         destroy_image(device, allocator, img);
     }

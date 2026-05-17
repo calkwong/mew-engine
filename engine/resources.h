@@ -16,6 +16,7 @@ struct AllocatedBuffer
     VkBuffer buffer{};
     VmaAllocation allocation{};
     VmaAllocationInfo info{};
+    VkDeviceSize size{};
 };
 
 class VulkanEngine;

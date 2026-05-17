@@ -24,6 +24,7 @@ AllocatedBuffer create_buffer(VmaAllocator allocator, size_t alloc_size, VmaAllo
     AllocatedBuffer new_buffer{};
 
     VK_CHECK(vmaCreateBuffer(allocator, &buffer_info, &alloc_info, &new_buffer.buffer, &new_buffer.allocation, &new_buffer.info));
+    new_buffer.size = alloc_size;
 
     return new_buffer;
 }

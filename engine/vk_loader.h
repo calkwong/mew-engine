@@ -48,7 +48,7 @@ struct LoadedGLTF
 {
     std::unordered_map<std::string, std::shared_ptr<MeshAsset>> meshes{}; // obsolete?
     std::unordered_map<std::string, std::shared_ptr<Node>> nodes{}; // obsolete?
-    std::unordered_map<std::string, AllocatedImage> images{}; // stores our GPU images
+    std::vector<AllocatedImage> images{};
     std::vector<std::shared_ptr<Node>> top_nodes{};
 
     std::vector<uint32_t> indices{};

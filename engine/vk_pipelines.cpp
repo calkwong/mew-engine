@@ -15,8 +15,13 @@ VkPipeline ComputePipelineBuilder::build_pipeline(VkDevice device) const
 {
     VkPipeline pipeline{};
 
+    VkPipelineCreateFlags2CreateInfo create_flags_2_create_info{};
+    create_flags_2_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_CREATE_FLAGS_2_CREATE_INFO;
+    create_flags_2_create_info.flags = VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT;
+
     VkComputePipelineCreateInfo compute_info{};
     compute_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+    compute_info.pNext = &create_flags_2_create_info;
     compute_info.stage = shader_stages[0];
     compute_info.layout = pipeline_layout;
 
@@ -25,9 +30,16 @@ VkPipeline ComputePipelineBuilder::build_pipeline(VkDevice device) const
     return pipeline;
 }
 
-void ComputePipelineBuilder::set_shaders(const ShaderProgram* program)
+void ComputePipelineBuilder::set_shaders(const ShaderProgram* program, VkShaderDescriptorSetAndBindingMappingInfoEXT* desc_set_and_binding_mapping_info)
 {
-    shader_stages[0] = vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_COMPUTE_BIT, program->module);
+    VkPipelineShaderStageCreateInfo info{};
+    info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    info.pNext = desc_set_and_binding_mapping_info;
+    info.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+    info.module = program->module;
+    info.pName = "main";
+
+    shader_stages[0] = info;
     name = "";
     name += program->name;
 }
@@ -71,9 +83,14 @@ VkPipeline PipelineBuilder::build_pipeline(VkDevice device) const
     VkPipelineVertexInputStateCreateInfo vertex_input{};
     vertex_input.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
 
+    VkPipelineCreateFlags2CreateInfo create_flags_2_create_info{};
+    create_flags_2_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_CREATE_FLAGS_2_CREATE_INFO;
+    create_flags_2_create_info.pNext = &render_info;
+    create_flags_2_create_info.flags = VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT;
+
     VkGraphicsPipelineCreateInfo pipeline_info{};
     pipeline_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    pipeline_info.pNext = &render_info;
+    pipeline_info.pNext = &create_flags_2_create_info;
 
     pipeline_info.stageCount = static_cast<uint32_t>(shader_stages.size());
     pipeline_info.pStages = shader_stages.data();
@@ -102,7 +119,12 @@ VkPipeline PipelineBuilder::build_pipeline(VkDevice device) const
     return pipeline;
 }
 
-void PipelineBuilder::set_shaders(std::initializer_list<ShaderProgram*> programs, ShaderStages stages, ShaderEntries entries)
+void PipelineBuilder::set_shaders(
+    std::initializer_list<ShaderProgram*> programs,
+    ShaderStages stages,
+    ShaderEntries entries,
+    VkShaderDescriptorSetAndBindingMappingInfoEXT* desc_set_and_binding_mapping_info
+)
 {
     // TODO: uncomment after full slang port
     // assert(stages.size() == entries.size() && stages.size() > 0);
@@ -116,7 +138,14 @@ void PipelineBuilder::set_shaders(std::initializer_list<ShaderProgram*> programs
     auto entry = entries.begin();
     for (auto it = stages.begin(); it != stages.end(); it++)
     {
-        shader_stages.push_back(vkinit::pipeline_shader_stage_create_info(*it, (*program)->module, entries.size() != 0 ? *entry : "main"));
+        VkPipelineShaderStageCreateInfo info{};
+        info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        info.pNext = desc_set_and_binding_mapping_info;
+        info.stage = *it;
+        info.module = (*program)->module;
+        info.pName = entries.size() != 0 ? *entry : "main";
+
+        shader_stages.push_back(info);
 
         // TODO: better naming
         name += (*program)->name + '/';
@@ -259,12 +288,12 @@ void ComputePipelineBuilder::set_descriptor_layouts(std::initializer_list<VkDesc
         descriptor_layouts.push_back(layout);
 }
 
-std::unique_ptr<ShaderPass> ComputePipelineBuilder::create_pipeline(VkDevice device, const ShaderProgram* program, SpecConstants constants)
+std::unique_ptr<ShaderPass> ComputePipelineBuilder::create_pipeline(VkDevice device, const ShaderProgram* program, SpecConstants constants, VkShaderDescriptorSetAndBindingMappingInfoEXT* info)
 {
     std::unique_ptr<ShaderPass> shader = std::make_unique<ShaderPass>();
 
     assert(program != nullptr);
-    set_shaders(program);
+    set_shaders(program, info);
 
     if (constants.size() != 0)
     {
@@ -306,10 +335,12 @@ std::unique_ptr<ShaderPass> ComputePipelineBuilder::create_pipeline(VkDevice dev
 
     vkCreatePipelineLayout(device, &pipeline_layout_info, nullptr, &shader->layout);
 
-    pipeline_layout = shader->layout;
+    // note: no longer need this with descheap
+    // pipeline_layout = shader->layout;
 
     shader->pipeline = build_pipeline(device);
 
+    // TODO: debug mode only?
     if (vkSetDebugUtilsObjectNameEXT)
     {
         VkDebugUtilsObjectNameInfoEXT name_info{};
@@ -327,13 +358,14 @@ std::unique_ptr<ShaderPass> PipelineBuilder::create_pipeline(
     std::initializer_list<ShaderProgram*> program,
     ShaderStages stages,
     ShaderEntries entries,
-    SpecConstants constants /*= {}*/
+    SpecConstants constants /*= {}*/,
+    VkShaderDescriptorSetAndBindingMappingInfoEXT* info
 )
 {
     std::unique_ptr<ShaderPass> shader = std::make_unique<ShaderPass>();
 
     assert(program.size() > 0);
-    set_shaders(program, stages, entries);
+    set_shaders(program, stages, entries, info);
     std::vector<VkSpecializationMapEntry> specialization_entries(constants.size());
 
     if (constants.size() > 0)
@@ -384,7 +416,8 @@ std::unique_ptr<ShaderPass> PipelineBuilder::create_pipeline(
 
     vkCreatePipelineLayout(device, &pipeline_layout_info, nullptr, &shader->layout);
 
-    pipeline_layout = shader->layout;
+    // note: no longer need this with descheap
+    // pipeline_layout = shader->layout;
 
     shader->pipeline = build_pipeline(device);
 

@@ -111,6 +111,7 @@ public:
     VkQueue graphics_queue{};
     uint32_t graphics_queue_family{};
     VkPhysicalDeviceProperties2 device_properties{};
+    VkPhysicalDeviceDescriptorHeapPropertiesEXT desc_heap_properties{};
     VkDevice device{};
 
     Swapchain swapchain{};
@@ -125,13 +126,13 @@ public:
     std::vector<VkSemaphore> render_done_semaphores{};
     DeletionQueue main_deletion_queue{};
 
-    DescriptorAllocatorGrowable global_descriptor_allocator{};
-    VkDescriptorSetLayout scene_descriptor_layout{};
-    VkDescriptorSetLayout bindless_tex_layout{};
-    VkDescriptorSetLayout bindless_sampler_layout{};
-    VkDescriptorSetLayout bindless_image_layout{};
-    VkDescriptorSetLayout rasterizer_ordered_buf_layout{};
-    VkDescriptorSetLayout as_layout{};
+    // DescriptorAllocatorGrowable global_descriptor_allocator{};
+    // VkDescriptorSetLayout scene_descriptor_layout{};
+    // VkDescriptorSetLayout bindless_tex_layout{};
+    // VkDescriptorSetLayout bindless_sampler_layout{};
+    // VkDescriptorSetLayout bindless_image_layout{};
+    // VkDescriptorSetLayout rasterizer_ordered_buf_layout{};
+    // VkDescriptorSetLayout as_layout{};
 
     VmaAllocator allocator{};
 
@@ -182,6 +183,12 @@ public:
     AllocatedBuffer blas_buffer{};
     AllocatedBuffer tlas_buffer{};
     AllocatedBuffer tlas_instance_buffer{};
+
+    AllocatedBuffer resource_heap{};
+    AllocatedBuffer sampler_heap{};
+
+    uint32_t textures_set_offset{};
+    uint32_t images_set_offset{};
 
     VkAccelerationStructureKHR tlas_as{};
 

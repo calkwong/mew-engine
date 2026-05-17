@@ -200,8 +200,8 @@ void VulkanEngine::init(int argc, char** argv)
 
     VK_CHECK(volkInitialize());
 
-    SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "wayland");
-    // SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "x11");
+    // SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "wayland");
+    SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "x11");
     SDL_SetHint(SDL_HINT_APP_ID, "mew-engine");
     SDL_Init(SDL_INIT_VIDEO);
 
@@ -223,13 +223,7 @@ void VulkanEngine::init(int argc, char** argv)
 
     init_sync_structures();
 
-    // note: might need to swap this around once we adopt descriptor heaps
-    init_descriptors();
     init_resources();
-
-    init_shaders();
-
-    init_pipelines();
 
     main_camera.position = glm::vec3(0, 0, 5);
     main_camera.far = static_cast<float>(CVAR_MISC_DRAW_DISTANCE.get());
@@ -243,7 +237,10 @@ void VulkanEngine::init(int argc, char** argv)
 
     create_acceleration_structures();
 
+    init_descriptors(); // after scene creation!
     update_descriptors();
+    init_shaders();
+    init_pipelines();
 
     init_imgui();
 
@@ -377,6 +374,9 @@ void VulkanEngine::cleanup()
         destroy_buffer(allocator, render_scene.prefix_sum_buffer);
         destroy_buffer(allocator, render_scene.spd_counter_buffer);
 
+        destroy_buffer(allocator, resource_heap);
+        destroy_buffer(allocator, sampler_heap);
+
         for (const auto& [_, shader] : shader_passes)
         {
             vkDestroyPipeline(device, shader->pipeline, nullptr);
@@ -427,6 +427,20 @@ void VulkanEngine::execute_baked_gi()
     VkCommandBufferBeginInfo cmd_begin_info = vkinit::command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
     VK_CHECK(vkBeginCommandBuffer(imm_command_buffer, &cmd_begin_info));
 
+    VkBindHeapInfoEXT bind_resource_heap_info{};
+    bind_resource_heap_info.sType = VK_STRUCTURE_TYPE_BIND_HEAP_INFO_EXT;
+    bind_resource_heap_info.heapRange = { get_buffer_address(device, resource_heap.buffer), resource_heap.size };
+    bind_resource_heap_info.reservedRangeOffset = resource_heap.size - desc_heap_properties.minResourceHeapReservedRange;
+    bind_resource_heap_info.reservedRangeSize = desc_heap_properties.minResourceHeapReservedRange;
+    vkCmdBindResourceHeapEXT(imm_command_buffer, &bind_resource_heap_info);
+
+    VkBindHeapInfoEXT bind_sampler_heap_info{};
+    bind_sampler_heap_info.sType = VK_STRUCTURE_TYPE_BIND_HEAP_INFO_EXT;
+    bind_sampler_heap_info.heapRange = { get_buffer_address(device, sampler_heap.buffer), sampler_heap.size };
+    bind_sampler_heap_info.reservedRangeOffset = sampler_heap.size - desc_heap_properties.minSamplerHeapReservedRange;
+    bind_sampler_heap_info.reservedRangeSize = desc_heap_properties.minSamplerHeapReservedRange;
+    vkCmdBindSamplerHeapEXT(imm_command_buffer, &bind_sampler_heap_info);
+
     RenderGraph graph{};
 
     graph.add_pass(
@@ -445,11 +459,15 @@ void VulkanEngine::execute_baked_gi()
             pc.image_id = image_cache.get_hdri();
 
             vkCmdBindPipeline(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
-            vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-            vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
-            vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
-            vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
-            vkCmdPushConstants(imm_command_buffer, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IBLPushConstants), &pc);
+            // vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
+            // vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
+            // vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
+            // vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
+            // vkCmdPushConstants(imm_command_buffer, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IBLPushConstants), &pc);
+            VkPushDataInfoEXT push_data_info{};
+            push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
+            push_data_info.data = { &pc, sizeof(IBLPushConstants) };
+            vkCmdPushDataEXT(imm_command_buffer, &push_data_info);
             auto groupcount_x = get_groupcount(hdri_cubemap.extent.width, WARP_SIZE);
             auto groupcount_y = get_groupcount(hdri_cubemap.extent.height, WARP_SIZE);
             vkCmdDispatch(imm_command_buffer, groupcount_x, groupcount_y, 6);
@@ -486,11 +504,15 @@ void VulkanEngine::execute_baked_gi()
             pc.cubemap_id = static_cast<uint32_t>(scene_data.textures[0]);
 
             vkCmdBindPipeline(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
-            vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-            vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
-            vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
-            vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
-            vkCmdPushConstants(imm_command_buffer, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(SHPushConstants), &pc);
+            // vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
+            // vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
+            // vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
+            // vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
+            // vkCmdPushConstants(imm_command_buffer, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(SHPushConstants), &pc);
+            VkPushDataInfoEXT push_data_info{};
+            push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
+            push_data_info.data = { &pc, sizeof(SHPushConstants) };
+            vkCmdPushDataEXT(imm_command_buffer, &push_data_info);
 
             vkCmdDispatch(imm_command_buffer, 1, 1, 1);
         }
@@ -513,11 +535,15 @@ void VulkanEngine::execute_baked_gi()
             pc.image_id = image_cache.get_irradiance();
 
             vkCmdBindPipeline(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
-            vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-            vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
-            vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
-            vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
-            vkCmdPushConstants(imm_command_buffer, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IBLPushConstants), &pc);
+            // vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
+            // vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
+            // vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
+            // vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
+            // vkCmdPushConstants(imm_command_buffer, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IBLPushConstants), &pc);
+            VkPushDataInfoEXT push_data_info{};
+            push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
+            push_data_info.data = { &pc, sizeof(IBLPushConstants) };
+            vkCmdPushDataEXT(imm_command_buffer, &push_data_info);
             auto groupcount_x = get_groupcount(irradiance_cubemap.extent.width, WARP_SIZE);
             auto groupcount_y = get_groupcount(irradiance_cubemap.extent.height, WARP_SIZE);
             vkCmdDispatch(imm_command_buffer, groupcount_x, groupcount_y, 6);
@@ -537,10 +563,10 @@ void VulkanEngine::execute_baked_gi()
         {
             ShaderPass current_pass = *shader_passes["prefiltered"];
             vkCmdBindPipeline(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
-            vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-            vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
-            vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
-            vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
+            // vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
+            // vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
+            // vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
+            // vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
             IBLPushConstants pc{};
             pc.texture_id = static_cast<uint32_t>(scene_data.textures[0]);
 
@@ -549,7 +575,11 @@ void VulkanEngine::execute_baked_gi()
             {
                 pc.image_id = image_cache.get_prefiltered() + i;
                 pc.roughness = static_cast<float>(i) / static_cast<float>(mips);
-                vkCmdPushConstants(imm_command_buffer, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IBLPushConstants), &pc);
+                // vkCmdPushConstants(imm_command_buffer, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IBLPushConstants), &pc);
+                VkPushDataInfoEXT push_data_info{};
+                push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
+                push_data_info.data = { &pc, sizeof(IBLPushConstants) };
+                vkCmdPushDataEXT(imm_command_buffer, &push_data_info);
                 auto groupcount_x = get_groupcount(prefiltered_envmap.extent.width, WARP_SIZE);
                 auto groupcount_y = get_groupcount(prefiltered_envmap.extent.height, WARP_SIZE);
                 vkCmdDispatch(imm_command_buffer, groupcount_x, groupcount_y, 6);
@@ -572,11 +602,15 @@ void VulkanEngine::execute_baked_gi()
             pc.image_id = image_cache.get_brdf();
 
             vkCmdBindPipeline(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
-            vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-            vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
-            vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
-            vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
-            vkCmdPushConstants(imm_command_buffer, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IBLPushConstants), &pc);
+            // vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
+            // vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
+            // vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
+            // vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
+            // vkCmdPushConstants(imm_command_buffer, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IBLPushConstants), &pc);
+            VkPushDataInfoEXT push_data_info{};
+            push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
+            push_data_info.data = { &pc, sizeof(IBLPushConstants) };
+            vkCmdPushDataEXT(imm_command_buffer, &push_data_info);
             auto groupcount_x = get_groupcount(brdf_lut.extent.width, WARP_SIZE);
             auto groupcount_y = get_groupcount(brdf_lut.extent.height, WARP_SIZE);
             vkCmdDispatch(imm_command_buffer, groupcount_x, groupcount_y, 1);
@@ -604,6 +638,27 @@ void VulkanEngine::draw()
 
     auto* scene_uniform_data = static_cast<SceneData*>(get_current_frame().scene_buffer.info.pMappedData);
     *scene_uniform_data = scene_data;
+
+    auto get_buffer_descriptor = [&](VkDevice device, AllocatedBuffer buffer, VkDescriptorType descriptor_type, void* descriptor, size_t descriptor_size)
+    {
+        VkDeviceAddress addr = get_buffer_address(device, buffer.buffer);
+
+        VkDeviceAddressRangeEXT addr_range{ .address = addr, .size = buffer.size };
+
+        VkResourceDescriptorDataEXT descriptor_data{};
+        descriptor_data.pAddressRange = &addr_range;
+
+        VkResourceDescriptorInfoEXT descriptor_info{};
+        descriptor_info.sType = VK_STRUCTURE_TYPE_RESOURCE_DESCRIPTOR_INFO_EXT;
+        descriptor_info.type = descriptor_type;
+        descriptor_info.data = descriptor_data;
+
+        VkHostAddressRangeEXT host_address_range{ descriptor, descriptor_size };
+        vkWriteResourceDescriptorsEXT(device, 1, &descriptor_info, &host_address_range);
+    };
+
+    void* descriptor = static_cast<uint8_t*>(resource_heap.info.pMappedData) + 0 * desc_heap_properties.imageDescriptorSize;
+    get_buffer_descriptor(device, get_current_frame().scene_buffer, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, descriptor, desc_heap_properties.imageDescriptorSize);
 
     CullData forward_mesh_cull_data{};
     ClusterCullData forward_cluster_cull_data{};
@@ -719,6 +774,20 @@ void VulkanEngine::draw()
     VK_CHECK(vkBeginCommandBuffer(cmd, &cmd_begin_info));
 
     vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 26);
+
+    VkBindHeapInfoEXT bind_resource_heap_info{};
+    bind_resource_heap_info.sType = VK_STRUCTURE_TYPE_BIND_HEAP_INFO_EXT;
+    bind_resource_heap_info.heapRange = { get_buffer_address(device, resource_heap.buffer), resource_heap.size };
+    bind_resource_heap_info.reservedRangeOffset = resource_heap.size - desc_heap_properties.minResourceHeapReservedRange;
+    bind_resource_heap_info.reservedRangeSize = desc_heap_properties.minResourceHeapReservedRange;
+    vkCmdBindResourceHeapEXT(cmd, &bind_resource_heap_info);
+
+    VkBindHeapInfoEXT bind_sampler_heap_info{};
+    bind_sampler_heap_info.sType = VK_STRUCTURE_TYPE_BIND_HEAP_INFO_EXT;
+    bind_sampler_heap_info.heapRange = { get_buffer_address(device, sampler_heap.buffer), sampler_heap.size };
+    bind_sampler_heap_info.reservedRangeOffset = sampler_heap.size - desc_heap_properties.minSamplerHeapReservedRange;
+    bind_sampler_heap_info.reservedRangeSize = desc_heap_properties.minSamplerHeapReservedRange;
+    vkCmdBindSamplerHeapEXT(cmd, &bind_sampler_heap_info);
 
     auto zero_buffers = [&]()
     {
@@ -1208,10 +1277,10 @@ void VulkanEngine::draw()
                 {
                     ShaderPass current_pass = *shader_passes["tonemap"];
                     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
-                    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-                    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
-                    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
-                    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
+                    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
+                    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
+                    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
+                    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
 
                     TonemapPushConstants pc{};
                     pc.luminance_avg_buffer = get_buffer_address(device, render_scene.luminance_avg_buffer.buffer);
@@ -1221,7 +1290,11 @@ void VulkanEngine::draw()
                     // pc.autoexposure = CVAR_MISC_AUTOEXPOSURE.get();
                     pc.tonemap_func = CVAR_MISC_TONEMAP_FUNC.get();
 
-                    vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(TonemapPushConstants), &pc);
+                    // vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(TonemapPushConstants), &pc);
+                    VkPushDataInfoEXT push_data_info{};
+                    push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
+                    push_data_info.data = { &pc, sizeof(TonemapPushConstants) };
+                    vkCmdPushDataEXT(cmd, &push_data_info);
                     auto groupcount_x = get_groupcount(draw_image.extent.width, WARP_SIZE);
                     auto groupcount_y = get_groupcount(draw_image.extent.height, WARP_SIZE);
                     vkCmdDispatch(cmd, groupcount_x, groupcount_y, 1);
@@ -1637,8 +1710,10 @@ void VulkanEngine::init_vulkan()
     acceleration_structure_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR;
     acceleration_structure_features.accelerationStructure = true;
 
-    // use vkbootstrap to select a gpu.
-    // we want a gpu that can write to the SDL surface and supports vulkan 1.3 with the correct features
+    VkPhysicalDeviceDescriptorHeapFeaturesEXT desc_heap_features{};
+    desc_heap_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_HEAP_FEATURES_EXT;
+    desc_heap_features.descriptorHeap = true;
+
     vkb::PhysicalDeviceSelector selector{ vkb_inst };
     vkb::PhysicalDevice physicalDevice =
         selector.set_minimum_version(1, 4)
@@ -1653,10 +1728,12 @@ void VulkanEngine::init_vulkan()
             .add_required_extension("VK_KHR_ray_query")
             .add_required_extension("VK_KHR_deferred_host_operations")
             .add_required_extension("VK_KHR_acceleration_structure")
+            .add_required_extension("VK_EXT_descriptor_heap")
             .add_required_extension_features(mesh_shader_features)
             .add_required_extension_features(fragment_shader_interlock_features)
             .add_required_extension_features(ray_query_features)
             .add_required_extension_features(acceleration_structure_features)
+            .add_required_extension_features(desc_heap_features)
             .set_surface(surface)
             .select()
             .value();
@@ -1698,6 +1775,8 @@ void VulkanEngine::init_vulkan()
     create_swapchain(swapchain, physical_device, device, surface, window_extent.width, window_extent.height);
 
     device_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+    desc_heap_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_HEAP_PROPERTIES_EXT;
+    device_properties.pNext = &desc_heap_properties;
     vkGetPhysicalDeviceProperties2(physical_device, &device_properties);
     assert(device_properties.properties.limits.timestampComputeAndGraphics);
 
@@ -1788,100 +1867,334 @@ void VulkanEngine::init_sync_structures()
 
 void VulkanEngine::init_descriptors()
 {
-    //> building scene descriptor layout
-    {
-        DescriptorLayoutBuilder builder{};
-        builder.add_binding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_COMPUTE_BIT);
-        scene_descriptor_layout = builder.build(device);
-    }
+    // //> building scene descriptor layout
+    // {
+    //     DescriptorLayoutBuilder builder{};
+    //     builder.add_binding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_COMPUTE_BIT);
+    //     scene_descriptor_layout = builder.build(device);
+    // }
 
-    std::vector<DescriptorAllocatorGrowable::PoolSizeRatio> uniform_sizes = {
-        { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 5 },
-    };
+    // std::vector<DescriptorAllocatorGrowable::PoolSizeRatio> uniform_sizes = {
+    //     { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 5 },
+    // };
 
-    DescriptorWriter writer{};
+    // DescriptorWriter writer{};
     for (auto& frame : frames)
     {
-        frame.frame_descriptor_allocator.init(device, 1, uniform_sizes);
+        // frame.frame_descriptor_allocator.init(device, 1, uniform_sizes);
 
-        main_deletion_queue.push_function(
-            [&]()
-            {
-                frame.frame_descriptor_allocator.destroy_pools(device);
-            }
-        );
+        // main_deletion_queue.push_function(
+        //     [&]()
+        //     {
+        //         frame.frame_descriptor_allocator.destroy_pools(device);
+        //     }
+        // );
 
         frame.scene_buffer = create_buffer(
             allocator,
             sizeof(SceneData),
             VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT
+            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
         );
     }
 
-    std::vector<DescriptorAllocatorGrowable::PoolSizeRatio> sizes = {
-        { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
-        { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000 },
-        { VK_DESCRIPTOR_TYPE_SAMPLER, 20 },
-        { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1 },
-        { VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1 }
+    // std::vector<DescriptorAllocatorGrowable::PoolSizeRatio> sizes = {
+    //     { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
+    //     { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000 },
+    //     { VK_DESCRIPTOR_TYPE_SAMPLER, 20 },
+    //     { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1 },
+    //     { VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1 }
+    // };
+
+    // global_descriptor_allocator.init(device, 1, sizes);
+
+    // {
+    //     DescriptorLayoutBuilder builder{};
+    //     builder.add_binding(0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
+    //     builder.bindings[0].descriptorCount = 1000; // UPPER BOUND
+
+    //     std::array<VkDescriptorBindingFlags, 1> flags{};
+    //     flags[0] = VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT | VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT;
+    //     //| VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
+
+    //     VkDescriptorSetLayoutBindingFlagsCreateInfo binding_flags_info{};
+    //     binding_flags_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO;
+    //     binding_flags_info.bindingCount = 1;
+    //     binding_flags_info.pBindingFlags = flags.data();
+
+    //     bindless_tex_layout = builder.build(device, &binding_flags_info);
+
+    //     builder.clear();
+    //     builder.add_binding(0, VK_DESCRIPTOR_TYPE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
+    //     builder.bindings[0].descriptorCount = 10; // validation layer not reporting if this is higher than pool maximum
+
+    //     bindless_sampler_layout = builder.build(device, &binding_flags_info);
+
+    //     builder.clear();
+    //     builder.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT);
+    //     builder.bindings[0].descriptorCount = 1000;
+
+    //     bindless_image_layout = builder.build(device, &binding_flags_info);
+
+    //     builder.clear();
+    //     builder.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT);
+    //     builder.bindings[0].descriptorCount = 1;
+
+    //     rasterizer_ordered_buf_layout = builder.build(device);
+
+    //     builder.clear();
+    //     builder.add_binding(0, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, VK_SHADER_STAGE_COMPUTE_BIT);
+    //     builder.bindings[0].descriptorCount = 1;
+
+    //     as_layout = builder.build(device);
+    // }
+
+    // main_deletion_queue.push_function(
+    //     [&]()
+    //     {
+    //         global_descriptor_allocator.destroy_pools(device);
+    //         vkDestroyDescriptorSetLayout(device, scene_descriptor_layout, nullptr);
+    //         vkDestroyDescriptorSetLayout(device, bindless_tex_layout, nullptr);
+    //         vkDestroyDescriptorSetLayout(device, bindless_sampler_layout, nullptr);
+    //         vkDestroyDescriptorSetLayout(device, bindless_image_layout, nullptr);
+    //         vkDestroyDescriptorSetLayout(device, rasterizer_ordered_buf_layout, nullptr);
+    //         vkDestroyDescriptorSetLayout(device, as_layout, nullptr);
+    //     }
+    // );
+
+    // ----------------------------------------------------------------------------------------------------
+    // desc heap adventures!
+    // ----------------------------------------------------------------------------------------------------
+
+    // TODO: use proper size
+    resource_heap = create_buffer(
+        allocator,
+        // TODO: compute this properly, accounting for image and buffer separately
+        3000 * desc_heap_properties.imageDescriptorSize + desc_heap_properties.minResourceHeapReservedRange,
+        VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
+        VK_BUFFER_USAGE_DESCRIPTOR_HEAP_BIT_EXT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
+    );
+
+    sampler_heap = create_buffer(
+        allocator,
+        7 * desc_heap_properties.samplerDescriptorSize + desc_heap_properties.minSamplerHeapReservedRange,
+        VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
+        VK_BUFFER_USAGE_DESCRIPTOR_HEAP_BIT_EXT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
+    );
+
+    // note: reduction mode hack
+    VkSamplerReductionModeCreateInfo reduction_info{};
+    reduction_info.sType = VK_STRUCTURE_TYPE_SAMPLER_REDUCTION_MODE_CREATE_INFO;
+    reduction_info.reductionMode = VK_SAMPLER_REDUCTION_MODE_MIN;
+    auto get_sample_descriptor = [&](VkDevice device, VkFilter filter, VkSamplerMipmapMode mipmap, VkSamplerAddressMode address, VkSamplerReductionModeCreateInfo* reduce, void* descriptor, size_t descriptor_size)
+    {
+        // border color hack
+        VkSamplerCreateInfo sampler_info = get_sampler_info(filter, address, mipmap, reduce);
+        VkHostAddressRangeEXT host_address_range{ descriptor, descriptor_size };
+        vkWriteSamplerDescriptorsEXT(device, 1, &sampler_info, &host_address_range);
     };
 
-    global_descriptor_allocator.init(device, 1, sizes);
-
+    auto get_image_descriptor =
+        [&](
+            VkDevice device,
+            AllocatedImage image,
+            VkImageViewType view_type,
+            VkImageAspectFlags aspect_flags,
+            VkDescriptorType descriptor_type,
+            void* descriptor,
+            size_t descriptor_size,
+            uint32_t mip = 0
+        )
     {
-        DescriptorLayoutBuilder builder{};
-        builder.add_binding(0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
-        builder.bindings[0].descriptorCount = 1000; // UPPER BOUND
+        VkImageViewCreateInfo info = vkinit::imageview_create_info(image.format, image.image, aspect_flags);
 
-        std::array<VkDescriptorBindingFlags, 1> flags{};
-        flags[0] = VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT | VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT;
-        //| VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
+        info.viewType = view_type;
+        info.subresourceRange.baseMipLevel = mip;
 
-        VkDescriptorSetLayoutBindingFlagsCreateInfo binding_flags_info{};
-        binding_flags_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO;
-        binding_flags_info.bindingCount = 1;
-        binding_flags_info.pBindingFlags = flags.data();
+        VkImageDescriptorInfoEXT img_descriptor_info{};
+        img_descriptor_info.sType = VK_STRUCTURE_TYPE_IMAGE_DESCRIPTOR_INFO_EXT;
+        img_descriptor_info.pView = &info;
+        img_descriptor_info.layout = VK_IMAGE_LAYOUT_GENERAL;
 
-        bindless_tex_layout = builder.build(device, &binding_flags_info);
+        VkResourceDescriptorDataEXT descriptor_data{};
+        descriptor_data.pImage = &img_descriptor_info;
 
-        builder.clear();
-        builder.add_binding(0, VK_DESCRIPTOR_TYPE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
-        builder.bindings[0].descriptorCount = 10; // validation layer not reporting if this is higher than pool maximum
+        VkResourceDescriptorInfoEXT descriptor_info{};
+        descriptor_info.sType = VK_STRUCTURE_TYPE_RESOURCE_DESCRIPTOR_INFO_EXT;
+        descriptor_info.type = descriptor_type;
+        descriptor_info.data = descriptor_data;
 
-        bindless_sampler_layout = builder.build(device, &binding_flags_info);
+        VkHostAddressRangeEXT host_address_range{ descriptor, descriptor_size };
+        vkWriteResourceDescriptorsEXT(device, 1, &descriptor_info, &host_address_range);
+    };
 
-        builder.clear();
-        builder.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT);
-        builder.bindings[0].descriptorCount = 1000;
+    auto get_as_descriptor = [&](VkDevice device, VkAccelerationStructureKHR as, VkDeviceSize as_size, void* descriptor, size_t descriptor_size)
+    {
+        VkAccelerationStructureDeviceAddressInfoKHR address_info{};
+        address_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR;
+        address_info.accelerationStructure = as;
+        VkDeviceAddress addr = vkGetAccelerationStructureDeviceAddressKHR(device, &address_info);
 
-        bindless_image_layout = builder.build(device, &binding_flags_info);
+        VkDeviceAddressRangeEXT addr_range{ .address = addr, .size = as_size };
 
-        builder.clear();
-        builder.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT);
-        builder.bindings[0].descriptorCount = 1;
+        VkResourceDescriptorDataEXT descriptor_data{};
+        descriptor_data.pAddressRange = &addr_range;
 
-        rasterizer_ordered_buf_layout = builder.build(device);
+        VkResourceDescriptorInfoEXT descriptor_info{};
+        descriptor_info.sType = VK_STRUCTURE_TYPE_RESOURCE_DESCRIPTOR_INFO_EXT;
+        descriptor_info.type = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+        descriptor_info.data = descriptor_data;
 
-        builder.clear();
-        builder.add_binding(0, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, VK_SHADER_STAGE_COMPUTE_BIT);
-        builder.bindings[0].descriptorCount = 1;
+        VkHostAddressRangeEXT host_address_range{ descriptor, descriptor_size };
+        vkWriteResourceDescriptorsEXT(device, 1, &descriptor_info, &host_address_range);
+    };
 
-        as_layout = builder.build(device);
+    auto get_buffer_descriptor = [&](VkDevice device, AllocatedBuffer buffer, VkDescriptorType descriptor_type, void* descriptor, size_t descriptor_size)
+    {
+        VkDeviceAddress addr = get_buffer_address(device, buffer.buffer);
+
+        VkDeviceAddressRangeEXT addr_range{ .address = addr, .size = buffer.size };
+
+        VkResourceDescriptorDataEXT descriptor_data{};
+        descriptor_data.pAddressRange = &addr_range;
+
+        VkResourceDescriptorInfoEXT descriptor_info{};
+        descriptor_info.sType = VK_STRUCTURE_TYPE_RESOURCE_DESCRIPTOR_INFO_EXT;
+        descriptor_info.type = descriptor_type;
+        descriptor_info.data = descriptor_data;
+
+        VkHostAddressRangeEXT host_address_range{ descriptor, descriptor_size };
+        vkWriteResourceDescriptorsEXT(device, 1, &descriptor_info, &host_address_range);
+    };
+
+    uint32_t resource_heap_offset = 0;
+    // buffer
+    // TODO: use bufferDescriptorSize; using image now for simplicity
+    auto buffer_descriptor_size = desc_heap_properties.imageDescriptorSize;
+
+    void* descriptor{};
+    descriptor = static_cast<uint8_t*>(resource_heap.info.pMappedData) + 0 * buffer_descriptor_size + resource_heap_offset;
+    get_buffer_descriptor(device, frames[0].scene_buffer, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, descriptor, buffer_descriptor_size);
+    descriptor = static_cast<uint8_t*>(resource_heap.info.pMappedData) + 1 * buffer_descriptor_size + resource_heap_offset;
+    get_buffer_descriptor(device, render_scene.oit_buffer, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, descriptor, buffer_descriptor_size);
+    descriptor = static_cast<uint8_t*>(resource_heap.info.pMappedData) + 2 * buffer_descriptor_size + resource_heap_offset;
+    get_as_descriptor(device, tlas_as, 0, descriptor, buffer_descriptor_size);
+    auto buffer_count = 3;
+
+    resource_heap_offset += buffer_descriptor_size * buffer_count;
+    textures_set_offset = resource_heap_offset;
+
+    // textures
+    auto image_descriptor_size = desc_heap_properties.imageDescriptorSize;
+    auto sampled_texture_count = loaded_scene->images.size();
+    fmt::println("sampled_texture_count: {}", sampled_texture_count);
+
+    auto render_target_count = texture_cache.image_infos.size() - sampled_texture_count;
+
+    struct DescriptorImageInfo
+    {
+        AllocatedImage image{};
+        VkImageViewType view_type{};
+        VkImageAspectFlags aspect_flag{};
+        uint32_t mip = 0;
+    };
+
+    std::vector<DescriptorImageInfo> sampled_images = {
+        { draw_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT },
+        { visibility_buffer, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT },
+        { accumulation_buffers[0], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT },
+        { accumulation_buffers[1], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT },
+        { gbuffers[0], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT },
+        { gbuffers[1], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT },
+        { gbuffers[2], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT },
+        { depth_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_DEPTH_BIT },
+        { cascade_data[0].shadow_map, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_DEPTH_BIT },
+        { cascade_data[1].shadow_map, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_DEPTH_BIT },
+        { cascade_data[2].shadow_map, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_DEPTH_BIT },
+        { cascade_data[3].shadow_map, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_DEPTH_BIT },
+        { depth_pyramid, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_COLOR_BIT },
+        { hdri, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT },
+        { hdri_cubemap, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT },
+        { irradiance_cubemap, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT },
+        { prefiltered_envmap, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT },
+        { brdf_lut, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT },
+    };
+
+    assert(render_target_count == sampled_images.size());
+
+    for (size_t i = 0; i < render_target_count; ++i)
+    {
+        void* descriptor = static_cast<uint8_t*>(resource_heap.info.pMappedData) + i * image_descriptor_size + resource_heap_offset;
+        get_image_descriptor(device, sampled_images[i].image, sampled_images[i].view_type, sampled_images[i].aspect_flag, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, descriptor, image_descriptor_size);
+    }
+    resource_heap_offset += image_descriptor_size * render_target_count;
+
+    for (size_t i = 0; i < sampled_texture_count; ++i)
+    {
+        AllocatedImage& image = loaded_scene->images[i];
+        void* descriptor = static_cast<uint8_t*>(resource_heap.info.pMappedData) + i * image_descriptor_size + resource_heap_offset;
+        get_image_descriptor(device, image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, descriptor, image_descriptor_size);
+    }
+    resource_heap_offset += image_descriptor_size * sampled_texture_count;
+    images_set_offset = resource_heap_offset;
+
+    auto prefiltered_mips = static_cast<uint32_t>(std::floor(std::log2(static_cast<float>(std::max(prefiltered_envmap.extent.width, prefiltered_envmap.extent.height))))) + 1;
+
+    std::vector<DescriptorImageInfo> rw_images = {
+        { draw_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT },
+        { accumulation_buffers[0], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT },
+        { accumulation_buffers[1], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT },
+
+        { depth_pyramid, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_COLOR_BIT, 0 },
+        { depth_pyramid, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_COLOR_BIT, 1 },
+        { depth_pyramid, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_COLOR_BIT, 2 },
+        { depth_pyramid, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_COLOR_BIT, 3 },
+        { depth_pyramid, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_COLOR_BIT, 4 },
+        { depth_pyramid, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_COLOR_BIT, 5 },
+        { depth_pyramid, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_COLOR_BIT, 6 },
+        { depth_pyramid, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_COLOR_BIT, 7 },
+        { depth_pyramid, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_COLOR_BIT, 8 },
+        { depth_pyramid, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_COLOR_BIT, 9 },
+        { depth_pyramid, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_COLOR_BIT, 10 },
+
+        { hdri_cubemap, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT },
+        { irradiance_cubemap, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT },
+
+        { prefiltered_envmap, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT, 0 },
+        { prefiltered_envmap, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT, 1 },
+        { prefiltered_envmap, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT, 2 },
+        { prefiltered_envmap, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT, 3 },
+        { prefiltered_envmap, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT, 4 },
+        { prefiltered_envmap, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT, 5 },
+        { prefiltered_envmap, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT, 6 },
+        { prefiltered_envmap, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT, 7 },
+        { prefiltered_envmap, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT, 8 },
+        { prefiltered_envmap, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT, 9 },
+
+        { brdf_lut, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT }
+    };
+
+    // images
+    auto image_count = image_cache.image_infos.size();
+    for (size_t i = 0; i < image_count; ++i)
+    {
+        auto& info = rw_images[i];
+        void* descriptor = static_cast<uint8_t*>(resource_heap.info.pMappedData) + i * image_descriptor_size + resource_heap_offset;
+        get_image_descriptor(device, info.image, info.view_type, info.aspect_flag, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, descriptor, image_descriptor_size, info.mip);
     }
 
-    main_deletion_queue.push_function(
-        [&]()
-        {
-            global_descriptor_allocator.destroy_pools(device);
-            vkDestroyDescriptorSetLayout(device, scene_descriptor_layout, nullptr);
-            vkDestroyDescriptorSetLayout(device, bindless_tex_layout, nullptr);
-            vkDestroyDescriptorSetLayout(device, bindless_sampler_layout, nullptr);
-            vkDestroyDescriptorSetLayout(device, bindless_image_layout, nullptr);
-            vkDestroyDescriptorSetLayout(device, rasterizer_ordered_buf_layout, nullptr);
-            vkDestroyDescriptorSetLayout(device, as_layout, nullptr);
-        }
-    );
+    // samplers
+    const uint32_t sampler_count = 7;
+    {
+        auto sampler_descriptor_size = desc_heap_properties.samplerDescriptorSize;
+        get_sample_descriptor(device, VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_LINEAR, VK_SAMPLER_ADDRESS_MODE_REPEAT, nullptr, static_cast<uint8_t*>(sampler_heap.info.pMappedData) + 0 * sampler_descriptor_size, sampler_descriptor_size);
+        get_sample_descriptor(device, VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_LINEAR, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, nullptr, static_cast<uint8_t*>(sampler_heap.info.pMappedData) + 1 * sampler_descriptor_size, sampler_descriptor_size);
+        get_sample_descriptor(device, VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_LINEAR, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, nullptr, static_cast<uint8_t*>(sampler_heap.info.pMappedData) + 2 * sampler_descriptor_size, sampler_descriptor_size);
+        get_sample_descriptor(device, VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, &reduction_info, static_cast<uint8_t*>(sampler_heap.info.pMappedData) + 3 * sampler_descriptor_size, sampler_descriptor_size);
+        get_sample_descriptor(device, VK_FILTER_NEAREST, VK_SAMPLER_MIPMAP_MODE_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER, nullptr, static_cast<uint8_t*>(sampler_heap.info.pMappedData) + 4 * sampler_descriptor_size, sampler_descriptor_size);
+        get_sample_descriptor(device, VK_FILTER_NEAREST, VK_SAMPLER_MIPMAP_MODE_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, nullptr, static_cast<uint8_t*>(sampler_heap.info.pMappedData) + 5 * sampler_descriptor_size, sampler_descriptor_size);
+        get_sample_descriptor(device, VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_LINEAR, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, nullptr, static_cast<uint8_t*>(sampler_heap.info.pMappedData) + 6 * sampler_descriptor_size, sampler_descriptor_size);
+    }
 }
 
 void VulkanEngine::init_shaders()
@@ -1916,34 +2229,133 @@ void VulkanEngine::init_shaders()
 
 void VulkanEngine::init_pipelines()
 {
-    std::vector<VkDescriptorSetLayout> descriptor_layouts = { scene_descriptor_layout, bindless_image_layout, bindless_tex_layout, bindless_sampler_layout };
+    std::vector<VkDescriptorSetAndBindingMappingEXT> mappings{};
+
+    // TODO: remove magic number
+    // TODO: use proper buffer descriptor size
+    auto buffer_count = 3;
+    auto buffer_descriptor_size = desc_heap_properties.imageDescriptorSize;
+    for (size_t i = 0; i < buffer_count; ++i)
+    {
+        VkDescriptorSetAndBindingMappingEXT desc_set_and_binding_mapping{};
+        desc_set_and_binding_mapping.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT;
+        desc_set_and_binding_mapping.descriptorSet = 0;
+        desc_set_and_binding_mapping.firstBinding = i;
+        desc_set_and_binding_mapping.bindingCount = 1;
+        desc_set_and_binding_mapping.resourceMask = VK_SPIRV_RESOURCE_TYPE_ALL_EXT;
+        desc_set_and_binding_mapping.source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_CONSTANT_OFFSET_EXT;
+
+        VkDescriptorMappingSourceConstantOffsetEXT constant_offset{};
+        constant_offset.heapOffset = i * buffer_descriptor_size;
+        constant_offset.heapArrayStride = buffer_descriptor_size;
+
+        VkDescriptorMappingSourceDataEXT source_data{};
+        source_data.constantOffset = constant_offset;
+        desc_set_and_binding_mapping.sourceData = source_data;
+        mappings.push_back(desc_set_and_binding_mapping);
+    }
+
+    // set 1 - bindless sampled textures
+    {
+        VkDescriptorSetAndBindingMappingEXT desc_set_and_binding_mapping{};
+        desc_set_and_binding_mapping.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT;
+        desc_set_and_binding_mapping.descriptorSet = 1;
+        desc_set_and_binding_mapping.firstBinding = 0;
+        desc_set_and_binding_mapping.bindingCount = 1;
+        desc_set_and_binding_mapping.resourceMask = VK_SPIRV_RESOURCE_TYPE_ALL_EXT;
+        desc_set_and_binding_mapping.source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_CONSTANT_OFFSET_EXT;
+
+        VkDescriptorMappingSourceConstantOffsetEXT constant_offset{};
+        constant_offset.heapOffset = textures_set_offset;
+        constant_offset.heapArrayStride = desc_heap_properties.imageDescriptorSize;
+
+        VkDescriptorMappingSourceDataEXT source_data{};
+        source_data.constantOffset = constant_offset;
+
+        desc_set_and_binding_mapping.sourceData = source_data;
+
+        mappings.push_back(desc_set_and_binding_mapping);
+    }
+
+    // set 2 - bindless rw images
+    {
+        VkDescriptorSetAndBindingMappingEXT desc_set_and_binding_mapping{};
+        desc_set_and_binding_mapping.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT;
+        desc_set_and_binding_mapping.descriptorSet = 2;
+        desc_set_and_binding_mapping.firstBinding = 0;
+        desc_set_and_binding_mapping.bindingCount = 1;
+        desc_set_and_binding_mapping.resourceMask = VK_SPIRV_RESOURCE_TYPE_ALL_EXT;
+        desc_set_and_binding_mapping.source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_CONSTANT_OFFSET_EXT;
+
+        VkDescriptorMappingSourceConstantOffsetEXT constant_offset{};
+        constant_offset.heapOffset = images_set_offset;
+        constant_offset.heapArrayStride = desc_heap_properties.imageDescriptorSize;
+
+        VkDescriptorMappingSourceDataEXT source_data{};
+        source_data.constantOffset = constant_offset;
+
+        desc_set_and_binding_mapping.sourceData = source_data;
+
+        mappings.push_back(desc_set_and_binding_mapping);
+    }
+
+    // set 3 - samplers
+    {
+        VkDescriptorSetAndBindingMappingEXT desc_set_and_binding_mapping{};
+        desc_set_and_binding_mapping.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT;
+        desc_set_and_binding_mapping.descriptorSet = 3;
+        desc_set_and_binding_mapping.firstBinding = 0;
+        desc_set_and_binding_mapping.bindingCount = 1;
+        desc_set_and_binding_mapping.resourceMask = VK_SPIRV_RESOURCE_TYPE_ALL_EXT;
+        desc_set_and_binding_mapping.source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_CONSTANT_OFFSET_EXT;
+
+        VkDescriptorMappingSourceConstantOffsetEXT constant_offset{};
+        constant_offset.heapOffset = 0;
+        constant_offset.heapArrayStride = desc_heap_properties.samplerDescriptorSize;
+
+        VkDescriptorMappingSourceDataEXT source_data{};
+        source_data.constantOffset = constant_offset;
+
+        desc_set_and_binding_mapping.sourceData = source_data;
+
+        mappings.push_back(desc_set_and_binding_mapping);
+    }
+
+    VkShaderDescriptorSetAndBindingMappingInfoEXT desc_set_and_binding_mapping_info{};
+    desc_set_and_binding_mapping_info.sType = VK_STRUCTURE_TYPE_SHADER_DESCRIPTOR_SET_AND_BINDING_MAPPING_INFO_EXT;
+    desc_set_and_binding_mapping_info.mappingCount = mappings.size();
+    desc_set_and_binding_mapping_info.pMappings = mappings.data();
+
+    // ---------------
+
+    // std::vector<VkDescriptorSetLayout> descriptor_layouts = { scene_descriptor_layout, bindless_image_layout, bindless_tex_layout, bindless_sampler_layout };
 
     ComputePipelineBuilder compute_builder{};
-    compute_builder.set_descriptor_layouts({ scene_descriptor_layout, bindless_image_layout, bindless_tex_layout, bindless_sampler_layout });
+    // compute_builder.set_descriptor_layouts({ scene_descriptor_layout, bindless_image_layout, bindless_tex_layout, bindless_sampler_layout });
 
     PipelineBuilder builder{};
-    builder.set_descriptor_layouts({ scene_descriptor_layout, bindless_image_layout, bindless_tex_layout, bindless_sampler_layout });
+    // builder.set_descriptor_layouts({ scene_descriptor_layout, bindless_image_layout, bindless_tex_layout, bindless_sampler_layout });
 
-    shader_passes["cluster_grid"] = compute_builder.create_pipeline(device, shader_cache["cluster_grid.slang"]);
-    shader_passes["light_culling"] = compute_builder.create_pipeline(device, shader_cache["light_culling.slang"]);
-    shader_passes["hiz"] = compute_builder.create_pipeline(device, shader_cache["hiz.slang"]);
-    shader_passes["mesh_cull"] = compute_builder.create_pipeline(device, shader_cache["mesh_cull.slang"]);
-    shader_passes["meshlet_cull"] = compute_builder.create_pipeline(device, shader_cache["meshlet_cull.slang"]); // TODO: check if this is also culldata
-    shader_passes["equirectangular_to_cubemap"] = compute_builder.create_pipeline(device, shader_cache["equirectangular_to_cubemap.slang"]);
-    shader_passes["spherical_harmonics"] = compute_builder.create_pipeline(device, shader_cache["spherical_harmonics.slang"]);
-    shader_passes["irradiance"] = compute_builder.create_pipeline(device, shader_cache["irradiance.slang"]);
-    shader_passes["prefiltered"] = compute_builder.create_pipeline(device, shader_cache["prefiltered.slang"]);
-    shader_passes["brdf"] = compute_builder.create_pipeline(device, shader_cache["brdf.slang"]);
-    shader_passes["luminance_histogram"] = compute_builder.create_pipeline(device, shader_cache["luminance_histogram.slang"]);
-    shader_passes["luminance_avg"] = compute_builder.create_pipeline(device, shader_cache["luminance_avg.slang"]);
-    shader_passes["tonemap"] = compute_builder.create_pipeline(device, shader_cache["tonemap.slang"]);
-    shader_passes["shadow_cull"] = compute_builder.create_pipeline(device, shader_cache["shadow_cull.slang"]);
-    shader_passes["compact_dispatch"] = compute_builder.create_pipeline(device, shader_cache["compact_dispatch.slang"]);
-    shader_passes["resolve_taa"] = compute_builder.create_pipeline(device, shader_cache["resolve_taa.slang"]);
-    shader_passes["hiz_spd"] = compute_builder.create_pipeline(device, shader_cache["hiz_spd.slang"]);
-    compute_builder.set_descriptor_layouts({ scene_descriptor_layout, bindless_image_layout, bindless_tex_layout, bindless_sampler_layout, as_layout });
-    shader_passes["resolve_gbuffer"] = compute_builder.create_pipeline(device, shader_cache["resolve_gbuffer.slang"]);
-    shader_passes["resolve_vbuffer"] = compute_builder.create_pipeline(device, shader_cache["resolve_vbuffer.slang"]);
+    shader_passes["cluster_grid"] = compute_builder.create_pipeline(device, shader_cache["cluster_grid.slang"], {}, &desc_set_and_binding_mapping_info);
+    shader_passes["light_culling"] = compute_builder.create_pipeline(device, shader_cache["light_culling.slang"], {}, &desc_set_and_binding_mapping_info);
+    shader_passes["hiz"] = compute_builder.create_pipeline(device, shader_cache["hiz.slang"], {}, &desc_set_and_binding_mapping_info);
+    shader_passes["mesh_cull"] = compute_builder.create_pipeline(device, shader_cache["mesh_cull.slang"], {}, &desc_set_and_binding_mapping_info);
+    shader_passes["meshlet_cull"] = compute_builder.create_pipeline(device, shader_cache["meshlet_cull.slang"], {}, &desc_set_and_binding_mapping_info);
+    shader_passes["equirectangular_to_cubemap"] = compute_builder.create_pipeline(device, shader_cache["equirectangular_to_cubemap.slang"], {}, &desc_set_and_binding_mapping_info);
+    shader_passes["spherical_harmonics"] = compute_builder.create_pipeline(device, shader_cache["spherical_harmonics.slang"], {}, &desc_set_and_binding_mapping_info);
+    shader_passes["irradiance"] = compute_builder.create_pipeline(device, shader_cache["irradiance.slang"], {}, &desc_set_and_binding_mapping_info);
+    shader_passes["prefiltered"] = compute_builder.create_pipeline(device, shader_cache["prefiltered.slang"], {}, &desc_set_and_binding_mapping_info);
+    shader_passes["brdf"] = compute_builder.create_pipeline(device, shader_cache["brdf.slang"], {}, &desc_set_and_binding_mapping_info);
+    shader_passes["luminance_histogram"] = compute_builder.create_pipeline(device, shader_cache["luminance_histogram.slang"], {}, &desc_set_and_binding_mapping_info);
+    shader_passes["luminance_avg"] = compute_builder.create_pipeline(device, shader_cache["luminance_avg.slang"], {}, &desc_set_and_binding_mapping_info);
+    shader_passes["tonemap"] = compute_builder.create_pipeline(device, shader_cache["tonemap.slang"], {}, &desc_set_and_binding_mapping_info);
+    shader_passes["shadow_cull"] = compute_builder.create_pipeline(device, shader_cache["shadow_cull.slang"], {}, &desc_set_and_binding_mapping_info);
+    shader_passes["compact_dispatch"] = compute_builder.create_pipeline(device, shader_cache["compact_dispatch.slang"], {}, &desc_set_and_binding_mapping_info);
+    shader_passes["resolve_taa"] = compute_builder.create_pipeline(device, shader_cache["resolve_taa.slang"], {}, &desc_set_and_binding_mapping_info);
+    shader_passes["hiz_spd"] = compute_builder.create_pipeline(device, shader_cache["hiz_spd.slang"], {}, &desc_set_and_binding_mapping_info);
+    // compute_builder.set_descriptor_layouts({ scene_descriptor_layout, bindless_image_layout, bindless_tex_layout, bindless_sampler_layout, as_layout });
+    shader_passes["resolve_gbuffer"] = compute_builder.create_pipeline(device, shader_cache["resolve_gbuffer.slang"], {}, &desc_set_and_binding_mapping_info);
+    shader_passes["resolve_vbuffer"] = compute_builder.create_pipeline(device, shader_cache["resolve_vbuffer.slang"], {}, &desc_set_and_binding_mapping_info);
     // shader_passes["ray_tracing"] = compute_builder.create_pipeline(device, shader_cache["rt.slang"]);
 
     // mrt
@@ -1973,7 +2385,8 @@ void VulkanEngine::init_pipelines()
         { shader_cache["gbuffer_vert.slang"] },
         { VK_SHADER_STAGE_VERTEX_BIT, VK_SHADER_STAGE_FRAGMENT_BIT },
         { "vs_main", "ps_main" },
-        { 1 }
+        { 1 },
+        &desc_set_and_binding_mapping_info
     );
     builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
     shader_passes["geometry_vert_mask"] = builder.create_pipeline(
@@ -1981,7 +2394,8 @@ void VulkanEngine::init_pipelines()
         { shader_cache["gbuffer_vert.slang"] },
         { VK_SHADER_STAGE_VERTEX_BIT, VK_SHADER_STAGE_FRAGMENT_BIT },
         { "vs_main", "ps_main" },
-        { 0 }
+        { 0 },
+        &desc_set_and_binding_mapping_info
     );
 
     builder.set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
@@ -1990,7 +2404,8 @@ void VulkanEngine::init_pipelines()
         { shader_cache["gbuffer_mesh.slang"] },
         { VK_SHADER_STAGE_MESH_BIT_EXT, VK_SHADER_STAGE_FRAGMENT_BIT },
         { "mesh_main", "ps_main" },
-        { 1 }
+        { 1 },
+        &desc_set_and_binding_mapping_info
     );
     builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
     shader_passes["geometry_mesh_mask"] = builder.create_pipeline(
@@ -1998,7 +2413,8 @@ void VulkanEngine::init_pipelines()
         { shader_cache["gbuffer_mesh.slang"] },
         { VK_SHADER_STAGE_MESH_BIT_EXT, VK_SHADER_STAGE_FRAGMENT_BIT },
         { "mesh_main", "ps_main" },
-        { 0 }
+        { 0 },
+        &desc_set_and_binding_mapping_info
     );
 
     color_attachment_formats.clear();
@@ -2014,7 +2430,8 @@ void VulkanEngine::init_pipelines()
         { shader_cache["vbuffer.slang"] },
         { VK_SHADER_STAGE_MESH_BIT_EXT, VK_SHADER_STAGE_FRAGMENT_BIT },
         { "mesh_main", "ps_main" },
-        { 1 }
+        { 1 },
+        &desc_set_and_binding_mapping_info
     );
     builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
     shader_passes["visibility_mesh_mask"] = builder.create_pipeline(
@@ -2022,7 +2439,8 @@ void VulkanEngine::init_pipelines()
         { shader_cache["vbuffer.slang"] },
         { VK_SHADER_STAGE_MESH_BIT_EXT, VK_SHADER_STAGE_FRAGMENT_BIT },
         { "mesh_main", "ps_main" },
-        { 0 }
+        { 0 },
+        &desc_set_and_binding_mapping_info
     );
 
     // single render target
@@ -2040,7 +2458,9 @@ void VulkanEngine::init_pipelines()
         device,
         { shader_cache["depth.slang"] },
         { VK_SHADER_STAGE_VERTEX_BIT },
-        { "vs_main" }
+        { "vs_main" },
+        {},
+        &desc_set_and_binding_mapping_info
     );
     builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
     shader_passes["depth_mask"] = builder.create_pipeline(
@@ -2048,7 +2468,8 @@ void VulkanEngine::init_pipelines()
         { shader_cache["depth.slang"] },
         { VK_SHADER_STAGE_VERTEX_BIT, VK_SHADER_STAGE_FRAGMENT_BIT },
         { "vs_main", "ps_main" },
-        { 0 }
+        { 0 },
+        &desc_set_and_binding_mapping_info
     );
     builder.dynamic_state.pop_back(); // reset
     builder.rasterization.depthClampEnable = VK_FALSE; // reset
@@ -2059,18 +2480,22 @@ void VulkanEngine::init_pipelines()
     builder.set_color_attachment_format(color_attachment_formats);
     builder.set_depth_format(depth_image.format);
     builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-    builder.set_descriptor_layouts({ scene_descriptor_layout, bindless_image_layout, bindless_tex_layout, bindless_sampler_layout, rasterizer_ordered_buf_layout });
+    // builder.set_descriptor_layouts({ scene_descriptor_layout, bindless_image_layout, bindless_tex_layout, bindless_sampler_layout, rasterizer_ordered_buf_layout });
     shader_passes["mlab_vert"] = builder.create_pipeline(
         device,
         { shader_cache["mlab_vert.slang"] },
         { VK_SHADER_STAGE_VERTEX_BIT, VK_SHADER_STAGE_FRAGMENT_BIT },
-        { "vs_main", "ps_main" }
+        { "vs_main", "ps_main" },
+        {},
+        &desc_set_and_binding_mapping_info
     );
     shader_passes["mlab_mesh"] = builder.create_pipeline(
         device,
         { shader_cache["mlab_mesh.slang"] },
         { VK_SHADER_STAGE_MESH_BIT_EXT, VK_SHADER_STAGE_FRAGMENT_BIT },
-        { "mesh_main", "ps_main" }
+        { "mesh_main", "ps_main" },
+        {},
+        &desc_set_and_binding_mapping_info
     );
 }
 
@@ -2154,7 +2579,7 @@ void VulkanEngine::init_resources()
     for (size_t i = 0; i < sampler_infos.size(); i++)
     {
         VkSampler sampler{};
-        vkCreateSampler(device, &sampler_infos[i], nullptr, &sampler);
+        vkCreateSampler(device, &sampler_infos[i], nullptr, &sampler); // 0 linear
         sampler_cache.add_sampler(sampler);
     }
 
@@ -2249,7 +2674,7 @@ void VulkanEngine::init_resources()
     }
 
     light_buffer = upload_buffer(this, allocator, light_data.data(), MAX_POINT_LIGHTS * sizeof(PointLight));
-    fmt::println("light_buffer: {}mb", size_in_bytes(light_buffer.info.size));
+    // fmt::println("light_buffer: {}mb", size_in_bytes(light_buffer.info.size));
 
     const uint32_t total_clusters = CLUSTER_X * CLUSTER_Y * CLUSTER_DEPTH_SLICES;
 
@@ -2414,11 +2839,11 @@ void VulkanEngine::init_renderables(int argc, char** argv)
     render_scene.meshlet_indices = upload_buffer(this, allocator, loaded_scene->meshlet_indices.data(), loaded_scene->meshlet_indices.size() * sizeof(uint32_t));
     render_scene.meshlet_buffer = upload_buffer(this, allocator, loaded_scene->meshlets.data(), loaded_scene->meshlets.size() * sizeof(Meshlet));
     render_scene.material_buffer = upload_buffer(this, allocator, loaded_scene->materials.data(), loaded_scene->materials.size() * sizeof(MaterialData));
-    fmt::println("vertex_buffer: {}mb", size_in_bytes(render_scene.vertex_buffer.info.size));
-    fmt::println("index_buffer: {}mb", size_in_bytes(render_scene.index_buffer.info.size));
-    fmt::println("meslet_indices: {}mb", size_in_bytes(render_scene.meshlet_indices.info.size));
-    fmt::println("meshlet_buffer: {}mb", size_in_bytes(render_scene.meshlet_buffer.info.size));
-    fmt::println("material_buffer: {}mb", size_in_bytes(render_scene.material_buffer.info.size));
+    // fmt::println("vertex_buffer: {}mb", size_in_bytes(render_scene.vertex_buffer.info.size));
+    // fmt::println("index_buffer: {}mb", size_in_bytes(render_scene.index_buffer.info.size));
+    // fmt::println("meslet_indices: {}mb", size_in_bytes(render_scene.meshlet_indices.info.size));
+    // fmt::println("meshlet_buffer: {}mb", size_in_bytes(render_scene.meshlet_buffer.info.size));
+    // fmt::println("material_buffer: {}mb", size_in_bytes(render_scene.material_buffer.info.size));
 
     for (const auto& n : loaded_scene->top_nodes)
     {
@@ -2467,79 +2892,79 @@ void VulkanEngine::init_renderables(int argc, char** argv)
 
 void VulkanEngine::update_descriptors()
 {
-    std::array<uint32_t, 1> variable_desc_counts = {
-        static_cast<uint32_t>(texture_cache.image_infos.size())
-    };
+    // std::array<uint32_t, 1> variable_desc_counts = {
+    //     static_cast<uint32_t>(texture_cache.image_infos.size())
+    // };
 
-    VkDescriptorSetVariableDescriptorCountAllocateInfo variable_desc_info{};
-    variable_desc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_VARIABLE_DESCRIPTOR_COUNT_ALLOCATE_INFO;
-    variable_desc_info.pDescriptorCounts = variable_desc_counts.data();
-    variable_desc_info.descriptorSetCount = static_cast<uint32_t>(variable_desc_counts.size());
+    // VkDescriptorSetVariableDescriptorCountAllocateInfo variable_desc_info{};
+    // variable_desc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_VARIABLE_DESCRIPTOR_COUNT_ALLOCATE_INFO;
+    // variable_desc_info.pDescriptorCounts = variable_desc_counts.data();
+    // variable_desc_info.descriptorSetCount = static_cast<uint32_t>(variable_desc_counts.size());
 
-    bindless_tex_descriptor = global_descriptor_allocator.allocate(device, bindless_tex_layout, &variable_desc_info);
-    variable_desc_counts[0] = static_cast<uint32_t>(sampler_cache.image_infos.size());
-    bindless_sampler_descriptor = global_descriptor_allocator.allocate(device, bindless_sampler_layout, &variable_desc_info);
-    variable_desc_counts[0] = static_cast<uint32_t>(image_cache.image_infos.size());
-    bindless_image_descriptor = global_descriptor_allocator.allocate(device, bindless_image_layout, &variable_desc_info);
+    // bindless_tex_descriptor = global_descriptor_allocator.allocate(device, bindless_tex_layout, &variable_desc_info);
+    // variable_desc_counts[0] = static_cast<uint32_t>(sampler_cache.image_infos.size());
+    // bindless_sampler_descriptor = global_descriptor_allocator.allocate(device, bindless_sampler_layout, &variable_desc_info);
+    // variable_desc_counts[0] = static_cast<uint32_t>(image_cache.image_infos.size());
+    // bindless_image_descriptor = global_descriptor_allocator.allocate(device, bindless_image_layout, &variable_desc_info);
 
-    std::vector<VkWriteDescriptorSet> writes{};
+    // std::vector<VkWriteDescriptorSet> writes{};
 
-    VkWriteDescriptorSet write{};
-    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    write.dstSet = bindless_tex_descriptor;
-    write.dstBinding = 0;
-    write.descriptorCount = static_cast<uint32_t>(texture_cache.image_infos.size()); // validation layer does not report if smaller count than req used
-    write.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-    write.pImageInfo = texture_cache.image_infos.data();
-    writes.push_back(write);
+    // VkWriteDescriptorSet write{};
+    // write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    // write.dstSet = bindless_tex_descriptor;
+    // write.dstBinding = 0;
+    // write.descriptorCount = static_cast<uint32_t>(texture_cache.image_infos.size()); // validation layer does not report if smaller count than req used
+    // write.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+    // write.pImageInfo = texture_cache.image_infos.data();
+    // writes.push_back(write);
 
-    write.dstSet = bindless_sampler_descriptor;
-    write.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
-    write.pImageInfo = sampler_cache.image_infos.data();
-    write.descriptorCount = static_cast<uint32_t>(sampler_cache.image_infos.size());
-    writes.push_back(write);
+    // write.dstSet = bindless_sampler_descriptor;
+    // write.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+    // write.pImageInfo = sampler_cache.image_infos.data();
+    // write.descriptorCount = static_cast<uint32_t>(sampler_cache.image_infos.size());
+    // writes.push_back(write);
 
-    write.dstSet = bindless_image_descriptor;
-    write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    write.pImageInfo = image_cache.image_infos.data();
-    write.descriptorCount = static_cast<uint32_t>(image_cache.image_infos.size());
-    writes.push_back(write);
+    // write.dstSet = bindless_image_descriptor;
+    // write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    // write.pImageInfo = image_cache.image_infos.data();
+    // write.descriptorCount = static_cast<uint32_t>(image_cache.image_infos.size());
+    // writes.push_back(write);
 
-    vkUpdateDescriptorSets(device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+    // vkUpdateDescriptorSets(device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
 
-    rasterizer_ordered_buf_descriptor = global_descriptor_allocator.allocate(device, rasterizer_ordered_buf_layout);
+    // rasterizer_ordered_buf_descriptor = global_descriptor_allocator.allocate(device, rasterizer_ordered_buf_layout);
 
-    DescriptorWriter writer{};
-    writer.clear();
-    writer.write_buffer(0, render_scene.oit_buffer.buffer, VK_WHOLE_SIZE, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-    writer.update_set(device, rasterizer_ordered_buf_descriptor);
+    // DescriptorWriter writer{};
+    // writer.clear();
+    // writer.write_buffer(0, render_scene.oit_buffer.buffer, VK_WHOLE_SIZE, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+    // writer.update_set(device, rasterizer_ordered_buf_descriptor);
 
-    as_descriptor = global_descriptor_allocator.allocate(device, as_layout);
+    // as_descriptor = global_descriptor_allocator.allocate(device, as_layout);
 
-    VkWriteDescriptorSetAccelerationStructureKHR as_info{};
-    as_info.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR;
-    as_info.accelerationStructureCount = 1;
-    as_info.pAccelerationStructures = &tlas_as;
+    // VkWriteDescriptorSetAccelerationStructureKHR as_info{};
+    // as_info.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR;
+    // as_info.accelerationStructureCount = 1;
+    // as_info.pAccelerationStructures = &tlas_as;
 
-    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    write.pNext = &as_info;
-    write.dstSet = as_descriptor;
-    write.descriptorCount = 1;
-    write.descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+    // write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    // write.pNext = &as_info;
+    // write.dstSet = as_descriptor;
+    // write.descriptorCount = 1;
+    // write.descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
 
-    // TODO: write potentially not fully zeroed out
-    vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+    // // TODO: write potentially not fully zeroed out
+    // vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
 
-    write.pNext = nullptr; // in case of future reuse
+    // write.pNext = nullptr; // in case of future reuse
 
-    for (auto& frame : frames)
-    {
-        frame.scene_descriptor = frame.frame_descriptor_allocator.allocate(device, scene_descriptor_layout);
+    // for (auto& frame : frames)
+    // {
+    //     frame.scene_descriptor = frame.frame_descriptor_allocator.allocate(device, scene_descriptor_layout);
 
-        writer.clear();
-        writer.write_buffer(0, frame.scene_buffer.buffer, sizeof(SceneData), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
-        writer.update_set(device, frame.scene_descriptor);
-    }
+    //     writer.clear();
+    //     writer.write_buffer(0, frame.scene_buffer.buffer, sizeof(SceneData), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+    //     writer.update_set(device, frame.scene_descriptor);
+    // }
 }
 
 void VulkanEngine::register_object(const Node* node, const glm::mat4& top_matrix)
@@ -2696,10 +3121,10 @@ void VulkanEngine::resolve_taa(VkCommandBuffer cmd)
 {
     ShaderPass current_pass = *shader_passes["resolve_taa"];
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
+    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
+    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
+    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
+    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
 
     TAAPushConstants pc{};
     auto jitter_count = jitter_offset.size();
@@ -2720,7 +3145,11 @@ void VulkanEngine::resolve_taa(VkCommandBuffer cmd)
     pc.dynamic = CVAR_TAA_DYNAMIC.get();
     first_frame = false; // set this elsewhere?
 
-    vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(TAAPushConstants), &pc);
+    // vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(TAAPushConstants), &pc);
+    VkPushDataInfoEXT push_data_info{};
+    push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
+    push_data_info.data = { &pc, sizeof(TAAPushConstants) };
+    vkCmdPushDataEXT(cmd, &push_data_info);
     auto groupcount_x = get_groupcount(swapchain.extent.width, WARP_SIZE);
     auto groupcount_y = get_groupcount(swapchain.extent.height, WARP_SIZE);
     vkCmdDispatch(cmd, groupcount_x, groupcount_y, 1);
@@ -2911,19 +3340,19 @@ void VulkanEngine::draw_imgui(VkCommandBuffer cmd, VkImageView swapchain_view)
 void VulkanEngine::upload_buffers()
 {
     render_scene.object_buffer = upload_buffer(this, allocator, render_scene.renderables.data(), render_scene.renderables.size() * sizeof(ObjectData), 0);
-    fmt::println("object_buffer: {}mb", size_in_bytes(render_scene.object_buffer.info.size));
+    // fmt::println("object_buffer: {}mb", size_in_bytes(render_scene.object_buffer.info.size));
 
     render_scene.mesh_buffer = upload_buffer(this, allocator, render_scene.meshes.data(), render_scene.meshes.size() * sizeof(Mesh), 0);
-    fmt::println("mesh_buffer: {}mb", size_in_bytes(render_scene.mesh_buffer.info.size));
+    // fmt::println("mesh_buffer: {}mb", size_in_bytes(render_scene.mesh_buffer.info.size));
 
     render_scene.sh_buffer = create_buffer(allocator, 27 * sizeof(float), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
-    fmt::println("sh_buffer: {}mb", size_in_bytes(render_scene.sh_buffer.info.size));
+    // fmt::println("sh_buffer: {}mb", size_in_bytes(render_scene.sh_buffer.info.size));
 
     render_scene.luminance_buffer = create_buffer(allocator, 256 * sizeof(uint32_t), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
-    fmt::println("luminance_buffer: {}mb", size_in_bytes(render_scene.luminance_buffer.info.size));
+    // fmt::println("luminance_buffer: {}mb", size_in_bytes(render_scene.luminance_buffer.info.size));
 
     render_scene.luminance_avg_buffer = create_buffer(allocator, sizeof(float), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
-    fmt::println("luminance_avg_buffer: {}mb", size_in_bytes(render_scene.luminance_avg_buffer.info.size));
+    // fmt::println("luminance_avg_buffer: {}mb", size_in_bytes(render_scene.luminance_avg_buffer.info.size));
 
     {
         std::array<RenderScene::MeshPass*, 3> passes = { &render_scene.opaque_pass, &render_scene.mask_pass, &render_scene.transparent_pass };
@@ -2941,7 +3370,7 @@ void VulkanEngine::upload_buffers()
         }
 
         render_scene.indices_buffer = upload_buffer(this, allocator, staging.data(), total * sizeof(uint32_t));
-        fmt::println("indices_buffer: {}mb", size_in_bytes(render_scene.indices_buffer.info.size));
+        // fmt::println("indices_buffer: {}mb", size_in_bytes(render_scene.indices_buffer.info.size));
     }
 
     // allocating for worst case
@@ -2951,7 +3380,7 @@ void VulkanEngine::upload_buffers()
         0,
         VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT
     );
-    fmt::println("vis_buffer: {}mb", size_in_bytes(render_scene.vis_buffer.info.size));
+    // fmt::println("vis_buffer: {}mb", size_in_bytes(render_scene.vis_buffer.info.size));
 
     // TODO: implement limit, currently shader side has 1000000 hardcoded
     // TODO: modify with shadows in mind
@@ -2961,7 +3390,7 @@ void VulkanEngine::upload_buffers()
         0,
         VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT
     );
-    fmt::println("prefix_sum_buffer: {}mb", size_in_bytes(render_scene.prefix_sum_buffer.info.size));
+    // fmt::println("prefix_sum_buffer: {}mb", size_in_bytes(render_scene.prefix_sum_buffer.info.size));
 
     immediate_submit(
         [&](VkCommandBuffer cmd)
@@ -2993,18 +3422,18 @@ void VulkanEngine::upload_buffers()
         0,
         VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT
     );
-    fmt::println("draw_indirect_buffer: {}mb", size_in_bytes(render_scene.draw_indirect_buffer.info.size));
+    // fmt::println("draw_indirect_buffer: {}mb", size_in_bytes(render_scene.draw_indirect_buffer.info.size));
 
     // limit of ~16.7 meshlets, ~64mb
     // TODO: implement error handling/limit check in shader; just drop the meshlets?
     render_scene.cluster_indices = create_buffer(allocator, MESHLET_LIMIT * sizeof(uint32_t), 0, VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT);
-    fmt::println("cluster_indices: {}mb", size_in_bytes(render_scene.cluster_indices.info.size));
+    // fmt::println("cluster_indices: {}mb", size_in_bytes(render_scene.cluster_indices.info.size));
 
     {
         size_t meshlet_visibility_size = (render_scene.total_meshlets_bits + 31) / 32;
         render_scene.meshlet_vis_buffer = create_buffer(allocator, meshlet_visibility_size * sizeof(uint32_t), 0, VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
         fmt::println("number of instances: {}", render_scene.renderables.size());
-        fmt::println("meshlet_vis_buffer: {}mb", size_in_bytes(render_scene.meshlet_vis_buffer.info.size));
+        // fmt::println("meshlet_vis_buffer: {}mb", size_in_bytes(render_scene.meshlet_vis_buffer.info.size));
 
         immediate_submit(
             [&](VkCommandBuffer cmd)
@@ -3023,7 +3452,7 @@ void VulkanEngine::upload_buffers()
             0,
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT
         );
-        fmt::println("oit_buffer: {}mb", size_in_bytes(render_scene.oit_buffer.info.size));
+        // fmt::println("oit_buffer: {}mb", size_in_bytes(render_scene.oit_buffer.info.size));
 
         immediate_submit(
             [&](VkCommandBuffer cmd)
@@ -3149,16 +3578,20 @@ void VulkanEngine::execute_compact_dispatch(VkCommandBuffer cmd)
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
 
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
+    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
+    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
+    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
+    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
 
     CompactDispatchPushConstants pc{};
     pc.prefix_sum_buffer = get_buffer_address(device, render_scene.prefix_sum_buffer.buffer);
     pc.dispatch_buffer = get_buffer_address(device, render_scene.dispatch_buffer.buffer);
 
-    vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CompactDispatchPushConstants), &pc);
+    // vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CompactDispatchPushConstants), &pc);
+    VkPushDataInfoEXT push_data_info{};
+    push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
+    push_data_info.data = { &pc, sizeof(CompactDispatchPushConstants) };
+    vkCmdPushDataEXT(cmd, &push_data_info);
     vkCmdDispatch(cmd, 1, 1, 1);
 }
 
@@ -3167,10 +3600,10 @@ void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPa
     ShaderPass current_pass = *shader_passes["mesh_cull"];
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
 
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
+    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
+    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
+    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
+    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
     cull_data.indices_buffer_address = get_buffer_address(device, render_scene.indices_buffer.buffer);
     cull_data.indices_buffer_address += pass.indices_offset * sizeof(uint32_t);
 
@@ -3178,7 +3611,11 @@ void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPa
     cull_data.late = late ? 1 : 0;
     cull_data.post_pass = post_pass;
 
-    vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CullData), &cull_data);
+    // vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CullData), &cull_data);
+    VkPushDataInfoEXT push_data_info{};
+    push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
+    push_data_info.data = { &cull_data, sizeof(CullData) };
+    vkCmdPushDataEXT(cmd, &push_data_info);
     auto groupcount_x = get_groupcount(static_cast<uint32_t>(pass.unbatched_objects.size()), CULL_WGSIZE);
     vkCmdDispatch(cmd, groupcount_x, 1, 1);
 }
@@ -3188,16 +3625,20 @@ void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, ClusterCullData& cu
     ShaderPass current_pass = *shader_passes["meshlet_cull"];
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
 
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
+    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
+    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
+    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
+    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
 
     // cull_data.count; // unused
     cull_data.late = late ? 1 : 0;
     cull_data.post_pass = post_pass;
 
-    vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ClusterCullData), &cull_data);
+    // vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ClusterCullData), &cull_data);
+    VkPushDataInfoEXT push_data_info{};
+    push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
+    push_data_info.data = { &cull_data, sizeof(ClusterCullData) };
+    vkCmdPushDataEXT(cmd, &push_data_info);
 
     // TODO: offset is always 0 as alphaclip and transparent (latter probably leaving it as is in the future) are not culled with opaque,
     // hence we write over opaque's space
@@ -3207,10 +3648,10 @@ void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, ClusterCullData& cu
 void VulkanEngine::execute_shadow_cull(VkCommandBuffer cmd)
 {
     ShaderPass current_pass = *shader_passes["shadow_cull"];
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
+    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
+    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
+    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
+    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
 
@@ -3229,7 +3670,11 @@ void VulkanEngine::execute_shadow_cull(VkCommandBuffer cmd)
     pc.count = cull_count;
     pc.lod_enabled = CVAR_RENDER_LOD.get();
 
-    vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ShadowCullPushConstants), &pc);
+    // vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ShadowCullPushConstants), &pc);
+    VkPushDataInfoEXT push_data_info{};
+    push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
+    push_data_info.data = { &pc, sizeof(ShadowCullPushConstants) };
+    vkCmdPushDataEXT(cmd, &push_data_info);
     auto groupcount_x = get_groupcount(cull_count, CULL_WGSIZE);
     vkCmdDispatch(cmd, groupcount_x, 1, 1);
 }
@@ -3304,12 +3749,16 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass, ui
 
         ShaderPass current_pass = post_pass == 0 ? *shader_passes["geometry_vert"] : *shader_passes["geometry_vert_mask"];
 
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
+        // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
+        // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
+        // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
+        // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
 
-        vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GPUPushConstants), &pc);
+        // vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GPUPushConstants), &pc);
+        VkPushDataInfoEXT push_data_info{};
+        push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
+        push_data_info.data = { &pc, sizeof(GPUPushConstants) };
+        vkCmdPushDataEXT(cmd, &push_data_info);
 
         vkCmdBindIndexBuffer(cmd, render_scene.index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
 
@@ -3342,12 +3791,16 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass, ui
             current_pass = post_pass == 0 ? *shader_passes["geometry_mesh"] : *shader_passes["geometry_mesh_mask"];
         }
 
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
+        // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
+        // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
+        // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
+        // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
 
-        vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GPUPushConstants), &pc);
+        // vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GPUPushConstants), &pc);
+        VkPushDataInfoEXT push_data_info{};
+        push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
+        push_data_info.data = { &pc, sizeof(GPUPushConstants) };
+        vkCmdPushDataEXT(cmd, &push_data_info);
 
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
         vkCmdDrawMeshTasksIndirectEXT(cmd, render_scene.meshlet_dispatch_buffer.buffer, 0, 1, 0);
@@ -3400,13 +3853,17 @@ void VulkanEngine::render_transparent(VkCommandBuffer cmd, uint32_t query)
 
         ShaderPass current_pass = *shader_passes["mlab_vert"];
 
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 4, 1, &rasterizer_ordered_buf_descriptor, 0, nullptr);
+        // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
+        // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
+        // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
+        // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
+        // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 4, 1, &rasterizer_ordered_buf_descriptor, 0, nullptr);
 
-        vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GPUPushConstants), &pc);
+        // vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GPUPushConstants), &pc);
+        VkPushDataInfoEXT push_data_info{};
+        push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
+        push_data_info.data = { &pc, sizeof(GPUPushConstants) };
+        vkCmdPushDataEXT(cmd, &push_data_info);
 
         vkCmdBindIndexBuffer(cmd, render_scene.index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
 
@@ -3430,13 +3887,17 @@ void VulkanEngine::render_transparent(VkCommandBuffer cmd, uint32_t query)
 
         ShaderPass current_pass = *shader_passes["mlab_mesh"];
 
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 4, 1, &rasterizer_ordered_buf_descriptor, 0, nullptr);
+        // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
+        // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
+        // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
+        // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
+        // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 4, 1, &rasterizer_ordered_buf_descriptor, 0, nullptr);
 
-        vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GPUPushConstants), &pc);
+        // vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GPUPushConstants), &pc);
+        VkPushDataInfoEXT push_data_info{};
+        push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
+        push_data_info.data = { &pc, sizeof(GPUPushConstants) };
+        vkCmdPushDataEXT(cmd, &push_data_info);
 
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
         vkCmdDrawMeshTasksIndirectEXT(cmd, render_scene.meshlet_dispatch_buffer.buffer, 0, 1, 0);
@@ -3485,12 +3946,16 @@ void VulkanEngine::render_shadows(VkCommandBuffer cmd, uint32_t cascade_idx, uin
 
     {
         ShaderPass current_pass = *shader_passes["depth"];
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
+        // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
+        // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
+        // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
+        // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
 
-        vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ShadowPushConstants), &pc);
+        // vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ShadowPushConstants), &pc);
+        VkPushDataInfoEXT push_data_info{};
+        push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
+        push_data_info.data = { &pc, sizeof(ShadowPushConstants) };
+        vkCmdPushDataEXT(cmd, &push_data_info);
 
         vkCmdBindIndexBuffer(cmd, render_scene.index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
 
@@ -3511,11 +3976,16 @@ void VulkanEngine::render_shadows(VkCommandBuffer cmd, uint32_t cascade_idx, uin
         {
             current_pass = *shader_passes["depth_mask"];
             vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
-            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
-            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
-            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
-            vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(ShadowPushConstants), &pc);
+            // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
+            // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
+            // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
+            // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
+            // vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(ShadowPushConstants), &pc);
+            VkPushDataInfoEXT push_data_info{};
+            push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
+            push_data_info.data = { &pc, sizeof(ShadowPushConstants) };
+            vkCmdPushDataEXT(cmd, &push_data_info);
+
             vkCmdDrawIndexedIndirectCount(
                 cmd,
                 render_scene.draw_indirect_buffer.buffer,
@@ -3536,10 +4006,10 @@ void VulkanEngine::execute_spd(VkCommandBuffer cmd)
 {
     ShaderPass current_pass = *shader_passes["hiz_spd"];
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
+    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
+    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
+    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
+    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
 
     auto width = next_pow2(swapchain.extent.width);
     auto height = next_pow2(swapchain.extent.height);
@@ -3555,7 +4025,11 @@ void VulkanEngine::execute_spd(VkCommandBuffer cmd)
     pc.dst_id = image_cache.get_depth_pyramid_image();
     pc.sampler_id = DEPTH_REDUCTION_SAMPLER;
 
-    vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(SpdPushConstants), &pc);
+    // vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(SpdPushConstants), &pc);
+    VkPushDataInfoEXT push_data_info{};
+    push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
+    push_data_info.data = { &pc, sizeof(SpdPushConstants) };
+    vkCmdPushDataEXT(cmd, &push_data_info);
     vkCmdDispatch(cmd, groupcount_x, groupcount_y, 1);
 }
 
@@ -3563,10 +4037,10 @@ void VulkanEngine::build_depth_pyramid(VkCommandBuffer cmd)
 {
     ShaderPass current_pass = *shader_passes["hiz"];
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
+    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
+    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
+    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
+    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
 
     DepthPyramidPushConstants depth_pc{};
 
@@ -3581,7 +4055,12 @@ void VulkanEngine::build_depth_pyramid(VkCommandBuffer cmd)
         depth_pc.image_id = image_cache.get_depth_pyramid_image() + i;
         depth_pc.lod = i == 0 ? 0 : i - 1;
 
-        vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(DepthPyramidPushConstants), &depth_pc);
+        // vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(DepthPyramidPushConstants), &depth_pc);
+        VkPushDataInfoEXT push_data_info{};
+        push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
+        push_data_info.data = { &depth_pc, sizeof(DepthPyramidPushConstants) };
+        vkCmdPushDataEXT(cmd, &push_data_info);
+
         auto groupcount_x = get_groupcount(width, WARP_SIZE);
         auto groupcount_y = get_groupcount(height, WARP_SIZE);
         vkCmdDispatch(cmd, groupcount_x, groupcount_y, 1);
@@ -3642,7 +4121,12 @@ void VulkanEngine::build_cluster_grid()
     pc.far = main_camera.far;
     pc.depth_slices = CLUSTER_DEPTH_SLICES;
 
-    vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ClusterGridPushConstants), &pc);
+    // vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ClusterGridPushConstants), &pc);
+    VkPushDataInfoEXT push_data_info{};
+    push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
+    push_data_info.data = { &pc, sizeof(ClusterGridPushConstants) };
+    vkCmdPushDataEXT(cmd, &push_data_info);
+
     vkCmdDispatch(cmd, 1, 1, CLUSTER_DEPTH_SLICES);
 
     VK_CHECK(vkEndCommandBuffer(cmd));
@@ -3670,7 +4154,12 @@ void VulkanEngine::execute_light_culling(VkCommandBuffer cmd)
     pc.light_grid_buffer_address = get_buffer_address(device, light_grid_buffer.buffer);
     pc.light_count_buffer_address = get_buffer_address(device, light_count_buffer.buffer);
 
-    vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(LightCullingPushConstants), &pc);
+    // vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(LightCullingPushConstants), &pc);
+    VkPushDataInfoEXT push_data_info{};
+    push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
+    push_data_info.data = { &pc, sizeof(LightCullingPushConstants) };
+    vkCmdPushDataEXT(cmd, &push_data_info);
+
     vkCmdDispatch(cmd, 1, 1, CLUSTER_DEPTH_SLICES / CLUSTER_Z);
 }
 
@@ -3690,11 +4179,11 @@ void VulkanEngine::execute_shading(VkCommandBuffer cmd)
     }
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 4, 1, &as_descriptor, 0, nullptr);
+    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
+    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
+    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
+    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
+    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 4, 1, &as_descriptor, 0, nullptr);
 
     DeferredPushConstants pc{};
 
@@ -3733,7 +4222,12 @@ void VulkanEngine::execute_shading(VkCommandBuffer cmd)
     pc.roughness = CVAR_PBR_ROUGHNESS.get();
     pc.debug = CVAR_DEBUG_TEXTURES.get();
 
-    vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(DeferredPushConstants), &pc);
+    // vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(DeferredPushConstants), &pc);
+    VkPushDataInfoEXT push_data_info{};
+    push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
+    push_data_info.data = { &pc, sizeof(DeferredPushConstants) };
+    vkCmdPushDataEXT(cmd, &push_data_info);
+
     auto groupcount_x = get_groupcount(swapchain.extent.width, 8);
     auto groupcount_y = get_groupcount(swapchain.extent.height, 8);
     vkCmdDispatch(cmd, groupcount_x, groupcount_y, 1);
@@ -3819,8 +4313,8 @@ void VulkanEngine::create_acceleration_structures()
     blas_buffer = create_buffer(allocator, total_as_size, 0, VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
     scratch_buffer = create_buffer(allocator, total_scratch_size, 0, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
 
-    fmt::println("blas_buffer: {}", size_in_bytes(total_as_size));
-    fmt::println("scratch_buffer: {}", size_in_bytes(total_scratch_size));
+    // fmt::println("blas_buffer: {}", size_in_bytes(total_as_size));
+    // fmt::println("scratch_buffer: {}", size_in_bytes(total_scratch_size));
 
     VkDeviceAddress scratch_address = get_buffer_address(device, scratch_buffer.buffer);
     std::vector<VkAccelerationStructureBuildRangeInfoKHR> build_ranges(meshes.size());
@@ -3912,9 +4406,9 @@ void VulkanEngine::create_acceleration_structures()
     tlas_buffer = create_buffer(allocator, build_size.accelerationStructureSize, 0, VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
     scratch_buffer = create_buffer(allocator, build_size.buildScratchSize, 0, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
     scratch_address = get_buffer_address(device, scratch_buffer.buffer);
-    fmt::println("tlas scratch_buffer: {}", size_in_bytes(build_size.buildScratchSize));
-    fmt::println("tlas instance buffer: {}", size_in_bytes(tlas_instance_buffer.info.size));
-    fmt::println("tlas buffer: {}", size_in_bytes(build_size.accelerationStructureSize));
+    // fmt::println("tlas scratch_buffer: {}", size_in_bytes(build_size.buildScratchSize));
+    // fmt::println("tlas instance buffer: {}", size_in_bytes(tlas_instance_buffer.info.size));
+    // fmt::println("tlas buffer: {}", size_in_bytes(build_size.accelerationStructureSize));
 
     VkAccelerationStructureCreateInfoKHR create_info{};
     create_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR;
