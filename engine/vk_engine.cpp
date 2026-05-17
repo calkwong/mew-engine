@@ -56,7 +56,7 @@ VulkanEngine& VulkanEngine::get()
 constexpr bool USE_VALIDATION_LAYERS = true;
 // #endif
 
-#define SINGLE // uncomment if loading a proper scene
+// #define SINGLE // uncomment if loading a proper scene
 
 AutoCVar_Int CVAR_RENDER_IMGUI{ "render.imgui", "Imgui", 1, CVarFlags::EditCheckbox | CVarFlags::EditHide };
 AutoCVar_Int CVAR_DISABLE_CAMERA{ "render.disable_camera", "Disable camera", 0, CVarFlags::EditCheckbox | CVarFlags::EditHide };
@@ -2137,82 +2137,25 @@ void VulkanEngine::init_resources()
     id = texture_cache.add_texture(depth_image.view);
     texture_cache.set_depth_image(id);
 
-    // init samplers
+    VkSamplerReductionModeCreateInfo reduction_info{};
+    reduction_info.sType = VK_STRUCTURE_TYPE_SAMPLER_REDUCTION_MODE_CREATE_INFO;
+    reduction_info.reductionMode = VK_SAMPLER_REDUCTION_MODE_MIN;
+
+    std::array<VkSamplerCreateInfo, 7> sampler_infos{
+        get_sampler_info(VK_FILTER_LINEAR, VK_SAMPLER_ADDRESS_MODE_REPEAT, VK_SAMPLER_MIPMAP_MODE_LINEAR), // 0: linear
+        get_sampler_info(VK_FILTER_LINEAR, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, VK_SAMPLER_MIPMAP_MODE_LINEAR), // 1: cube map sampling
+        get_sampler_info(VK_FILTER_LINEAR, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, VK_SAMPLER_MIPMAP_MODE_LINEAR), // 2: shadow map sampler
+        get_sampler_info(VK_FILTER_LINEAR, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, VK_SAMPLER_MIPMAP_MODE_NEAREST, &reduction_info), // 3: hiz
+        get_sampler_info(VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER, VK_SAMPLER_MIPMAP_MODE_NEAREST), // 4: nearest clamp to border
+        get_sampler_info(VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, VK_SAMPLER_MIPMAP_MODE_NEAREST), // 5: nearest clamp to edge
+        get_sampler_info(VK_FILTER_LINEAR, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, VK_SAMPLER_MIPMAP_MODE_LINEAR), // 6: linear clamp to edge
+    };
+
+    for (size_t i = 0; i < sampler_infos.size(); i++)
     {
         VkSampler sampler{};
-        VkSamplerCreateInfo sampler_info{};
-        sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-        sampler_info.magFilter = VK_FILTER_LINEAR;
-        sampler_info.minFilter = VK_FILTER_LINEAR;
-
-        sampler_info.maxLod = VK_LOD_CLAMP_NONE;
-        sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-
-        // sampler_info.anisotropyEnable = VK_TRUE;
-        // sampler_info.maxAnisotropy = 16.0f;
-
-        vkCreateSampler(device, &sampler_info, nullptr, &sampler); // 0 linear
+        vkCreateSampler(device, &sampler_infos[i], nullptr, &sampler);
         sampler_cache.add_sampler(sampler);
-
-        // sampler_info.anisotropyEnable = VK_FALSE;
-        sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-
-        vkCreateSampler(device, &sampler_info, nullptr, &sampler); // 1 cube map sampling
-        sampler_cache.add_sampler(sampler);
-
-        sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE; // tailored to our PCF sampling; manual OOB rejection required in shader
-        sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        sampler_info.maxLod = 1.0;
-
-        vkCreateSampler(device, &sampler_info, nullptr, &sampler); // 2 shadow map sampler
-        sampler_cache.add_sampler(sampler);
-
-        sampler_info.magFilter = VK_FILTER_LINEAR;
-        sampler_info.minFilter = VK_FILTER_LINEAR;
-        sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
-        sampler_info.maxLod = VK_LOD_CLAMP_NONE;
-
-        VkSamplerReductionModeCreateInfo reduction_info{};
-        reduction_info.sType = VK_STRUCTURE_TYPE_SAMPLER_REDUCTION_MODE_CREATE_INFO;
-        reduction_info.reductionMode = VK_SAMPLER_REDUCTION_MODE_MIN;
-
-        sampler_info.pNext = &reduction_info;
-
-        vkCreateSampler(device, &sampler_info, nullptr, &sampler); // 3 building hi-z
-        sampler_cache.add_sampler(sampler);
-
-        sampler_info.pNext = nullptr;
-        sampler_info.magFilter = VK_FILTER_NEAREST;
-        sampler_info.minFilter = VK_FILTER_NEAREST;
-        sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
-        sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
-        sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
-        sampler_info.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK;
-
-        vkCreateSampler(device, &sampler_info, nullptr, &sampler);
-        sampler_cache.add_sampler(sampler); // 4 nearest clamp to border
-
-        sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        vkCreateSampler(device, &sampler_info, nullptr, &sampler);
-        sampler_cache.add_sampler(sampler); // 5 nearest clamp to edge
-
-        sampler_info.magFilter = VK_FILTER_LINEAR;
-        sampler_info.minFilter = VK_FILTER_LINEAR;
-        sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        sampler_info.maxLod = VK_LOD_CLAMP_NONE;
-        sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-        vkCreateSampler(device, &sampler_info, nullptr, &sampler);
-        sampler_cache.add_sampler(sampler); // 6 linear clamp to edge
     }
 
     // shadowmaps

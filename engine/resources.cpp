@@ -513,20 +513,28 @@ void giga_barrier(VkCommandBuffer cmd)
 // border color effectively ignored if not CLAMP_TO_BORDER
 VkSamplerCreateInfo get_sampler_info(
     VkFilter filter,
-    VkSamplerMipmapMode mipmap_mode,
-    VkSamplerAddressMode address_mode,
-    VkBorderColor border_color
+    VkSamplerAddressMode address,
+    VkSamplerMipmapMode mipmap,
+    VkSamplerReductionModeCreateInfo* reduce /* = 0 */
 )
 {
     VkSamplerCreateInfo result{};
+
+    VkSamplerReductionModeCreateInfo reduction_info{};
+    if (reduce != nullptr)
+    {
+        result.pNext = reduce;
+    }
+
     result.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
     result.magFilter = filter;
     result.minFilter = filter;
-    result.mipmapMode = mipmap_mode;
-    result.addressModeU = address_mode;
-    result.addressModeV = address_mode;
-    result.addressModeW = address_mode;
+    result.mipmapMode = mipmap;
+    result.addressModeU = address;
+    result.addressModeV = address;
+    result.addressModeW = address;
     result.maxLod = VK_LOD_CLAMP_NONE;
-    result.borderColor = border_color;
+    result.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK; // hack, only relevant when CLAMP_TO_BORDER
+
     return result;
 }

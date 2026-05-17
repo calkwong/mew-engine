@@ -126,7 +126,7 @@ void giga_barrier(VkCommandBuffer cmd);
 
 VkSamplerCreateInfo get_sampler_info(
     VkFilter filter,
-    VkSamplerMipmapMode mipmap_mode,
-    VkSamplerAddressMode address_mode,
-    VkBorderColor border_color = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK
+    VkSamplerAddressMode address,
+    VkSamplerMipmapMode mipmap,
+    VkSamplerReductionModeCreateInfo* reduce = 0
 );
