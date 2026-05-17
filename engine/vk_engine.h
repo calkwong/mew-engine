@@ -2,7 +2,6 @@
 
 #include "cache.h"
 #include "inputs.h"
-#include "vk_descriptors.h"
 #include "vk_loader.h"
 #include "vk_pipelines.h"
 #include "vk_scene.h"
@@ -52,9 +51,7 @@ struct FrameData
     VkSemaphore image_acquired_semaphore{};
     VkFence render_fence{};
 
-    DescriptorAllocatorGrowable frame_descriptor_allocator{};
     AllocatedBuffer scene_buffer{};
-    VkDescriptorSet scene_descriptor{};
 
     DeletionQueue deletion_queue{};
 };
@@ -126,14 +123,6 @@ public:
     std::vector<VkSemaphore> render_done_semaphores{};
     DeletionQueue main_deletion_queue{};
 
-    // DescriptorAllocatorGrowable global_descriptor_allocator{};
-    // VkDescriptorSetLayout scene_descriptor_layout{};
-    // VkDescriptorSetLayout bindless_tex_layout{};
-    // VkDescriptorSetLayout bindless_sampler_layout{};
-    // VkDescriptorSetLayout bindless_image_layout{};
-    // VkDescriptorSetLayout rasterizer_ordered_buf_layout{};
-    // VkDescriptorSetLayout as_layout{};
-
     VmaAllocator allocator{};
 
     VkFence imm_fence{};
@@ -153,11 +142,6 @@ public:
     ImageCache image_cache{};
     ShaderCache shader_cache{};
 
-    VkDescriptorSet bindless_tex_descriptor{};
-    VkDescriptorSet bindless_sampler_descriptor{};
-    VkDescriptorSet bindless_image_descriptor{};
-    VkDescriptorSet rasterizer_ordered_buf_descriptor{};
-    VkDescriptorSet as_descriptor{};
 
     std::unordered_map<std::string, std::unique_ptr<ShaderPass>> shader_passes{};
 
@@ -240,7 +224,6 @@ private:
     void init_pipelines();
     void init_resources();
     void init_renderables(int argc, char** argv);
-    void update_descriptors();
     void execute_baked_gi();
     void init_imgui();
     void build_cluster_grid();

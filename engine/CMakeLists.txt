@@ -22,8 +22,6 @@ target_sources(engine PRIVATE
   inputs.cpp
   inputs.h
   main.cpp
-  vk_descriptors.cpp
-  vk_descriptors.h
   vk_engine.cpp
   vk_engine.h
   resources.cpp

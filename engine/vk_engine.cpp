@@ -4,7 +4,6 @@
 #include "vk_engine.h"
 #include "cvars.h"
 #include "inputs.h"
-#include "vk_descriptors.h"
 #include "resources.h"
 #include "vk_initializers.h"
 #include "vk_loader.h"
@@ -56,7 +55,7 @@ VulkanEngine& VulkanEngine::get()
 constexpr bool USE_VALIDATION_LAYERS = true;
 // #endif
 
-// #define SINGLE // uncomment if loading a proper scene
+#define SINGLE // uncomment if loading a proper scene
 
 AutoCVar_Int CVAR_RENDER_IMGUI{ "render.imgui", "Imgui", 1, CVarFlags::EditCheckbox | CVarFlags::EditHide };
 AutoCVar_Int CVAR_DISABLE_CAMERA{ "render.disable_camera", "Disable camera", 0, CVarFlags::EditCheckbox | CVarFlags::EditHide };
@@ -238,7 +237,6 @@ void VulkanEngine::init(int argc, char** argv)
     create_acceleration_structures();
 
     init_descriptors(); // after scene creation!
-    update_descriptors();
     init_shaders();
     init_pipelines();
 
@@ -459,11 +457,6 @@ void VulkanEngine::execute_baked_gi()
             pc.image_id = image_cache.get_hdri();
 
             vkCmdBindPipeline(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
-            // vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-            // vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
-            // vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
-            // vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
-            // vkCmdPushConstants(imm_command_buffer, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IBLPushConstants), &pc);
             VkPushDataInfoEXT push_data_info{};
             push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
             push_data_info.data = { &pc, sizeof(IBLPushConstants) };
@@ -504,11 +497,6 @@ void VulkanEngine::execute_baked_gi()
             pc.cubemap_id = static_cast<uint32_t>(scene_data.textures[0]);
 
             vkCmdBindPipeline(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
-            // vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-            // vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
-            // vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
-            // vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
-            // vkCmdPushConstants(imm_command_buffer, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(SHPushConstants), &pc);
             VkPushDataInfoEXT push_data_info{};
             push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
             push_data_info.data = { &pc, sizeof(SHPushConstants) };
@@ -535,11 +523,6 @@ void VulkanEngine::execute_baked_gi()
             pc.image_id = image_cache.get_irradiance();
 
             vkCmdBindPipeline(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
-            // vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-            // vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
-            // vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
-            // vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
-            // vkCmdPushConstants(imm_command_buffer, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IBLPushConstants), &pc);
             VkPushDataInfoEXT push_data_info{};
             push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
             push_data_info.data = { &pc, sizeof(IBLPushConstants) };
@@ -563,10 +546,6 @@ void VulkanEngine::execute_baked_gi()
         {
             ShaderPass current_pass = *shader_passes["prefiltered"];
             vkCmdBindPipeline(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
-            // vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-            // vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
-            // vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
-            // vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
             IBLPushConstants pc{};
             pc.texture_id = static_cast<uint32_t>(scene_data.textures[0]);
 
@@ -575,7 +554,7 @@ void VulkanEngine::execute_baked_gi()
             {
                 pc.image_id = image_cache.get_prefiltered() + i;
                 pc.roughness = static_cast<float>(i) / static_cast<float>(mips);
-                // vkCmdPushConstants(imm_command_buffer, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IBLPushConstants), &pc);
+
                 VkPushDataInfoEXT push_data_info{};
                 push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
                 push_data_info.data = { &pc, sizeof(IBLPushConstants) };
@@ -602,11 +581,6 @@ void VulkanEngine::execute_baked_gi()
             pc.image_id = image_cache.get_brdf();
 
             vkCmdBindPipeline(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
-            // vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-            // vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
-            // vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
-            // vkCmdBindDescriptorSets(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
-            // vkCmdPushConstants(imm_command_buffer, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IBLPushConstants), &pc);
             VkPushDataInfoEXT push_data_info{};
             push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
             push_data_info.data = { &pc, sizeof(IBLPushConstants) };
@@ -1277,10 +1251,6 @@ void VulkanEngine::draw()
                 {
                     ShaderPass current_pass = *shader_passes["tonemap"];
                     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
-                    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-                    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
-                    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
-                    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
 
                     TonemapPushConstants pc{};
                     pc.luminance_avg_buffer = get_buffer_address(device, render_scene.luminance_avg_buffer.buffer);
@@ -1290,7 +1260,6 @@ void VulkanEngine::draw()
                     // pc.autoexposure = CVAR_MISC_AUTOEXPOSURE.get();
                     pc.tonemap_func = CVAR_MISC_TONEMAP_FUNC.get();
 
-                    // vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(TonemapPushConstants), &pc);
                     VkPushDataInfoEXT push_data_info{};
                     push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
                     push_data_info.data = { &pc, sizeof(TonemapPushConstants) };
@@ -1528,57 +1497,6 @@ void VulkanEngine::run()
             refresh_rw_images();
             refresh_sampled_textures();
             update_descriptor_heap();
-
-            // // update texture cache
-            // texture_cache.image_infos[texture_cache.get_draw_image()] = VkDescriptorImageInfo{ 0, draw_image.view, VK_IMAGE_LAYOUT_GENERAL };
-            // texture_cache.image_infos[texture_cache.get_depth_image()] = VkDescriptorImageInfo{ 0, depth_image.view, VK_IMAGE_LAYOUT_GENERAL };
-            // texture_cache.image_infos[texture_cache.get_visibility_buffer()] = VkDescriptorImageInfo{ 0, visibility_buffer.view, VK_IMAGE_LAYOUT_GENERAL };
-            // for (size_t i = 0; i < GBUFFER_COUNT; ++i)
-            // {
-            //     texture_cache.image_infos[texture_cache.get_first_gbuffer() + i] = VkDescriptorImageInfo{ 0, gbuffers[i].view, VK_IMAGE_LAYOUT_GENERAL };
-            // }
-            // texture_cache.image_infos[texture_cache.get_depth_pyramid_image()] = VkDescriptorImageInfo{ 0, depth_pyramid.view, VK_IMAGE_LAYOUT_GENERAL };
-
-            // // update image cache
-            // image_cache.image_infos[image_cache.get_draw_image()] = VkDescriptorImageInfo{ 0, draw_image.view, VK_IMAGE_LAYOUT_GENERAL };
-            // mip_levels = static_cast<uint32_t>(std::floor(std::log2(static_cast<float>(std::max(depth_pyramid_extent.width, depth_pyramid_extent.height))))) + 1;
-
-            // std::vector<VkImageView> pyramid_views(mip_levels);
-            // VkImageViewCreateInfo img_view_info = vkinit::imageview_create_info(VK_FORMAT_R32_SFLOAT, depth_pyramid.image, VK_IMAGE_ASPECT_COLOR_BIT);
-            // img_view_info.subresourceRange.levelCount = 1;
-            // img_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
-            // for (uint32_t mip = 0; mip < CEIL_LOG2_1920; mip++)
-            // {
-            //     if (mip < mip_levels)
-            //     {
-            //         img_view_info.subresourceRange.baseMipLevel = mip;
-            //         vkCreateImageView(device, &img_view_info, nullptr, &pyramid_views[mip]);
-            //         image_cache.image_infos[depth_pyramid_id + mip] = VkDescriptorImageInfo{ 0, pyramid_views[mip], VK_IMAGE_LAYOUT_GENERAL };
-            //     }
-            //     else
-            //         image_cache.image_infos[depth_pyramid_id + mip] = VkDescriptorImageInfo{ 0, pyramid_views[mip_levels - 1], VK_IMAGE_LAYOUT_GENERAL };
-            // }
-
-            // // update descriptors
-            // // TODO: we could potentially just update whats changed, but for simplicity we update everything
-            // std::vector<VkWriteDescriptorSet> writes{};
-            // VkWriteDescriptorSet write{};
-            // write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            // write.dstSet = bindless_tex_descriptor;
-            // write.dstBinding = 0;
-            // // validation layer does not report if smaller count than req used
-            // write.descriptorCount = static_cast<uint32_t>(texture_cache.image_infos.size());
-            // write.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-            // write.pImageInfo = texture_cache.image_infos.data();
-            // writes.push_back(write);
-
-            // write.dstSet = bindless_image_descriptor;
-            // write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-            // write.pImageInfo = image_cache.image_infos.data();
-            // write.descriptorCount = static_cast<uint32_t>(image_cache.image_infos.size());
-            // writes.push_back(write);
-
-            // vkUpdateDescriptorSets(device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
         }
 
         freeze_camera = CVAR_MISC_FREEZE_CAMERA.get();
@@ -1871,105 +1789,6 @@ void VulkanEngine::init_sync_structures()
 
 void VulkanEngine::init_descriptors()
 {
-    // //> building scene descriptor layout
-    // {
-    //     DescriptorLayoutBuilder builder{};
-    //     builder.add_binding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_COMPUTE_BIT);
-    //     scene_descriptor_layout = builder.build(device);
-    // }
-
-    // std::vector<DescriptorAllocatorGrowable::PoolSizeRatio> uniform_sizes = {
-    //     { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 5 },
-    // };
-
-    // DescriptorWriter writer{};
-    for (auto& frame : frames)
-    {
-        // frame.frame_descriptor_allocator.init(device, 1, uniform_sizes);
-
-        // main_deletion_queue.push_function(
-        //     [&]()
-        //     {
-        //         frame.frame_descriptor_allocator.destroy_pools(device);
-        //     }
-        // );
-
-        frame.scene_buffer = create_buffer(
-            allocator,
-            sizeof(SceneData),
-            VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
-        );
-    }
-
-    // std::vector<DescriptorAllocatorGrowable::PoolSizeRatio> sizes = {
-    //     { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
-    //     { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000 },
-    //     { VK_DESCRIPTOR_TYPE_SAMPLER, 20 },
-    //     { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1 },
-    //     { VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1 }
-    // };
-
-    // global_descriptor_allocator.init(device, 1, sizes);
-
-    // {
-    //     DescriptorLayoutBuilder builder{};
-    //     builder.add_binding(0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
-    //     builder.bindings[0].descriptorCount = 1000; // UPPER BOUND
-
-    //     std::array<VkDescriptorBindingFlags, 1> flags{};
-    //     flags[0] = VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT | VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT;
-    //     //| VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
-
-    //     VkDescriptorSetLayoutBindingFlagsCreateInfo binding_flags_info{};
-    //     binding_flags_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO;
-    //     binding_flags_info.bindingCount = 1;
-    //     binding_flags_info.pBindingFlags = flags.data();
-
-    //     bindless_tex_layout = builder.build(device, &binding_flags_info);
-
-    //     builder.clear();
-    //     builder.add_binding(0, VK_DESCRIPTOR_TYPE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT);
-    //     builder.bindings[0].descriptorCount = 10; // validation layer not reporting if this is higher than pool maximum
-
-    //     bindless_sampler_layout = builder.build(device, &binding_flags_info);
-
-    //     builder.clear();
-    //     builder.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT);
-    //     builder.bindings[0].descriptorCount = 1000;
-
-    //     bindless_image_layout = builder.build(device, &binding_flags_info);
-
-    //     builder.clear();
-    //     builder.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT);
-    //     builder.bindings[0].descriptorCount = 1;
-
-    //     rasterizer_ordered_buf_layout = builder.build(device);
-
-    //     builder.clear();
-    //     builder.add_binding(0, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, VK_SHADER_STAGE_COMPUTE_BIT);
-    //     builder.bindings[0].descriptorCount = 1;
-
-    //     as_layout = builder.build(device);
-    // }
-
-    // main_deletion_queue.push_function(
-    //     [&]()
-    //     {
-    //         global_descriptor_allocator.destroy_pools(device);
-    //         vkDestroyDescriptorSetLayout(device, scene_descriptor_layout, nullptr);
-    //         vkDestroyDescriptorSetLayout(device, bindless_tex_layout, nullptr);
-    //         vkDestroyDescriptorSetLayout(device, bindless_sampler_layout, nullptr);
-    //         vkDestroyDescriptorSetLayout(device, bindless_image_layout, nullptr);
-    //         vkDestroyDescriptorSetLayout(device, rasterizer_ordered_buf_layout, nullptr);
-    //         vkDestroyDescriptorSetLayout(device, as_layout, nullptr);
-    //     }
-    // );
-
-    // ----------------------------------------------------------------------------------------------------
-    // desc heap adventures!
-    // ----------------------------------------------------------------------------------------------------
-
     // TODO: use proper size
     resource_heap = create_buffer(
         allocator,
@@ -1986,13 +1805,7 @@ void VulkanEngine::init_descriptors()
         VK_BUFFER_USAGE_DESCRIPTOR_HEAP_BIT_EXT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
     );
 
-    // note: reduction mode hack
-    VkSamplerReductionModeCreateInfo reduction_info{};
-    reduction_info.sType = VK_STRUCTURE_TYPE_SAMPLER_REDUCTION_MODE_CREATE_INFO;
-    reduction_info.reductionMode = VK_SAMPLER_REDUCTION_MODE_MIN;
-
     uint32_t resource_heap_offset = 0;
-    // buffer
     // TODO: use bufferDescriptorSize; using image now for simplicity
     auto buffer_descriptor_size = desc_heap_properties.imageDescriptorSize;
 
@@ -2014,11 +1827,7 @@ void VulkanEngine::init_descriptors()
 
     refresh_sampled_textures();
 
-    // for (size_t i = 0; i < sampled_textures.size(); ++i)
-    // {
-    //     void* descriptor = static_cast<uint8_t*>(resource_heap.info.pMappedData) + i * image_descriptor_size + resource_heap_offset;
-    //     get_image_descriptor(device, sampled_textures[i].image, sampled_textures[i].view_type, sampled_textures[i].aspect_flag, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, descriptor, image_descriptor_size);
-    // }
+    // defer vkWriteResourceDescriptorsEXT
     resource_heap_offset += image_descriptor_size * sampled_textures.size();
 
     for (size_t i = 0; i < sampled_texture_count; ++i)
@@ -2027,6 +1836,8 @@ void VulkanEngine::init_descriptors()
         void* descriptor = static_cast<uint8_t*>(resource_heap.info.pMappedData) + i * image_descriptor_size + resource_heap_offset;
         get_image_descriptor(device, image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, descriptor, image_descriptor_size);
     }
+
+    // defer vkWriteResourceDescriptorsEXT
     resource_heap_offset += image_descriptor_size * sampled_texture_count;
     rw_images_offset = resource_heap_offset;
 
@@ -2034,18 +1845,14 @@ void VulkanEngine::init_descriptors()
 
     refresh_rw_images();
 
+    // now we vkWriteResourceDescriptorsEXT
     update_descriptor_heap();
 
-    // // images
-    // auto image_count = image_cache.image_infos.size();
-    // for (size_t i = 0; i < image_count; ++i)
-    // {
-    //     auto& info = rw_images[i];
-    //     void* descriptor = static_cast<uint8_t*>(resource_heap.info.pMappedData) + i * image_descriptor_size + resource_heap_offset;
-    //     get_image_descriptor(device, info.image, info.view_type, info.aspect_flag, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, descriptor, image_descriptor_size, info.mip);
-    // }
-
     // samplers
+    // note: reduction mode hack
+    VkSamplerReductionModeCreateInfo reduction_info{};
+    reduction_info.sType = VK_STRUCTURE_TYPE_SAMPLER_REDUCTION_MODE_CREATE_INFO;
+    reduction_info.reductionMode = VK_SAMPLER_REDUCTION_MODE_MIN;
     const uint32_t sampler_count = 7;
     {
         auto sampler_descriptor_size = desc_heap_properties.samplerDescriptorSize;
@@ -2095,6 +1902,7 @@ void VulkanEngine::init_pipelines()
 
     // TODO: remove magic number
     // TODO: use proper buffer descriptor size
+    // TODO: use finer grain flags instead of VK_SPIRV_RESOURCE_TYPE_ALL_EXT
     auto buffer_count = 3;
     auto buffer_descriptor_size = desc_heap_properties.imageDescriptorSize;
     for (size_t i = 0; i < buffer_count; ++i)
@@ -2188,15 +1996,9 @@ void VulkanEngine::init_pipelines()
     desc_set_and_binding_mapping_info.mappingCount = mappings.size();
     desc_set_and_binding_mapping_info.pMappings = mappings.data();
 
-    // ---------------
-
-    // std::vector<VkDescriptorSetLayout> descriptor_layouts = { scene_descriptor_layout, bindless_image_layout, bindless_tex_layout, bindless_sampler_layout };
-
     ComputePipelineBuilder compute_builder{};
-    // compute_builder.set_descriptor_layouts({ scene_descriptor_layout, bindless_image_layout, bindless_tex_layout, bindless_sampler_layout });
 
     PipelineBuilder builder{};
-    // builder.set_descriptor_layouts({ scene_descriptor_layout, bindless_image_layout, bindless_tex_layout, bindless_sampler_layout });
 
     shader_passes["cluster_grid"] = compute_builder.create_pipeline(device, shader_cache["cluster_grid.slang"], {}, &desc_set_and_binding_mapping_info);
     shader_passes["light_culling"] = compute_builder.create_pipeline(device, shader_cache["light_culling.slang"], {}, &desc_set_and_binding_mapping_info);
@@ -2215,7 +2017,6 @@ void VulkanEngine::init_pipelines()
     shader_passes["compact_dispatch"] = compute_builder.create_pipeline(device, shader_cache["compact_dispatch.slang"], {}, &desc_set_and_binding_mapping_info);
     shader_passes["resolve_taa"] = compute_builder.create_pipeline(device, shader_cache["resolve_taa.slang"], {}, &desc_set_and_binding_mapping_info);
     shader_passes["hiz_spd"] = compute_builder.create_pipeline(device, shader_cache["hiz_spd.slang"], {}, &desc_set_and_binding_mapping_info);
-    // compute_builder.set_descriptor_layouts({ scene_descriptor_layout, bindless_image_layout, bindless_tex_layout, bindless_sampler_layout, as_layout });
     shader_passes["resolve_gbuffer"] = compute_builder.create_pipeline(device, shader_cache["resolve_gbuffer.slang"], {}, &desc_set_and_binding_mapping_info);
     shader_passes["resolve_vbuffer"] = compute_builder.create_pipeline(device, shader_cache["resolve_vbuffer.slang"], {}, &desc_set_and_binding_mapping_info);
     // shader_passes["ray_tracing"] = compute_builder.create_pipeline(device, shader_cache["rt.slang"]);
@@ -2342,7 +2143,6 @@ void VulkanEngine::init_pipelines()
     builder.set_color_attachment_format(color_attachment_formats);
     builder.set_depth_format(depth_image.format);
     builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-    // builder.set_descriptor_layouts({ scene_descriptor_layout, bindless_image_layout, bindless_tex_layout, bindless_sampler_layout, rasterizer_ordered_buf_layout });
     shader_passes["mlab_vert"] = builder.create_pipeline(
         device,
         { shader_cache["mlab_vert.slang"] },
@@ -2363,6 +2163,16 @@ void VulkanEngine::init_pipelines()
 
 void VulkanEngine::init_resources()
 {
+    for (auto& frame : frames)
+    {
+        frame.scene_buffer = create_buffer(
+            allocator,
+            sizeof(SceneData),
+            VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
+            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
+        );
+    }
+
     auto image_extent = VkExtent3D{ swapchain.extent.width, swapchain.extent.height, 1 };
 
     // if reverting to VK_FORMAT_R16G16B16A16_SFLOAT, need to preexpose lights
@@ -2494,12 +2304,8 @@ void VulkanEngine::init_resources()
 
     uint32_t mip_levels = static_cast<uint32_t>(std::floor(std::log2(static_cast<float>(std::max(depth_pyramid_extent.width, depth_pyramid_extent.height))))) + 1;
 
+    // TODO: remove; we still keep this to not break cache as it hands us bindless ids
     std::vector<VkImageView> pyramid_views(mip_levels);
-    VkImageViewCreateInfo img_view_info = vkinit::imageview_create_info(VK_FORMAT_R32_SFLOAT, depth_pyramid.image, VK_IMAGE_ASPECT_COLOR_BIT);
-    img_view_info.subresourceRange.levelCount = 1;
-    img_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
-    img_view_info.subresourceRange.baseMipLevel = 0;
-    // vkCreateImageView(device, &img_view_info, nullptr, &pyramid_views[0]);
     id = image_cache.add_texture(pyramid_views[0]);
     image_cache.set_depth_pyramid_image(id);
 
@@ -2509,8 +2315,6 @@ void VulkanEngine::init_resources()
     {
         if (mip < mip_levels)
         {
-            img_view_info.subresourceRange.baseMipLevel = mip;
-            // vkCreateImageView(device, &img_view_info, nullptr, &pyramid_views[mip]);
             image_cache.add_texture(pyramid_views[mip]);
         }
         else
@@ -2752,83 +2556,6 @@ void VulkanEngine::init_renderables(int argc, char** argv)
     render_scene.total_meshlets_bits = meshlet_visibility_offset;
 }
 
-void VulkanEngine::update_descriptors()
-{
-    // std::array<uint32_t, 1> variable_desc_counts = {
-    //     static_cast<uint32_t>(texture_cache.image_infos.size())
-    // };
-
-    // VkDescriptorSetVariableDescriptorCountAllocateInfo variable_desc_info{};
-    // variable_desc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_VARIABLE_DESCRIPTOR_COUNT_ALLOCATE_INFO;
-    // variable_desc_info.pDescriptorCounts = variable_desc_counts.data();
-    // variable_desc_info.descriptorSetCount = static_cast<uint32_t>(variable_desc_counts.size());
-
-    // bindless_tex_descriptor = global_descriptor_allocator.allocate(device, bindless_tex_layout, &variable_desc_info);
-    // variable_desc_counts[0] = static_cast<uint32_t>(sampler_cache.image_infos.size());
-    // bindless_sampler_descriptor = global_descriptor_allocator.allocate(device, bindless_sampler_layout, &variable_desc_info);
-    // variable_desc_counts[0] = static_cast<uint32_t>(image_cache.image_infos.size());
-    // bindless_image_descriptor = global_descriptor_allocator.allocate(device, bindless_image_layout, &variable_desc_info);
-
-    // std::vector<VkWriteDescriptorSet> writes{};
-
-    // VkWriteDescriptorSet write{};
-    // write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    // write.dstSet = bindless_tex_descriptor;
-    // write.dstBinding = 0;
-    // write.descriptorCount = static_cast<uint32_t>(texture_cache.image_infos.size()); // validation layer does not report if smaller count than req used
-    // write.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-    // write.pImageInfo = texture_cache.image_infos.data();
-    // writes.push_back(write);
-
-    // write.dstSet = bindless_sampler_descriptor;
-    // write.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
-    // write.pImageInfo = sampler_cache.image_infos.data();
-    // write.descriptorCount = static_cast<uint32_t>(sampler_cache.image_infos.size());
-    // writes.push_back(write);
-
-    // write.dstSet = bindless_image_descriptor;
-    // write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    // write.pImageInfo = image_cache.image_infos.data();
-    // write.descriptorCount = static_cast<uint32_t>(image_cache.image_infos.size());
-    // writes.push_back(write);
-
-    // vkUpdateDescriptorSets(device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
-
-    // rasterizer_ordered_buf_descriptor = global_descriptor_allocator.allocate(device, rasterizer_ordered_buf_layout);
-
-    // DescriptorWriter writer{};
-    // writer.clear();
-    // writer.write_buffer(0, render_scene.oit_buffer.buffer, VK_WHOLE_SIZE, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-    // writer.update_set(device, rasterizer_ordered_buf_descriptor);
-
-    // as_descriptor = global_descriptor_allocator.allocate(device, as_layout);
-
-    // VkWriteDescriptorSetAccelerationStructureKHR as_info{};
-    // as_info.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR;
-    // as_info.accelerationStructureCount = 1;
-    // as_info.pAccelerationStructures = &tlas_as;
-
-    // write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    // write.pNext = &as_info;
-    // write.dstSet = as_descriptor;
-    // write.descriptorCount = 1;
-    // write.descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
-
-    // // TODO: write potentially not fully zeroed out
-    // vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
-
-    // write.pNext = nullptr; // in case of future reuse
-
-    // for (auto& frame : frames)
-    // {
-    //     frame.scene_descriptor = frame.frame_descriptor_allocator.allocate(device, scene_descriptor_layout);
-
-    //     writer.clear();
-    //     writer.write_buffer(0, frame.scene_buffer.buffer, sizeof(SceneData), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
-    //     writer.update_set(device, frame.scene_descriptor);
-    // }
-}
-
 void VulkanEngine::register_object(const Node* node, const glm::mat4& top_matrix)
 {
     glm::mat4 node_matrix = top_matrix * node->world_transform;
@@ -2983,10 +2710,6 @@ void VulkanEngine::resolve_taa(VkCommandBuffer cmd)
 {
     ShaderPass current_pass = *shader_passes["resolve_taa"];
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
-    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
-    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
-    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
 
     TAAPushConstants pc{};
     auto jitter_count = jitter_offset.size();
@@ -3007,7 +2730,6 @@ void VulkanEngine::resolve_taa(VkCommandBuffer cmd)
     pc.dynamic = CVAR_TAA_DYNAMIC.get();
     first_frame = false; // set this elsewhere?
 
-    // vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(TAAPushConstants), &pc);
     VkPushDataInfoEXT push_data_info{};
     push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
     push_data_info.data = { &pc, sizeof(TAAPushConstants) };
@@ -3440,16 +3162,10 @@ void VulkanEngine::execute_compact_dispatch(VkCommandBuffer cmd)
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
 
-    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
-    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
-    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
-
     CompactDispatchPushConstants pc{};
     pc.prefix_sum_buffer = get_buffer_address(device, render_scene.prefix_sum_buffer.buffer);
     pc.dispatch_buffer = get_buffer_address(device, render_scene.dispatch_buffer.buffer);
 
-    // vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CompactDispatchPushConstants), &pc);
     VkPushDataInfoEXT push_data_info{};
     push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
     push_data_info.data = { &pc, sizeof(CompactDispatchPushConstants) };
@@ -3462,10 +3178,6 @@ void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPa
     ShaderPass current_pass = *shader_passes["mesh_cull"];
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
 
-    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
-    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
-    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
     cull_data.indices_buffer_address = get_buffer_address(device, render_scene.indices_buffer.buffer);
     cull_data.indices_buffer_address += pass.indices_offset * sizeof(uint32_t);
 
@@ -3473,7 +3185,6 @@ void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPa
     cull_data.late = late ? 1 : 0;
     cull_data.post_pass = post_pass;
 
-    // vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CullData), &cull_data);
     VkPushDataInfoEXT push_data_info{};
     push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
     push_data_info.data = { &cull_data, sizeof(CullData) };
@@ -3487,16 +3198,10 @@ void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, ClusterCullData& cu
     ShaderPass current_pass = *shader_passes["meshlet_cull"];
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
 
-    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
-    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
-    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
-
     // cull_data.count; // unused
     cull_data.late = late ? 1 : 0;
     cull_data.post_pass = post_pass;
 
-    // vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ClusterCullData), &cull_data);
     VkPushDataInfoEXT push_data_info{};
     push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
     push_data_info.data = { &cull_data, sizeof(ClusterCullData) };
@@ -3510,10 +3215,6 @@ void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, ClusterCullData& cu
 void VulkanEngine::execute_shadow_cull(VkCommandBuffer cmd)
 {
     ShaderPass current_pass = *shader_passes["shadow_cull"];
-    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
-    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
-    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
 
@@ -3532,7 +3233,6 @@ void VulkanEngine::execute_shadow_cull(VkCommandBuffer cmd)
     pc.count = cull_count;
     pc.lod_enabled = CVAR_RENDER_LOD.get();
 
-    // vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ShadowCullPushConstants), &pc);
     VkPushDataInfoEXT push_data_info{};
     push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
     push_data_info.data = { &pc, sizeof(ShadowCullPushConstants) };
@@ -3611,12 +3311,6 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass, ui
 
         ShaderPass current_pass = post_pass == 0 ? *shader_passes["geometry_vert"] : *shader_passes["geometry_vert_mask"];
 
-        // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-        // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
-        // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
-        // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
-
-        // vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GPUPushConstants), &pc);
         VkPushDataInfoEXT push_data_info{};
         push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
         push_data_info.data = { &pc, sizeof(GPUPushConstants) };
@@ -3653,12 +3347,6 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass, ui
             current_pass = post_pass == 0 ? *shader_passes["geometry_mesh"] : *shader_passes["geometry_mesh_mask"];
         }
 
-        // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-        // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
-        // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
-        // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
-
-        // vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GPUPushConstants), &pc);
         VkPushDataInfoEXT push_data_info{};
         push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
         push_data_info.data = { &pc, sizeof(GPUPushConstants) };
@@ -3715,13 +3403,6 @@ void VulkanEngine::render_transparent(VkCommandBuffer cmd, uint32_t query)
 
         ShaderPass current_pass = *shader_passes["mlab_vert"];
 
-        // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-        // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
-        // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
-        // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
-        // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 4, 1, &rasterizer_ordered_buf_descriptor, 0, nullptr);
-
-        // vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GPUPushConstants), &pc);
         VkPushDataInfoEXT push_data_info{};
         push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
         push_data_info.data = { &pc, sizeof(GPUPushConstants) };
@@ -3749,13 +3430,6 @@ void VulkanEngine::render_transparent(VkCommandBuffer cmd, uint32_t query)
 
         ShaderPass current_pass = *shader_passes["mlab_mesh"];
 
-        // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-        // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
-        // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
-        // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
-        // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 4, 1, &rasterizer_ordered_buf_descriptor, 0, nullptr);
-
-        // vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GPUPushConstants), &pc);
         VkPushDataInfoEXT push_data_info{};
         push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
         push_data_info.data = { &pc, sizeof(GPUPushConstants) };
@@ -3808,12 +3482,7 @@ void VulkanEngine::render_shadows(VkCommandBuffer cmd, uint32_t cascade_idx, uin
 
     {
         ShaderPass current_pass = *shader_passes["depth"];
-        // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-        // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
-        // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
-        // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
 
-        // vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ShadowPushConstants), &pc);
         VkPushDataInfoEXT push_data_info{};
         push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
         push_data_info.data = { &pc, sizeof(ShadowPushConstants) };
@@ -3838,11 +3507,6 @@ void VulkanEngine::render_shadows(VkCommandBuffer cmd, uint32_t cascade_idx, uin
         {
             current_pass = *shader_passes["depth_mask"];
             vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
-            // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-            // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
-            // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
-            // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
-            // vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(ShadowPushConstants), &pc);
             VkPushDataInfoEXT push_data_info{};
             push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
             push_data_info.data = { &pc, sizeof(ShadowPushConstants) };
@@ -3868,10 +3532,6 @@ void VulkanEngine::execute_spd(VkCommandBuffer cmd)
 {
     ShaderPass current_pass = *shader_passes["hiz_spd"];
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
-    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
-    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
-    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
 
     auto width = next_pow2(swapchain.extent.width);
     auto height = next_pow2(swapchain.extent.height);
@@ -3887,7 +3547,6 @@ void VulkanEngine::execute_spd(VkCommandBuffer cmd)
     pc.dst_id = image_cache.get_depth_pyramid_image();
     pc.sampler_id = DEPTH_REDUCTION_SAMPLER;
 
-    // vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(SpdPushConstants), &pc);
     VkPushDataInfoEXT push_data_info{};
     push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
     push_data_info.data = { &pc, sizeof(SpdPushConstants) };
@@ -3899,10 +3558,6 @@ void VulkanEngine::build_depth_pyramid(VkCommandBuffer cmd)
 {
     ShaderPass current_pass = *shader_passes["hiz"];
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
-    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
-    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
-    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
 
     DepthPyramidPushConstants depth_pc{};
 
@@ -3917,7 +3572,6 @@ void VulkanEngine::build_depth_pyramid(VkCommandBuffer cmd)
         depth_pc.image_id = image_cache.get_depth_pyramid_image() + i;
         depth_pc.lod = i == 0 ? 0 : i - 1;
 
-        // vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(DepthPyramidPushConstants), &depth_pc);
         VkPushDataInfoEXT push_data_info{};
         push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
         push_data_info.data = { &depth_pc, sizeof(DepthPyramidPushConstants) };
@@ -3983,7 +3637,6 @@ void VulkanEngine::build_cluster_grid()
     pc.far = main_camera.far;
     pc.depth_slices = CLUSTER_DEPTH_SLICES;
 
-    // vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ClusterGridPushConstants), &pc);
     VkPushDataInfoEXT push_data_info{};
     push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
     push_data_info.data = { &pc, sizeof(ClusterGridPushConstants) };
@@ -4016,7 +3669,6 @@ void VulkanEngine::execute_light_culling(VkCommandBuffer cmd)
     pc.light_grid_buffer_address = get_buffer_address(device, light_grid_buffer.buffer);
     pc.light_count_buffer_address = get_buffer_address(device, light_count_buffer.buffer);
 
-    // vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(LightCullingPushConstants), &pc);
     VkPushDataInfoEXT push_data_info{};
     push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
     push_data_info.data = { &pc, sizeof(LightCullingPushConstants) };
@@ -4041,11 +3693,6 @@ void VulkanEngine::execute_shading(VkCommandBuffer cmd)
     }
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
-    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 0, 1, &get_current_frame().scene_descriptor, 0, nullptr);
-    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 1, 1, &bindless_image_descriptor, 0, nullptr);
-    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 2, 1, &bindless_tex_descriptor, 0, nullptr);
-    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 3, 1, &bindless_sampler_descriptor, 0, nullptr);
-    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.layout, 4, 1, &as_descriptor, 0, nullptr);
 
     DeferredPushConstants pc{};
 
@@ -4084,7 +3731,6 @@ void VulkanEngine::execute_shading(VkCommandBuffer cmd)
     pc.roughness = CVAR_PBR_ROUGHNESS.get();
     pc.debug = CVAR_DEBUG_TEXTURES.get();
 
-    // vkCmdPushConstants(cmd, current_pass.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(DeferredPushConstants), &pc);
     VkPushDataInfoEXT push_data_info{};
     push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
     push_data_info.data = { &pc, sizeof(DeferredPushConstants) };
