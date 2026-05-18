@@ -18,7 +18,6 @@ struct ShaderPass
 struct ShaderProgram
 {
     VkShaderModule module{};
-    uint32_t pc_size{};
     std::string name{};
     std::filesystem::file_time_type time{};
 };

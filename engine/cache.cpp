@@ -167,7 +167,7 @@ ShaderProgram* ShaderCache::operator[](const std::string& key)
     return data[key].get();
 }
 
-void ShaderCache::add_shader(VkDevice device, const char* path, size_t push_constant_size)
+void ShaderCache::add_shader(VkDevice device, const char* path)
 {
     const auto it = data.find(path);
 
@@ -180,7 +180,7 @@ void ShaderCache::add_shader(VkDevice device, const char* path, size_t push_cons
         VkShaderModule module{};
         vkutil::load_shader_module(shader_path.c_str(), device, &module);
         auto time = std::filesystem::last_write_time(shader_path);
-        data[path] = std::make_unique<ShaderProgram>(module, static_cast<uint32_t>(push_constant_size), path, time);
+        data[path] = std::make_unique<ShaderProgram>(module, path, time);
     }
 }
 

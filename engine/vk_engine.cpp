@@ -55,7 +55,7 @@ VulkanEngine& VulkanEngine::get()
 constexpr bool USE_VALIDATION_LAYERS = true;
 // #endif
 
-// #define SINGLE // uncomment if loading a proper scene
+#define SINGLE // uncomment if loading a proper scene
 
 AutoCVar_Int CVAR_RENDER_IMGUI{ "render.imgui", "Imgui", 1, CVarFlags::EditCheckbox | CVarFlags::EditHide };
 AutoCVar_Int CVAR_DISABLE_CAMERA{ "render.disable_camera", "Disable camera", 0, CVarFlags::EditCheckbox | CVarFlags::EditHide };
@@ -1831,31 +1831,31 @@ void VulkanEngine::init_descriptors()
 
 void VulkanEngine::init_shaders()
 {
-    shader_cache.add_shader(device, "cluster_grid.slang", sizeof(ClusterGridPushConstants));
-    shader_cache.add_shader(device, "light_culling.slang", sizeof(LightCullingPushConstants));
-    shader_cache.add_shader(device, "hiz.slang", sizeof(DepthPyramidPushConstants));
-    shader_cache.add_shader(device, "mesh_cull.slang", sizeof(CullData));
-    shader_cache.add_shader(device, "meshlet_cull.slang", sizeof(ClusterCullData));
-    shader_cache.add_shader(device, "shadow_cull.slang", sizeof(ShadowCullPushConstants));
-    shader_cache.add_shader(device, "resolve_taa.slang", sizeof(TAAPushConstants));
-    shader_cache.add_shader(device, "equirectangular_to_cubemap.slang", sizeof(IBLPushConstants));
-    shader_cache.add_shader(device, "spherical_harmonics.slang", sizeof(SHPushConstants));
-    shader_cache.add_shader(device, "irradiance.slang", sizeof(IBLPushConstants));
-    shader_cache.add_shader(device, "prefiltered.slang", sizeof(IBLPushConstants));
-    shader_cache.add_shader(device, "brdf.slang", sizeof(IBLPushConstants));
-    shader_cache.add_shader(device, "luminance_histogram.slang", sizeof(LuminanceBinsPushConstants));
-    shader_cache.add_shader(device, "luminance_avg.slang", sizeof(LuminanceBinsPushConstants));
-    shader_cache.add_shader(device, "tonemap.slang", sizeof(TonemapPushConstants));
-    shader_cache.add_shader(device, "resolve_vbuffer.slang", sizeof(DeferredPushConstants));
-    shader_cache.add_shader(device, "resolve_gbuffer.slang", sizeof(DeferredPushConstants));
-    shader_cache.add_shader(device, "compact_dispatch.slang", sizeof(CompactDispatchPushConstants));
-    shader_cache.add_shader(device, "hiz_spd.slang", sizeof(SpdPushConstants));
-    shader_cache.add_shader(device, "depth.slang", sizeof(ShadowPushConstants));
-    shader_cache.add_shader(device, "vbuffer.slang", sizeof(GPUPushConstants));
-    shader_cache.add_shader(device, "gbuffer_vert.slang", sizeof(GPUPushConstants));
-    shader_cache.add_shader(device, "gbuffer_mesh.slang", sizeof(GPUPushConstants));
-    shader_cache.add_shader(device, "mlab_vert.slang", sizeof(GPUPushConstants));
-    shader_cache.add_shader(device, "mlab_mesh.slang", sizeof(GPUPushConstants));
+    shader_cache.add_shader(device, "cluster_grid.slang");
+    shader_cache.add_shader(device, "light_culling.slang");
+    shader_cache.add_shader(device, "hiz.slang");
+    shader_cache.add_shader(device, "mesh_cull.slang");
+    shader_cache.add_shader(device, "meshlet_cull.slang");
+    shader_cache.add_shader(device, "shadow_cull.slang");
+    shader_cache.add_shader(device, "resolve_taa.slang");
+    shader_cache.add_shader(device, "equirectangular_to_cubemap.slang");
+    shader_cache.add_shader(device, "spherical_harmonics.slang");
+    shader_cache.add_shader(device, "irradiance.slang");
+    shader_cache.add_shader(device, "prefiltered.slang");
+    shader_cache.add_shader(device, "brdf.slang");
+    shader_cache.add_shader(device, "luminance_histogram.slang");
+    shader_cache.add_shader(device, "luminance_avg.slang");
+    shader_cache.add_shader(device, "tonemap.slang");
+    shader_cache.add_shader(device, "resolve_vbuffer.slang");
+    shader_cache.add_shader(device, "resolve_gbuffer.slang");
+    shader_cache.add_shader(device, "compact_dispatch.slang");
+    shader_cache.add_shader(device, "hiz_spd.slang");
+    shader_cache.add_shader(device, "depth.slang");
+    shader_cache.add_shader(device, "vbuffer.slang");
+    shader_cache.add_shader(device, "gbuffer_vert.slang");
+    shader_cache.add_shader(device, "gbuffer_mesh.slang");
+    shader_cache.add_shader(device, "mlab_vert.slang");
+    shader_cache.add_shader(device, "mlab_mesh.slang");
     // shader_cache.add_shader(device, "rt.slang", sizeof(DeferredPushConstants));
 }
 

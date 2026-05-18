@@ -319,25 +319,6 @@ std::unique_ptr<ShaderPass> ComputePipelineBuilder::create_pipeline(VkDevice dev
         }
     }
 
-    VkPipelineLayoutCreateInfo pipeline_layout_info{};
-    pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    pipeline_layout_info.setLayoutCount = static_cast<uint32_t>(descriptor_layouts.size());
-    pipeline_layout_info.pSetLayouts = descriptor_layouts.data();
-
-    auto push_constant_size = program->pc_size;
-
-    VkPushConstantRange pc{};
-    pc.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    pc.size = push_constant_size;
-
-    pipeline_layout_info.pushConstantRangeCount = push_constant_size != 0 ? 1 : 0;
-    pipeline_layout_info.pPushConstantRanges = &pc;
-
-    vkCreatePipelineLayout(device, &pipeline_layout_info, nullptr, &shader->layout);
-
-    // note: no longer need this with descheap
-    // pipeline_layout = shader->layout;
-
     shader->pipeline = build_pipeline(device);
 
     // TODO: debug mode only?
@@ -390,34 +371,6 @@ std::unique_ptr<ShaderPass> PipelineBuilder::create_pipeline(
     {
         shader_stage.pSpecializationInfo = &specialization_info;
     }
-
-    VkPipelineLayoutCreateInfo pipeline_layout_info{};
-    pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    pipeline_layout_info.setLayoutCount = static_cast<uint32_t>(descriptor_layouts.size());
-    pipeline_layout_info.pSetLayouts = descriptor_layouts.data();
-
-    // TODO: clean up after full slang port
-    uint32_t push_constant_size{};
-    for (auto& p : program)
-    {
-        push_constant_size = p->pc_size;
-    }
-
-    VkPushConstantRange pc{};
-
-    for (const auto& stage : stages)
-    {
-        pc.stageFlags |= stage;
-    }
-    pc.size = push_constant_size;
-
-    pipeline_layout_info.pushConstantRangeCount = push_constant_size != 0 ? 1 : 0;
-    pipeline_layout_info.pPushConstantRanges = &pc;
-
-    vkCreatePipelineLayout(device, &pipeline_layout_info, nullptr, &shader->layout);
-
-    // note: no longer need this with descheap
-    // pipeline_layout = shader->layout;
 
     shader->pipeline = build_pipeline(device);
 
