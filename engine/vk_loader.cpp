@@ -417,10 +417,8 @@ std::vector<AllocatedImage> load_images(const fastgltf::Asset& asset, VulkanEngi
             images[i].image,
             VK_IMAGE_LAYOUT_UNDEFINED,
             VK_IMAGE_LAYOUT_GENERAL,
-            0,
-            VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-            0,
-            VK_ACCESS_2_TRANSFER_WRITE_BIT
+            VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+            VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT
         );
     }
 
@@ -437,8 +435,8 @@ std::vector<AllocatedImage> load_images(const fastgltf::Asset& asset, VulkanEngi
                     images[i].image,
                     VK_IMAGE_LAYOUT_GENERAL,
                     VK_IMAGE_LAYOUT_GENERAL,
-                    VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-                    VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT
+                    VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                    VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT
                 );
             }
 

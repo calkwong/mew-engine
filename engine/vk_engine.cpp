@@ -55,7 +55,7 @@ VulkanEngine& VulkanEngine::get()
 constexpr bool USE_VALIDATION_LAYERS = true;
 // #endif
 
-#define SINGLE // uncomment if loading a proper scene
+// #define SINGLE // uncomment if loading a proper scene
 
 AutoCVar_Int CVAR_RENDER_IMGUI{ "render.imgui", "Imgui", 1, CVarFlags::EditCheckbox | CVarFlags::EditHide };
 AutoCVar_Int CVAR_DISABLE_CAMERA{ "render.disable_camera", "Disable camera", 0, CVarFlags::EditCheckbox | CVarFlags::EditHide };
@@ -244,23 +244,6 @@ void VulkanEngine::init(int argc, char** argv)
 
     build_cluster_grid(); // TODO: support draw distance change and rebuilding
     execute_baked_gi();
-
-    // first_frame transitions to avoid validation errors
-    {
-        immediate_submit(
-            [&](VkCommandBuffer cmd)
-            {
-                // frame 0 history buffer
-                stage_barrier(cmd, accumulation_buffers[(frame_number + 1) % 2].image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, 0, 0, 0, 0);
-
-                vkCmdFillBuffer(cmd, render_scene.luminance_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
-                // TODO: figure out a good default for luminance avg
-                vkCmdFillBuffer(cmd, render_scene.luminance_avg_buffer.buffer, 0, VK_WHOLE_SIZE, 0x40000000); // 0x40000000 = 2.0f
-
-                stage_barrier(cmd, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
-            }
-        );
-    }
 
     auto create_query_pool_info = [&](VkQueryType query_type, uint32_t query_count, VkQueryPipelineStatisticFlags pipeline_statistics)
     {

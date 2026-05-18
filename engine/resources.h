@@ -90,24 +90,12 @@ VkMemoryBarrier2 buffer_barrier(
     VkPipelineStageFlags2 dst_stage_mask
 );
 
-// TODO: implement an invalidate_image_barriers that pools together images with the exact same stage and layout changes
 VkImageMemoryBarrier2 image_barrier(
     VkImage image,
     VkImageLayout old_layout,
     VkImageLayout new_layout,
     VkPipelineStageFlags2 src_stage_mask,
     VkPipelineStageFlags2 dst_stage_mask,
-    VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT
-);
-
-VkImageMemoryBarrier2 image_barrier(
-    VkImage image,
-    VkImageLayout old_layout,
-    VkImageLayout new_layout,
-    VkPipelineStageFlags2 src_stage_mask,
-    VkPipelineStageFlags2 dst_stage_mask,
-    VkAccessFlags2 src_access_mask,
-    VkAccessFlags2 dst_access_mask,
     VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT
 );
 
@@ -134,7 +122,6 @@ void stage_barrier(
 );
 
 void stage_barrier(VkCommandBuffer cmd, VkPipelineStageFlags2 src_stage_mask, VkPipelineStageFlags2 dst_stage_mask);
-void invalidate_barriers(VkCommandBuffer cmd, VkPipelineStageFlags2 stages, std::vector<VkImage>& images, std::vector<VkImage>& depth_images);
 void giga_barrier(VkCommandBuffer cmd);
 
 VkSamplerCreateInfo get_sampler_info(
