@@ -23,7 +23,6 @@
 #include <vector>
 #include <memory>
 #include <string>
-#include <unordered_map>
 
 // update
 #include <ranges>
@@ -925,13 +924,10 @@ bool load_gltf(VulkanEngine* engine, LoadedGLTF* scene, const std::string& file_
 
     std::vector<std::shared_ptr<MeshAsset>> mesh_assets{};
 
-    auto mesh_idx = 0;
     for (fastgltf::Mesh& mesh : asset.meshes)
     {
         std::shared_ptr<MeshAsset> new_mesh{ std::make_shared<MeshAsset>() };
         mesh_assets.push_back(new_mesh);
-        file.meshes[std::to_string(mesh_idx).c_str()] = new_mesh;
-        mesh_idx++;
         new_mesh->name = mesh.name;
 
         // rewrite vertex/indices loading
@@ -1122,10 +1118,6 @@ bool load_gltf(VulkanEngine* engine, LoadedGLTF* scene, const std::string& file_
         auto [node, node_index] = work.back();
         work.pop_back();
         const auto& gltf_node = asset.nodes[node_index];
-        std::string node_name = gltf_node.name.empty()
-            ? std::string("Node_") + std::to_string(node_index)
-            : gltf_node.name.c_str();
-        file.nodes[node_name] = node;
 
         std::visit(
             fastgltf::visitor{

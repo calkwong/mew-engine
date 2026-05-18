@@ -5,7 +5,6 @@
 #include <memory>
 #include <optional>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 struct MeshData
@@ -46,8 +45,6 @@ class VulkanEngine;
 
 struct LoadedGLTF
 {
-    std::unordered_map<std::string, std::shared_ptr<MeshAsset>> meshes{}; // obsolete?
-    std::unordered_map<std::string, std::shared_ptr<Node>> nodes{}; // obsolete?
     std::vector<AllocatedImage> images{};
     std::vector<std::shared_ptr<Node>> top_nodes{};
 

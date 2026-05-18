@@ -78,6 +78,7 @@ target_link_libraries(engine PUBLIC
 
 target_precompile_headers(engine PRIVATE
   <optional>
+  <algorithm>
   <vector>
   <array>
   <memory>

@@ -37,7 +37,6 @@
 #include <functional>
 #include <memory>
 #include <random>
-#include <span>
 #include <thread>
 #include <utility>
 #include <cstdlib>
@@ -2979,7 +2978,7 @@ void VulkanEngine::upload_buffers()
     {
         size_t meshlet_visibility_size = (render_scene.total_meshlets_bits + 31) / 32;
         render_scene.meshlet_vis_buffer = create_buffer(allocator, meshlet_visibility_size * sizeof(uint32_t), 0, VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
-        fmt::println("number of instances: {}", render_scene.renderables.size());
+        // fmt::println("number of instances: {}", render_scene.renderables.size());
         // fmt::println("meshlet_vis_buffer: {}mb", size_in_bytes(render_scene.meshlet_vis_buffer.info.size));
 
         immediate_submit(
