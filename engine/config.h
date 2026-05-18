@@ -5,7 +5,7 @@
 #define GBUFFER_COUNT 3
 
 // static_cast<uint32_t>(std::floor(std::log2(1920))) + 1;
-#define CEIL_LOG2_1920 11
+#define DEPTH_PYRAMID_SLICES 11
 
 #define DEBUG_COUNT 10
 

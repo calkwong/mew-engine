@@ -8,8 +8,6 @@
 #include <unordered_map>
 #include <memory>
 
-// TODO: we can likely just remove this altogether and encode ids in UBO
-
 void TextureCache::set_draw_image(uint32_t id)
 {
     draw_id = id;
@@ -91,22 +89,10 @@ uint32_t TextureCache::get_shadowmap() const
     return shadowmap_id;
 }
 
-uint32_t TextureCache::add_texture(const VkImageView& view)
+uint32_t TextureCache::add_texture()
 {
-    // for (size_t i = 0; i < image_infos.size(); i++)
-    // {
-    //     if (image_infos[i].imageView == view)
-    //         return static_cast<uint32_t>(i);
-    // }
-
-    image_infos.emplace_back(VkDescriptorImageInfo{ 0, view, VK_IMAGE_LAYOUT_GENERAL });
-
-    return static_cast<uint32_t>(image_infos.size() - 1);
-}
-
-void SamplerCache::add_sampler(const VkSampler& sampler)
-{
-    image_infos.emplace_back(VkDescriptorImageInfo{ .sampler = sampler });
+    textures.push_back(0);
+    return static_cast<uint32_t>(textures.size() - 1);
 }
 
 void ImageCache::set_depth_pyramid_image(uint32_t id)
@@ -149,17 +135,10 @@ uint32_t ImageCache::get_depth_pyramid_image() const
     return depth_pyramid_id;
 }
 
-uint32_t ImageCache::add_texture(const VkImageView& view)
+uint32_t ImageCache::add_texture()
 {
-    // for (size_t i = 0; i < image_infos.size(); i++)
-    // {
-    //     if (image_infos[i].imageView == view)
-    //         return static_cast<uint32_t>(i);
-    // }
-
-    image_infos.emplace_back(VkDescriptorImageInfo{ 0, view, VK_IMAGE_LAYOUT_GENERAL });
-
-    return static_cast<uint32_t>(image_infos.size() - 1);
+    textures.push_back(0);
+    return static_cast<uint32_t>(textures.size() - 1);
 }
 
 ShaderProgram* ShaderCache::operator[](const std::string& key)

@@ -54,7 +54,7 @@ VulkanEngine& VulkanEngine::get()
 constexpr bool USE_VALIDATION_LAYERS = true;
 // #endif
 
-// #define SINGLE // uncomment if loading a proper scene
+#define SINGLE // uncomment if loading a proper scene
 
 AutoCVar_Int CVAR_RENDER_IMGUI{ "render.imgui", "Imgui", 1, CVarFlags::EditCheckbox | CVarFlags::EditHide };
 AutoCVar_Int CVAR_DISABLE_CAMERA{ "render.disable_camera", "Disable camera", 0, CVarFlags::EditCheckbox | CVarFlags::EditHide };
@@ -298,11 +298,6 @@ void VulkanEngine::cleanup()
 
         loaded_scene.reset();
 
-        for (const auto& info : sampler_cache.image_infos)
-        {
-            vkDestroySampler(device, info.sampler, nullptr);
-        }
-
         for (auto& frame : frames)
         {
             vkDestroyCommandPool(device, frame.command_pool, nullptr);
@@ -368,14 +363,6 @@ void VulkanEngine::cleanup()
             destroy_image(device, allocator, depth_image);
             destroy_image(device, allocator, accumulation_buffers[0]);
             destroy_image(device, allocator, accumulation_buffers[1]);
-
-            auto mip_levels = static_cast<uint32_t>(std::floor(std::log2(static_cast<float>(std::max(depth_pyramid.extent.width, depth_pyramid.extent.height))))) + 1;
-            auto depth_pyramid_id = image_cache.get_depth_pyramid_image();
-            for (size_t i = 0; i < mip_levels; ++i)
-            {
-                auto view = image_cache.image_infos[depth_pyramid_id + i].imageView;
-                vkDestroyImageView(device, view, nullptr);
-            }
             destroy_image(device, allocator, depth_pyramid);
         }
 
@@ -590,6 +577,7 @@ void VulkanEngine::draw()
     auto* scene_uniform_data = static_cast<SceneData*>(get_current_frame().scene_buffer.info.pMappedData);
     *scene_uniform_data = scene_data;
 
+    // TODO: potential hazard, we should probably allocate FIF bindings for UBO and offset accordingly
     void* descriptor = static_cast<uint8_t*>(resource_heap.info.pMappedData) + 0 * desc_heap_properties.imageDescriptorSize;
     get_buffer_descriptor(device, get_current_frame().scene_buffer, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, descriptor, desc_heap_properties.imageDescriptorSize);
 
@@ -1387,19 +1375,15 @@ void VulkanEngine::run()
         // TODO: handle TAA
         if (update)
         {
-            destroy_image(device, allocator, draw_image);
-            destroy_image(device, allocator, visibility_buffer);
-            for (size_t i = 0; i < GBUFFER_COUNT; ++i)
-                destroy_image(device, allocator, gbuffers[i]);
-            destroy_image(device, allocator, depth_image);
-            auto depth_pyramid_id = image_cache.get_depth_pyramid_image();
-            auto mip_levels = static_cast<uint32_t>(std::floor(std::log2(static_cast<float>(std::max(depth_pyramid.extent.width, depth_pyramid.extent.height))))) + 1;
-            for (size_t i = 0; i < mip_levels && i < CEIL_LOG2_1920; ++i)
+            // destroy resources
             {
-                auto view = image_cache.image_infos[depth_pyramid_id + i].imageView;
-                vkDestroyImageView(device, view, nullptr);
+                destroy_image(device, allocator, draw_image);
+                destroy_image(device, allocator, visibility_buffer);
+                for (size_t i = 0; i < GBUFFER_COUNT; ++i)
+                    destroy_image(device, allocator, gbuffers[i]);
+                destroy_image(device, allocator, depth_image);
+                destroy_image(device, allocator, depth_pyramid);
             }
-            destroy_image(device, allocator, depth_pyramid);
 
             auto new_extent = VkExtent3D{ swapchain.extent.width, swapchain.extent.height, 1 };
 
@@ -1797,8 +1781,6 @@ void VulkanEngine::init_descriptors()
     resource_heap_offset += image_descriptor_size * sampled_texture_count;
     rw_images_offset = resource_heap_offset;
 
-    auto prefiltered_mips = static_cast<uint32_t>(std::floor(std::log2(static_cast<float>(std::max(prefiltered_envmap.extent.width, prefiltered_envmap.extent.height))))) + 1;
-
     refresh_rw_images();
 
     // now we vkWriteResourceDescriptorsEXT
@@ -1812,13 +1794,13 @@ void VulkanEngine::init_descriptors()
     const uint32_t sampler_count = 7;
     {
         auto sampler_descriptor_size = desc_heap_properties.samplerDescriptorSize;
-        get_sample_descriptor(device, VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_LINEAR, VK_SAMPLER_ADDRESS_MODE_REPEAT, nullptr, static_cast<uint8_t*>(sampler_heap.info.pMappedData) + 0 * sampler_descriptor_size, sampler_descriptor_size);
-        get_sample_descriptor(device, VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_LINEAR, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, nullptr, static_cast<uint8_t*>(sampler_heap.info.pMappedData) + 1 * sampler_descriptor_size, sampler_descriptor_size);
-        get_sample_descriptor(device, VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_LINEAR, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, nullptr, static_cast<uint8_t*>(sampler_heap.info.pMappedData) + 2 * sampler_descriptor_size, sampler_descriptor_size);
-        get_sample_descriptor(device, VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, &reduction_info, static_cast<uint8_t*>(sampler_heap.info.pMappedData) + 3 * sampler_descriptor_size, sampler_descriptor_size);
-        get_sample_descriptor(device, VK_FILTER_NEAREST, VK_SAMPLER_MIPMAP_MODE_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER, nullptr, static_cast<uint8_t*>(sampler_heap.info.pMappedData) + 4 * sampler_descriptor_size, sampler_descriptor_size);
-        get_sample_descriptor(device, VK_FILTER_NEAREST, VK_SAMPLER_MIPMAP_MODE_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, nullptr, static_cast<uint8_t*>(sampler_heap.info.pMappedData) + 5 * sampler_descriptor_size, sampler_descriptor_size);
-        get_sample_descriptor(device, VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_LINEAR, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, nullptr, static_cast<uint8_t*>(sampler_heap.info.pMappedData) + 6 * sampler_descriptor_size, sampler_descriptor_size);
+        get_sample_descriptor(device, VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_LINEAR, VK_SAMPLER_ADDRESS_MODE_REPEAT, nullptr, static_cast<uint8_t*>(sampler_heap.info.pMappedData) + 0 * sampler_descriptor_size, sampler_descriptor_size); // 0: linear
+        get_sample_descriptor(device, VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_LINEAR, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, nullptr, static_cast<uint8_t*>(sampler_heap.info.pMappedData) + 1 * sampler_descriptor_size, sampler_descriptor_size); // 1: cube map sampling
+        get_sample_descriptor(device, VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_LINEAR, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, nullptr, static_cast<uint8_t*>(sampler_heap.info.pMappedData) + 2 * sampler_descriptor_size, sampler_descriptor_size); // 2: shadow map sampler
+        get_sample_descriptor(device, VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, &reduction_info, static_cast<uint8_t*>(sampler_heap.info.pMappedData) + 3 * sampler_descriptor_size, sampler_descriptor_size); // 3: hiz
+        get_sample_descriptor(device, VK_FILTER_NEAREST, VK_SAMPLER_MIPMAP_MODE_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER, nullptr, static_cast<uint8_t*>(sampler_heap.info.pMappedData) + 4 * sampler_descriptor_size, sampler_descriptor_size); // 4: nearest clamp to border
+        get_sample_descriptor(device, VK_FILTER_NEAREST, VK_SAMPLER_MIPMAP_MODE_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, nullptr, static_cast<uint8_t*>(sampler_heap.info.pMappedData) + 5 * sampler_descriptor_size, sampler_descriptor_size); // 5: nearest clamp to edge
+        get_sample_descriptor(device, VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_LINEAR, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, nullptr, static_cast<uint8_t*>(sampler_heap.info.pMappedData) + 6 * sampler_descriptor_size, sampler_descriptor_size); // 6: linear clamp to edge
     }
 }
 
@@ -2124,11 +2106,11 @@ void VulkanEngine::init_resources()
         VK_IMAGE_ASPECT_COLOR_BIT
     );
 
-    auto id = texture_cache.add_texture(draw_image.view);
+    auto id = texture_cache.add_texture();
     assert(id == 0); // hardcode to id 0
     texture_cache.set_draw_image(id);
 
-    id = image_cache.add_texture(draw_image.view);
+    id = image_cache.add_texture();
     assert(id == 0); // hardcode to id 0
     image_cache.set_draw_image(id);
     VkImageUsageFlags gbuffer_flags{
@@ -2138,14 +2120,14 @@ void VulkanEngine::init_resources()
     // visibility path - visibility
     {
         visibility_buffer = create_render_target(device, allocator, image_extent, VK_FORMAT_R32G32_UINT, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT);
-        auto vis_id = texture_cache.add_texture(visibility_buffer.view);
+        auto vis_id = texture_cache.add_texture();
         texture_cache.set_visibility_buffer(vis_id);
 
         for (int i = 0; i < 2; ++i) // ping pong
         {
             accumulation_buffers[i] = create_image(device, allocator, image_extent, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
-            auto texture_accum_id = texture_cache.add_texture(accumulation_buffers[i].view);
-            auto image_accum_id = image_cache.add_texture(accumulation_buffers[i].view);
+            auto texture_accum_id = texture_cache.add_texture();
+            auto image_accum_id = image_cache.add_texture();
 
             if (i == 0)
             {
@@ -2158,41 +2140,20 @@ void VulkanEngine::init_resources()
     // deferred path - albedo, normal, metalroughness
     {
         gbuffers.emplace_back(create_render_target(device, allocator, image_extent, VK_FORMAT_R8G8B8A8_UNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
-        auto gbuffer_id = texture_cache.add_texture(gbuffers[0].view);
+        auto gbuffer_id = texture_cache.add_texture();
         texture_cache.set_gbuffers(gbuffer_id);
         gbuffers.emplace_back(create_render_target(device, allocator, image_extent, VK_FORMAT_R16G16B16A16_SFLOAT, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
-        texture_cache.add_texture(gbuffers[1].view);
+        texture_cache.add_texture();
         gbuffers.emplace_back(create_render_target(device, allocator, image_extent, VK_FORMAT_R8G8_SNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
-        texture_cache.add_texture(gbuffers[2].view);
+        texture_cache.add_texture();
     }
 
     depth_image.format = VK_FORMAT_D32_SFLOAT;
 
     depth_image = create_render_target(device, allocator, image_extent, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_DEPTH_BIT);
 
-    id = texture_cache.add_texture(depth_image.view);
+    id = texture_cache.add_texture();
     texture_cache.set_depth_image(id);
-
-    VkSamplerReductionModeCreateInfo reduction_info{};
-    reduction_info.sType = VK_STRUCTURE_TYPE_SAMPLER_REDUCTION_MODE_CREATE_INFO;
-    reduction_info.reductionMode = VK_SAMPLER_REDUCTION_MODE_MIN;
-
-    std::array<VkSamplerCreateInfo, 7> sampler_infos{
-        get_sampler_info(VK_FILTER_LINEAR, VK_SAMPLER_ADDRESS_MODE_REPEAT, VK_SAMPLER_MIPMAP_MODE_LINEAR), // 0: linear
-        get_sampler_info(VK_FILTER_LINEAR, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, VK_SAMPLER_MIPMAP_MODE_LINEAR), // 1: cube map sampling
-        get_sampler_info(VK_FILTER_LINEAR, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, VK_SAMPLER_MIPMAP_MODE_LINEAR), // 2: shadow map sampler
-        get_sampler_info(VK_FILTER_LINEAR, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, VK_SAMPLER_MIPMAP_MODE_NEAREST, &reduction_info), // 3: hiz
-        get_sampler_info(VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER, VK_SAMPLER_MIPMAP_MODE_NEAREST), // 4: nearest clamp to border
-        get_sampler_info(VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, VK_SAMPLER_MIPMAP_MODE_NEAREST), // 5: nearest clamp to edge
-        get_sampler_info(VK_FILTER_LINEAR, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, VK_SAMPLER_MIPMAP_MODE_LINEAR), // 6: linear clamp to edge
-    };
-
-    for (size_t i = 0; i < sampler_infos.size(); i++)
-    {
-        VkSampler sampler{};
-        vkCreateSampler(device, &sampler_infos[i], nullptr, &sampler); // 0 linear
-        sampler_cache.add_sampler(sampler);
-    }
 
     // shadowmaps
     for (size_t idx = 0; idx < cascade_data.size(); idx++)
@@ -2205,7 +2166,7 @@ void VulkanEngine::init_resources()
             VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
             VK_IMAGE_ASPECT_DEPTH_BIT
         );
-        auto id = texture_cache.add_texture(cascade_data[idx].shadow_map.view);
+        auto id = texture_cache.add_texture();
         if (idx == 0)
             texture_cache.set_shadowmap(id);
     }
@@ -2238,29 +2199,20 @@ void VulkanEngine::init_resources()
     );
 
     // sampling in occlusion culling
-    id = texture_cache.add_texture(depth_pyramid.view);
+    id = texture_cache.add_texture();
     texture_cache.set_depth_pyramid_image(id);
 
     uint32_t mip_levels = static_cast<uint32_t>(std::floor(std::log2(static_cast<float>(std::max(depth_pyramid_extent.width, depth_pyramid_extent.height))))) + 1;
 
     // TODO: remove; we still keep this to not break cache as it hands us bindless ids
     std::vector<VkImageView> pyramid_views(mip_levels);
-    id = image_cache.add_texture(pyramid_views[0]);
+    id = image_cache.add_texture();
     image_cache.set_depth_pyramid_image(id);
 
     // we reserve enough slots in image_cache to handle 1920x1080
     // this makes it easier updating descriptors if window is resized
-    for (uint32_t mip = 1; mip < CEIL_LOG2_1920; mip++)
-    {
-        if (mip < mip_levels)
-        {
-            image_cache.add_texture(pyramid_views[mip]);
-        }
-        else
-        {
-            image_cache.add_texture(pyramid_views[mip_levels - 1]);
-        }
-    }
+    for (uint32_t mip = 1; mip < DEPTH_PYRAMID_SLICES; mip++)
+        image_cache.add_texture();
 
     // global light list
     std::mt19937 mt(42);
@@ -2312,7 +2264,7 @@ void VulkanEngine::init_resources()
         VK_IMAGE_ASPECT_COLOR_BIT
     );
 
-    auto hdri_id = texture_cache.add_texture(hdri.view);
+    auto hdri_id = texture_cache.add_texture();
     texture_cache.set_hdri(hdri_id);
 
     extent.width /= 4;
@@ -2329,8 +2281,8 @@ void VulkanEngine::init_resources()
         true
     );
 
-    scene_data.textures[0] = static_cast<float>(texture_cache.add_texture(hdri_cubemap.view));
-    auto hdri_cubemap_id = image_cache.add_texture(hdri_cubemap.view);
+    scene_data.textures[0] = static_cast<float>(texture_cache.add_texture());
+    auto hdri_cubemap_id = image_cache.add_texture();
     image_cache.set_hdri(hdri_cubemap_id);
 
     irradiance_cubemap = create_cubemap(
@@ -2342,8 +2294,8 @@ void VulkanEngine::init_resources()
         VK_IMAGE_ASPECT_COLOR_BIT
     );
 
-    scene_data.textures[1] = static_cast<float>(texture_cache.add_texture(irradiance_cubemap.view));
-    auto irradiance_id = image_cache.add_texture(irradiance_cubemap.view);
+    scene_data.textures[1] = static_cast<float>(texture_cache.add_texture());
+    auto irradiance_id = image_cache.add_texture();
     image_cache.set_irradiance(irradiance_id);
 
     prefiltered_envmap = create_cubemap(
@@ -2357,25 +2309,12 @@ void VulkanEngine::init_resources()
         true
     );
 
-    scene_data.textures[2] = static_cast<float>(texture_cache.add_texture(prefiltered_envmap.view));
-
-    auto prefiltered_mips =
-        static_cast<uint32_t>(std::floor(std::log2(static_cast<float>(std::max(prefiltered_envmap.extent.width, prefiltered_envmap.extent.height))))) + 1;
-
-    std::vector<VkImageView> prefiltered_views(prefiltered_mips);
-    auto imageview_info = vkinit::imageview_create_info(VK_FORMAT_R32G32B32A32_SFLOAT, prefiltered_envmap.image, VK_IMAGE_ASPECT_COLOR_BIT);
-    imageview_info.viewType = VK_IMAGE_VIEW_TYPE_CUBE;
-    for (uint32_t i = 0; i < prefiltered_mips; ++i)
-    {
-        imageview_info.subresourceRange.baseMipLevel = i;
-        imageview_info.subresourceRange.levelCount = 1;
-        // vkCreateImageView(device, &imageview_info, nullptr, &prefiltered_views[i]);
-        auto prefiltered_id = image_cache.add_texture(prefiltered_views[i]);
-        if (i == 0)
-        {
-            image_cache.set_prefiltered(prefiltered_id);
-        }
-    }
+    scene_data.textures[2] = static_cast<float>(texture_cache.add_texture());
+    auto prefiltered_mips = static_cast<uint32_t>(std::floor(std::log2(static_cast<float>(std::max(prefiltered_envmap.extent.width, prefiltered_envmap.extent.height))))) + 1;
+    auto prefiltered_id = image_cache.add_texture();
+    image_cache.set_prefiltered(prefiltered_id);
+    for (auto i = 1; i < prefiltered_mips; i++)
+        image_cache.add_texture();
 
     brdf_lut = create_image(
         device,
@@ -2386,12 +2325,12 @@ void VulkanEngine::init_resources()
         VK_IMAGE_ASPECT_COLOR_BIT
     );
 
-    scene_data.textures[3] = static_cast<float>(texture_cache.add_texture(brdf_lut.view));
-    auto brdf_id = image_cache.add_texture(brdf_lut.view);
+    scene_data.textures[3] = static_cast<float>(texture_cache.add_texture());
+    auto brdf_id = image_cache.add_texture();
     image_cache.set_brdf(brdf_id);
 
     main_deletion_queue.push_function(
-        [&, prefiltered_mips, prefiltered_views]()
+        [&]()
         {
             destroy_buffer(allocator, light_buffer);
             destroy_buffer(allocator, light_cluster_buffer);
@@ -2403,10 +2342,6 @@ void VulkanEngine::init_resources()
             destroy_image(device, allocator, irradiance_cubemap);
             destroy_image(device, allocator, prefiltered_envmap);
             destroy_image(device, allocator, brdf_lut);
-            for (uint32_t i = 0; i < prefiltered_mips; i++)
-            {
-                vkDestroyImageView(device, prefiltered_views[i], nullptr);
-            }
         }
     );
 }
@@ -3964,6 +3899,7 @@ void VulkanEngine::refresh_rw_images()
         { hdri_cubemap.image, hdri_cubemap.format, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT },
         { irradiance_cubemap.image, irradiance_cubemap.format, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT },
 
+        // auto prefiltered_mips = static_cast<uint32_t>(std::floor(std::log2(static_cast<float>(std::max(prefiltered_envmap.extent.width, prefiltered_envmap.extent.height))))) + 1;
         { prefiltered_envmap.image, prefiltered_envmap.format, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT, 0 },
         { prefiltered_envmap.image, prefiltered_envmap.format, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT, 1 },
         { prefiltered_envmap.image, prefiltered_envmap.format, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT, 2 },

@@ -5,12 +5,11 @@
 #include <unordered_map>
 #include <memory>
 
-// destruction of textures handled by gltf (not internally); does not support dynamic objs
 struct TextureCache
 {
-    std::vector<VkDescriptorImageInfo> image_infos{};
+    std::vector<uint8_t> textures{};
 
-    uint32_t add_texture(const VkImageView& view);
+    uint32_t add_texture();
 
     void set_draw_image(uint32_t id);
     void set_gbuffers(uint32_t id); // deferred
@@ -40,19 +39,11 @@ private:
     uint32_t hdri_id{};
 };
 
-struct SamplerCache
-{
-    std::vector<VkDescriptorImageInfo> image_infos{};
-
-    // TODO: perform cache checking
-    void add_sampler(const VkSampler& sampler);
-};
-
 struct ImageCache
 {
-    std::vector<VkDescriptorImageInfo> image_infos{};
+    std::vector<uint8_t> textures{};
 
-    uint32_t add_texture(const VkImageView& view);
+    uint32_t add_texture();
 
     void set_depth_pyramid_image(uint32_t id);
     void set_hdri(uint32_t id);

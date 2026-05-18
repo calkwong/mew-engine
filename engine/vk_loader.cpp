@@ -325,7 +325,7 @@ std::vector<AllocatedImage> load_images(const fastgltf::Asset& asset, VulkanEngi
 
     for (const auto& image : images)
     {
-        engine->texture_cache.add_texture(image.view);
+        engine->texture_cache.add_texture();
     }
 
     // note: flush image uploads - call this in immediate submit
@@ -846,7 +846,7 @@ bool load_gltf(VulkanEngine* engine, LoadedGLTF* scene, const std::string& file_
     assert(!asset.materials.empty());
     auto& materials_data = scene->materials;
 
-    size_t texture_cache_offset = engine->texture_cache.image_infos.size(); // important! do this before loading images
+    size_t texture_cache_offset = engine->texture_cache.textures.size(); // important! do this before loading images
 
     // TODO: currently supports ktx2 in URI only
     auto start = std::chrono::system_clock::now();

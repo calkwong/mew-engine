@@ -137,11 +137,9 @@ public:
     std::array<glm::vec2, 8> jitter_offset{};
     EngineStats stats{};
 
-    SamplerCache sampler_cache{};
     TextureCache texture_cache{};
     ImageCache image_cache{};
     ShaderCache shader_cache{};
-
 
     std::unordered_map<std::string, std::unique_ptr<ShaderPass>> shader_passes{};
 

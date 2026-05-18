@@ -209,7 +209,7 @@ std::unique_ptr<ShaderPass> create_graphics_pipeline(
 
     info.stageCount = shader_stages.size();
     info.pStages = shader_stages.data();
-    info.pVertexInputState = &vertex_input_state_create_info; // nullptr ok?
+    info.pVertexInputState = &vertex_input_state_create_info;
     info.pInputAssemblyState = &input_assembly_state_create_info;
     info.pTessellationState = nullptr;
     info.pViewportState = &viewport_state_create_info;
