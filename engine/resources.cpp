@@ -548,7 +548,8 @@ void get_sample_descriptor(
 
 void get_image_descriptor(
     VkDevice device,
-    AllocatedImage image,
+    VkImage image,
+    VkFormat format,
     VkImageViewType view_type,
     VkImageAspectFlags aspect_flags,
     VkDescriptorType descriptor_type,
@@ -557,7 +558,7 @@ void get_image_descriptor(
     uint32_t mip /* = 0 */
 )
 {
-    VkImageViewCreateInfo info = vkinit::imageview_create_info(image.format, image.image, aspect_flags);
+    VkImageViewCreateInfo info = vkinit::imageview_create_info(format, image, aspect_flags);
 
     info.viewType = view_type;
     info.subresourceRange.baseMipLevel = mip;

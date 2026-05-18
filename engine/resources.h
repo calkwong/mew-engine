@@ -133,7 +133,8 @@ VkSamplerCreateInfo get_sampler_info(
 
 struct DescriptorImageInfo
 {
-    AllocatedImage image{};
+    VkImage image{};
+    VkFormat format{};
     VkImageViewType view_type{};
     VkImageAspectFlags aspect_flag{};
     uint32_t mip = 0;
@@ -151,7 +152,8 @@ void get_sample_descriptor(
 
 void get_image_descriptor(
     VkDevice device,
-    AllocatedImage image,
+    VkImage image,
+    VkFormat format,
     VkImageViewType view_type,
     VkImageAspectFlags aspect_flags,
     VkDescriptorType descriptor_type,
