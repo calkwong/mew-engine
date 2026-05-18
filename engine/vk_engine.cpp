@@ -586,33 +586,13 @@ void VulkanEngine::execute_baked_gi()
 
 void VulkanEngine::draw()
 {
-    {
-        VK_CHECK(vkWaitForFences(device, 1, &get_current_frame().render_fence, true, 1000000000));
-    }
+    VK_CHECK(vkWaitForFences(device, 1, &get_current_frame().render_fence, true, 1000000000));
     VK_CHECK(vkResetFences(device, 1, &get_current_frame().render_fence));
 
     get_current_frame().deletion_queue.flush();
 
     auto* scene_uniform_data = static_cast<SceneData*>(get_current_frame().scene_buffer.info.pMappedData);
     *scene_uniform_data = scene_data;
-
-    auto get_buffer_descriptor = [&](VkDevice device, AllocatedBuffer buffer, VkDescriptorType descriptor_type, void* descriptor, size_t descriptor_size)
-    {
-        VkDeviceAddress addr = get_buffer_address(device, buffer.buffer);
-
-        VkDeviceAddressRangeEXT addr_range{ .address = addr, .size = buffer.size };
-
-        VkResourceDescriptorDataEXT descriptor_data{};
-        descriptor_data.pAddressRange = &addr_range;
-
-        VkResourceDescriptorInfoEXT descriptor_info{};
-        descriptor_info.sType = VK_STRUCTURE_TYPE_RESOURCE_DESCRIPTOR_INFO_EXT;
-        descriptor_info.type = descriptor_type;
-        descriptor_info.data = descriptor_data;
-
-        VkHostAddressRangeEXT host_address_range{ descriptor, descriptor_size };
-        vkWriteResourceDescriptorsEXT(device, 1, &descriptor_info, &host_address_range);
-    };
 
     void* descriptor = static_cast<uint8_t*>(resource_heap.info.pMappedData) + 0 * desc_heap_properties.imageDescriptorSize;
     get_buffer_descriptor(device, get_current_frame().scene_buffer, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, descriptor, desc_heap_properties.imageDescriptorSize);
@@ -628,14 +608,11 @@ void VulkanEngine::draw()
     }
 
     uint32_t swapchain_image_idx{};
+    VkResult e = vkAcquireNextImageKHR(device, swapchain.swapchain, 1000000000, get_current_frame().image_acquired_semaphore, nullptr, &swapchain_image_idx);
+    if (e == VK_ERROR_OUT_OF_DATE_KHR)
     {
-        VkResult e = vkAcquireNextImageKHR(device, swapchain.swapchain, 1000000000, get_current_frame().image_acquired_semaphore, nullptr, &swapchain_image_idx);
-
-        if (e == VK_ERROR_OUT_OF_DATE_KHR)
-        {
-            swapchain.dirty = true;
-            return;
-        }
+        swapchain.dirty = true;
+        return;
     }
 
     // record query pool results
@@ -723,11 +700,8 @@ void VulkanEngine::draw()
     vkResetQueryPool(device, frame_query_pool_mesh_primitives, 0, QUERY_COUNT);
 
     VkCommandBuffer cmd = get_current_frame().main_command_buffer;
-
     VK_CHECK(vkResetCommandPool(device, get_current_frame().command_pool, 0));
-
     VkCommandBufferBeginInfo cmd_begin_info = vkinit::command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
-
     VK_CHECK(vkBeginCommandBuffer(cmd, &cmd_begin_info));
 
     vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 26);
@@ -1306,15 +1280,10 @@ void VulkanEngine::draw()
     VK_CHECK(vkEndCommandBuffer(cmd));
 
     VkCommandBufferSubmitInfo cmd_info = vkinit::command_buffer_submit_info(cmd);
-
     VkSemaphoreSubmitInfo wait_info = vkinit::semaphore_submit_info(VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, get_current_frame().image_acquired_semaphore);
     VkSemaphoreSubmitInfo submit_info = vkinit::semaphore_submit_info(VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, render_done_semaphores[swapchain_image_idx]); // all graphics bit?
-
     VkSubmitInfo2 submit = vkinit::submit_info(&cmd_info, &submit_info, &wait_info);
-
-    {
-        VK_CHECK(vkQueueSubmit2(graphics_queue, 1, &submit, get_current_frame().render_fence));
-    }
+    VK_CHECK(vkQueueSubmit2(graphics_queue, 1, &submit, get_current_frame().render_fence));
 
     VkPresentInfoKHR present_info{};
     present_info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
@@ -1324,11 +1293,10 @@ void VulkanEngine::draw()
     present_info.pSwapchains = &swapchain.swapchain;
     present_info.pImageIndices = &swapchain_image_idx;
 
-    VkResult e = vkQueuePresentKHR(graphics_queue, &present_info);
-
+    VkResult present_e = vkQueuePresentKHR(graphics_queue, &present_info);
     // TODO: this is niri specific - implement a check to ensure size has indeed changed, if not, handle the false positive
     // see: https://github.com/zeux/niagara/commit/a9b85a2997772f15da82cb924871a2d51936bf71
-    if (e == VK_ERROR_OUT_OF_DATE_KHR)
+    if (present_e == VK_ERROR_OUT_OF_DATE_KHR)
     {
         swapchain.dirty = true;
         return;
@@ -1685,27 +1653,39 @@ void VulkanEngine::init_vulkan()
     vkGetPhysicalDeviceProperties2(physical_device, &device_properties);
     assert(device_properties.properties.limits.timestampComputeAndGraphics);
 
-    uint32_t count = 0;
-    vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &count, nullptr);
-    std::vector<VkExtensionProperties> extensions(count);
-    vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &count, extensions.data());
-    std::vector<const char*> extension_names = {
-        VK_KHR_RAY_QUERY_EXTENSION_NAME,
-        VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
-        VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
-        VK_EXT_OPACITY_MICROMAP_EXTENSION_NAME,
-        VK_KHR_UNIFIED_IMAGE_LAYOUTS_EXTENSION_NAME,
-        VK_EXT_DESCRIPTOR_HEAP_EXTENSION_NAME
+    uint32_t extension_count = 0;
+    vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &extension_count, nullptr);
+    std::vector<VkExtensionProperties> extensions(extension_count);
+    vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &extension_count, extensions.data());
+
+    struct ExtensionInfo
+    {
+        const char* name{};
+        bool supported{};
     };
 
-    // check for extension support
-    for (uint32_t i = 0; i < count; i++)
+    std::vector<ExtensionInfo> extension_infos = {
+        { VK_KHR_RAY_QUERY_EXTENSION_NAME, false },
+        { VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME, false },
+        { VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME, false },
+        { VK_EXT_OPACITY_MICROMAP_EXTENSION_NAME, false },
+        { VK_KHR_UNIFIED_IMAGE_LAYOUTS_EXTENSION_NAME, false },
+        { VK_EXT_DESCRIPTOR_HEAP_EXTENSION_NAME, false }
+    };
+
+    for (uint32_t i = 0; i < extension_count; i++)
     {
-        for (const auto* extension : extension_names)
+        for (auto& ext : extension_infos)
         {
-            if (strcmp(extension, extensions[i].extensionName) == 0)
-                fmt::println("{} supported", extension);
+            if (strcmp(ext.name, extensions[i].extensionName) == 0)
+                ext.supported = true;
         }
+    }
+
+    for (const auto& ext : extension_infos)
+    {
+        if (ext.supported == false)
+            abort();
     }
 }
 
