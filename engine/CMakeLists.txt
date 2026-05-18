@@ -30,8 +30,8 @@ target_sources(engine PRIVATE
   vk_initializers.h
   vk_loader.cpp
   vk_loader.h
-  vk_pipelines.cpp
-  vk_pipelines.h
+  pipelines.cpp
+  pipelines.h
   #vk_scene.cpp
   vk_scene.h
   common.h

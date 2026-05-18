@@ -1,6 +1,6 @@
 #include "common.h"
 #include "cache.h"
-#include "vk_pipelines.h"
+#include "pipelines.h"
 
 #include <filesystem>
 #include <vector>
@@ -178,7 +178,7 @@ void ShaderCache::add_shader(VkDevice device, const char* path)
     if (it == data.end())
     {
         VkShaderModule module{};
-        vkutil::load_shader_module(shader_path.c_str(), device, &module);
+        load_shader_module(shader_path.c_str(), device, &module);
         auto time = std::filesystem::last_write_time(shader_path);
         data[path] = std::make_unique<ShaderProgram>(module, path, time);
     }

@@ -7,7 +7,7 @@
 #include "resources.h"
 #include "vk_initializers.h"
 #include "vk_loader.h"
-#include "vk_pipelines.h"
+#include "pipelines.h"
 #include "vk_scene.h"
 #include "cache.h"
 #include "push_constants.h"
@@ -54,7 +54,7 @@ VulkanEngine& VulkanEngine::get()
 constexpr bool USE_VALIDATION_LAYERS = true;
 // #endif
 
-#define SINGLE // uncomment if loading a proper scene
+// #define SINGLE // uncomment if loading a proper scene
 
 AutoCVar_Int CVAR_RENDER_IMGUI{ "render.imgui", "Imgui", 1, CVarFlags::EditCheckbox | CVarFlags::EditHide };
 AutoCVar_Int CVAR_DISABLE_CAMERA{ "render.disable_camera", "Disable camera", 0, CVarFlags::EditCheckbox | CVarFlags::EditHide };
@@ -358,10 +358,7 @@ void VulkanEngine::cleanup()
         destroy_buffer(allocator, sampler_heap);
 
         for (const auto& [_, shader] : shader_passes)
-        {
             vkDestroyPipeline(device, shader->pipeline, nullptr);
-            vkDestroyPipelineLayout(device, shader->layout, nullptr);
-        }
 
         {
             destroy_image(device, allocator, draw_image);
@@ -1356,7 +1353,7 @@ void VulkanEngine::run()
                         {
                             program->time = time;
                             vkDestroyShaderModule(device, program->module, nullptr);
-                            vkutil::load_shader_module(shader_path.c_str(), device, &program->module);
+                            load_shader_module(shader_path.c_str(), device, &program->module);
                             rebuild = true;
                         }
                     }
@@ -1366,10 +1363,7 @@ void VulkanEngine::run()
                         VK_CHECK(vkDeviceWaitIdle(device));
 
                         for (const auto& [_, shader] : shader_passes)
-                        {
                             vkDestroyPipeline(device, shader->pipeline, nullptr);
-                            vkDestroyPipelineLayout(device, shader->layout, nullptr);
-                        }
 
                         // TODO: instead of rebuilding everything, we could just update relevant pipelines, but full rebuild is almost instantaneous so we roll with this for now
                         shader_passes.clear();
@@ -1862,95 +1856,97 @@ void VulkanEngine::init_pipelines()
 {
     std::vector<VkDescriptorSetAndBindingMappingEXT> mappings{};
 
-    // TODO: remove magic number
-    // TODO: use proper buffer descriptor size
-    // TODO: use finer grain flags instead of VK_SPIRV_RESOURCE_TYPE_ALL_EXT
-    auto buffer_count = 3;
-    auto buffer_descriptor_size = desc_heap_properties.imageDescriptorSize;
-    for (size_t i = 0; i < buffer_count; ++i)
     {
-        VkDescriptorSetAndBindingMappingEXT desc_set_and_binding_mapping{};
-        desc_set_and_binding_mapping.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT;
-        desc_set_and_binding_mapping.descriptorSet = 0;
-        desc_set_and_binding_mapping.firstBinding = i;
-        desc_set_and_binding_mapping.bindingCount = 1;
-        desc_set_and_binding_mapping.resourceMask = VK_SPIRV_RESOURCE_TYPE_ALL_EXT;
-        desc_set_and_binding_mapping.source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_CONSTANT_OFFSET_EXT;
+        // TODO: remove magic number
+        // TODO: use proper buffer descriptor size
+        // TODO: use finer grain flags instead of VK_SPIRV_RESOURCE_TYPE_ALL_EXT
+        auto buffer_count = 3;
+        auto buffer_descriptor_size = desc_heap_properties.imageDescriptorSize;
+        for (size_t i = 0; i < buffer_count; ++i)
+        {
+            VkDescriptorSetAndBindingMappingEXT desc_set_and_binding_mapping{};
+            desc_set_and_binding_mapping.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT;
+            desc_set_and_binding_mapping.descriptorSet = 0;
+            desc_set_and_binding_mapping.firstBinding = i;
+            desc_set_and_binding_mapping.bindingCount = 1;
+            desc_set_and_binding_mapping.resourceMask = VK_SPIRV_RESOURCE_TYPE_ALL_EXT;
+            desc_set_and_binding_mapping.source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_CONSTANT_OFFSET_EXT;
 
-        VkDescriptorMappingSourceConstantOffsetEXT constant_offset{};
-        constant_offset.heapOffset = i * buffer_descriptor_size;
-        constant_offset.heapArrayStride = buffer_descriptor_size;
+            VkDescriptorMappingSourceConstantOffsetEXT constant_offset{};
+            constant_offset.heapOffset = i * buffer_descriptor_size;
+            constant_offset.heapArrayStride = buffer_descriptor_size;
 
-        VkDescriptorMappingSourceDataEXT source_data{};
-        source_data.constantOffset = constant_offset;
-        desc_set_and_binding_mapping.sourceData = source_data;
-        mappings.push_back(desc_set_and_binding_mapping);
-    }
+            VkDescriptorMappingSourceDataEXT source_data{};
+            source_data.constantOffset = constant_offset;
+            desc_set_and_binding_mapping.sourceData = source_data;
+            mappings.push_back(desc_set_and_binding_mapping);
+        }
 
-    // set 1 - bindless sampled textures
-    {
-        VkDescriptorSetAndBindingMappingEXT desc_set_and_binding_mapping{};
-        desc_set_and_binding_mapping.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT;
-        desc_set_and_binding_mapping.descriptorSet = 1;
-        desc_set_and_binding_mapping.firstBinding = 0;
-        desc_set_and_binding_mapping.bindingCount = 1;
-        desc_set_and_binding_mapping.resourceMask = VK_SPIRV_RESOURCE_TYPE_ALL_EXT;
-        desc_set_and_binding_mapping.source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_CONSTANT_OFFSET_EXT;
+        // set 1 - bindless sampled textures
+        {
+            VkDescriptorSetAndBindingMappingEXT desc_set_and_binding_mapping{};
+            desc_set_and_binding_mapping.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT;
+            desc_set_and_binding_mapping.descriptorSet = 1;
+            desc_set_and_binding_mapping.firstBinding = 0;
+            desc_set_and_binding_mapping.bindingCount = 1;
+            desc_set_and_binding_mapping.resourceMask = VK_SPIRV_RESOURCE_TYPE_ALL_EXT;
+            desc_set_and_binding_mapping.source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_CONSTANT_OFFSET_EXT;
 
-        VkDescriptorMappingSourceConstantOffsetEXT constant_offset{};
-        constant_offset.heapOffset = sampled_textures_offset;
-        constant_offset.heapArrayStride = desc_heap_properties.imageDescriptorSize;
+            VkDescriptorMappingSourceConstantOffsetEXT constant_offset{};
+            constant_offset.heapOffset = sampled_textures_offset;
+            constant_offset.heapArrayStride = desc_heap_properties.imageDescriptorSize;
 
-        VkDescriptorMappingSourceDataEXT source_data{};
-        source_data.constantOffset = constant_offset;
+            VkDescriptorMappingSourceDataEXT source_data{};
+            source_data.constantOffset = constant_offset;
 
-        desc_set_and_binding_mapping.sourceData = source_data;
+            desc_set_and_binding_mapping.sourceData = source_data;
 
-        mappings.push_back(desc_set_and_binding_mapping);
-    }
+            mappings.push_back(desc_set_and_binding_mapping);
+        }
 
-    // set 2 - bindless rw images
-    {
-        VkDescriptorSetAndBindingMappingEXT desc_set_and_binding_mapping{};
-        desc_set_and_binding_mapping.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT;
-        desc_set_and_binding_mapping.descriptorSet = 2;
-        desc_set_and_binding_mapping.firstBinding = 0;
-        desc_set_and_binding_mapping.bindingCount = 1;
-        desc_set_and_binding_mapping.resourceMask = VK_SPIRV_RESOURCE_TYPE_ALL_EXT;
-        desc_set_and_binding_mapping.source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_CONSTANT_OFFSET_EXT;
+        // set 2 - bindless rw images
+        {
+            VkDescriptorSetAndBindingMappingEXT desc_set_and_binding_mapping{};
+            desc_set_and_binding_mapping.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT;
+            desc_set_and_binding_mapping.descriptorSet = 2;
+            desc_set_and_binding_mapping.firstBinding = 0;
+            desc_set_and_binding_mapping.bindingCount = 1;
+            desc_set_and_binding_mapping.resourceMask = VK_SPIRV_RESOURCE_TYPE_ALL_EXT;
+            desc_set_and_binding_mapping.source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_CONSTANT_OFFSET_EXT;
 
-        VkDescriptorMappingSourceConstantOffsetEXT constant_offset{};
-        constant_offset.heapOffset = rw_images_offset;
-        constant_offset.heapArrayStride = desc_heap_properties.imageDescriptorSize;
+            VkDescriptorMappingSourceConstantOffsetEXT constant_offset{};
+            constant_offset.heapOffset = rw_images_offset;
+            constant_offset.heapArrayStride = desc_heap_properties.imageDescriptorSize;
 
-        VkDescriptorMappingSourceDataEXT source_data{};
-        source_data.constantOffset = constant_offset;
+            VkDescriptorMappingSourceDataEXT source_data{};
+            source_data.constantOffset = constant_offset;
 
-        desc_set_and_binding_mapping.sourceData = source_data;
+            desc_set_and_binding_mapping.sourceData = source_data;
 
-        mappings.push_back(desc_set_and_binding_mapping);
-    }
+            mappings.push_back(desc_set_and_binding_mapping);
+        }
 
-    // set 3 - samplers
-    {
-        VkDescriptorSetAndBindingMappingEXT desc_set_and_binding_mapping{};
-        desc_set_and_binding_mapping.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT;
-        desc_set_and_binding_mapping.descriptorSet = 3;
-        desc_set_and_binding_mapping.firstBinding = 0;
-        desc_set_and_binding_mapping.bindingCount = 1;
-        desc_set_and_binding_mapping.resourceMask = VK_SPIRV_RESOURCE_TYPE_ALL_EXT;
-        desc_set_and_binding_mapping.source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_CONSTANT_OFFSET_EXT;
+        // set 3 - samplers
+        {
+            VkDescriptorSetAndBindingMappingEXT desc_set_and_binding_mapping{};
+            desc_set_and_binding_mapping.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT;
+            desc_set_and_binding_mapping.descriptorSet = 3;
+            desc_set_and_binding_mapping.firstBinding = 0;
+            desc_set_and_binding_mapping.bindingCount = 1;
+            desc_set_and_binding_mapping.resourceMask = VK_SPIRV_RESOURCE_TYPE_ALL_EXT;
+            desc_set_and_binding_mapping.source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_CONSTANT_OFFSET_EXT;
 
-        VkDescriptorMappingSourceConstantOffsetEXT constant_offset{};
-        constant_offset.heapOffset = 0;
-        constant_offset.heapArrayStride = desc_heap_properties.samplerDescriptorSize;
+            VkDescriptorMappingSourceConstantOffsetEXT constant_offset{};
+            constant_offset.heapOffset = 0;
+            constant_offset.heapArrayStride = desc_heap_properties.samplerDescriptorSize;
 
-        VkDescriptorMappingSourceDataEXT source_data{};
-        source_data.constantOffset = constant_offset;
+            VkDescriptorMappingSourceDataEXT source_data{};
+            source_data.constantOffset = constant_offset;
 
-        desc_set_and_binding_mapping.sourceData = source_data;
+            desc_set_and_binding_mapping.sourceData = source_data;
 
-        mappings.push_back(desc_set_and_binding_mapping);
+            mappings.push_back(desc_set_and_binding_mapping);
+        }
     }
 
     VkShaderDescriptorSetAndBindingMappingInfoEXT desc_set_and_binding_mapping_info{};
@@ -1958,168 +1954,149 @@ void VulkanEngine::init_pipelines()
     desc_set_and_binding_mapping_info.mappingCount = mappings.size();
     desc_set_and_binding_mapping_info.pMappings = mappings.data();
 
-    ComputePipelineBuilder compute_builder{};
+    shader_passes["cluster_grid"] = create_compute_pipeline(device, shader_cache["cluster_grid.slang"], &desc_set_and_binding_mapping_info);
+    shader_passes["light_culling"] = create_compute_pipeline(device, shader_cache["light_culling.slang"], &desc_set_and_binding_mapping_info);
+    shader_passes["hiz"] = create_compute_pipeline(device, shader_cache["hiz.slang"], &desc_set_and_binding_mapping_info);
+    shader_passes["mesh_cull"] = create_compute_pipeline(device, shader_cache["mesh_cull.slang"], &desc_set_and_binding_mapping_info);
+    shader_passes["meshlet_cull"] = create_compute_pipeline(device, shader_cache["meshlet_cull.slang"], &desc_set_and_binding_mapping_info);
+    shader_passes["equirectangular_to_cubemap"] = create_compute_pipeline(device, shader_cache["equirectangular_to_cubemap.slang"], &desc_set_and_binding_mapping_info);
+    shader_passes["spherical_harmonics"] = create_compute_pipeline(device, shader_cache["spherical_harmonics.slang"], &desc_set_and_binding_mapping_info);
+    shader_passes["irradiance"] = create_compute_pipeline(device, shader_cache["irradiance.slang"], &desc_set_and_binding_mapping_info);
+    shader_passes["prefiltered"] = create_compute_pipeline(device, shader_cache["prefiltered.slang"], &desc_set_and_binding_mapping_info);
+    shader_passes["brdf"] = create_compute_pipeline(device, shader_cache["brdf.slang"], &desc_set_and_binding_mapping_info);
+    shader_passes["luminance_histogram"] = create_compute_pipeline(device, shader_cache["luminance_histogram.slang"], &desc_set_and_binding_mapping_info);
+    shader_passes["luminance_avg"] = create_compute_pipeline(device, shader_cache["luminance_avg.slang"], &desc_set_and_binding_mapping_info);
+    shader_passes["tonemap"] = create_compute_pipeline(device, shader_cache["tonemap.slang"], &desc_set_and_binding_mapping_info);
+    shader_passes["shadow_cull"] = create_compute_pipeline(device, shader_cache["shadow_cull.slang"], &desc_set_and_binding_mapping_info);
+    shader_passes["compact_dispatch"] = create_compute_pipeline(device, shader_cache["compact_dispatch.slang"], &desc_set_and_binding_mapping_info);
+    shader_passes["resolve_taa"] = create_compute_pipeline(device, shader_cache["resolve_taa.slang"], &desc_set_and_binding_mapping_info);
+    shader_passes["hiz_spd"] = create_compute_pipeline(device, shader_cache["hiz_spd.slang"], &desc_set_and_binding_mapping_info);
+    shader_passes["resolve_gbuffer"] = create_compute_pipeline(device, shader_cache["resolve_gbuffer.slang"], &desc_set_and_binding_mapping_info);
+    shader_passes["resolve_vbuffer"] = create_compute_pipeline(device, shader_cache["resolve_vbuffer.slang"], &desc_set_and_binding_mapping_info);
 
-    PipelineBuilder builder{};
+    // shader_passes["ray_tracing"] = create_compute_pipeline(device, shader_cache["rt.slang"], &desc_set_and_binding_mapping_info);
 
-    shader_passes["cluster_grid"] = compute_builder.create_pipeline(device, shader_cache["cluster_grid.slang"], {}, &desc_set_and_binding_mapping_info);
-    shader_passes["light_culling"] = compute_builder.create_pipeline(device, shader_cache["light_culling.slang"], {}, &desc_set_and_binding_mapping_info);
-    shader_passes["hiz"] = compute_builder.create_pipeline(device, shader_cache["hiz.slang"], {}, &desc_set_and_binding_mapping_info);
-    shader_passes["mesh_cull"] = compute_builder.create_pipeline(device, shader_cache["mesh_cull.slang"], {}, &desc_set_and_binding_mapping_info);
-    shader_passes["meshlet_cull"] = compute_builder.create_pipeline(device, shader_cache["meshlet_cull.slang"], {}, &desc_set_and_binding_mapping_info);
-    shader_passes["equirectangular_to_cubemap"] = compute_builder.create_pipeline(device, shader_cache["equirectangular_to_cubemap.slang"], {}, &desc_set_and_binding_mapping_info);
-    shader_passes["spherical_harmonics"] = compute_builder.create_pipeline(device, shader_cache["spherical_harmonics.slang"], {}, &desc_set_and_binding_mapping_info);
-    shader_passes["irradiance"] = compute_builder.create_pipeline(device, shader_cache["irradiance.slang"], {}, &desc_set_and_binding_mapping_info);
-    shader_passes["prefiltered"] = compute_builder.create_pipeline(device, shader_cache["prefiltered.slang"], {}, &desc_set_and_binding_mapping_info);
-    shader_passes["brdf"] = compute_builder.create_pipeline(device, shader_cache["brdf.slang"], {}, &desc_set_and_binding_mapping_info);
-    shader_passes["luminance_histogram"] = compute_builder.create_pipeline(device, shader_cache["luminance_histogram.slang"], {}, &desc_set_and_binding_mapping_info);
-    shader_passes["luminance_avg"] = compute_builder.create_pipeline(device, shader_cache["luminance_avg.slang"], {}, &desc_set_and_binding_mapping_info);
-    shader_passes["tonemap"] = compute_builder.create_pipeline(device, shader_cache["tonemap.slang"], {}, &desc_set_and_binding_mapping_info);
-    shader_passes["shadow_cull"] = compute_builder.create_pipeline(device, shader_cache["shadow_cull.slang"], {}, &desc_set_and_binding_mapping_info);
-    shader_passes["compact_dispatch"] = compute_builder.create_pipeline(device, shader_cache["compact_dispatch.slang"], {}, &desc_set_and_binding_mapping_info);
-    shader_passes["resolve_taa"] = compute_builder.create_pipeline(device, shader_cache["resolve_taa.slang"], {}, &desc_set_and_binding_mapping_info);
-    shader_passes["hiz_spd"] = compute_builder.create_pipeline(device, shader_cache["hiz_spd.slang"], {}, &desc_set_and_binding_mapping_info);
-    shader_passes["resolve_gbuffer"] = compute_builder.create_pipeline(device, shader_cache["resolve_gbuffer.slang"], {}, &desc_set_and_binding_mapping_info);
-    shader_passes["resolve_vbuffer"] = compute_builder.create_pipeline(device, shader_cache["resolve_vbuffer.slang"], {}, &desc_set_and_binding_mapping_info);
-    // shader_passes["ray_tracing"] = compute_builder.create_pipeline(device, shader_cache["rt.slang"]);
-
-    // mrt
-    builder.set_input_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
-    builder.set_polygon_mode(VK_POLYGON_MODE_FILL);
-    builder.set_multisampling_none();
-    builder.enable_depth(true, VK_COMPARE_OP_GREATER_OR_EQUAL);
-    builder.set_depth_format(depth_image.format);
-    builder.set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-
-    std::vector<VkFormat> color_attachment_formats{};
-    std::vector<VkPipelineColorBlendAttachmentState> color_blend_states{};
-    for (size_t i = 0; i < GBUFFER_COUNT; i++)
-    {
-        color_attachment_formats.push_back(gbuffers[i].format);
-        VkPipelineColorBlendAttachmentState state{};
-        state.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-        state.blendEnable = VK_FALSE;
-
-        color_blend_states.push_back(state);
-    }
-    builder.set_color_attachment_format(color_attachment_formats);
-    builder.set_blending_state(color_blend_states);
-    builder.set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-    shader_passes["geometry_vert"] = builder.create_pipeline(
+    shader_passes["geometry_vert"] = create_graphics_pipeline(
         device,
-        { shader_cache["gbuffer_vert.slang"] },
+        shader_cache["gbuffer_vert.slang"],
         { VK_SHADER_STAGE_VERTEX_BIT, VK_SHADER_STAGE_FRAGMENT_BIT },
-        { "vs_main", "ps_main" },
+        &desc_set_and_binding_mapping_info,
+        { gbuffers[0].format, gbuffers[1].format, gbuffers[2].format },
         { 1 },
-        &desc_set_and_binding_mapping_info
+        [&](VkPipelineRasterizationStateCreateInfo& r, VkPipelineDepthStencilStateCreateInfo& d)
+        {
+        }
     );
-    builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-    shader_passes["geometry_vert_mask"] = builder.create_pipeline(
+    shader_passes["geometry_vert_mask"] = create_graphics_pipeline(
         device,
-        { shader_cache["gbuffer_vert.slang"] },
+        shader_cache["gbuffer_vert.slang"],
         { VK_SHADER_STAGE_VERTEX_BIT, VK_SHADER_STAGE_FRAGMENT_BIT },
-        { "vs_main", "ps_main" },
+        &desc_set_and_binding_mapping_info,
+        { gbuffers[0].format, gbuffers[1].format, gbuffers[2].format },
         { 0 },
-        &desc_set_and_binding_mapping_info
+        [&](VkPipelineRasterizationStateCreateInfo& r, VkPipelineDepthStencilStateCreateInfo& d)
+        {
+            r.cullMode = VK_CULL_MODE_NONE;
+        }
     );
-
-    builder.set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-    shader_passes["geometry_mesh"] = builder.create_pipeline(
+    shader_passes["geometry_mesh"] = create_graphics_pipeline(
         device,
-        { shader_cache["gbuffer_mesh.slang"] },
+        shader_cache["gbuffer_mesh.slang"],
         { VK_SHADER_STAGE_MESH_BIT_EXT, VK_SHADER_STAGE_FRAGMENT_BIT },
-        { "mesh_main", "ps_main" },
+        &desc_set_and_binding_mapping_info,
+        { gbuffers[0].format, gbuffers[1].format, gbuffers[2].format },
         { 1 },
-        &desc_set_and_binding_mapping_info
+        [&](VkPipelineRasterizationStateCreateInfo& r, VkPipelineDepthStencilStateCreateInfo& d)
+        {
+        }
     );
-    builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-    shader_passes["geometry_mesh_mask"] = builder.create_pipeline(
+    shader_passes["geometry_mesh_mask"] = create_graphics_pipeline(
         device,
-        { shader_cache["gbuffer_mesh.slang"] },
+        shader_cache["gbuffer_mesh.slang"],
         { VK_SHADER_STAGE_MESH_BIT_EXT, VK_SHADER_STAGE_FRAGMENT_BIT },
-        { "mesh_main", "ps_main" },
+        &desc_set_and_binding_mapping_info,
+        { gbuffers[0].format, gbuffers[1].format, gbuffers[2].format },
         { 0 },
-        &desc_set_and_binding_mapping_info
+        [&](VkPipelineRasterizationStateCreateInfo& r, VkPipelineDepthStencilStateCreateInfo& d)
+        {
+            r.cullMode = VK_CULL_MODE_NONE;
+        }
     );
 
-    color_attachment_formats.clear();
-    color_attachment_formats.push_back(visibility_buffer.format);
-    builder.set_color_attachment_format(color_attachment_formats);
-    color_blend_states.clear();
-    // 2 channel texture but using RGBA write mask, no validation layer complaints
-    color_blend_states.push_back(builder.disable_blending());
-    builder.set_blending_state(color_blend_states);
-    builder.set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-    shader_passes["visibility_mesh"] = builder.create_pipeline(
+    shader_passes["visibility_mesh"] = create_graphics_pipeline(
         device,
-        { shader_cache["vbuffer.slang"] },
+        shader_cache["vbuffer.slang"],
         { VK_SHADER_STAGE_MESH_BIT_EXT, VK_SHADER_STAGE_FRAGMENT_BIT },
-        { "mesh_main", "ps_main" },
+        &desc_set_and_binding_mapping_info,
+        { visibility_buffer.format },
         { 1 },
-        &desc_set_and_binding_mapping_info
+        [&](VkPipelineRasterizationStateCreateInfo& r, VkPipelineDepthStencilStateCreateInfo& d)
+        {
+        }
     );
-    builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-    shader_passes["visibility_mesh_mask"] = builder.create_pipeline(
+    shader_passes["visibility_mesh_mask"] = create_graphics_pipeline(
         device,
-        { shader_cache["vbuffer.slang"] },
+        shader_cache["vbuffer.slang"],
         { VK_SHADER_STAGE_MESH_BIT_EXT, VK_SHADER_STAGE_FRAGMENT_BIT },
-        { "mesh_main", "ps_main" },
+        &desc_set_and_binding_mapping_info,
+        { visibility_buffer.format },
         { 0 },
-        &desc_set_and_binding_mapping_info
+        [&](VkPipelineRasterizationStateCreateInfo& r, VkPipelineDepthStencilStateCreateInfo& d)
+        {
+            r.cullMode = VK_CULL_MODE_NONE;
+        }
     );
 
-    // single render target
-    color_attachment_formats.clear();
-    color_attachment_formats.push_back(VK_FORMAT_UNDEFINED);
-    builder.set_color_attachment_format(color_attachment_formats);
-    color_blend_states.clear();
-    color_blend_states.push_back(builder.disable_blending());
-    builder.set_blending_state(color_blend_states);
-    builder.enable_depth(true, VK_COMPARE_OP_GREATER_OR_EQUAL);
-    builder.rasterization.depthClampEnable = VK_TRUE;
-    builder.dynamic_state.push_back(VK_DYNAMIC_STATE_DEPTH_BIAS);
-    builder.set_cull_mode(VK_CULL_MODE_FRONT_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-    shader_passes["depth"] = builder.create_pipeline(
+    shader_passes["depth"] = create_graphics_pipeline(
         device,
-        { shader_cache["depth.slang"] },
+        shader_cache["depth.slang"],
         { VK_SHADER_STAGE_VERTEX_BIT },
-        { "vs_main" },
+        &desc_set_and_binding_mapping_info,
         {},
-        &desc_set_and_binding_mapping_info
+        { 1 },
+        [&](VkPipelineRasterizationStateCreateInfo& r, VkPipelineDepthStencilStateCreateInfo& d)
+        {
+            r.cullMode = VK_CULL_MODE_FRONT_BIT;
+            r.depthClampEnable = VK_TRUE;
+        }
     );
-    builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-    shader_passes["depth_mask"] = builder.create_pipeline(
+    shader_passes["depth_mask"] = create_graphics_pipeline(
         device,
-        { shader_cache["depth.slang"] },
+        shader_cache["depth.slang"],
         { VK_SHADER_STAGE_VERTEX_BIT, VK_SHADER_STAGE_FRAGMENT_BIT },
-        { "vs_main", "ps_main" },
+        &desc_set_and_binding_mapping_info,
+        {},
         { 0 },
-        &desc_set_and_binding_mapping_info
+        [&](VkPipelineRasterizationStateCreateInfo& r, VkPipelineDepthStencilStateCreateInfo& d)
+        {
+            r.cullMode = VK_CULL_MODE_NONE;
+            r.depthClampEnable = VK_TRUE;
+        }
     );
-    builder.dynamic_state.pop_back(); // reset
-    builder.rasterization.depthClampEnable = VK_FALSE; // reset
 
-    builder.enable_depth(false, VK_COMPARE_OP_GREATER_OR_EQUAL);
-    color_attachment_formats.clear();
-    color_attachment_formats.push_back(VK_FORMAT_UNDEFINED);
-    builder.set_color_attachment_format(color_attachment_formats);
-    builder.set_depth_format(depth_image.format);
-    builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-    shader_passes["mlab_vert"] = builder.create_pipeline(
+    shader_passes["mlab_vert"] = create_graphics_pipeline(
         device,
-        { shader_cache["mlab_vert.slang"] },
+        shader_cache["mlab_vert.slang"],
         { VK_SHADER_STAGE_VERTEX_BIT, VK_SHADER_STAGE_FRAGMENT_BIT },
-        { "vs_main", "ps_main" },
+        &desc_set_and_binding_mapping_info,
         {},
-        &desc_set_and_binding_mapping_info
+        {},
+        [&](VkPipelineRasterizationStateCreateInfo& r, VkPipelineDepthStencilStateCreateInfo& d)
+        {
+            d.depthWriteEnable = VK_FALSE;
+        }
     );
-    shader_passes["mlab_mesh"] = builder.create_pipeline(
+    shader_passes["mlab_mesh"] = create_graphics_pipeline(
         device,
-        { shader_cache["mlab_mesh.slang"] },
+        shader_cache["mlab_mesh.slang"],
         { VK_SHADER_STAGE_MESH_BIT_EXT, VK_SHADER_STAGE_FRAGMENT_BIT },
-        { "mesh_main", "ps_main" },
+        &desc_set_and_binding_mapping_info,
         {},
-        &desc_set_and_binding_mapping_info
+        {},
+        [&](VkPipelineRasterizationStateCreateInfo& r, VkPipelineDepthStencilStateCreateInfo& d)
+        {
+            d.depthWriteEnable = VK_FALSE;
+        }
     );
 }
 
