@@ -54,6 +54,8 @@ target_sources(engine PRIVATE
 set_target_properties(engine PROPERTIES CXX_STANDARD 20 RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 target_compile_definitions(engine PUBLIC GLM_FORCE_DEPTH_ZERO_TO_ONE VK_NO_PROTOTYPES IMGUI_IMPL_VULKAN_NO_PROTOTYPE)
 
+find_package(TBB)
+
 target_include_directories(engine PUBLIC
  "${CMAKE_CURRENT_SOURCE_DIR}"
  "${PROJECT_SOURCE_DIR}/external/imgui/"
@@ -78,6 +80,7 @@ target_link_libraries(engine PUBLIC
 
 target_precompile_headers(engine PRIVATE
   <optional>
+  <execution>
   <algorithm>
   <vector>
   <array>
@@ -94,6 +97,11 @@ target_precompile_headers(engine PRIVATE
   <glm/ext/matrix_clip_space.hpp>
   # <glm/gtx/quaternion.hpp> # does not work
 )
+
+if (TBB_FOUND)
+  target_link_libraries(engine PUBLIC TBB::tbb)
+  target_compile_options(engine PRIVATE -ltbb)
+endif()
 
 if (WIN32)
   add_custom_command(TARGET engine POST_BUILD
