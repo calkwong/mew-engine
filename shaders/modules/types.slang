@@ -40,8 +40,9 @@ public struct MaterialData
 	public uint diffuse_id;
 	public uint metalroughness_id;
 	public uint normal_id;
-	public uint occlusion_id;
+	public float3 emissive_factor;
 	public uint emissive_id;
+	public uint occlusion_id;
 };
 
 public struct ObjectData

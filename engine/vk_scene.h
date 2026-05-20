@@ -63,8 +63,9 @@ struct MaterialData
     uint32_t diffuse_id{};
     uint32_t metal_roughness_id{};
     uint32_t normal_id{};
-    uint32_t occlusion_id{};
+    glm::vec3 emissive_factor{};
     uint32_t emissive_id{};
+    uint32_t occlusion_id{};
 };
 
 struct SceneData

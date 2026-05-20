@@ -260,6 +260,13 @@ void main(
 		}
 	}
 
+	float3 emissive = m.emissive_factor;
+	if (m.emissive_id != 0)
+	{
+	    emissive *= textures[m.emissive_id].SampleGrad(samplers[LINEAR_SAMPLER], uv, uv_ddx, uv_ddy).rgb;
+	}
+	color += emissive;
+
 	if (depth == 0.0)
 	{
 		float2 ndc = in_uv * 2.0 - 1.0;

@@ -883,6 +883,11 @@ bool load_gltf(VulkanEngine* engine, LoadedGLTF* scene, const std::string& file_
         mat_data.metallic_factor = mat.pbrData.metallicFactor;
         mat_data.roughness_factor = mat.pbrData.roughnessFactor;
 
+        // note: emissive strength currently unaccounted for
+        mat_data.emissive_factor.x = mat.emissiveFactor[0];
+        mat_data.emissive_factor.y = mat.emissiveFactor[1];
+        mat_data.emissive_factor.z = mat.emissiveFactor[2];
+
         if (mat.pbrData.baseColorTexture.has_value())
         {
             size_t image_index =
@@ -1086,6 +1091,8 @@ bool load_gltf(VulkanEngine* engine, LoadedGLTF* scene, const std::string& file_
                 size_t idx = p.materialIndex.value();
                 mesh_data.material_id = static_cast<uint32_t>(idx + material_offset);
                 auto alpha_mode = asset.materials[idx].alphaMode;
+                // if (asset.materials[idx].doubleSided)
+                //     fmt::println("{}", asset.materials[idx].name);
                 switch (alpha_mode)
                 {
                 case fastgltf::AlphaMode::Mask:
