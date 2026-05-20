@@ -1826,11 +1826,9 @@ void VulkanEngine::init_shaders()
     shader_cache.add_shader(device, "compact_dispatch.slang");
     shader_cache.add_shader(device, "hiz_spd.slang");
     shader_cache.add_shader(device, "depth.slang");
-    shader_cache.add_shader(device, "vbuffer.slang");
-    shader_cache.add_shader(device, "gbuffer_vert.slang");
-    shader_cache.add_shader(device, "gbuffer_mesh.slang");
-    shader_cache.add_shader(device, "mlab_vert.slang");
-    shader_cache.add_shader(device, "mlab_mesh.slang");
+    shader_cache.add_shader(device, "rasterize_vbuffer.slang");
+    shader_cache.add_shader(device, "rasterize_gbuffer.slang");
+    shader_cache.add_shader(device, "mlab.slang");
     // shader_cache.add_shader(device, "rt.slang", sizeof(DeferredPushConstants));
 }
 
@@ -1958,9 +1956,9 @@ void VulkanEngine::init_pipelines()
 
     // shader_passes["ray_tracing"] = create_compute_pipeline(device, shader_cache["rt.slang"], &desc_set_and_binding_mapping_info);
 
-    shader_passes["geometry_vert"] = create_graphics_pipeline(
+    shader_passes["gbuffer_vert"] = create_graphics_pipeline(
         device,
-        shader_cache["gbuffer_vert.slang"],
+        shader_cache["rasterize_gbuffer.slang"],
         { VK_SHADER_STAGE_VERTEX_BIT, VK_SHADER_STAGE_FRAGMENT_BIT },
         &desc_set_and_binding_mapping_info,
         { gbuffers[0].format, gbuffers[1].format, gbuffers[2].format },
@@ -1969,9 +1967,9 @@ void VulkanEngine::init_pipelines()
         {
         }
     );
-    shader_passes["geometry_vert_mask"] = create_graphics_pipeline(
+    shader_passes["gbuffer_vert_alphaclip"] = create_graphics_pipeline(
         device,
-        shader_cache["gbuffer_vert.slang"],
+        shader_cache["rasterize_gbuffer.slang"],
         { VK_SHADER_STAGE_VERTEX_BIT, VK_SHADER_STAGE_FRAGMENT_BIT },
         &desc_set_and_binding_mapping_info,
         { gbuffers[0].format, gbuffers[1].format, gbuffers[2].format },
@@ -1981,9 +1979,9 @@ void VulkanEngine::init_pipelines()
             r.cullMode = VK_CULL_MODE_NONE;
         }
     );
-    shader_passes["geometry_mesh"] = create_graphics_pipeline(
+    shader_passes["gbuffer_mesh"] = create_graphics_pipeline(
         device,
-        shader_cache["gbuffer_mesh.slang"],
+        shader_cache["rasterize_gbuffer.slang"],
         { VK_SHADER_STAGE_MESH_BIT_EXT, VK_SHADER_STAGE_FRAGMENT_BIT },
         &desc_set_and_binding_mapping_info,
         { gbuffers[0].format, gbuffers[1].format, gbuffers[2].format },
@@ -1992,9 +1990,9 @@ void VulkanEngine::init_pipelines()
         {
         }
     );
-    shader_passes["geometry_mesh_mask"] = create_graphics_pipeline(
+    shader_passes["gbuffer_mesh_alphaclip"] = create_graphics_pipeline(
         device,
-        shader_cache["gbuffer_mesh.slang"],
+        shader_cache["rasterize_gbuffer.slang"],
         { VK_SHADER_STAGE_MESH_BIT_EXT, VK_SHADER_STAGE_FRAGMENT_BIT },
         &desc_set_and_binding_mapping_info,
         { gbuffers[0].format, gbuffers[1].format, gbuffers[2].format },
@@ -2005,9 +2003,9 @@ void VulkanEngine::init_pipelines()
         }
     );
 
-    shader_passes["visibility_mesh"] = create_graphics_pipeline(
+    shader_passes["vbuffer"] = create_graphics_pipeline(
         device,
-        shader_cache["vbuffer.slang"],
+        shader_cache["rasterize_vbuffer.slang"],
         { VK_SHADER_STAGE_MESH_BIT_EXT, VK_SHADER_STAGE_FRAGMENT_BIT },
         &desc_set_and_binding_mapping_info,
         { visibility_buffer.format },
@@ -2016,9 +2014,9 @@ void VulkanEngine::init_pipelines()
         {
         }
     );
-    shader_passes["visibility_mesh_mask"] = create_graphics_pipeline(
+    shader_passes["vbuffer_alphaclip"] = create_graphics_pipeline(
         device,
-        shader_cache["vbuffer.slang"],
+        shader_cache["rasterize_vbuffer.slang"],
         { VK_SHADER_STAGE_MESH_BIT_EXT, VK_SHADER_STAGE_FRAGMENT_BIT },
         &desc_set_and_binding_mapping_info,
         { visibility_buffer.format },
@@ -2042,7 +2040,7 @@ void VulkanEngine::init_pipelines()
             r.depthClampEnable = VK_TRUE;
         }
     );
-    shader_passes["depth_mask"] = create_graphics_pipeline(
+    shader_passes["depth_alphaclip"] = create_graphics_pipeline(
         device,
         shader_cache["depth.slang"],
         { VK_SHADER_STAGE_VERTEX_BIT, VK_SHADER_STAGE_FRAGMENT_BIT },
@@ -2058,7 +2056,7 @@ void VulkanEngine::init_pipelines()
 
     shader_passes["mlab_vert"] = create_graphics_pipeline(
         device,
-        shader_cache["mlab_vert.slang"],
+        shader_cache["mlab.slang"],
         { VK_SHADER_STAGE_VERTEX_BIT, VK_SHADER_STAGE_FRAGMENT_BIT },
         &desc_set_and_binding_mapping_info,
         {},
@@ -2070,7 +2068,7 @@ void VulkanEngine::init_pipelines()
     );
     shader_passes["mlab_mesh"] = create_graphics_pipeline(
         device,
-        shader_cache["mlab_mesh.slang"],
+        shader_cache["mlab.slang"],
         { VK_SHADER_STAGE_MESH_BIT_EXT, VK_SHADER_STAGE_FRAGMENT_BIT },
         &desc_set_and_binding_mapping_info,
         {},
@@ -3183,7 +3181,7 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass, ui
     {
         vkCmdBeginQuery(cmd, get_current_frame().query_pool_pipelines, query, 0);
 
-        ShaderPass current_pass = post_pass == 0 ? *shader_passes["geometry_vert"] : *shader_passes["geometry_vert_mask"];
+        ShaderPass current_pass = post_pass == 0 ? *shader_passes["gbuffer_vert"] : *shader_passes["gbuffer_vert_alphaclip"];
 
         VkPushDataInfoEXT push_data_info{};
         push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
@@ -3214,11 +3212,11 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass, ui
         ShaderPass current_pass{};
         if (visibility_rendering)
         {
-            current_pass = post_pass == 0 ? *shader_passes["visibility_mesh"] : *shader_passes["visibility_mesh_mask"];
+            current_pass = post_pass == 0 ? *shader_passes["vbuffer"] : *shader_passes["vbuffer_alphaclip"];
         }
         else // deferred rendering
         {
-            current_pass = post_pass == 0 ? *shader_passes["geometry_mesh"] : *shader_passes["geometry_mesh_mask"];
+            current_pass = post_pass == 0 ? *shader_passes["gbuffer_mesh"] : *shader_passes["gbuffer_mesh_alphaclip"];
         }
 
         VkPushDataInfoEXT push_data_info{};
@@ -3379,7 +3377,7 @@ void VulkanEngine::render_shadows(VkCommandBuffer cmd, uint32_t cascade_idx, uin
 
         if (CVAR_RENDER_ALPHACLIP.get())
         {
-            current_pass = *shader_passes["depth_mask"];
+            current_pass = *shader_passes["depth_alphaclip"];
             vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
             VkPushDataInfoEXT push_data_info{};
             push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;

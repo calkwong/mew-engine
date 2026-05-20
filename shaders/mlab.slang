@@ -1,10 +1,13 @@
+// References
+// https://dl.acm.org/doi/epdf/10.1145/2556700.2556705
+// https://github.com/Devsh-Graphics-Programming/Nabla/blob/master/include/nbl/builtin/glsl/ext/OIT/insert_node.glsl
+// https://interplayoflight.wordpress.com/2022/07/02/order-independent-transparency-part-2/
+
 import bindings;
 import types;
 import util;
 import prefix_sum;
-
-// #define TRIANGLE_CULLING
-#define PBR
+import oit;
 
 struct Interp
 {
@@ -13,16 +16,7 @@ struct Interp
     float2 uv;
     float4 tangent;
     nointerpolation uint material_id;
-    // float4 clip_pos;
-	// float4 prev_clip_pos;
 };
-
-#ifdef TRIANGLE_CULLING
-struct PerPrimitive
-{
-	bool cull_primitive : SV_CullPrimitive;
-};
-#endif
 
 struct PushConstants
 {
@@ -39,13 +33,38 @@ struct PushConstants
 
 [[vk::push_constant]] PushConstants pc;
 
-[vk::constant_id(0)]
-const int OPAQUE = 1;
+[shader("vertex")]
+Interp vs_main(
+    uint instance_id : SV_VulkanInstanceID,
+    uint vertex_id : SV_VulkanVertexID
+)
+{
+    Interp interp;
 
-#ifdef TRIANGLE_CULLING
-groupshared float3 vertex_clip[64];
-#endif
+	ObjectData o = pc.object_buffer[instance_id]; // instance_id from drawIndirectCommand
+	Vertex v = pc.vertex_buffer[vertex_id];
 
+	float3 pos = float3(v.px, v.py, v.pz);
+	float4 world_pos = float4(rotate_quat(pos, o.orientation) * o.scale + o.translation, 1.0);
+
+	float3 normal;
+	float4 tangent;
+	unpack_tbn(v.normal, uint(v.tangent), normal, tangent);
+
+	interp.normal = rotate_quat(normal, o.orientation);
+	interp.tangent = float4(rotate_quat(tangent.xyz, o.orientation), tangent.w);
+
+	interp.uv = float2(v.uv_x, v.uv_y);
+	interp.material_id = o.material_id;
+
+    float4 clip_pos = mul(uniforms.view_proj, world_pos);
+
+	interp.position = clip_pos;
+
+	return interp;
+}
+
+// note: no triangle culling as VK_CULL_MODE_NONE
 #define WG_SIZE_X 128
 
 [shader("mesh")]
@@ -55,10 +74,7 @@ void mesh_main(
     uint3 wg_id : SV_GroupID,
     uint t_index : SV_GroupIndex,
     out vertices Interp verts[64],
-    out indices uint3 tris[124],
-#ifdef TRIANGLE_CULLING
-    out primitives PerPrimitive prims[124]
-#endif
+    out indices uint3 tris[124]
 )
 {
 	uint id = wg_id.x;
@@ -118,13 +134,6 @@ void mesh_main(
 
 	    float4 clip_pos = mul(uniforms.view_proj, world_pos);
 
-		// TODO: only account for screen size if doing small primitive culling
-#ifdef TRIANGLE_CULLING
-		if (OPAQUE == 1)
-		{
-            vertex_clip[i] = float3(clip_pos.xy / clip_pos.w * 0.5 + 0.5, clip_pos.w);
-        }
-#endif
 		verts[i].position = clip_pos;
 	}
 
@@ -139,104 +148,32 @@ void mesh_main(
 		uint idx2 = pc.meshlet_indices_buffer[m_triangle_offset + i * 3 + 2];
 
 		tris[i] = uint3(idx0, idx1, idx2);
-
-#ifdef TRIANGLE_CULLING
-		// TODO: With our stress test scene, triangle culling reduces ~7M (50%) of clipping invocations
-		//       but performance oddly takes a hit from ~3.6ms to ~4.3ms. Disabling triangle culling via bool
-		//       improves performance slightly to ~4.1ms, but still a considerable performance hit.
-		//       No idea why - possibly payload related?
-        if (OPAQUE == 1)
-        {
-            float2 va = vertex_clip[idx0].xy;
-            float2 vb = vertex_clip[idx1].xy;
-            float2 vc = vertex_clip[idx2].xy;
-
-            float2 eb = vb - va;
-            float2 ec = vc - va;
-
-            // backface + zero area culling
-            bool culled = eb.x * ec.y <= eb.y * ec.x;
-
-            // triangle culling only works if all triangles are in front of camera
-            culled = culled && (vertex_clip[idx0].z > 0 && vertex_clip[idx1].z > 0 && vertex_clip[idx2].z > 0);
-
-            // note: flickering artifacts when placed in runtime branch (last tested in GLSL)
-            prims[i].cull_primitive = culled;
-        }
-#endif
-
 	}
 }
 
+[earlydepthstencil]
 [shader("pixel")]
 void ps_main(
-    Interp in,
-    bool is_front_face : SV_IsFrontFace,
-    out float4 out_albedo : SV_Target0,
-    out float4 out_normal : SV_Target1,
-    out float2 out_metal_roughness : SV_Target2
+    Interp in
 )
 {
 	MaterialData m = pc.material_buffer[in.material_id];
 
 	float4 albedo = m.base_color_factor;
 	if (m.diffuse_id != 0)
-	{
-		float4 sampled_albedo = textures[m.diffuse_id].Sample(samplers[LINEAR_SAMPLER], in.uv);
+		albedo *= textures[m.diffuse_id].Sample(samplers[LINEAR_SAMPLER], in.uv);
 
-		if (OPAQUE == 0)
-		{
-			if (sampled_albedo.a < 0.5)
-				discard;
-		}
+	albedo.a = 0.5; // TODO: remove, just for testing
+	float4 premultiplied_alpha = float4(albedo.xyz * albedo.a, 1.0);
+	uint color = packUnorm4x8(premultiplied_alpha);
+	uint depth = asuint(in.position.z);
+	float transmission = 1.0 - albedo.a;
 
-		albedo *= sampled_albedo;
-	}
+	uint2 screen_coords = uint2(floor(in.position.xy));
 
-	float3 N;
-	float metallic;
-	float roughness;
+	uint index = screen_coords.x + screen_coords.y * pc.screen_size.x;
+	OITData fragment = oit_buffer[index];
+	insert_node(fragment, color, depth, transmission);
 
-#ifdef PBR
-	N = in.normal; // mikktspace
-
-	if (OPAQUE == 0)
-	{
-		N = is_front_face ? N : -N;
-	}
-
-	if (m.normal_id != 0)
-	{
-		float4 T = in.tangent; // mikktspace
-		float sign = in.tangent.w; // sign is flipped during tangent generation so mikktspace is consistent with glTF handedness
-
-		if (OPAQUE == 0)
-			sign = is_front_face ? sign : -sign;
-
-		float3 shading_normal = textures[m.normal_id].Sample(samplers[LINEAR_SAMPLER], in.uv).xyz;
-		shading_normal = shading_normal * 2.0 - 1.0;
-		N = tangent_to_world_space(shading_normal, T, N);
-	}
-	else
-	{
-        N = normalize(N);
-	}
-
-	metallic = m.metallic_factor;
-	float perceptual_roughness = m.roughness_factor;
-	float2 metal_roughness = float2(0.0);
-	if (m.metalroughness_id != 0)
-	{
-		metal_roughness = textures[m.metalroughness_id].Sample(samplers[LINEAR_SAMPLER], in.uv).bg;
-		metallic *= metal_roughness.x;
-		perceptual_roughness *= metal_roughness.y;
-	}
-	perceptual_roughness = max(perceptual_roughness, 0.045); // frostbite engine clamp value for analytical lights (fp32)
-#else
-	N = normalize(in.normal);
-#endif
-
-    out_albedo = albedo;
-    out_normal = float4(N, 1);
-    out_metal_roughness = float2(metallic, perceptual_roughness);
+	oit_buffer[index] = fragment;
 }
