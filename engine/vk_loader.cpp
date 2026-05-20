@@ -193,8 +193,9 @@ std::vector<AllocatedImage> load_images(const fastgltf::Asset& asset, VulkanEngi
 
     auto has_ktx2_format = [&](std::string_view file_path) -> bool
     {
-        size_t pos = file_path.find(".ktx2");
-        return (pos != std::string::npos);
+        auto pos = file_path.find_last_of('.');
+        auto format = file_path.substr(pos + 1);
+        return (format == "ktx2");
     };
 
     auto raw_images = std::vector<RawImageData>(asset.images.size());
@@ -229,7 +230,6 @@ std::vector<AllocatedImage> load_images(const fastgltf::Asset& asset, VulkanEngi
             if (const auto* vector = std::get_if<fastgltf::sources::Vector>(&image.data))
             {
                 assert(0 && "fastgltf::sources::Vector not implemented");
-                return RawImageData{};
             }
             if (const auto* view = std::get_if<fastgltf::sources::BufferView>(&image.data))
             {
@@ -240,7 +240,6 @@ std::vector<AllocatedImage> load_images(const fastgltf::Asset& asset, VulkanEngi
                 else
                 {
                     assert(0 && "fastgltf::sources::BufferView not implemented");
-                    return RawImageData{};
                 }
             }
             assert(0);
@@ -291,7 +290,7 @@ std::vector<AllocatedImage> load_images(const fastgltf::Asset& asset, VulkanEngi
                         .image_index = static_cast<uint32_t>(images.size()),
                         .mips = mip,
                         .extent = { raw_image_data.ktx_info[mip].m_orig_width,
-                                    raw_image_data.ktx_info[mip].m_orig_width,
+                                    raw_image_data.ktx_info[mip].m_orig_height,
                                     1 } }
                 );
 
@@ -364,8 +363,8 @@ std::vector<AllocatedImage> load_images(const fastgltf::Asset& asset, VulkanEngi
             image_upload_info.end(),
             [&](const ImageUploadInfo& upload_info)
             {
-                auto p = static_cast<std::byte*>(scratch.info.pMappedData) + upload_info.buffer_offset; // this needs an overall offset
-                memcpy(p, upload_info.data, upload_info.size); // this needs a local offset
+                auto p = static_cast<std::byte*>(scratch.info.pMappedData) + upload_info.buffer_offset; // note the overall offset
+                memcpy(p, upload_info.data, upload_info.size); // note the local offset
             }
         );
 
@@ -398,7 +397,8 @@ std::vector<AllocatedImage> load_images(const fastgltf::Asset& asset, VulkanEngi
             info.pRegions = &copy;
         }
 
-        // assumes all textures are either ktx2 or not, otherwise may break
+        // if image_upload_info != raw_images, we are using ktx2 as each raw image maps to multiple (mips) upload infos
+        // warning! this is potentially fragile
         if (image_upload_info.size() != raw_images.size())
         {
             for (const auto& info : buffer_to_image_info)
