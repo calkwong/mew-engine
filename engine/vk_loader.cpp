@@ -40,7 +40,7 @@ struct MikkMesh
     std::vector<uint32_t>* indices{};
 };
 
-bool read_ktx2_file(const char* filename, std::vector<uint8_t>& ktx_data)
+bool read_raw_image_data_from_file(const char* filename, std::vector<uint8_t>& ktx_data)
 {
     // cursor at the end
     std::ifstream file(filename, std::ios::ate | std::ios::binary);
@@ -86,15 +86,17 @@ std::vector<AllocatedImage> load_images(const fastgltf::Asset& asset, VulkanEngi
         bool is_ktx2{};
         VkFormat format{};
 
-        // clang-format off
-		std::unique_ptr<unsigned char[], decltype([](unsigned char* p){ stbi_image_free(p); })> data{};
-        // clang-format on
+        // lambda used as custom deletor
+        std::unique_ptr<unsigned char[], decltype([](unsigned char* p)
+                                                  {
+                                                      stbi_image_free(p);
+                                                  })>
+            data{};
         std::unique_ptr<unsigned char[]> ktx{};
         std::unique_ptr<basist::ktx2_image_level_info[]> ktx_info{};
     };
 
-    // TODO: use fastgltf::mimetype for robustness
-    auto create_raw_image_data = [&](const std::filesystem::path& full_path, bool is_ktx2) -> RawImageData
+    auto create_raw_image_data = [&](const void* data, size_t data_size, bool is_ktx2) -> RawImageData
     {
         RawImageData raw_image_data{};
 
@@ -102,16 +104,11 @@ std::vector<AllocatedImage> load_images(const fastgltf::Asset& asset, VulkanEngi
 
         if (is_ktx2)
         {
-            std::vector<uint8_t> buffer{};
-
-            if (!read_ktx2_file(full_path.string().c_str(), buffer))
-                assert(0);
-
             // create the KTX2 transcoder object
             basist::ktx2_transcoder transcoder{};
 
             // initialize the transcoder
-            if (!transcoder.init(buffer.data(), static_cast<uint32_t>(buffer.size())))
+            if (!transcoder.init(data, static_cast<uint32_t>(data_size)))
                 assert(0);
 
             // TODO: refactor when we stop using BC7 across the board
@@ -171,9 +168,18 @@ std::vector<AllocatedImage> load_images(const fastgltf::Asset& asset, VulkanEngi
         }
         else
         {
-            raw_image_data.data.reset(stbi_load(full_path.string().c_str(), &raw_image_data.width, &raw_image_data.height, &raw_image_data.components, 4));
+            raw_image_data.data.reset(
+                stbi_load_from_memory(
+                    static_cast<const unsigned char*>(data),
+                    static_cast<int>(data_size),
+                    &raw_image_data.width,
+                    &raw_image_data.height,
+                    &raw_image_data.components,
+                    4
+                )
+            );
             raw_image_data.mips = static_cast<uint32_t>(std::floor(std::log2(std::max(raw_image_data.width, raw_image_data.height)))) + 1;
-            // raw_image_data.mips = 1;
+            // note: we will likely have gamma issues for jpg/png images
             raw_image_data.format = VK_FORMAT_R8G8B8A8_UNORM;
             raw_image_data.size = static_cast<uint32_t>(raw_image_data.width * raw_image_data.height * 4);
         }
@@ -210,25 +216,33 @@ std::vector<AllocatedImage> load_images(const fastgltf::Asset& asset, VulkanEngi
             {
                 assert(file_path->fileByteOffset == 0); // we don't support offsets with stbi
                 assert(file_path->uri.isLocalPath()); // only load local files
-
                 bool is_ktx2 = has_ktx2_format(file_path->uri.path());
                 std::filesystem::path full_path = current_path / file_path->uri.path();
 
-                return create_raw_image_data(full_path, is_ktx2);
+                std::vector<uint8_t> buffer{};
+                if (!read_raw_image_data_from_file(full_path.string().c_str(), buffer))
+                    assert(0);
+
+                return create_raw_image_data(buffer.data(), buffer.size(), is_ktx2);
             }
-            // TODO
-            if (const auto* file_path = std::get_if<fastgltf::sources::Vector>(&image.data))
+            // note: not used by parser and only for exporting? see: fastgltf/types,hpp
+            if (const auto* vector = std::get_if<fastgltf::sources::Vector>(&image.data))
             {
                 assert(0 && "fastgltf::sources::Vector not implemented");
                 return RawImageData{};
             }
-            // TODO
-            if (const auto* file_path = std::get_if<fastgltf::sources::BufferView>(&image.data))
+            if (const auto* view = std::get_if<fastgltf::sources::BufferView>(&image.data))
             {
-                assert(0 && "fastgltf::sources::BufferView not implemented");
-                return RawImageData{};
+                auto& buffer_view = asset.bufferViews[view->bufferViewIndex];
+                auto& buffer = asset.buffers[buffer_view.bufferIndex];
+                if (const auto* arr = std::get_if<fastgltf::sources::Array>(&buffer.data))
+                    return create_raw_image_data(arr->bytes.data() + buffer_view.byteOffset, buffer_view.byteLength, view->mimeType == fastgltf::MimeType::KTX2);
+                else
+                {
+                    assert(0 && "fastgltf::sources::BufferView not implemented");
+                    return RawImageData{};
+                }
             }
-
             assert(0);
             return RawImageData{};
         }
