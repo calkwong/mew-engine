@@ -302,7 +302,7 @@ void main(
 			out_color = float4(N, 1.0);
 			break;
 		case Debug::Albedo:
-		    out_color = float4(albedo.xyz, 1.0);
+		    out_color = float4(linear_to_srgb(albedo.xyz), 1.0);
 		    break;
         case Debug::Metallic:
             out_color = float4(float3(metallic), 1.0);
