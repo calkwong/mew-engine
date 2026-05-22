@@ -193,18 +193,26 @@ void main(
 	BRDFData brdf_data = prepare_brdf_data(N, L, V, albedo.xyz, roughness, metallic);
 	color = eval_brdf(brdf_data, albedo.xyz, roughness, metallic) * light_color * brdf_data.NdotL;
 
-	#ifdef IBL
-		float3 R = reflect(-V, N);
-		float prefiltered_mip = pc.max_prefiltered_lod * perceptual_roughness;
+#ifdef IBL
+	float3 R = reflect(-V, N);
+	float prefiltered_mip = pc.max_prefiltered_lod * perceptual_roughness;
 
-		float3 irradiance = evaluate_sh(pc.sh_buffer->r_coefficients, pc.sh_buffer->g_coefficients, pc.sh_buffer->b_coefficients, N);
-		float3 radiance = textures_cube[uint(uniforms.textures[2])].SampleLevel(samplers[CUBE_SAMPLER], R, prefiltered_mip).xyz;
-		float2 brdf_lut = textures[uint(uniforms.textures[3])].SampleLevel(samplers[LINEAR_CLAMP_SAMPLER], float2(brdf_data.NdotV, perceptual_roughness), 0.0).rg;
+	float3 irradiance = evaluate_sh(pc.sh_buffer->r_coefficients, pc.sh_buffer->g_coefficients, pc.sh_buffer->b_coefficients, N);
+	float3 radiance = textures_cube[uint(uniforms.textures[2])].SampleLevel(samplers[CUBE_SAMPLER], R, prefiltered_mip).xyz;
+	float2 brdf_lut = textures[uint(uniforms.textures[3])].SampleLevel(samplers[LINEAR_CLAMP_SAMPLER], float2(brdf_data.NdotV, perceptual_roughness), 0.0).rg;
 
-		float3 ambient = eval_indirect_multiscattering(brdf_data, irradiance, radiance, brdf_lut, albedo.xyz, perceptual_roughness, metallic);
-	#else
-	    float3 ambient = albedo.xyz * 0.1;
-	#endif
+	float3 ambient = eval_indirect_multiscattering(brdf_data, irradiance, radiance, brdf_lut, albedo.xyz, perceptual_roughness, metallic);
+	float ao = 1.0;
+
+	if (m.occlusion_id != 0)
+	{
+	    ao = textures[m.occlusion_id].SampleGrad(samplers[LINEAR_SAMPLER], uv, uv_ddx, uv_ddy).r;
+		// note: this is simplified and z
+		ambient *= ao;
+	}
+#else
+    float3 ambient = albedo.xyz * 0.1;
+#endif
 
 	uint cascade_index = 0;
 	if (pc.shadows == 1)
