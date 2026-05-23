@@ -3261,7 +3261,7 @@ void VulkanEngine::render_transparent(VkCommandBuffer cmd, uint32_t query)
     scissor.extent.height = swapchain.extent.height;
     vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-    GPUPushConstants pc{};
+    OITPushConstants pc{};
     pc.object_buffer_address = get_buffer_address(device, render_scene.object_buffer.buffer);
     pc.vertex_buffer_address = get_buffer_address(device, render_scene.vertex_buffer.buffer);
     pc.meshlet_buffer_address = get_buffer_address(device, render_scene.meshlet_buffer.buffer);
@@ -3269,8 +3269,9 @@ void VulkanEngine::render_transparent(VkCommandBuffer cmd, uint32_t query)
     pc.cluster_indices_address = get_buffer_address(device, render_scene.cluster_indices.buffer);
     pc.material_buffer_address = get_buffer_address(device, render_scene.material_buffer.buffer);
     pc.prefix_sum_buffer = get_buffer_address(device, render_scene.prefix_sum_buffer.buffer);
-    // TODO: handle jitter offset for transparency
+    pc.sh_buffer = get_buffer_address(device, render_scene.sh_buffer.buffer);
     pc.screen_size = glm::uvec2(swapchain.extent.width, swapchain.extent.height);
+    pc.max_prefiltered_lod = static_cast<float>(std::floor(std::log2(static_cast<float>(std::max(prefiltered_envmap.extent.width, prefiltered_envmap.extent.height))))) + 1;
 
     if (!CVAR_RENDER_MESH_SHADERS.get())
     {
@@ -3280,7 +3281,7 @@ void VulkanEngine::render_transparent(VkCommandBuffer cmd, uint32_t query)
 
         VkPushDataInfoEXT push_data_info{};
         push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
-        push_data_info.data = { &pc, sizeof(GPUPushConstants) };
+        push_data_info.data = { &pc, sizeof(OITPushConstants) };
         vkCmdPushDataEXT(cmd, &push_data_info);
 
         vkCmdBindIndexBuffer(cmd, render_scene.index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
@@ -3307,7 +3308,7 @@ void VulkanEngine::render_transparent(VkCommandBuffer cmd, uint32_t query)
 
         VkPushDataInfoEXT push_data_info{};
         push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
-        push_data_info.data = { &pc, sizeof(GPUPushConstants) };
+        push_data_info.data = { &pc, sizeof(OITPushConstants) };
         vkCmdPushDataEXT(cmd, &push_data_info);
 
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);

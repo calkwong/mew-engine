@@ -8,10 +8,13 @@ import types;
 import util;
 import prefix_sum;
 import oit;
+import pbr;
+import sh;
 
 struct Interp
 {
     float4 position : SV_Position;
+    float3 world_pos;
     float3 normal;
     float2 uv;
     float4 tangent;
@@ -27,8 +30,9 @@ struct PushConstants
 	uint* cluster_indices_buffer;
 	MaterialData* material_buffer;
 	PrefixSum* prefix_sum_buffer;
+	SH* sh_buffer;
 	uint2 screen_size;
-	float4 jitter_offset;
+	float max_prefiltered_lod;
 };
 
 [[vk::push_constant]] PushConstants pc;
@@ -46,6 +50,9 @@ Interp vs_main(
 
 	float3 pos = float3(v.px, v.py, v.pz);
 	float4 world_pos = float4(rotate_quat(pos, o.orientation) * o.scale + o.translation, 1.0);
+    float4 clip_pos = mul(uniforms.view_proj, world_pos);
+	interp.position = clip_pos;
+	interp.world_pos = world_pos.xyz;
 
 	float3 normal;
 	float4 tangent;
@@ -56,10 +63,6 @@ Interp vs_main(
 
 	interp.uv = float2(v.uv_x, v.uv_y);
 	interp.material_id = o.material_id;
-
-    float4 clip_pos = mul(uniforms.view_proj, world_pos);
-
-	interp.position = clip_pos;
 
 	return interp;
 }
@@ -121,6 +124,9 @@ void mesh_main(
 
 		float3 pos = float3(v.px, v.py, v.pz);
 		float4 world_pos = float4(rotate_quat(pos, o.orientation) * o.scale + o.translation, 1.0);
+	    float4 clip_pos = mul(uniforms.view_proj, world_pos);
+		verts[i].position = clip_pos;
+		verts[i].world_pos = world_pos.xyz;
 
 		float3 normal;
 		float4 tangent;
@@ -132,9 +138,6 @@ void mesh_main(
 		verts[i].uv = float2(v.uv_x, v.uv_y);
 		verts[i].material_id = o.material_id;
 
-	    float4 clip_pos = mul(uniforms.view_proj, world_pos);
-
-		verts[i].position = clip_pos;
 	}
 
 #ifdef TRIANGLE_CULLING
@@ -151,6 +154,10 @@ void mesh_main(
 	}
 }
 
+// TODO:
+// - shadows
+// - point lights
+
 [earlydepthstencil]
 [shader("pixel")]
 void ps_main(
@@ -163,9 +170,57 @@ void ps_main(
 	if (m.diffuse_id != 0)
 		albedo *= textures[m.diffuse_id].Sample(samplers[LINEAR_SAMPLER], in.uv);
 
-	float4 premultiplied_alpha = float4(albedo.xyz * albedo.a, 1.0);
+	float3 N = in.normal;
+	if (m.normal_id != 0)
+	{
+		float4 T = in.tangent; // mikktspace
+		float sign = in.tangent.w; // sign is flipped during tangent generation so mikktspace is consistent with glTF handedness
+
+		float3 shading_normal = textures[m.normal_id].Sample(samplers[LINEAR_SAMPLER], in.uv).xyz;
+		shading_normal = shading_normal * 2.0 - 1.0;
+		N = tangent_to_world_space(shading_normal, T, N);
+	}
+	else
+	{
+        N = normalize(N);
+	}
+
+	float metallic = m.metallic_factor;
+	float perceptual_roughness = m.roughness_factor;
+	if (m.metalroughness_id != 0)
+	{
+		float2 metal_roughness = textures[m.metalroughness_id].Sample(samplers[LINEAR_SAMPLER], in.uv).bg;
+		metallic *= metal_roughness.x;
+		perceptual_roughness *= metal_roughness.y;
+	}
+	perceptual_roughness = max(perceptual_roughness, 0.045);
+	float roughness = perceptual_roughness * perceptual_roughness;
+
+	float3 Fr = float3(0.0);
+
+	float3 L = normalize(uniforms.sunlight_dir.xyz);
+	float3 V = normalize(uniforms.camera_pos.xyz - in.world_pos);
+	float3 H = normalize(L + V);
+
+	float3 light_color = uniforms.sunlight_color.xyz;
+
+	BRDFData brdf_data = prepare_brdf_data(N, L, V, albedo.xyz, roughness, metallic);
+	float3 direct_lighting = eval_brdf(brdf_data, albedo.xyz, roughness, metallic) * light_color * brdf_data.NdotL;
+
+	float3 R = reflect(-V, N);
+	float prefiltered_mip = pc.max_prefiltered_lod * perceptual_roughness;
+
+	float3 irradiance = evaluate_sh(pc.sh_buffer->r_coefficients, pc.sh_buffer->g_coefficients, pc.sh_buffer->b_coefficients, N);
+	float3 radiance = textures_cube[uint(uniforms.textures[2])].SampleLevel(samplers[CUBE_SAMPLER], R, prefiltered_mip).xyz;
+	float2 brdf_lut = textures[uint(uniforms.textures[3])].SampleLevel(samplers[LINEAR_CLAMP_SAMPLER], float2(brdf_data.NdotV, perceptual_roughness), 0.0).rg;
+
+	float3 indirect_lighting = eval_indirect_multiscattering(brdf_data, irradiance, radiance, brdf_lut, albedo.xyz, perceptual_roughness, metallic);
+	float3 outgoing_radiance = direct_lighting + indirect_lighting;
+
+	float4 premultiplied_alpha = float4(outgoing_radiance * albedo.a, 1.0);
 	uint color = packUnorm4x8(premultiplied_alpha);
 	uint depth = asuint(in.position.z);
+	// this should not be called transmission, it is only related to alpha coverage
 	float transmission = 1.0 - albedo.a;
 
 	uint2 screen_coords = uint2(floor(in.position.xy));

@@ -58,6 +58,20 @@ struct GPUPushConstants
     glm::vec4 jitter_offset{};
 };
 
+struct OITPushConstants
+{
+    VkDeviceAddress object_buffer_address{};
+    VkDeviceAddress vertex_buffer_address{};
+    VkDeviceAddress meshlet_buffer_address{};
+    VkDeviceAddress meshlet_indices_buffer_address{};
+    VkDeviceAddress cluster_indices_address{};
+    VkDeviceAddress material_buffer_address{};
+    VkDeviceAddress prefix_sum_buffer{};
+    VkDeviceAddress sh_buffer{};
+    glm::uvec2 screen_size{};
+    float max_prefiltered_lod{};
+};
+
 struct DeferredPushConstants
 {
     glm::vec4 cluster_size{}; // xyz are cluster data structure dimensions, w is a single cluster's dimension
