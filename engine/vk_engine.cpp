@@ -844,7 +844,7 @@ void VulkanEngine::draw()
         );
     };
 
-    auto transparent_pass = [&](RenderGraph& graph, const std::string& prefix, uint32_t offset, bool late, uint32_t post_pass, uint32_t query, uint32_t timestamp)
+    auto transparency_pass = [&](RenderGraph& graph, const std::string& prefix, uint32_t offset, bool late, uint32_t post_pass, uint32_t query, uint32_t timestamp)
     {
         graph.add_pass(
             prefix + "zero_buffers",
@@ -1006,7 +1006,7 @@ void VulkanEngine::draw()
         }
 
         if (CVAR_RENDER_TRANSPARENT.get())
-            transparent_pass(graph, "transparent_late_", 0, true, 2, 3, 16);
+            transparency_pass(graph, "transparent_late_", 0, true, 2, 3, 16);
         else
         {
             vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 16);
@@ -1149,6 +1149,49 @@ void VulkanEngine::draw()
                 vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 15);
             }
         );
+
+        if (CVAR_RENDER_TRANSPARENT.get())
+        {
+            graph.add_pass(
+                "composite transparent",
+                Pass::PassType::ComputePass,
+                [&](Pass& pass)
+                {
+                    pass.add_storage_buffer_read("oit");
+                    pass.add_storage_buffer_write("oit");
+                    pass.add_image_write("draw", draw_image.image);
+                    pass.add_image_read("draw", draw_image.image);
+                },
+                [&]()
+                {
+                    ShaderPass current_pass = *shader_passes["composite_transparent"];
+                    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
+
+                    struct PushData
+                    {
+                        VkDeviceAddress oit_buffer{};
+                        glm::uvec2 screen_size{};
+                        uint32_t draw_id{};
+                    };
+
+                    PushData pd{
+                        get_buffer_address(device, render_scene.oit_buffer.buffer),
+                        glm::uvec2(swapchain.extent.width, swapchain.extent.height),
+                        image_cache.get_draw_image()
+                    };
+
+                    VkPushDataInfoEXT push_data_info{};
+                    push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
+                    push_data_info.data = { &pd, sizeof(PushData) };
+
+                    vkCmdPushDataEXT(cmd, &push_data_info);
+
+                    auto groupcount_x = get_groupcount(swapchain.extent.width, 8);
+                    auto groupcount_y = get_groupcount(swapchain.extent.height, 8);
+                    vkCmdDispatch(cmd, groupcount_x, groupcount_y, 1);
+                }
+            );
+        }
 
         // TODO: fix autoexposure
 
@@ -1829,6 +1872,7 @@ void VulkanEngine::init_shaders()
     shader_cache.add_shader(device, "rasterize_vbuffer.slang");
     shader_cache.add_shader(device, "rasterize_gbuffer.slang");
     shader_cache.add_shader(device, "mlab.slang");
+    shader_cache.add_shader(device, "composite_transparent.slang");
     // shader_cache.add_shader(device, "rt.slang", sizeof(DeferredPushConstants));
 }
 
@@ -1953,6 +1997,7 @@ void VulkanEngine::init_pipelines()
     shader_passes["hiz_spd"] = create_compute_pipeline(device, shader_cache["hiz_spd.slang"], &desc_set_and_binding_mapping_info);
     shader_passes["resolve_gbuffer"] = create_compute_pipeline(device, shader_cache["resolve_gbuffer.slang"], &desc_set_and_binding_mapping_info);
     shader_passes["resolve_vbuffer"] = create_compute_pipeline(device, shader_cache["resolve_vbuffer.slang"], &desc_set_and_binding_mapping_info);
+    shader_passes["composite_transparent"] = create_compute_pipeline(device, shader_cache["composite_transparent.slang"], &desc_set_and_binding_mapping_info);
 
     // shader_passes["ray_tracing"] = create_compute_pipeline(device, shader_cache["rt.slang"], &desc_set_and_binding_mapping_info);
 
@@ -3600,6 +3645,7 @@ void VulkanEngine::execute_shading(VkCommandBuffer cmd)
     pc.scale = static_cast<float>(CLUSTER_DEPTH_SLICES) / std::log(ratio);
     pc.bias = static_cast<float>(CLUSTER_DEPTH_SLICES) * std::log(main_camera.near) / std::log(ratio);
     pc.resolve_transparent = CVAR_RENDER_TRANSPARENT.get();
+    pc.resolve_transparent = 0;
     pc.shadows = CVAR_RENDER_SHADOWS.get();
     pc.shadows_rt = CVAR_RENDER_SHADOWS_RT.get();
     pc.max_prefiltered_lod = static_cast<float>(std::floor(std::log2(static_cast<float>(std::max(prefiltered_envmap.extent.width, prefiltered_envmap.extent.height))))) + 1;
