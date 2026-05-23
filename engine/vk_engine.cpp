@@ -2108,6 +2108,7 @@ void VulkanEngine::init_pipelines()
         [&](VkPipelineRasterizationStateCreateInfo& r, VkPipelineDepthStencilStateCreateInfo& d)
         {
             d.depthWriteEnable = VK_FALSE;
+            r.cullMode = VK_CULL_MODE_NONE;
         }
     );
     shader_passes["mlab_mesh"] = create_graphics_pipeline(
@@ -2120,6 +2121,7 @@ void VulkanEngine::init_pipelines()
         [&](VkPipelineRasterizationStateCreateInfo& r, VkPipelineDepthStencilStateCreateInfo& d)
         {
             d.depthWriteEnable = VK_FALSE;
+            r.cullMode = VK_CULL_MODE_NONE;
         }
     );
 }
