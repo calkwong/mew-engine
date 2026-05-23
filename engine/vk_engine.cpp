@@ -63,7 +63,7 @@ AutoCVar_Int CVAR_HOT_RELOAD{ "render.hot_reload", "Hot reload shaders", 0, CVar
 AutoCVar_Int CVAR_RENDER_VBUFFER{ "render.vbuffer", "Vbuffer path", 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_MESH_SHADERS{ "render.mesh_shaders", "Mesh shaders path", 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_ALPHACLIP{ "render.alphaclip", "Alphaclip", 1, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_RENDER_TRANSPARENT{ "render.transparent", "Transparent", 0, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_RENDER_TRANSPARENT{ "render.transparent", "Transparent", 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_POINT_LIGHTS{ "render.point_lights", "Point lights", 0, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_OCCLUSION_CULL{ "render.occlusion_cull", "Occlusion culling", 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_RENDER_LOD{ "render.lod", "LODs", 1, CVarFlags::EditCheckbox };
@@ -1006,18 +1006,6 @@ void VulkanEngine::draw()
             vkCmdEndQuery(cmd, get_current_frame().query_pool_pipelines, 2);
         }
 
-        if (CVAR_RENDER_TRANSPARENT.get())
-            transparency_pass(graph, "transparent_late_", 0, true, 2, 3, 16);
-        else
-        {
-            vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 16);
-            vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 17);
-            vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 18);
-            vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 19);
-            vkCmdBeginQuery(cmd, get_current_frame().query_pool_pipelines, 3, 0);
-            vkCmdEndQuery(cmd, get_current_frame().query_pool_pipelines, 3);
-        };
-
         if (CVAR_RENDER_POINT_LIGHTS.get())
         {
             // TODO: combine this somewhere
@@ -1148,6 +1136,18 @@ void VulkanEngine::draw()
                 vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 15);
             }
         );
+
+        if (CVAR_RENDER_TRANSPARENT.get())
+            transparency_pass(graph, "transparent_late_", 0, true, 2, 3, 16);
+        else
+        {
+            vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 16);
+            vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 17);
+            vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 18);
+            vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 19);
+            vkCmdBeginQuery(cmd, get_current_frame().query_pool_pipelines, 3, 0);
+            vkCmdEndQuery(cmd, get_current_frame().query_pool_pipelines, 3);
+        };
 
         if (CVAR_RENDER_TRANSPARENT.get())
         {
@@ -2530,6 +2530,9 @@ void VulkanEngine::register_object(const Node* node, const glm::mat4& top_matrix
             case MaterialPass::Blend:
                 obj.post_pass = 2;
                 break;
+            case MaterialPass::Transmission:
+                obj.post_pass = 3;
+                break;
             default: // Opaque
                 obj.post_pass = 0;
                 break;
@@ -2547,10 +2550,8 @@ void VulkanEngine::register_object(const Node* node, const glm::mat4& top_matrix
                 render_scene.mask_pass.unbatched_objects.push_back(render_id);
                 break;
             case MaterialPass::Blend:
-                render_scene.transparent_pass.unbatched_objects.push_back(render_id);
-                break;
             case MaterialPass::Transmission:
-                render_scene.transmission_pass.unbatched_objects.push_back(render_id);
+                render_scene.transparent_pass.unbatched_objects.push_back(render_id);
                 break;
             }
         }
