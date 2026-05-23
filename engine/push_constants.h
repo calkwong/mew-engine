@@ -79,7 +79,6 @@ struct DeferredPushConstants
     VkDeviceAddress light_buffer_address{};
     VkDeviceAddress light_index_buffer_address{};
     VkDeviceAddress light_grid_buffer_address{};
-    VkDeviceAddress oit_buffer_address{};
     VkDeviceAddress meshlet_indices_address{}; // TESTING FOR VIS BUFFER ONLY
     VkDeviceAddress meshlet_buffer_address{}; // TESTING FOR VIS BUFFER ONLY
     VkDeviceAddress vertex_buffer_address{}; // TESTING FOR VIS BUFFER ONLY
@@ -95,7 +94,6 @@ struct DeferredPushConstants
     float near{};
     float scale{};
     float bias{};
-    uint32_t resolve_transparent{};
     uint32_t shadows{};
     uint32_t shadows_rt{};
     float max_prefiltered_lod{};

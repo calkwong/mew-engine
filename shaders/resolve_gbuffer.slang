@@ -3,7 +3,6 @@ import types;
 import pbr;
 import sh;
 import util;
-import oit;
 import shadows;
 
 struct PushConstants
@@ -13,7 +12,6 @@ struct PushConstants
 	PointLight* light_buffer;
 	uint* light_index_buffer;
 	LightGrid* light_grid_buffer;
-	OITData* oit_buffer;
 	uint* meshlet_indices_buffer;
 	Meshlet* meshlet_buffer;
 	Vertex* vertex_buffer;
@@ -29,7 +27,6 @@ struct PushConstants
 	float near;
 	float scale;
 	float bias;
-	uint resolve_transparent;
 	uint shadows;
 	uint shadows_rt;
 	float max_prefiltered_lod;
@@ -184,12 +181,6 @@ void main(
 		ndc.y *= -1.0;
 		float3 sample_dir = mul(uniforms.inverse_view_proj, float4(ndc, 0.0, 1.0)).xyz;
 		color = textures_cube[uint(uniforms.textures[0])].SampleLevel(samplers[CUBE_SAMPLER], sample_dir, 0.0).xyz;
-	}
-
-	if (pc.resolve_transparent == 1)
-	{
-       	uint index = uint(frag_coord.x) + uint(frag_coord.y) * uint(pc.screen_size.x);
-        color = composite_transparent(pc.oit_buffer, index, color, uint2(frag_coord));
 	}
 
 	out_color = float4(color, 1.0);

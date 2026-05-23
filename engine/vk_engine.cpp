@@ -3625,7 +3625,6 @@ void VulkanEngine::execute_shading(VkCommandBuffer cmd)
     pc.light_buffer_address = get_buffer_address(device, light_buffer.buffer);
     pc.light_index_buffer_address = get_buffer_address(device, light_index_buffer.buffer);
     pc.light_grid_buffer_address = get_buffer_address(device, light_grid_buffer.buffer);
-    pc.oit_buffer_address = get_buffer_address(device, render_scene.oit_buffer.buffer);
     pc.meshlet_indices_address = get_buffer_address(device, render_scene.meshlet_indices.buffer);
     pc.meshlet_buffer_address = get_buffer_address(device, render_scene.meshlet_buffer.buffer);
     pc.vertex_buffer_address = get_buffer_address(device, render_scene.vertex_buffer.buffer);
@@ -3644,8 +3643,6 @@ void VulkanEngine::execute_shading(VkCommandBuffer cmd)
     const float ratio = main_camera.far / main_camera.near;
     pc.scale = static_cast<float>(CLUSTER_DEPTH_SLICES) / std::log(ratio);
     pc.bias = static_cast<float>(CLUSTER_DEPTH_SLICES) * std::log(main_camera.near) / std::log(ratio);
-    pc.resolve_transparent = CVAR_RENDER_TRANSPARENT.get();
-    pc.resolve_transparent = 0;
     pc.shadows = CVAR_RENDER_SHADOWS.get();
     pc.shadows_rt = CVAR_RENDER_SHADOWS_RT.get();
     pc.max_prefiltered_lod = static_cast<float>(std::floor(std::log2(static_cast<float>(std::max(prefiltered_envmap.extent.width, prefiltered_envmap.extent.height))))) + 1;
