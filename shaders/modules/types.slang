@@ -43,6 +43,8 @@ public struct MaterialData
 	public float3 emissive_factor;
 	public uint emissive_id;
 	public uint occlusion_id;
+	public float transmission_factor;
+	public uint transmission_id;
 };
 
 public struct ObjectData

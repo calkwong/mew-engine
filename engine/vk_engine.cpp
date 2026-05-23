@@ -2505,6 +2505,9 @@ void VulkanEngine::register_object(const Node* node, const glm::mat4& top_matrix
             case MaterialPass::Blend:
                 render_scene.transparent_pass.unbatched_objects.push_back(render_id);
                 break;
+            case MaterialPass::Transmission:
+                render_scene.transmission_pass.unbatched_objects.push_back(render_id);
+                break;
             }
         }
     }

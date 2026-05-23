@@ -799,9 +799,9 @@ bool load_gltf(VulkanEngine* engine, LoadedGLTF* scene, const std::string& file_
     scene->creator = engine;
     LoadedGLTF& file = *scene;
 
-    constexpr auto supported_extensions =
-        fastgltf::Extensions::KHR_lights_punctual | fastgltf::Extensions::KHR_texture_basisu;
-    // fastgltf::Extensions::KHR_materials_transmission;
+    // note: currently not using fastgltf::Extensions::KHR_lights_punctual but some gltf files require it, then we include for sake of
+    // being able to load and render the scene but its effectively ignored for now
+    constexpr auto supported_extensions = fastgltf::Extensions::KHR_texture_basisu | fastgltf::Extensions::KHR_materials_transmission;
 
     fastgltf::Parser parser(supported_extensions);
 
@@ -936,6 +936,17 @@ bool load_gltf(VulkanEngine* engine, LoadedGLTF* scene, const std::string& file_
                 : asset.textures[mat.emissiveTexture.value().textureIndex].basisuImageIndex.value();
 
             mat_data.emissive_id = static_cast<uint32_t>(texture_cache_offset + image_index);
+        }
+
+        if (mat.transmission.get())
+        {
+            auto* transmission_material = mat.transmission.get();
+            float transmission_factor = transmission_material->transmissionFactor;
+            if (transmission_material->transmissionTexture.has_value())
+            {
+                size_t image_index = asset.textures[transmission_material->transmissionTexture.value().textureIndex].imageIndex.value();
+                mat_data.transmission_id = static_cast<uint32_t>(texture_cache_offset + image_index);
+            }
         }
 
         materials_data.push_back(mat_data);
@@ -1104,6 +1115,9 @@ bool load_gltf(VulkanEngine* engine, LoadedGLTF* scene, const std::string& file_
                 default:
                     break;
                 }
+
+                if (asset.materials[idx].transmission.get())
+                    mesh_data.pass = MaterialPass::Transmission;
             }
             else
             {

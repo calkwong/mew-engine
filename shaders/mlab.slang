@@ -163,7 +163,6 @@ void ps_main(
 	if (m.diffuse_id != 0)
 		albedo *= textures[m.diffuse_id].Sample(samplers[LINEAR_SAMPLER], in.uv);
 
-	albedo.a = 0.5; // TODO: remove, just for testing
 	float4 premultiplied_alpha = float4(albedo.xyz * albedo.a, 1.0);
 	uint color = packUnorm4x8(premultiplied_alpha);
 	uint depth = asuint(in.position.z);

@@ -27,7 +27,8 @@ enum class MaterialPass : uint32_t
 {
     Opaque,
     Mask,
-    Blend
+    Blend,
+    Transmission
 };
 
 struct MeshLod
@@ -66,6 +67,8 @@ struct MaterialData
     glm::vec3 emissive_factor{};
     uint32_t emissive_id{};
     uint32_t occlusion_id{};
+    float transmission_factor{};
+    uint32_t transmission_id{};
 };
 
 struct SceneData
@@ -217,5 +220,6 @@ struct RenderScene
     MeshPass opaque_pass{};
     MeshPass mask_pass{};
     MeshPass transparent_pass{};
+    MeshPass transmission_pass{};
     uint32_t total_meshlets_bits{};
 };
