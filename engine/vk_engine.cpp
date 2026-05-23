@@ -943,6 +943,7 @@ void VulkanEngine::draw()
                 pass.add_storage_buffer_write("cluster_indices");
                 pass.add_storage_buffer_write("material");
                 pass.add_storage_buffer_write("prefix_sum");
+                pass.add_storage_buffer_read("sh");
                 pass.add_image_read("depth", depth_image.image);
             },
             [&, query, timestamp]()
@@ -1132,8 +1133,6 @@ void VulkanEngine::draw()
                 pass.add_storage_buffer_read("light");
                 pass.add_storage_buffer_read("light_index");
                 pass.add_storage_buffer_read("light_grid");
-                pass.add_storage_buffer_read("oit");
-                pass.add_storage_buffer_write("oit");
                 pass.add_storage_buffer_read("meshlet_indices");
                 pass.add_storage_buffer_read("meshlet");
                 pass.add_storage_buffer_read("object");
