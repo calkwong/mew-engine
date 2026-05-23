@@ -68,7 +68,7 @@ public void insert_node(inout OITData fragment, uint color, uint depth, float tr
 	fragment = oit_data;
 }
 
-public float3 composite_transparent(OITData* oit_buffer, uint index, float3 input_color, uint2 frag_coord)
+public float3 composite_transparent(OITData* oit_buffer, uint index, float3 input_color, uint2 frag_coord, inout bool update)
 {
 	float3 color = input_color;
 
@@ -93,6 +93,8 @@ public float3 composite_transparent(OITData* oit_buffer, uint index, float3 inpu
 
 	color *= t_accum;
 	color += composite;
+
+	update = true;
 
 	return color;
 }

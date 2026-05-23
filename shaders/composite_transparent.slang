@@ -23,8 +23,10 @@ void main(
         float3 color = images_rgba32f[pc.draw_id].Load(int2(texel_coord)).rgb;
 
         uint index = texel_coord.x + texel_coord.y * pc.screen_size.x;
-        color = composite_transparent(pc.oit_buffer, index, color, texel_coord);
+        bool update = false;
+        color = composite_transparent(pc.oit_buffer, index, color, texel_coord, update);
 
-        images_rgba32f[pc.draw_id].Store(texel_coord, float4(color, 1.0));
+        if (update)
+            images_rgba32f[pc.draw_id].Store(texel_coord, float4(color, 1.0));
     }
 }
