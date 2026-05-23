@@ -35,12 +35,15 @@ public struct Vertex
 public struct MaterialData
 {
 	public float4 base_color_factor;
+
 	public float metallic_factor;
 	public float roughness_factor;
 	public uint diffuse_id;
 	public uint metalroughness_id;
+
 	public uint normal_id;
 	public float3 emissive_factor;
+
 	public uint emissive_id;
 	public uint occlusion_id;
 	public float transmission_factor;

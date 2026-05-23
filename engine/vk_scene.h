@@ -59,12 +59,15 @@ struct Meshlet
 struct MaterialData
 {
     glm::vec4 base_color_factor{ glm::vec4(1.0f) };
+
     float metallic_factor{ 1.0f };
     float roughness_factor{ 1.0f };
     uint32_t diffuse_id{};
     uint32_t metal_roughness_id{};
+
     uint32_t normal_id{};
     glm::vec3 emissive_factor{};
+
     uint32_t emissive_id{};
     uint32_t occlusion_id{};
     float transmission_factor{};

@@ -941,7 +941,7 @@ bool load_gltf(VulkanEngine* engine, LoadedGLTF* scene, const std::string& file_
         if (mat.transmission.get())
         {
             auto* transmission_material = mat.transmission.get();
-            float transmission_factor = transmission_material->transmissionFactor;
+            mat_data.transmission_factor = transmission_material->transmissionFactor;
             if (transmission_material->transmissionTexture.has_value())
             {
                 size_t image_index = asset.textures[transmission_material->transmissionTexture.value().textureIndex].imageIndex.value();
