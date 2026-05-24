@@ -1424,6 +1424,7 @@ void VulkanEngine::run()
                     destroy_image(device, allocator, gbuffers[i]);
                 destroy_image(device, allocator, depth_image);
                 destroy_image(device, allocator, depth_pyramid);
+                destroy_buffer(allocator, render_scene.oit_buffer);
             }
 
             auto new_extent = VkExtent3D{ swapchain.extent.width, swapchain.extent.height, 1 };
@@ -1462,6 +1463,23 @@ void VulkanEngine::run()
                 0,
                 true
             );
+
+            {
+                auto screen_pixels = new_extent.width * new_extent.height;
+                render_scene.oit_buffer = create_buffer(
+                    allocator,
+                    screen_pixels * sizeof(OITData),
+                    0,
+                    VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT
+                );
+
+                immediate_submit(
+                    [&](VkCommandBuffer cmd)
+                    {
+                        vkCmdFillBuffer(cmd, render_scene.oit_buffer.buffer, 0, VK_WHOLE_SIZE, 0x3F800000);
+                    }
+                );
+            }
 
             refresh_rw_images();
             refresh_sampled_textures();
@@ -2950,7 +2968,6 @@ void VulkanEngine::upload_buffers()
         );
     }
 
-    // TODO: refactor if window resize
     {
         auto screen_pixels = swapchain.extent.width * swapchain.extent.height;
         render_scene.oit_buffer = create_buffer(
@@ -3885,6 +3902,14 @@ void VulkanEngine::create_acceleration_structures()
 
 void VulkanEngine::update_descriptor_heap()
 {
+    // note: heap offset of 0 for buffers, this could change in the future
+    auto resource_heap_offset = 0;
+
+    // TODO: use bufferDescriptorSize; using image now for simplicity
+    auto buffer_descriptor_size = desc_heap_properties.imageDescriptorSize;
+    void* descriptor = static_cast<uint8_t*>(resource_heap.info.pMappedData) + 1 * buffer_descriptor_size + 0;
+    get_buffer_descriptor(device, render_scene.oit_buffer, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, descriptor, buffer_descriptor_size);
+
     auto image_descriptor_size = desc_heap_properties.imageDescriptorSize;
 
     for (size_t i = 0; i < sampled_textures.size(); ++i)
