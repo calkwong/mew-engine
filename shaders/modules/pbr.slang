@@ -31,7 +31,6 @@ public float F_Schlick(float u, float f0, float f90)
     return f0 + (f90 - f0) * pow(1.0 - u, 5.0);
 }
 
-// see https://bruop.github.io/ibl/
 public float3 F_SchlickRoughness(float u, float3 f0, float roughness)
 {
 	return f0 + (max(float3(1.0 - roughness), f0) - f0) * pow(1.0 - u, 5.0);
@@ -75,6 +74,8 @@ public struct BRDFData
 }
 
 // for rasterization path only
+// https://www.jcgt.org/published/0008/01/03/paper.pdf
+// https://bruop.github.io/ibl/
 public float3 eval_indirect_multiscattering(BRDFData brdf_data, float3 irradiance, float3 radiance, float2 brdf_lut, float3 albedo, float perceptual_roughness, float metallic)
 {
     float3 F = F_SchlickRoughness(brdf_data.NdotV, brdf_data.f0, perceptual_roughness);
@@ -88,8 +89,8 @@ public float3 eval_indirect_multiscattering(BRDFData brdf_data, float3 irradianc
 	// TODO: we're doing lambertian diffuse and weighing by 1-F here, need a second fresnel factor or switch to Fd_Burley?
 	// division by PI baked into irradiance/SH already
 	float3 diffuse = albedo * (1.0 - metallic) * float3(1.0 - 0.04);
-	diffuse = diffuse * (1.0 - FssEss - FmsEms);
-	return FssEss * radiance + (FmsEms + diffuse) * irradiance;
+	float3 kD = diffuse * (1.0 - FssEss - FmsEms);
+	return FssEss * radiance + (FmsEms + kD) * irradiance;
 }
 
 public BRDFData prepare_brdf_data(float3 N, float3 L, float3 V, float3 albedo, float roughness, float metallic)
@@ -130,15 +131,27 @@ public void update_brdf_data(inout BRDFData data, float3 L)
 
 public float3 eval_brdf(BRDFData brdf_data, float3 albedo, float roughness, float metallic)
 {
-	float D = D_GGX(brdf_data.NdotH, roughness);
-	float G = V_SmithGGXCorrelated(brdf_data.NdotV, brdf_data.NdotL, roughness);
-	float3 F = F_Schlick(brdf_data.VdotH, brdf_data.f0);
+	float3 diffuse = eval_diffuse_brdf(brdf_data, albedo, roughness, metallic);
+	float3 F;
+	float3 specular = eval_specular_brdf(brdf_data, roughness, F);
 
-	float3 diffuse = Fd_Burley(brdf_data.NdotV, brdf_data.NdotL, brdf_data.LdotH, roughness) * albedo.xyz * (1.0 - metallic);
-	float3 specular = D * G * F;
+	// remove (1.0 - F) if using Fd_Burley()
+	return diffuse * (1.0 - F) + specular;
+}
 
-	// conflicting info on whether to modulate diffuse, leave it out unless we use Fd_Lambert
-	return diffuse + specular;
+public float3 eval_diffuse_brdf(BRDFData brdf_data, float3 albedo, float roughness, float metallic)
+{
+    // return Fd_Burley(brdf_data.NdotV, brdf_data.NdotL, brdf_data.LdotH, roughness) * albedo.xyz * (1.0 - metallic);
+    return Fd_Lambert() * albedo.xyz * (1.0 - metallic);
+}
+
+public float3 eval_specular_brdf(BRDFData brdf_data, float roughness, inout float3 F)
+{
+    float D = D_GGX(brdf_data.NdotH, roughness);
+	float V = V_SmithGGXCorrelated(brdf_data.NdotV, brdf_data.NdotL, roughness);
+	/*float3*/ F = F_Schlick(brdf_data.VdotH, brdf_data.f0);
+
+	return D * V * F;
 }
 
 // TODO: bsdf sampling

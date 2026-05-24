@@ -930,7 +930,6 @@ void VulkanEngine::draw()
                 }
             );
         }
-
         graph.add_pass(
             "transparent_forward",
             Pass::PassType::GraphicsPass,
@@ -2098,6 +2097,8 @@ void VulkanEngine::init_pipelines()
         }
     );
 
+    // TODO: alphacoverage and transmission currently implemented as an ubershader, but the default for transmission
+    // should not be cull_mode==none with depth write disabled
     shader_passes["mlab_vert"] = create_graphics_pipeline(
         device,
         shader_cache["mlab.slang"],
@@ -2587,7 +2588,7 @@ void VulkanEngine::update_scene()
 
     scene_data.sunlight_dir = glm::vec4(7.75, 12.5, 12.5, 1.);
     // scene_data.sunlight_dir = glm::vec4(0.001, 12.0, 0.0, 1.);
-    scene_data.sunlight_color = glm::vec4(15.0, 15.0, 15.0, 1.0);
+    scene_data.sunlight_color = glm::vec4(1.0, 1.0, 1.0, 1.0);
 
     if (CVAR_RENDER_SHADOWS.get() && !CVAR_RENDER_SHADOWS_RT.get())
     {
@@ -3319,6 +3320,7 @@ void VulkanEngine::render_transparent(VkCommandBuffer cmd, uint32_t query)
     pc.sh_buffer = get_buffer_address(device, render_scene.sh_buffer.buffer);
     pc.screen_size = glm::uvec2(swapchain.extent.width, swapchain.extent.height);
     pc.max_prefiltered_lod = static_cast<float>(std::floor(std::log2(static_cast<float>(std::max(prefiltered_envmap.extent.width, prefiltered_envmap.extent.height))))) + 1;
+    pc.framebuffer_id = image_cache.get_draw_image();
 
     if (!CVAR_RENDER_MESH_SHADERS.get())
     {

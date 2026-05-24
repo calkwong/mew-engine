@@ -10,6 +10,7 @@ import prefix_sum;
 import oit;
 import pbr;
 import sh;
+import transmission;
 
 struct Interp
 {
@@ -19,6 +20,7 @@ struct Interp
     float2 uv;
     float4 tangent;
     nointerpolation uint material_id;
+    nointerpolation uint transmission;
 };
 
 struct PushConstants
@@ -33,6 +35,7 @@ struct PushConstants
 	SH* sh_buffer;
 	uint2 screen_size;
 	float max_prefiltered_lod;
+	uint framebuffer_id;
 };
 
 [[vk::push_constant]] PushConstants pc;
@@ -63,6 +66,8 @@ Interp vs_main(
 
 	interp.uv = float2(v.uv_x, v.uv_y);
 	interp.material_id = o.material_id;
+
+	interp.transmission = (o.post_pass == 3) ? 1 : 0;
 
 	return interp;
 }
@@ -138,6 +143,7 @@ void mesh_main(
 		verts[i].uv = float2(v.uv_x, v.uv_y);
 		verts[i].material_id = o.material_id;
 
+		verts[i].transmission = (o.post_pass == 3) ? 1 : 0;
 	}
 
 #ifdef TRIANGLE_CULLING
@@ -154,9 +160,16 @@ void mesh_main(
 	}
 }
 
-// TODO:
+// notes:
+// - for alphacoverage, flickering occurs when nodes overflow as the draw calls in the indirect buffer we build
+// are unsorted and vary each frame; to fix either implement GPU sorting of indirect buffer, or reserve a spot in
+// the indirect buffer for each mesh and mark empty draw calls via instanceCount = 1/0 accordingly (command parser hates this)
+// - alphacoverage and transmission do not currently layer on top of one another properly
+//
+// future work:
 // - shadows
-// - point lights
+// - punctual lights
+// - KHR_materials_volume
 
 [earlydepthstencil]
 [shader("pixel")]
@@ -196,6 +209,17 @@ void ps_main(
 	perceptual_roughness = max(perceptual_roughness, 0.045);
 	float roughness = perceptual_roughness * perceptual_roughness;
 
+	float transmission_factor = 0.0;
+	bool material_transmission = (in.transmission == 1);
+	if (material_transmission)
+	{
+	    transmission_factor = m.transmission_factor;
+    	if (m.transmission_id != 0)
+        {
+            transmission_factor *= textures[m.transmission_id].Sample(samplers[LINEAR_SAMPLER], in.uv).r;
+        }
+	}
+
 	float3 Fr = float3(0.0);
 
 	float3 L = normalize(uniforms.sunlight_dir.xyz);
@@ -205,8 +229,24 @@ void ps_main(
 	float3 light_color = uniforms.sunlight_color.xyz;
 
 	BRDFData brdf_data = prepare_brdf_data(N, L, V, albedo.xyz, roughness, metallic);
-	float3 direct_lighting = eval_brdf(brdf_data, albedo.xyz, roughness, metallic) * light_color * brdf_data.NdotL;
+	float3 direct_lighting;
+	if (material_transmission)
+	{
+    	// note: using lambertian here as I think burley's implicit Fresnel modulation breaks the model?
+        float3 l_diffuse = eval_diffuse_brdf(brdf_data, albedo.xyz, roughness, metallic) * light_color * brdf_data.NdotL;
 
+        // TODO: account for volume transmission ray
+
+        float3 transmitted_light = eval_punctual_radiance_transmission(brdf_data, albedo.xyz, roughness) * light_color;
+        l_diffuse = lerp(l_diffuse, transmitted_light, transmission_factor);
+        float3 F;
+        float3 l_specular = eval_specular_brdf(brdf_data, roughness, F) * light_color * brdf_data.NdotL;
+        direct_lighting = l_diffuse * (1.0 - F) + l_specular;
+	}
+	else
+	    direct_lighting = eval_brdf(brdf_data, albedo.xyz, roughness, metallic) * light_color * brdf_data.NdotL;
+
+	// TODO: double check reflect
 	float3 R = reflect(-V, N);
 	float prefiltered_mip = pc.max_prefiltered_lod * perceptual_roughness;
 
@@ -214,8 +254,24 @@ void ps_main(
 	float3 radiance = textures_cube[uint(uniforms.textures[2])].SampleLevel(samplers[CUBE_SAMPLER], R, prefiltered_mip).xyz;
 	float2 brdf_lut = textures[uint(uniforms.textures[3])].SampleLevel(samplers[LINEAR_CLAMP_SAMPLER], float2(brdf_data.NdotV, perceptual_roughness), 0.0).rg;
 
-	float3 indirect_lighting = eval_indirect_multiscattering(brdf_data, irradiance, radiance, brdf_lut, albedo.xyz, perceptual_roughness, metallic);
+	float3 indirect_lighting;
+	if (material_transmission)
+	{
+    	float3 f_diffuse = irradiance * albedo.xyz;
+        float max_extent = float(max(pc.screen_size.x, pc.screen_size.y));
+        float3 f_specular_transmission = eval_ibl_volume_refraction(brdf_data, albedo.xyz, perceptual_roughness, in.world_pos, uniforms.view_proj, pc.framebuffer_id, max_extent);
+        f_diffuse = lerp(f_diffuse, f_specular_transmission, transmission_factor);
+
+        // for simplicity, use single scattering for transmission path
+        float3 f_specular = (brdf_data.f0 * brdf_lut.x + brdf_lut.y) * radiance;
+        indirect_lighting = f_diffuse + f_specular;
+	}
+	else
+	    indirect_lighting = eval_indirect_multiscattering(brdf_data, irradiance, radiance, brdf_lut, albedo.xyz, perceptual_roughness, metallic);
+
 	float3 outgoing_radiance = direct_lighting + indirect_lighting;
+
+	// TEST: early return
 
 	float4 premultiplied_alpha = float4(outgoing_radiance * albedo.a, 1.0);
 	uint color = packUnorm4x8(premultiplied_alpha);

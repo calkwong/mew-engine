@@ -70,6 +70,7 @@ struct OITPushConstants
     VkDeviceAddress sh_buffer{};
     glm::uvec2 screen_size{};
     float max_prefiltered_lod{};
+    uint32_t framebuffer_id{};
 };
 
 struct DeferredPushConstants
