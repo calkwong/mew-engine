@@ -157,9 +157,8 @@ void main(
 	float4 t2 = float4(rotate_quat(tp2.xyz, obj.orientation), tp2.w);
 
 	float4 T = interpolate(bary, t0, t1, t2); // mikktspace
-	float sign = T.w; // sign is flipped during tangent generation so mikktspace is consistent with glTF handedness
-
-	sign = is_back_face ? -sign : sign;
+	// T.w is naturally flipped during tangent generation so mikktspace is consistent with glTF handedness
+	T.w = is_back_face ? -T.w : T.w;
 
 	if (m.normal_id != 0)
 	{
@@ -305,6 +304,7 @@ void main(
 			T.xyz = T.xyz * 0.5 + 0.5;
 			out_color = float4(T.xyz, 1.0);
 			break;
+		// TODO: fix - this currently will incorrectly produce flipped T.w for double sided cutouts
 		case Debug::TangentSign:
 		    float3 w = T.w > 0.0 ? float3(1.0) : float3(0.0);
 		    out_color = float4(w, 1.0);

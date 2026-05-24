@@ -236,10 +236,10 @@ void ps_main(
 	if (m.normal_id != 0)
 	{
 		float4 T = in.tangent; // mikktspace
-		float sign = in.tangent.w; // sign is flipped during tangent generation so mikktspace is consistent with glTF handedness
 
+		// T.w is naturally flipped during tangent generation so mikktspace is consistent with glTF handedness
 		if (OPAQUE == 0)
-			sign = is_front_face ? sign : -sign;
+			T.w = is_front_face ? T.w : -T.w;
 
 		float3 shading_normal = textures[m.normal_id].Sample(samplers[LINEAR_SAMPLER], in.uv).xyz;
 		shading_normal = shading_normal * 2.0 - 1.0;
