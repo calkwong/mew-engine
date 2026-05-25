@@ -977,9 +977,9 @@ void VulkanEngine::draw()
                 {
                     vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 28);
                     if (CVAR_MISC_HIZ_SPD.get())
-                        execute_spd(cmd);
+                        execute_hiz_spd(cmd);
                     else
-                        build_depth_pyramid(cmd);
+                        execute_hiz(cmd);
                     vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 29);
                 }
             );
@@ -1452,6 +1452,8 @@ void VulkanEngine::run()
             depth_pyramid_extent.width = nearest_pow2(swapchain.extent.width);
             depth_pyramid_extent.height = nearest_pow2(swapchain.extent.height);
             depth_pyramid_extent.depth = 1;
+
+            depth_pyramid_level_count = static_cast<uint32_t>(std::floor(std::log2(static_cast<float>(std::max(depth_pyramid_extent.width, depth_pyramid_extent.height))))) + 1;
 
             depth_pyramid = create_image(
                 device,
@@ -2261,20 +2263,19 @@ void VulkanEngine::init_resources()
         true
     );
 
+    depth_pyramid_level_count = static_cast<uint32_t>(std::floor(std::log2(static_cast<float>(std::max(depth_pyramid_extent.width, depth_pyramid_extent.height))))) + 1;
+
     // sampling in occlusion culling
     id = texture_cache.add_texture();
     texture_cache.set_depth_pyramid_image(id);
 
-    uint32_t mip_levels = static_cast<uint32_t>(std::floor(std::log2(static_cast<float>(std::max(depth_pyramid_extent.width, depth_pyramid_extent.height))))) + 1;
-
-    // TODO: remove; we still keep this to not break cache as it hands us bindless ids
-    std::vector<VkImageView> pyramid_views(mip_levels);
     id = image_cache.add_texture();
     image_cache.set_depth_pyramid_image(id);
 
     // we reserve enough slots in image_cache to handle 1920x1080
     // this makes it easier updating descriptors if window is resized
-    for (uint32_t mip = 1; mip < DEPTH_PYRAMID_SLICES; mip++)
+    auto depth_pyramid_mip_levels = static_cast<uint32_t>(std::floor(std::log2(static_cast<float>(1920)))) + 1;
+    for (uint32_t mip = 1; mip < depth_pyramid_mip_levels; mip++)
         image_cache.add_texture();
 
     // global light list
@@ -3470,7 +3471,7 @@ void VulkanEngine::render_shadows(VkCommandBuffer cmd, uint32_t cascade_idx, uin
     vkCmdEndQuery(cmd, get_current_frame().query_pool_pipelines, query);
 }
 
-void VulkanEngine::execute_spd(VkCommandBuffer cmd)
+void VulkanEngine::execute_hiz_spd(VkCommandBuffer cmd)
 {
     ShaderPass current_pass = *shader_passes["hiz_spd"];
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
@@ -3483,7 +3484,7 @@ void VulkanEngine::execute_spd(VkCommandBuffer cmd)
     SpdPushConstants pc{};
     pc.spd_counter_buffer = get_buffer_address(device, render_scene.spd_counter_buffer.buffer);
     pc.rcp_resolution = glm::vec2(1.0) / glm::vec2(width, height);
-    pc.mips = static_cast<uint32_t>(std::floor(std::log2(static_cast<float>(std::max(depth_pyramid.extent.width, depth_pyramid.extent.height))))) + 1;
+    pc.mips = depth_pyramid_level_count;
     pc.num_wgs = groupcount_x * groupcount_y;
     pc.src_id = texture_cache.get_depth_image();
     pc.dst_id = image_cache.get_depth_pyramid_image();
@@ -3496,14 +3497,14 @@ void VulkanEngine::execute_spd(VkCommandBuffer cmd)
     vkCmdDispatch(cmd, groupcount_x, groupcount_y, 1);
 }
 
-void VulkanEngine::build_depth_pyramid(VkCommandBuffer cmd)
+void VulkanEngine::execute_hiz(VkCommandBuffer cmd)
 {
     ShaderPass current_pass = *shader_passes["hiz"];
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
 
     DepthPyramidPushConstants depth_pc{};
 
-    uint32_t mip_levels = static_cast<uint32_t>(std::floor(std::log2(static_cast<float>(std::max(depth_pyramid.extent.width, depth_pyramid.extent.height))))) + 1;
+    uint32_t mip_levels = depth_pyramid_level_count;
 
     for (uint32_t i = 0; i < mip_levels; i++)
     {
@@ -3953,22 +3954,25 @@ void VulkanEngine::refresh_sampled_textures()
 
 void VulkanEngine::refresh_rw_images()
 {
+    auto max_depth_pyramid_mip_level = depth_pyramid_level_count - 1;
+
     rw_images = {
         { draw_image.image, draw_image.format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT },
         { accumulation_buffers[0].image, accumulation_buffers[0].format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT },
         { accumulation_buffers[1].image, accumulation_buffers[1].format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT },
 
-        { depth_pyramid.image, depth_pyramid.format, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_COLOR_BIT, 0 },
-        { depth_pyramid.image, depth_pyramid.format, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_COLOR_BIT, 1 },
-        { depth_pyramid.image, depth_pyramid.format, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_COLOR_BIT, 2 },
-        { depth_pyramid.image, depth_pyramid.format, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_COLOR_BIT, 3 },
-        { depth_pyramid.image, depth_pyramid.format, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_COLOR_BIT, 4 },
-        { depth_pyramid.image, depth_pyramid.format, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_COLOR_BIT, 5 },
-        { depth_pyramid.image, depth_pyramid.format, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_COLOR_BIT, 6 },
-        { depth_pyramid.image, depth_pyramid.format, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_COLOR_BIT, 7 },
-        { depth_pyramid.image, depth_pyramid.format, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_COLOR_BIT, 8 },
-        { depth_pyramid.image, depth_pyramid.format, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_COLOR_BIT, 9 },
-        { depth_pyramid.image, depth_pyramid.format, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_COLOR_BIT, 10 },
+        // hardcoded to support up to 1920 x 1080
+        { depth_pyramid.image, depth_pyramid.format, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_COLOR_BIT, std::min(0u, max_depth_pyramid_mip_level) },
+        { depth_pyramid.image, depth_pyramid.format, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_COLOR_BIT, std::min(1u, max_depth_pyramid_mip_level) },
+        { depth_pyramid.image, depth_pyramid.format, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_COLOR_BIT, std::min(2u, max_depth_pyramid_mip_level) },
+        { depth_pyramid.image, depth_pyramid.format, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_COLOR_BIT, std::min(3u, max_depth_pyramid_mip_level) },
+        { depth_pyramid.image, depth_pyramid.format, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_COLOR_BIT, std::min(4u, max_depth_pyramid_mip_level) },
+        { depth_pyramid.image, depth_pyramid.format, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_COLOR_BIT, std::min(5u, max_depth_pyramid_mip_level) },
+        { depth_pyramid.image, depth_pyramid.format, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_COLOR_BIT, std::min(6u, max_depth_pyramid_mip_level) },
+        { depth_pyramid.image, depth_pyramid.format, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_COLOR_BIT, std::min(7u, max_depth_pyramid_mip_level) },
+        { depth_pyramid.image, depth_pyramid.format, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_COLOR_BIT, std::min(8u, max_depth_pyramid_mip_level) },
+        { depth_pyramid.image, depth_pyramid.format, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_COLOR_BIT, std::min(9u, max_depth_pyramid_mip_level) },
+        { depth_pyramid.image, depth_pyramid.format, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_COLOR_BIT, std::min(10u, max_depth_pyramid_mip_level) },
 
         { hdri_cubemap.image, hdri_cubemap.format, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT },
         { irradiance_cubemap.image, irradiance_cubemap.format, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT },

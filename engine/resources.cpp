@@ -577,7 +577,7 @@ void get_image_descriptor(
     descriptor_info.data = descriptor_data;
 
     VkHostAddressRangeEXT host_address_range{ descriptor, descriptor_size };
-    vkWriteResourceDescriptorsEXT(device, 1, &descriptor_info, &host_address_range);
+    VK_CHECK(vkWriteResourceDescriptorsEXT(device, 1, &descriptor_info, &host_address_range));
 };
 
 void get_as_descriptor(
@@ -604,7 +604,7 @@ void get_as_descriptor(
     descriptor_info.data = descriptor_data;
 
     VkHostAddressRangeEXT host_address_range{ descriptor, descriptor_size };
-    vkWriteResourceDescriptorsEXT(device, 1, &descriptor_info, &host_address_range);
+    VK_CHECK(vkWriteResourceDescriptorsEXT(device, 1, &descriptor_info, &host_address_range));
 };
 
 void get_buffer_descriptor(VkDevice device, AllocatedBuffer buffer, VkDescriptorType descriptor_type, void* descriptor, size_t descriptor_size)
@@ -622,5 +622,5 @@ void get_buffer_descriptor(VkDevice device, AllocatedBuffer buffer, VkDescriptor
     descriptor_info.data = descriptor_data;
 
     VkHostAddressRangeEXT host_address_range{ descriptor, descriptor_size };
-    vkWriteResourceDescriptorsEXT(device, 1, &descriptor_info, &host_address_range);
+    VK_CHECK(vkWriteResourceDescriptorsEXT(device, 1, &descriptor_info, &host_address_range));
 };

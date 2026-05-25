@@ -174,6 +174,7 @@ public:
 
     uint32_t sampled_textures_offset{};
     uint32_t rw_images_offset{};
+    uint32_t depth_pyramid_level_count{};
 
     VkAccelerationStructureKHR tlas_as{};
 
@@ -204,8 +205,8 @@ public:
     void render(VkCommandBuffer cmd, bool late, uint32_t post_pass, uint32_t query);
     void render_transparent(VkCommandBuffer cmd, uint32_t query);
     void render_shadows(VkCommandBuffer cmd, uint32_t cascade_idx, uint32_t query);
-    void execute_spd(VkCommandBuffer cmd);
-    void build_depth_pyramid(VkCommandBuffer cmd);
+    void execute_hiz_spd(VkCommandBuffer cmd);
+    void execute_hiz(VkCommandBuffer cmd);
     void execute_light_culling(VkCommandBuffer cmd);
     void execute_shading(VkCommandBuffer cmd);
     void create_acceleration_structures();

@@ -4,9 +4,6 @@
 #define NUMBER_OF_CASCADES 4
 #define GBUFFER_COUNT 3
 
-// static_cast<uint32_t>(std::floor(std::log2(1920))) + 1;
-#define DEPTH_PYRAMID_SLICES 11
-
 #define DEBUG_COUNT 10
 
 // for shadow pass, we set to 200000; for geometry pass, raised to 1000000 to allow testing millions of mesh instances
