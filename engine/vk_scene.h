@@ -135,18 +135,6 @@ struct Mesh
     std::array<MeshLod, 8> mesh_lods{};
 };
 
-struct RenderObject
-{
-    glm::vec3 translation{};
-    float scale{};
-    glm::quat orientation{};
-
-    uint32_t mesh_id{};
-    uint32_t material_id{};
-    uint32_t meshlet_bits{};
-    uint32_t post_pass{};
-};
-
 struct ObjectData
 {
     glm::vec3 translation{};
@@ -190,13 +178,13 @@ struct RenderScene
         MeshPassType type{};
     };
 
-    std::vector<RenderObject> renderables{};
+    std::vector<ObjectData> renderables{};
     std::vector<Mesh> meshes{};
     std::unordered_map<MeshAsset*, uint32_t> mesh_cache{};
 
     AllocatedBuffer vertex_buffer{};
     AllocatedBuffer index_buffer{};
-    AllocatedBuffer indices_buffer{}; // an indirection buffer - for indexing into the right RenderObject
+    AllocatedBuffer indices_buffer{}; // an indirection buffer - for indexing into the right MeshData
     AllocatedBuffer object_buffer{};
     AllocatedBuffer mesh_buffer{};
     AllocatedBuffer meshlet_buffer{};

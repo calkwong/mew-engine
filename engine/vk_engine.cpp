@@ -2485,8 +2485,8 @@ void VulkanEngine::init_renderables(int argc, char** argv)
     uint32_t meshlet_visibility_offset{};
     for (auto& renderable : render_scene.renderables)
     {
-        uint32_t meshlet_count = renderable.meshlet_bits; // meshlet count for LOD 0 only
-        renderable.meshlet_bits = meshlet_visibility_offset; // TODO: rename meshlet_bits
+        uint32_t meshlet_count = renderable.meshlet_bit_offset; // meshlet count for LOD 0 only
+        renderable.meshlet_bit_offset = meshlet_visibility_offset;
         meshlet_visibility_offset += meshlet_count;
     }
     render_scene.total_meshlets_bits = meshlet_visibility_offset;
@@ -2507,7 +2507,7 @@ void VulkanEngine::register_object(const Node* node, const glm::mat4& top_matrix
 
         for (size_t i = 0; i < node->mesh_asset->mesh.size(); i++)
         {
-            RenderObject obj{};
+            ObjectData obj{};
 
             glm::vec3 translation{};
             glm::vec3 scale{};
@@ -2522,7 +2522,8 @@ void VulkanEngine::register_object(const Node* node, const glm::mat4& top_matrix
 
             const MeshData& mesh = node->mesh_asset->mesh[i];
             obj.material_id = mesh.material_id;
-            obj.meshlet_bits = mesh.meshlet_bits;
+            // note: storing # of meshlets for lod 0; we apply offset after registering objects
+            obj.meshlet_bit_offset = mesh.meshlet_bits;
 
             if (found)
             {
@@ -3804,7 +3805,7 @@ void VulkanEngine::create_acceleration_structures()
     std::vector<VkAccelerationStructureInstanceKHR> instances(render_scene.renderables.size());
     for (size_t i = 0; i < render_scene.renderables.size(); i++)
     {
-        RenderObject obj = render_scene.renderables[i];
+        ObjectData obj = render_scene.renderables[i];
 
         glm::mat3 transform = glm::mat3_cast(obj.orientation) * obj.scale;
         transform = glm::transpose(transform);
