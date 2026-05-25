@@ -1,5 +1,7 @@
 #pragma once
 
+#include "pipelines.h"
+
 #include <vector>
 #include <string>
 #include <unordered_map>
@@ -69,8 +71,6 @@ private:
     uint32_t prefiltered_id{};
     uint32_t brdf_id{};
 };
-
-struct ShaderProgram;
 
 struct ShaderCache
 {
