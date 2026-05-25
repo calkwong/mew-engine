@@ -56,39 +56,39 @@ constexpr bool USE_VALIDATION_LAYERS = true;
 
 #define SINGLE // uncomment if loading a proper scene
 
-AutoCVar_Int CVAR_RENDER_IMGUI{ "render.imgui", "Imgui", 1, CVarFlags::EditCheckbox | CVarFlags::EditHide };
-AutoCVar_Int CVAR_DISABLE_CAMERA{ "render.disable_camera", "Disable camera", 0, CVarFlags::EditCheckbox | CVarFlags::EditHide };
-AutoCVar_Int CVAR_HOT_RELOAD{ "render.hot_reload", "Hot reload shaders", 0, CVarFlags::EditCheckbox | CVarFlags::EditHide };
+AutoCVar_Int CVAR_RENDER_IMGUI{ "render.imgui", "Imgui", CVarFlags::EditCheckbox | CVarFlags::EditHide, 1 };
+AutoCVar_Int CVAR_DISABLE_CAMERA{ "render.disable_camera", "Disable camera", CVarFlags::EditCheckbox | CVarFlags::EditHide, 0 };
+AutoCVar_Int CVAR_HOT_RELOAD{ "render.hot_reload", "Hot reload shaders", CVarFlags::EditCheckbox | CVarFlags::EditHide, 0 };
 
-AutoCVar_Int CVAR_RENDER_VBUFFER{ "render.vbuffer", "Vbuffer path", 1, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_RENDER_MESH_SHADERS{ "render.mesh_shaders", "Mesh shaders path", 1, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_RENDER_ALPHACLIP{ "render.alphaclip", "Alphaclip", 1, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_RENDER_TRANSPARENT{ "render.transparent", "Transparent", 1, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_RENDER_POINT_LIGHTS{ "render.point_lights", "Point lights", 0, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_RENDER_OCCLUSION_CULL{ "render.occlusion_cull", "Occlusion culling", 1, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_RENDER_LOD{ "render.lod", "LODs", 1, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_RENDER_SHADOWS{ "render.shadows", "Shadows", 0, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_RENDER_SHADOWS_RT{ "render.shadows_rt", "Ray traced shadows", 0, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_RENDER_TAA{ "render.taa", "TAA", 0, CVarFlags::EditCheckbox }; // | CVarFlags::EditHide };
-AutoCVar_Int CVAR_RENDER_RT{ "render.ray_tracing", "RT", 0, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_RENDER_VBUFFER{ "render.vbuffer", "Vbuffer path", CVarFlags::EditCheckbox, 1 };
+AutoCVar_Int CVAR_RENDER_MESH_SHADERS{ "render.mesh_shaders", "Mesh shaders path", CVarFlags::EditCheckbox, 1 };
+AutoCVar_Int CVAR_RENDER_ALPHACLIP{ "render.alphaclip", "Alphaclip", CVarFlags::EditCheckbox, 1 };
+AutoCVar_Int CVAR_RENDER_TRANSPARENT{ "render.transparent", "Transparent", CVarFlags::EditCheckbox, 1 };
+AutoCVar_Int CVAR_RENDER_POINT_LIGHTS{ "render.point_lights", "Point lights", CVarFlags::EditCheckbox, 0 };
+AutoCVar_Int CVAR_RENDER_OCCLUSION_CULL{ "render.occlusion_cull", "Occlusion culling", CVarFlags::EditCheckbox, 1 };
+AutoCVar_Int CVAR_RENDER_LOD{ "render.lod", "LODs", CVarFlags::EditCheckbox, 1 };
+AutoCVar_Int CVAR_RENDER_SHADOWS{ "render.shadows", "Shadows", CVarFlags::EditCheckbox, 0 };
+AutoCVar_Int CVAR_RENDER_SHADOWS_RT{ "render.shadows_rt", "Ray traced shadows", CVarFlags::EditCheckbox, 0 };
+AutoCVar_Int CVAR_RENDER_TAA{ "render.taa", "TAA", CVarFlags::EditCheckbox, 0 };
+AutoCVar_Int CVAR_RENDER_RT{ "render.ray_tracing", "RT", CVarFlags::EditCheckbox, 0 };
 
-AutoCVar_Float CVAR_SHADOWS_CASCADE_SPLIT{ "shadows.cascade_split", "Cascades log factor", 0.95f, CVarFlags::EditDragFloat, 0.f, 1.f, 0.005f };
-AutoCVar_Int CVAR_SHADOWS_DISTANCE{ "shadows.distance", "Shadow draw distance", 48, CVarFlags::EditSliderInt, 20, 200, 5 };
+AutoCVar_Float CVAR_SHADOWS_CASCADE_SPLIT{ "shadows.cascade_split", "Cascades log factor", CVarFlags::EditDragFloat, 0.95f, 0.f, 1.f, 0.005f };
+AutoCVar_Int CVAR_SHADOWS_DISTANCE{ "shadows.distance", "Shadow draw distance", CVarFlags::EditSliderInt, 48, 20, 200, 5 };
 
-AutoCVar_Int CVAR_DEBUG_TEXTURES{ "debug.textures", "Debug textures", 0, CVarFlags::EditSliderInt, 0, DEBUG_COUNT, 1 };
+AutoCVar_Int CVAR_DEBUG_TEXTURES{ "debug.textures", "Debug textures", CVarFlags::EditSliderInt, 0, 0, DEBUG_COUNT, 1 };
 
-AutoCVar_Int CVAR_MISC_DRAW_DISTANCE{ "misc.draw_distance", "Draw distance", 1000, CVarFlags::EditSliderInt, 100, 1000, 100 };
-AutoCVar_Int CVAR_MISC_AUTOEXPOSURE{ "misc.autoexposure", "Autoexposure", 0, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_MISC_TONEMAP{ "misc.tonemap", "Tonemapping", 1, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_MISC_TONEMAP_FUNC{ "misc.tonemap_func", "Tonemapping function", 0, CVarFlags::EditSliderInt, 0, 3, 1 };
-AutoCVar_Int CVAR_MISC_FREEZE_CAMERA{ "misc.freeze_camera", "Freeze camera", 0, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_MISC_HIZ_SPD{ "misc.hiz_spd", "HiZ SPD", 1, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_MISC_DRAW_DISTANCE{ "misc.draw_distance", "Draw distance", CVarFlags::EditSliderInt, 1000, 100, 1000, 100 };
+AutoCVar_Int CVAR_MISC_AUTOEXPOSURE{ "misc.autoexposure", "Autoexposure", CVarFlags::EditCheckbox, 0 };
+AutoCVar_Int CVAR_MISC_TONEMAP{ "misc.tonemap", "Tonemapping", CVarFlags::EditCheckbox, 1 };
+AutoCVar_Int CVAR_MISC_TONEMAP_FUNC{ "misc.tonemap_func", "Tonemapping function", CVarFlags::EditSliderInt, 0, 0, 3, 1 };
+AutoCVar_Int CVAR_MISC_FREEZE_CAMERA{ "misc.freeze_camera", "Freeze camera", CVarFlags::EditCheckbox, 0 };
+AutoCVar_Int CVAR_MISC_HIZ_SPD{ "misc.hiz_spd", "HiZ SPD", CVarFlags::EditCheckbox, 1 };
 
-AutoCVar_Int CVAR_TAA_VARIANCE_CLIP{ "taa.variance_clip", "Variance clipping", 1, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_TAA_CATMULL_ROM{ "taa.catmull_rom", "Catmull filter", 1, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_TAA_MITCHELL{ "taa.mitchell", "Mitchell filter", 0, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_TAA_YCOCG{ "taa.ycogy", "YCoCg", 1, CVarFlags::EditCheckbox };
-AutoCVar_Int CVAR_TAA_DYNAMIC{ "taa.dynamic", "Dynamic luma weights", 0, CVarFlags::EditCheckbox };
+AutoCVar_Int CVAR_TAA_VARIANCE_CLIP{ "taa.variance_clip", "Variance clipping", CVarFlags::EditCheckbox, 1 };
+AutoCVar_Int CVAR_TAA_CATMULL_ROM{ "taa.catmull_rom", "Catmull filter", CVarFlags::EditCheckbox, 1 };
+AutoCVar_Int CVAR_TAA_MITCHELL{ "taa.mitchell", "Mitchell filter", CVarFlags::EditCheckbox, 0 };
+AutoCVar_Int CVAR_TAA_YCOCG{ "taa.ycogy", "YCoCg", CVarFlags::EditCheckbox, 1 };
+AutoCVar_Int CVAR_TAA_DYNAMIC{ "taa.dynamic", "Dynamic luma weights", CVarFlags::EditCheckbox, 0 };
 
 namespace
 {
@@ -1357,9 +1357,9 @@ void VulkanEngine::run()
             if (SDL_GetWindowRelativeMouseMode(window))
                 main_camera.process_sdl_event(e);
 
-            if (get_int_cvars("render.hot_reload") == 1)
+            if (CVarSystem::get()->get_int_cvar("render.hot_reload") == 1)
             {
-                set_int_cvars("render.hot_reload", 0);
+                CVarSystem::get()->set_int_cvar("render.hot_reload", 0);
 
                 int recompile = std::system("ninja -C bin Shaders");
 

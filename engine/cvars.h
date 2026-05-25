@@ -1,8 +1,7 @@
 #pragma once
 
 #include <string>
-
-class CVarParameter;
+#include <unordered_map>
 
 enum class CVarFlags : uint32_t
 {
@@ -15,45 +14,81 @@ enum class CVarFlags : uint32_t
 
 CVarFlags operator|(CVarFlags a, CVarFlags b);
 
+enum CVarType
+{
+    Int,
+    Float,
+};
+
+struct CVarParameter
+{
+    CVarType type{};
+    size_t handle{};
+    std::string description{};
+    CVarFlags flags{};
+
+    union
+    {
+        int i;
+        float f;
+    } min;
+
+    union
+    {
+        int i;
+        float f;
+    } max;
+
+    union
+    {
+        int i;
+        float f;
+    } step_size;
+};
+
 class CVarSystem
 {
 public:
-    virtual ~CVarSystem() = default;
     static CVarSystem* get();
 
-    virtual CVarParameter* get_cvar(const std::string& str) = 0;
+    size_t create_int_cvar(std::string name, std::string description, CVarFlags flags, int value, int min, int max, int step_size);
+    size_t create_float_cvar(std::string name, std::string description, CVarFlags flags, float value, float min, float max, float step_size);
 
-    virtual CVarParameter* create_int_cvar(const char* name, const char* description, int current_value, CVarFlags flags, int min, int max, int step_size) = 0;
-    virtual CVarParameter* create_float_cvar(const char* name, const char* description, float current_value, CVarFlags flags, float min, float max, float step_size) = 0;
+    void draw_imgui_editor();
 
-    virtual void draw_imgui_editor() = 0;
+    int get_int_cvar(std::string name);
+    void set_int_cvar(std::string name, int value);
+    float get_float_cvar(std::string name);
+    void set_float_cvar(std::string name, float value);
+
+    // TODO: move this to private post cleanup
+    std::vector<CVarParameter> parameters{};
+    std::vector<int> ints{};
+    std::vector<float> floats{};
+
+private:
+    std::unordered_map<std::string, size_t> hash{};
+
+    void edit_parameters(CVarParameter& param);
 };
 
 template<typename T>
-struct AutoCVar
+class AutoCVar
 {
 protected:
-    int index{};
+    size_t index{};
 };
 
-struct AutoCVar_Int : AutoCVar<int>
+class AutoCVar_Int : public AutoCVar<int>
 {
-    AutoCVar_Int(const char* name, const char* description, int current_value, CVarFlags flags, int min = 0, int max = 1, int step_size = 1);
-
-    int get() const;
-    void set(int value);
+public:
+    AutoCVar_Int(const char* name, const char* description, CVarFlags flags, int value, int min = 0, int max = 0, int step_size = 0);
+    int get();
 };
 
-struct AutoCVar_Float : AutoCVar<float>
+class AutoCVar_Float : public AutoCVar<float>
 {
-    AutoCVar_Float(const char* name, const char* description, float current_value, CVarFlags flags, float min = 0.f, float max = 1.f, float step_size = 0.05f);
-
-    float get() const;
-    void set(float value);
+public:
+    AutoCVar_Float(const char* name, const char* description, CVarFlags flags, float value, float min = 0.0f, float max = 0.0f, float step_size = 0.0f);
+    float get();
 };
-
-int get_int_cvars(const std::string& name);
-float get_float_cvars(const std::string& name);
-
-void set_int_cvars(const std::string& name, int value);
-void set_float_cvars(const std::string& name, float value);

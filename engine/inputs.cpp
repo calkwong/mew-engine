@@ -69,10 +69,10 @@ void Camera::set_perspective_matrix(float fovy, float aspect, float znear)
 
 void toggle_cvar(const std::string& name)
 {
-    if (get_int_cvars(name) == 1)
-        set_int_cvars(name, 0);
+    if (CVarSystem::get()->get_int_cvar(name) == 1)
+        CVarSystem::get()->set_int_cvar(name, 0);
     else
-        set_int_cvars(name, 1);
+        CVarSystem::get()->set_int_cvar(name, 1);
 }
 
 void key_callback(SDL_Window* window, SDL_Event& e)
@@ -81,14 +81,14 @@ void key_callback(SDL_Window* window, SDL_Event& e)
     {
         if (e.key.repeat == 0 && e.key.key == SDLK_SPACE)
         {
-            if (get_int_cvars("render.disable_camera") == 1)
+            if (CVarSystem::get()->get_int_cvar("render.disable_camera") == 1)
             {
-                set_int_cvars("render.disable_camera", 0);
+                CVarSystem::get()->set_int_cvar("render.disable_camera", 0);
                 SDL_SetWindowRelativeMouseMode(window, true);
             }
             else
             {
-                set_int_cvars("render.disable_camera", 1);
+                CVarSystem::get()->set_int_cvar("render.disable_camera", 1);
                 SDL_SetWindowRelativeMouseMode(window, false);
             }
         }
@@ -118,6 +118,6 @@ void key_callback(SDL_Window* window, SDL_Event& e)
             toggle_cvar("render.ray_tracing");
 
         if (e.key.repeat == 0 && e.key.key == SDLK_Y)
-            set_int_cvars("render.hot_reload", 1);
+            CVarSystem::get()->set_int_cvar("render.hot_reload", 1);
     }
 }
