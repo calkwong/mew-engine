@@ -2,6 +2,7 @@
 
 #include <imgui.h>
 #include <string>
+#include <cassert>
 
 CVarFlags operator|(CVarFlags a, CVarFlags b)
 {
@@ -16,13 +17,14 @@ CVarSystem* CVarSystem::get()
 
 size_t CVarSystem::create_int_cvar(std::string name, std::string description, CVarFlags flags, int value, int min, int max, int step_size)
 {
-    CVarSystem* cvar_system = CVarSystem::get();
-    auto handle = cvar_system->ints.size();
+    if (hash.find(name) != hash.end())
+        assert(0);
 
-    cvar_system->ints.push_back(value);
+    auto handle = ints.size();
 
-    auto param_handle = cvar_system->parameters.size();
-    // TODO: if already exist safety handling
+    ints.push_back(value);
+
+    auto param_handle = parameters.size();
     hash[name] = param_handle;
 
     CVarParameter param{};
@@ -40,13 +42,14 @@ size_t CVarSystem::create_int_cvar(std::string name, std::string description, CV
 
 size_t CVarSystem::create_float_cvar(std::string name, std::string description, CVarFlags flags, float value, float min, float max, float step_size)
 {
-    CVarSystem* cvar_system = CVarSystem::get();
-    auto handle = cvar_system->floats.size();
+    if (hash.find(name) != hash.end())
+        assert(0);
 
-    cvar_system->floats.push_back(value);
+    auto handle = floats.size();
 
-    auto param_handle = cvar_system->parameters.size();
-    // TODO: if already exist safety handling
+    floats.push_back(value);
+
+    auto param_handle = parameters.size();
     hash[name] = param_handle;
 
     CVarParameter param{};
@@ -107,46 +110,54 @@ void CVarSystem::edit_parameters(CVarParameter& param)
 
 int CVarSystem::get_int_cvar(std::string name)
 {
-    CVarSystem* cvar_system = CVarSystem::get();
-    auto param_handle = cvar_system->hash[name];
-    auto param = cvar_system->parameters[param_handle];
+    if (hash.find(name) == hash.end())
+        assert(0);
+
+    auto param_handle = hash[name];
+    auto param = parameters[param_handle];
 
     auto value_handle = param.handle;
 
-    return cvar_system->ints[value_handle];
+    return ints[value_handle];
 }
 
 void CVarSystem::set_int_cvar(std::string name, int value)
 {
-    CVarSystem* cvar_system = CVarSystem::get();
-    auto param_handle = cvar_system->hash[name];
-    auto param = cvar_system->parameters[param_handle];
+    if (hash.find(name) == hash.end())
+        assert(0);
+
+    auto param_handle = hash[name];
+    auto param = parameters[param_handle];
 
     auto value_handle = param.handle;
 
-    cvar_system->ints[value_handle] = value;
+    ints[value_handle] = value;
 }
 
 float CVarSystem::get_float_cvar(std::string name)
 {
-    CVarSystem* cvar_system = CVarSystem::get();
-    auto param_handle = cvar_system->hash[name];
-    auto param = cvar_system->parameters[param_handle];
+    if (hash.find(name) == hash.end())
+        assert(0);
+
+    auto param_handle = hash[name];
+    auto param = parameters[param_handle];
 
     auto value_handle = param.handle;
 
-    return cvar_system->floats[value_handle];
+    return floats[value_handle];
 }
 
 void CVarSystem::set_float_cvar(std::string name, float value)
 {
-    CVarSystem* cvar_system = CVarSystem::get();
-    auto param_handle = cvar_system->hash[name];
-    auto param = cvar_system->parameters[param_handle];
+    if (hash.find(name) == hash.end())
+        assert(0);
+
+    auto param_handle = hash[name];
+    auto param = parameters[param_handle];
 
     auto value_handle = param.handle;
 
-    cvar_system->floats[value_handle] = value;
+    floats[value_handle] = value;
 }
 
 AutoCVar_Int::AutoCVar_Int(
