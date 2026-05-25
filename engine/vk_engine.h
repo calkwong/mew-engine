@@ -192,7 +192,6 @@ public:
     void run();
 
     void update_scene();
-    void immediate_submit(std::function<void(VkCommandBuffer cmd)>&& func) const;
     void register_object(const Node* node, const glm::mat4& top_matrix);
     void resolve_taa(VkCommandBuffer cmd);
     void update_cascade();

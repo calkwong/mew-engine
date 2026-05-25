@@ -4,7 +4,6 @@
 #include "vk_loader.h"
 #include "cache.h"
 #include "resources.h"
-#include "vk_engine.h"
 
 #include <basisu_transcoder.h>
 #include <fastgltf/core.hpp>
@@ -15,6 +14,7 @@
 #include <meshoptimizer.h>
 #include <mikktspace.h>
 #include <stb_image.h>
+#include <vk_mem_alloc.h>
 
 #include <filesystem>
 #include <fstream>
@@ -72,7 +72,17 @@ bool read_raw_image_data_from_file(const char* filename, std::vector<uint8_t>& k
     return true;
 }
 
-std::vector<AllocatedImage> load_images(const fastgltf::Asset& asset, VulkanEngine* engine, std::string_view asset_path)
+std::vector<AllocatedImage> load_images(
+    const fastgltf::Asset& asset,
+    VkDevice device,
+    VkQueue queue,
+    VkFence fence,
+    VkCommandPool command_pool,
+    VkCommandBuffer cmd,
+    VmaAllocator allocator,
+    TextureCache& texture_cache,
+    std::string_view asset_path
+)
 {
     std::vector<AllocatedImage> images{};
 
@@ -249,7 +259,7 @@ std::vector<AllocatedImage> load_images(const fastgltf::Asset& asset, VulkanEngi
 
     // create staging buffer
     AllocatedBuffer scratch = create_buffer(
-        engine->allocator,
+        allocator,
         1000000000,
         VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
         VK_BUFFER_USAGE_TRANSFER_SRC_BIT
@@ -299,8 +309,8 @@ std::vector<AllocatedImage> load_images(const fastgltf::Asset& asset, VulkanEngi
             }
 
             images.emplace_back(create_image(
-                engine->device,
-                engine->allocator,
+                device,
+                allocator,
                 { raw_image_data.ktx_info[0].m_orig_width, raw_image_data.ktx_info[0].m_orig_height, 1 },
                 raw_image_data.format,
                 VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
@@ -324,8 +334,8 @@ std::vector<AllocatedImage> load_images(const fastgltf::Asset& asset, VulkanEngi
             buffer_offset += raw_image_data.size;
 
             images.emplace_back(create_image(
-                engine->device,
-                engine->allocator,
+                device,
+                allocator,
                 { static_cast<uint32_t>(raw_image_data.width), static_cast<uint32_t>(raw_image_data.height), 1 },
                 VK_FORMAT_R8G8B8A8_UNORM,
                 VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
@@ -338,7 +348,7 @@ std::vector<AllocatedImage> load_images(const fastgltf::Asset& asset, VulkanEngi
 
     for (const auto& image : images)
     {
-        engine->texture_cache.add_texture();
+        texture_cache.add_texture();
     }
 
     // note: flush image uploads - call this in immediate submit
@@ -347,9 +357,9 @@ std::vector<AllocatedImage> load_images(const fastgltf::Asset& asset, VulkanEngi
         // note: buffer_offset already accounts for entire data size?
         if (scratch.info.size < buffer_offset + image_upload_info.back().size)
         {
-            destroy_buffer(engine->allocator, scratch);
+            destroy_buffer(allocator, scratch);
             scratch = create_buffer(
-                engine->allocator,
+                allocator,
                 static_cast<size_t>(buffer_offset * 1.5),
                 VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
                 VK_BUFFER_USAGE_TRANSFER_SRC_BIT
@@ -403,17 +413,17 @@ std::vector<AllocatedImage> load_images(const fastgltf::Asset& asset, VulkanEngi
         {
             for (const auto& info : buffer_to_image_info)
             {
-                vkCmdCopyBufferToImage2(engine->imm_command_buffer, &info);
+                vkCmdCopyBufferToImage2(cmd, &info);
             }
         }
         else
         {
             for (const auto& info : buffer_to_image_info)
             {
-                vkCmdCopyBufferToImage2(engine->imm_command_buffer, &info);
+                vkCmdCopyBufferToImage2(cmd, &info);
 
                 vkutil::generate_mipmaps(
-                    engine->imm_command_buffer,
+                    cmd,
                     info.dstImage,
                     VkExtent2D{ info.pRegions->imageExtent.width,
                                 info.pRegions->imageExtent.height }
@@ -435,10 +445,15 @@ std::vector<AllocatedImage> load_images(const fastgltf::Asset& asset, VulkanEngi
         );
     }
 
-    engine->immediate_submit(
+    immediate_submit(
+        device,
+        queue,
+        fence,
+        command_pool,
+        cmd,
         [&](VkCommandBuffer cmd)
         {
-            pipeline_barrier(engine->imm_command_buffer, nullptr, 0, image_barriers.data(), image_barriers.size());
+            pipeline_barrier(cmd, nullptr, 0, image_barriers.data(), image_barriers.size());
 
             flush_uploads();
 
@@ -453,11 +468,11 @@ std::vector<AllocatedImage> load_images(const fastgltf::Asset& asset, VulkanEngi
                 );
             }
 
-            pipeline_barrier(engine->imm_command_buffer, nullptr, 0, image_barriers.data(), image_barriers.size());
+            pipeline_barrier(cmd, nullptr, 0, image_barriers.data(), image_barriers.size());
         }
     );
 
-    destroy_buffer(engine->allocator, scratch);
+    destroy_buffer(allocator, scratch);
 
     std::for_each(
         std::execution::par,
@@ -790,13 +805,21 @@ void mikk_calculate_tangents(MikkMesh& m)
     genTangSpaceDefault(&mikkContext);
 }
 
-// TODO: refactor - try to decouple loader and engine
-bool load_gltf(VulkanEngine* engine, LoadedGLTF* scene, const std::string& file_path)
+bool load_gltf(
+    VkDevice device,
+    VkQueue queue,
+    VkFence fence,
+    VkCommandPool command_pool,
+    VkCommandBuffer cmd,
+    VmaAllocator allocator,
+    TextureCache& texture_cache,
+    LoadedGLTF* scene,
+    const std::string& file_path
+)
 {
     auto asset_path = "assets/" + file_path;
     fmt::println("loading glTF: {}", file_path);
 
-    scene->creator = engine;
     LoadedGLTF& file = *scene;
 
     // note: currently not using fastgltf::Extensions::KHR_lights_punctual but some gltf files require it, then we include for sake of
@@ -860,13 +883,13 @@ bool load_gltf(VulkanEngine* engine, LoadedGLTF* scene, const std::string& file_
     assert(!asset.materials.empty());
     auto& materials_data = scene->materials;
 
-    size_t texture_cache_offset = engine->texture_cache.textures.size(); // important! do this before loading images
+    size_t texture_cache_offset = texture_cache.textures.size(); // important! do this before loading images
 
     // TODO: currently supports ktx2 in URI only
     auto start = std::chrono::system_clock::now();
 
     if (!asset.images.empty())
-        file.images = load_images(asset, engine, file.asset_path);
+        file.images = load_images(asset, device, queue, fence, command_pool, cmd, allocator, texture_cache, file.asset_path);
 
     auto end = std::chrono::system_clock::now();
     auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
@@ -1209,12 +1232,24 @@ bool load_gltf(VulkanEngine* engine, LoadedGLTF* scene, const std::string& file_
 }
 } // namespace
 
-std::optional<std::unique_ptr<LoadedGLTF>> load_gltfs(VulkanEngine* engine, std::vector<std::string>& file_paths)
+std::optional<std::unique_ptr<LoadedGLTF>> load_gltfs(
+    VkDevice device,
+    VkQueue queue,
+    VkFence fence,
+    VkCommandPool command_pool,
+    VkCommandBuffer cmd,
+    VmaAllocator allocator,
+    TextureCache& texture_cache,
+    std::vector<std::string>& file_paths
+)
 {
     std::unique_ptr<LoadedGLTF> scene = std::make_unique<LoadedGLTF>();
+    scene->device = device;
+    scene->allocator = allocator;
+
     for (auto& file_path : file_paths)
     {
-        bool success = load_gltf(engine, scene.get(), file_path);
+        bool success = load_gltf(device, queue, fence, command_pool, cmd, allocator, texture_cache, scene.get(), file_path);
         if (!success)
         {
             fmt::println("Failed to load gltf: {}", file_path);
@@ -1227,9 +1262,6 @@ std::optional<std::unique_ptr<LoadedGLTF>> load_gltfs(VulkanEngine* engine, std:
 
 void LoadedGLTF::clear()
 {
-    const VkDevice device = creator->device;
-    const VmaAllocator allocator = creator->allocator;
-
     for (auto& img : images)
     {
         destroy_image(device, allocator, img);

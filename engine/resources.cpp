@@ -1,7 +1,6 @@
 #include "common.h"
 #include "resources.h"
 #include "vk_initializers.h"
-#include "vk_engine.h"
 
 #include <vk_mem_alloc.h>
 
@@ -29,7 +28,17 @@ AllocatedBuffer create_buffer(VmaAllocator allocator, size_t alloc_size, VmaAllo
     return new_buffer;
 }
 
-AllocatedBuffer upload_buffer(VulkanEngine* engine, VmaAllocator allocator, const void* data, size_t data_size, VkBufferUsageFlags flags /*= 0*/)
+AllocatedBuffer upload_buffer(
+    VkDevice device,
+    VkQueue queue,
+    VkFence fence,
+    VkCommandPool command_pool,
+    VkCommandBuffer cmd,
+    VmaAllocator allocator,
+    const void* data,
+    size_t data_size,
+    VkBufferUsageFlags flags /*= 0*/
+)
 {
     AllocatedBuffer buffer = create_buffer(
         allocator,
@@ -48,7 +57,12 @@ AllocatedBuffer upload_buffer(VulkanEngine* engine, VmaAllocator allocator, cons
     void* staging_data = staging.info.pMappedData;
     memcpy(staging_data, data, data_size);
 
-    engine->immediate_submit(
+    immediate_submit(
+        device,
+        queue,
+        fence,
+        command_pool,
+        cmd,
         [&](VkCommandBuffer cmd)
         {
             VkBufferCopy copy{};
@@ -135,8 +149,11 @@ AllocatedImage create_render_target(
 
 // currently used for HDR, png and jpg, NOT ktx2
 AllocatedImage upload_image(
-    VulkanEngine* engine,
     VkDevice device,
+    VkQueue queue,
+    VkFence fence,
+    VkCommandPool command_pool,
+    VkCommandBuffer cmd,
     VmaAllocator allocator,
     const void* data,
     VkExtent3D extent,
@@ -162,7 +179,12 @@ AllocatedImage upload_image(
     // dst_bit to account for copy from staging buffer
     AllocatedImage new_image = create_image(device, allocator, extent, format, usage | VK_IMAGE_USAGE_TRANSFER_DST_BIT, aspect, flags, mipmapped);
 
-    engine->immediate_submit(
+    immediate_submit(
+        device,
+        queue,
+        fence,
+        command_pool,
+        cmd,
         [&](VkCommandBuffer cmd)
         {
             stage_barrier(
@@ -624,3 +646,25 @@ void get_buffer_descriptor(VkDevice device, AllocatedBuffer buffer, VkDescriptor
     VkHostAddressRangeEXT host_address_range{ descriptor, descriptor_size };
     VK_CHECK(vkWriteResourceDescriptorsEXT(device, 1, &descriptor_info, &host_address_range));
 };
+
+void immediate_submit(VkDevice device, VkQueue queue, VkFence fence, VkCommandPool command_pool, VkCommandBuffer cmd, std::function<void(VkCommandBuffer cmd)>&& func)
+{
+    VK_CHECK(vkResetFences(device, 1, &fence));
+    VK_CHECK(vkResetCommandPool(device, command_pool, 0));
+
+    VkCommandBufferBeginInfo cmd_begin_info = vkinit::command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
+
+    VK_CHECK(vkBeginCommandBuffer(cmd, &cmd_begin_info));
+
+    func(cmd);
+
+    VK_CHECK(vkEndCommandBuffer(cmd));
+
+    VkCommandBufferSubmitInfo cmd_submit_info = vkinit::command_buffer_submit_info(cmd);
+
+    VkSubmitInfo2 submit = vkinit::submit_info(&cmd_submit_info, nullptr, nullptr);
+
+    VK_CHECK(vkQueueSubmit2(queue, 1, &submit, fence));
+
+    VK_CHECK(vkWaitForFences(device, 1, &fence, true, 9999999999));
+}

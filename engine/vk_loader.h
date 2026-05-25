@@ -2,6 +2,8 @@
 
 #include "vk_scene.h"
 
+#include <vk_mem_alloc.h>
+
 #include <memory>
 #include <optional>
 #include <string>
@@ -32,7 +34,6 @@ struct MeshAsset
 struct Node
 {
     std::shared_ptr<MeshAsset> mesh_asset{};
-    // std::weak_ptr<Node> parent{};
     std::vector<std::shared_ptr<Node>> children{};
 
     glm::mat4 local_transform{};
@@ -41,10 +42,11 @@ struct Node
     void refresh_transform(const glm::mat4& parent_matrix);
 };
 
-class VulkanEngine;
-
 struct LoadedGLTF
 {
+    VkDevice device{};
+    VmaAllocator allocator{};
+
     std::vector<AllocatedImage> images{};
     std::vector<std::shared_ptr<Node>> top_nodes{};
 
@@ -54,7 +56,6 @@ struct LoadedGLTF
     std::vector<Meshlet> meshlets{};
     std::vector<MaterialData> materials{};
 
-    VulkanEngine* creator{};
     std::string asset_path{}; // asset folder
 
     ~LoadedGLTF()
@@ -66,4 +67,15 @@ private:
     void clear();
 };
 
-std::optional<std::unique_ptr<LoadedGLTF>> load_gltfs(VulkanEngine* engine, std::vector<std::string>& file_paths);
+struct TextureCache;
+
+std::optional<std::unique_ptr<LoadedGLTF>> load_gltfs(
+    VkDevice device,
+    VkQueue queue,
+    VkFence fence,
+    VkCommandPool command_pool,
+    VkCommandBuffer cmd,
+    VmaAllocator allocator,
+    TextureCache& texture_cache,
+    std::vector<std::string>& file_paths
+);

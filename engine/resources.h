@@ -19,10 +19,20 @@ struct AllocatedBuffer
     VkDeviceSize size{};
 };
 
-class VulkanEngine;
-
 AllocatedBuffer create_buffer(VmaAllocator allocator, size_t alloc_size, VmaAllocationCreateFlags flags, VkBufferUsageFlags usage);
-AllocatedBuffer upload_buffer(VulkanEngine* engine, VmaAllocator allocator, const void* data, size_t data_size, VkBufferUsageFlags = 0);
+
+AllocatedBuffer upload_buffer(
+    VkDevice device,
+    VkQueue queue,
+    VkFence fence,
+    VkCommandPool command_pool,
+    VkCommandBuffer cmd,
+    VmaAllocator allocator,
+    const void* data,
+    size_t data_size,
+    VkBufferUsageFlags = 0
+);
+
 void destroy_buffer(VmaAllocator allocator, const AllocatedBuffer& buffer);
 
 // this no longer creates a VkImageView
@@ -50,8 +60,11 @@ AllocatedImage create_render_target(
 );
 
 AllocatedImage upload_image(
-    VulkanEngine* engine,
     VkDevice device,
+    VkQueue queue,
+    VkFence fence,
+    VkCommandPool command_pool,
+    VkCommandBuffer cmd,
     VmaAllocator allocator,
     const void* data,
     VkExtent3D extent,
@@ -171,3 +184,5 @@ void get_as_descriptor(
 );
 
 void get_buffer_descriptor(VkDevice device, AllocatedBuffer buffer, VkDescriptorType descriptor_type, void* descriptor, size_t descriptor_size);
+
+void immediate_submit(VkDevice device, VkQueue queue, VkFence fence, VkCommandPool command_pool, VkCommandBuffer cmd, std::function<void(VkCommandBuffer cmd)>&& func);
