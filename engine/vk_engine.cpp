@@ -54,7 +54,7 @@ VulkanEngine& VulkanEngine::get()
 constexpr bool USE_VALIDATION_LAYERS = true;
 // #endif
 
-// #define SINGLE // uncomment if loading a proper scene
+// #define STRESS_TEST // uncomment if loading a proper scene
 
 AutoCVar_Int CVAR_IMGUI{ "imgui", "Imgui", CVarFlags::EditCheckbox | CVarFlags::EditHide, 1 };
 AutoCVar_Int CVAR_DISABLE_CAMERA{ "disable_camera", "Disable camera", CVarFlags::EditCheckbox | CVarFlags::EditHide, 0 };
@@ -2452,11 +2452,12 @@ void VulkanEngine::init_renderables(int argc, char** argv)
         register_object(n.get(), glm::translate(glm::mat4(1.0f), glm::vec3(0, 0, 2)));
     }
 
-#ifndef SINGLE
+#ifdef STRESS_TEST
     std::mt19937 mt(42);
     auto draw_radius = 400.0f;
     auto draw_count = 500'000;
 
+    std::vector<glm::mat4> transforms(draw_count);
     for (size_t i = 0; i < draw_count; i++)
     {
         const float x = static_cast<float>(mt()) / static_cast<float>(mt.max()) * draw_radius - draw_radius * 0.5f;
@@ -2473,8 +2474,11 @@ void VulkanEngine::init_renderables(int argc, char** argv)
         );
         glm::mat4 r = glm::rotate(glm::mat4(1.0f), glm::radians(static_cast<float>(mt()) / static_cast<float>(mt.max()) * 360.0f), axis);
         glm::mat4 s = glm::scale(glm::mat4(1.0f), glm::vec3(static_cast<float>(mt()) / static_cast<float>(mt.max())) + 1.0f);
-        const auto transform = t * r * s;
+        transforms[i] = t * r * s;
+    }
 
+    for (auto& transform : transforms)
+    {
         for (const auto& n : loaded_scene->top_nodes)
         {
             register_object(n.get(), transform);
