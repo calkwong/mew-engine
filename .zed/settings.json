@@ -4,6 +4,13 @@
       "settings": {
         "slang.additionalSearchPaths": ["./shaders/modules"]
       }
+    },
+    "clangd": {
+      "binary": {
+        "arguments": [
+          "--function-arg-placeholders=0"
+        ]
+      }
     }
   }
 }
