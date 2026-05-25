@@ -54,40 +54,40 @@ VulkanEngine& VulkanEngine::get()
 constexpr bool USE_VALIDATION_LAYERS = true;
 // #endif
 
-#define SINGLE // uncomment if loading a proper scene
+// #define SINGLE // uncomment if loading a proper scene
 
-AutoCVar_Int CVAR_RENDER_IMGUI{ "render.imgui", "Imgui", CVarFlags::EditCheckbox | CVarFlags::EditHide, 1 };
-AutoCVar_Int CVAR_DISABLE_CAMERA{ "render.disable_camera", "Disable camera", CVarFlags::EditCheckbox | CVarFlags::EditHide, 0 };
-AutoCVar_Int CVAR_HOT_RELOAD{ "render.hot_reload", "Hot reload shaders", CVarFlags::EditCheckbox | CVarFlags::EditHide, 0 };
+AutoCVar_Int CVAR_IMGUI{ "imgui", "Imgui", CVarFlags::EditCheckbox | CVarFlags::EditHide, 1 };
+AutoCVar_Int CVAR_DISABLE_CAMERA{ "disable_camera", "Disable camera", CVarFlags::EditCheckbox | CVarFlags::EditHide, 0 };
+AutoCVar_Int CVAR_HOT_RELOAD{ "hot_reload", "Hot reload shaders", CVarFlags::EditCheckbox | CVarFlags::EditHide, 0 };
 
-AutoCVar_Int CVAR_RENDER_VBUFFER{ "render.vbuffer", "Vbuffer path", CVarFlags::EditCheckbox, 1 };
-AutoCVar_Int CVAR_RENDER_MESH_SHADERS{ "render.mesh_shaders", "Mesh shaders path", CVarFlags::EditCheckbox, 1 };
-AutoCVar_Int CVAR_RENDER_ALPHACLIP{ "render.alphaclip", "Alphaclip", CVarFlags::EditCheckbox, 1 };
-AutoCVar_Int CVAR_RENDER_TRANSPARENT{ "render.transparent", "Transparent", CVarFlags::EditCheckbox, 1 };
-AutoCVar_Int CVAR_RENDER_POINT_LIGHTS{ "render.point_lights", "Point lights", CVarFlags::EditCheckbox, 0 };
-AutoCVar_Int CVAR_RENDER_OCCLUSION_CULL{ "render.occlusion_cull", "Occlusion culling", CVarFlags::EditCheckbox, 1 };
-AutoCVar_Int CVAR_RENDER_LOD{ "render.lod", "LODs", CVarFlags::EditCheckbox, 1 };
-AutoCVar_Int CVAR_RENDER_SHADOWS{ "render.shadows", "Shadows", CVarFlags::EditCheckbox, 0 };
-AutoCVar_Int CVAR_RENDER_SHADOWS_RT{ "render.shadows_rt", "Ray traced shadows", CVarFlags::EditCheckbox, 0 };
-AutoCVar_Int CVAR_RENDER_TAA{ "render.taa", "TAA", CVarFlags::EditCheckbox, 0 };
-AutoCVar_Int CVAR_RENDER_RT{ "render.ray_tracing", "RT", CVarFlags::EditCheckbox, 0 };
+AutoCVar_Int CVAR_VBUFFER{ "vbuffer", "Vbuffer path", CVarFlags::EditCheckbox, 1 };
+AutoCVar_Int CVAR_MESH_SHADERS{ "mesh_shaders", "Mesh shaders path", CVarFlags::EditCheckbox, 1 };
+AutoCVar_Int CVAR_ALPHACLIP{ "alphaclip", "Alphaclip", CVarFlags::EditCheckbox, 1 };
+AutoCVar_Int CVAR_TRANSPARENT{ "transparent", "Transparent", CVarFlags::EditCheckbox, 1 };
+AutoCVar_Int CVAR_POINT_LIGHTS{ "point_lights", "Point lights", CVarFlags::EditCheckbox, 0 };
+AutoCVar_Int CVAR_OCCLUSION_CULLING{ "occlusion_culling", "Occlusion culling", CVarFlags::EditCheckbox, 1 };
+AutoCVar_Int CVAR_LOD{ "lod", "LODs", CVarFlags::EditCheckbox, 1 };
+AutoCVar_Int CVAR_SHADOWS{ "shadows", "Shadows", CVarFlags::EditCheckbox, 0 };
+AutoCVar_Int CVAR_SHADOWS_RT{ "shadows_rt", "Ray traced shadows", CVarFlags::EditCheckbox, 0 };
+AutoCVar_Int CVAR_TAA{ "taa", "TAA", CVarFlags::EditCheckbox, 0 };
+AutoCVar_Int CVAR_RT{ "rt", "RT", CVarFlags::EditCheckbox, 0 };
 
 AutoCVar_Float CVAR_SHADOWS_CASCADE_SPLIT{ "shadows.cascade_split", "Cascades log factor", CVarFlags::EditDragFloat, 0.95f, 0.f, 1.f, 0.005f };
 AutoCVar_Int CVAR_SHADOWS_DISTANCE{ "shadows.distance", "Shadow draw distance", CVarFlags::EditSliderInt, 48, 20, 200, 5 };
 
 AutoCVar_Int CVAR_DEBUG_TEXTURES{ "debug.textures", "Debug textures", CVarFlags::EditSliderInt, 0, 0, DEBUG_COUNT, 1 };
 
-AutoCVar_Int CVAR_MISC_DRAW_DISTANCE{ "misc.draw_distance", "Draw distance", CVarFlags::EditSliderInt, 1000, 100, 1000, 100 };
-AutoCVar_Int CVAR_MISC_AUTOEXPOSURE{ "misc.autoexposure", "Autoexposure", CVarFlags::EditCheckbox, 0 };
-AutoCVar_Int CVAR_MISC_TONEMAP{ "misc.tonemap", "Tonemapping", CVarFlags::EditCheckbox, 1 };
-AutoCVar_Int CVAR_MISC_TONEMAP_FUNC{ "misc.tonemap_func", "Tonemapping function", CVarFlags::EditSliderInt, 0, 0, 3, 1 };
-AutoCVar_Int CVAR_MISC_FREEZE_CAMERA{ "misc.freeze_camera", "Freeze camera", CVarFlags::EditCheckbox, 0 };
-AutoCVar_Int CVAR_MISC_HIZ_SPD{ "misc.hiz_spd", "HiZ SPD", CVarFlags::EditCheckbox, 1 };
+AutoCVar_Int CVAR_DRAW_DISTANCE{ "draw_distance", "Draw distance", CVarFlags::EditSliderInt, 1000, 100, 1000, 100 };
+AutoCVar_Int CVAR_AUTOEXPOSURE{ "autoexposure", "Autoexposure", CVarFlags::EditCheckbox, 0 };
+AutoCVar_Int CVAR_TONEMAPPING{ "tonemapping", "Tonemapping", CVarFlags::EditCheckbox, 1 };
+AutoCVar_Int CVAR_TONEMAPPING_FUNC{ "tonemapping_func", "Tonemapping function", CVarFlags::EditSliderInt, 0, 0, 3, 1 };
+AutoCVar_Int CVAR_FREEZE_CAMERA{ "freeze_camera", "Freeze camera", CVarFlags::EditCheckbox, 0 };
+AutoCVar_Int CVAR_HIZ_SPD{ "hiz_spd", "HiZ SPD", CVarFlags::EditCheckbox, 1 };
 
 AutoCVar_Int CVAR_TAA_VARIANCE_CLIP{ "taa.variance_clip", "Variance clipping", CVarFlags::EditCheckbox, 1 };
 AutoCVar_Int CVAR_TAA_CATMULL_ROM{ "taa.catmull_rom", "Catmull filter", CVarFlags::EditCheckbox, 1 };
 AutoCVar_Int CVAR_TAA_MITCHELL{ "taa.mitchell", "Mitchell filter", CVarFlags::EditCheckbox, 0 };
-AutoCVar_Int CVAR_TAA_YCOCG{ "taa.ycogy", "YCoCg", CVarFlags::EditCheckbox, 1 };
+AutoCVar_Int CVAR_TAA_YCOCG{ "taa.ycocg", "YCoCg", CVarFlags::EditCheckbox, 1 };
 AutoCVar_Int CVAR_TAA_DYNAMIC{ "taa.dynamic", "Dynamic luma weights", CVarFlags::EditCheckbox, 0 };
 
 namespace
@@ -192,6 +192,7 @@ void VulkanEngine::init(int argc, char** argv)
 {
     assert(loaded_engine == nullptr);
     loaded_engine = this;
+    cvar_system = CVarSystem::get();
 
     VK_CHECK(volkInitialize());
 
@@ -221,7 +222,7 @@ void VulkanEngine::init(int argc, char** argv)
     init_resources();
 
     main_camera.position = glm::vec3(0, 0, 5);
-    main_camera.far = static_cast<float>(CVAR_MISC_DRAW_DISTANCE.get());
+    main_camera.far = static_cast<float>(cvar_system->get_int_cvar("draw_distance"));
     main_camera.near = 0.01f;
     main_camera.fov = 70.0f;
     main_camera.set_perspective_matrix(glm::radians(main_camera.fov), static_cast<float>(swapchain.extent.width) / static_cast<float>(swapchain.extent.height), main_camera.near);
@@ -749,12 +750,12 @@ void VulkanEngine::draw()
             {
                 vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, timestamp + 0);
                 execute_compute_cull(cmd, mesh_pass, forward_mesh_cull_data, late, post_pass);
-                if (!CVAR_RENDER_MESH_SHADERS.get())
+                if (!CVarSystem::get()->get_int_cvar("mesh_shaders"))
                     vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, timestamp + 1);
             }
         );
 
-        if (CVAR_RENDER_MESH_SHADERS.get())
+        if (cvar_system->get_int_cvar("mesh_shaders"))
         {
             graph.add_pass(
                 prefix + "compact_dispatch",
@@ -808,7 +809,7 @@ void VulkanEngine::draw()
                 pass.add_storage_buffer_write("material");
                 pass.add_storage_buffer_write("prefix_sum");
                 pass.add_depth_stencil_output("depth", depth_image.image);
-                bool visibility_rendering = CVAR_RENDER_VBUFFER.get() && CVAR_RENDER_MESH_SHADERS.get();
+                bool visibility_rendering = cvar_system->get_int_cvar("vbuffer") && cvar_system->get_int_cvar("mesh_shaders");
                 if (visibility_rendering)
                 {
                     pass.add_color_output("vis_buffer", visibility_buffer.image);
@@ -881,12 +882,12 @@ void VulkanEngine::draw()
             {
                 vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, timestamp + 0);
                 execute_compute_cull(cmd, render_scene.transparent_pass, forward_mesh_cull_data, late, post_pass);
-                if (!CVAR_RENDER_MESH_SHADERS.get())
+                if (!cvar_system->get_int_cvar("mesh_shaders"))
                     vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, timestamp + 1);
             }
         );
 
-        if (CVAR_RENDER_MESH_SHADERS.get())
+        if (cvar_system->get_int_cvar("mesh_shaders"))
         {
             graph.add_pass(
                 prefix + "compact_dispatch",
@@ -962,7 +963,7 @@ void VulkanEngine::draw()
                 Pass::PassType::ComputePass,
                 [&](Pass& pass)
                 {
-                    if (CVAR_MISC_HIZ_SPD.get())
+                    if (cvar_system->get_int_cvar("hiz_spd"))
                     {
                         pass.add_storage_buffer_write("spd_counter");
                         pass.add_storage_buffer_read("spd_counter");
@@ -973,7 +974,7 @@ void VulkanEngine::draw()
                 [&]()
                 {
                     vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 28);
-                    if (CVAR_MISC_HIZ_SPD.get())
+                    if (cvar_system->get_int_cvar("hiz_spd"))
                         execute_hiz_spd(cmd);
                     else
                         execute_hiz(cmd);
@@ -990,7 +991,7 @@ void VulkanEngine::draw()
         two_pass_occlusion_culling(graph, "opaque_late_", render_scene.opaque_pass, 0, true, 0, 1, 4);
 
         // alphaclip postpass only, this is using early pass hiz for culling
-        if (CVAR_RENDER_ALPHACLIP.get())
+        if (cvar_system->get_int_cvar("alphaclip"))
             two_pass_occlusion_culling(graph, "alphaclip_late_", render_scene.mask_pass, 0, true, 1, 2, 8);
         else
         {
@@ -1002,7 +1003,7 @@ void VulkanEngine::draw()
             vkCmdEndQuery(cmd, get_current_frame().query_pool_pipelines, 2);
         }
 
-        if (CVAR_RENDER_POINT_LIGHTS.get())
+        if (cvar_system->get_int_cvar("point_lights"))
         {
             // TODO: combine this somewhere
             // TODO: handle as Transfer instead of setting to Compute?
@@ -1044,7 +1045,7 @@ void VulkanEngine::draw()
             vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 13);
         }
 
-        if (CVAR_RENDER_SHADOWS.get() && !CVAR_RENDER_SHADOWS_RT.get())
+        if (cvar_system->get_int_cvar("shadows") && !cvar_system->get_int_cvar("shadows_rt"))
         {
             graph.add_pass(
                 "zero shadow buffers",
@@ -1133,7 +1134,7 @@ void VulkanEngine::draw()
             }
         );
 
-        if (CVAR_RENDER_TRANSPARENT.get())
+        if (cvar_system->get_int_cvar("transparent"))
             transparency_pass(graph, "transparent_late_", 0, true, 2, 3, 16);
         else
         {
@@ -1145,7 +1146,7 @@ void VulkanEngine::draw()
             vkCmdEndQuery(cmd, get_current_frame().query_pool_pipelines, 3);
         };
 
-        if (CVAR_RENDER_TRANSPARENT.get())
+        if (cvar_system->get_int_cvar("transparent"))
         {
             graph.add_pass(
                 "composite transparent",
@@ -1190,7 +1191,7 @@ void VulkanEngine::draw()
 
         // TODO: fix autoexposure
 
-        if (CVAR_RENDER_TAA.get())
+        if (cvar_system->get_int_cvar("taa"))
         {
             graph.add_pass(
                 "taa",
@@ -1215,7 +1216,7 @@ void VulkanEngine::draw()
             vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame_query_pool_timestamps, 25);
         }
 
-        if (CVAR_MISC_TONEMAP.get() && CVAR_DEBUG_TEXTURES.get() == 0)
+        if (cvar_system->get_int_cvar("tonemapping") && cvar_system->get_int_cvar("debug.textures") == 0)
         {
             graph.add_pass(
                 "tonemapping",
@@ -1234,10 +1235,10 @@ void VulkanEngine::draw()
                     TonemapPushConstants pc{};
                     pc.luminance_avg_buffer = get_buffer_address(device, render_scene.luminance_avg_buffer.buffer);
                     pc.screen_size = glm::vec2(swapchain.extent.width, swapchain.extent.height);
-                    pc.src_id = CVAR_RENDER_TAA.get() ? image_cache.get_accumulation_buffer(frame_number % 2) : image_cache.get_draw_image();
+                    pc.src_id = cvar_system->get_int_cvar("taa") ? image_cache.get_accumulation_buffer(frame_number % 2) : image_cache.get_draw_image();
                     pc.dst_id = image_cache.get_draw_image();
-                    // pc.autoexposure = CVAR_MISC_AUTOEXPOSURE.get();
-                    pc.tonemap_func = CVAR_MISC_TONEMAP_FUNC.get();
+                    // pc.autoexposure = cvar_system->get_int_cvar("autoexposure");
+                    pc.tonemap_func = cvar_system->get_int_cvar("tonemapping_func");
 
                     VkPushDataInfoEXT push_data_info{};
                     push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
@@ -1264,7 +1265,7 @@ void VulkanEngine::draw()
             }
         );
 
-        if (CVAR_RENDER_IMGUI.get())
+        if (cvar_system->get_int_cvar("imgui"))
         {
             graph.add_pass(
                 "imgui",
@@ -1357,9 +1358,9 @@ void VulkanEngine::run()
             if (SDL_GetWindowRelativeMouseMode(window))
                 main_camera.process_sdl_event(e);
 
-            if (CVarSystem::get()->get_int_cvar("render.hot_reload") == 1)
+            if (CVarSystem::get()->get_int_cvar("hot_reload") == 1)
             {
-                CVarSystem::get()->set_int_cvar("render.hot_reload", 0);
+                CVarSystem::get()->set_int_cvar("hot_reload", 0);
 
                 int recompile = std::system("ninja -C bin Shaders");
 
@@ -1485,7 +1486,7 @@ void VulkanEngine::run()
             update_descriptor_heap();
         }
 
-        freeze_camera = CVAR_MISC_FREEZE_CAMERA.get();
+        freeze_camera = cvar_system->get_int_cvar("freeze_camera");
 
         ImGui_ImplVulkan_NewFrame();
         ImGui_ImplSDL3_NewFrame();
@@ -2582,13 +2583,13 @@ void VulkanEngine::register_object(const Node* node, const glm::mat4& top_matrix
 
 void VulkanEngine::update_scene()
 {
-    main_camera.far = static_cast<float>(CVAR_MISC_DRAW_DISTANCE.get());
+    main_camera.far = static_cast<float>(cvar_system->get_int_cvar("draw_distance"));
     main_camera.update(static_cast<float>(stats.deltatime));
 
     scene_data.view = main_camera.get_view_matrix();
     scene_data.proj = main_camera.perspective;
 
-    if (CVAR_RENDER_TAA.get())
+    if (cvar_system->get_int_cvar("taa"))
     {
         auto idx = frame_number % 8;
         auto offset_projection = glm::translate(glm::mat4(1.0f), glm::vec3(jitter_offset[idx].x, jitter_offset[idx].y, 0.0));
@@ -2605,7 +2606,7 @@ void VulkanEngine::update_scene()
     // scene_data.sunlight_dir = glm::vec4(0.001, 12.0, 0.0, 1.);
     scene_data.sunlight_color = glm::vec4(1.0, 1.0, 1.0, 1.0);
 
-    if (CVAR_RENDER_SHADOWS.get() && !CVAR_RENDER_SHADOWS_RT.get())
+    if (cvar_system->get_int_cvar("shadows") && !cvar_system->get_int_cvar("shadows_rt"))
     {
         update_cascade();
         for (size_t i = 0; i < cascade_data.size(); i++)
@@ -2660,12 +2661,12 @@ void VulkanEngine::resolve_taa(VkCommandBuffer cmd)
     pc.resolve_id = image_cache.get_accumulation_buffer(frame_number % 2);
     pc.depth_id = texture_cache.get_depth_image();
     pc.velocity_id = 0; // unused
-    pc.variance_clipping = CVAR_TAA_VARIANCE_CLIP.get();
-    pc.history_filter = CVAR_TAA_CATMULL_ROM.get();
-    pc.local_filter = CVAR_TAA_MITCHELL.get();
-    pc.ycocg = CVAR_TAA_YCOCG.get();
+    pc.variance_clipping = cvar_system->get_int_cvar("taa.variance_clip");
+    pc.history_filter = cvar_system->get_int_cvar("taa.catmull_rom");
+    pc.local_filter = cvar_system->get_int_cvar("taa.mitchell");
+    pc.ycocg = cvar_system->get_int_cvar("taa.ycocg");
     pc.valid_history = first_frame ? 0 : 1;
-    pc.dynamic = CVAR_TAA_DYNAMIC.get();
+    pc.dynamic = cvar_system->get_int_cvar("taa.dynamic");
     first_frame = false; // set this elsewhere?
 
     VkPushDataInfoEXT push_data_info{};
@@ -2680,12 +2681,12 @@ void VulkanEngine::resolve_taa(VkCommandBuffer cmd)
 void VulkanEngine::update_cascade()
 {
     // https://developer.nvidia.com/gpugems/gpugems3/part-ii-light-and-shadows/chapter-10-parallel-split-shadow-maps-programmable-gpus
-    float near = static_cast<float>(CVAR_SHADOWS_DISTANCE.get());
+    float near = static_cast<float>(cvar_system->get_int_cvar("shadows.distance"));
     float far = main_camera.far;
     float m = static_cast<float>(NUMBER_OF_CASCADES);
     float range = far - near;
     float ratio = far / near;
-    float lambda = CVAR_SHADOWS_CASCADE_SPLIT.get();
+    float lambda = cvar_system->get_float_cvar("shadows.cascade_split");
 
     for (int idx = 0; idx < NUMBER_OF_CASCADES; idx++)
     {
@@ -2704,7 +2705,7 @@ void VulkanEngine::update_cascade()
     glm::mat4 proj = glm::perspective(
         glm::radians(main_camera.fov),
         static_cast<float>(swapchain.extent.width) / static_cast<float>(swapchain.extent.height),
-        static_cast<float>(CVAR_SHADOWS_DISTANCE.get()),
+        static_cast<float>(cvar_system->get_int_cvar("shadows.distance")),
         main_camera.near
     );
     glm::mat4 inv_viewproj = glm::inverse(proj * view);
@@ -3030,7 +3031,7 @@ void VulkanEngine::ready_mesh_cull(RenderScene::MeshPass& pass, CullData& cull_d
 
     // cull_data.count = static_cast<uint32_t>(pass.unbatched_objects.size()); // set during execute
     cull_data.texture_id = texture_cache.get_depth_pyramid_image();
-    cull_data.occlusion_enabled = CVAR_RENDER_OCCLUSION_CULL.get();
+    cull_data.occlusion_enabled = cvar_system->get_int_cvar("occlusion_culling");
 
     cull_data.p00 = proj[0][0];
     cull_data.p11 = proj[1][1]; // equivalent to 1 / tan(fovy/2)
@@ -3040,8 +3041,8 @@ void VulkanEngine::ready_mesh_cull(RenderScene::MeshPass& pass, CullData& cull_d
     cull_data.resolution = glm::vec2(depth_pyramid.extent.width, depth_pyramid.extent.height);
     cull_data.texture_lod = static_cast<float>(std::floor(std::log2(static_cast<float>(std::max(depth_pyramid.extent.width, depth_pyramid.extent.height)))) + 1);
     cull_data.lod_distance_factor = 2.0f / (cull_data.p11 * static_cast<float>(swapchain.extent.height));
-    cull_data.lod_enabled = CVAR_RENDER_LOD.get();
-    cull_data.task_submit = CVAR_RENDER_MESH_SHADERS.get();
+    cull_data.lod_enabled = cvar_system->get_int_cvar("lod");
+    cull_data.task_submit = cvar_system->get_int_cvar("mesh_shaders");
 }
 
 // count, late & post_pass set in executecomputecull
@@ -3078,7 +3079,7 @@ void VulkanEngine::ready_meshlet_cull(RenderScene::MeshPass& pass, ClusterCullDa
 
     // cull_data.count = static_cast<uint32_t>(pass.unbatched_objects.size()); // unused
     cull_data.texture_id = texture_cache.get_depth_pyramid_image();
-    cull_data.occlusion_enabled = CVAR_RENDER_OCCLUSION_CULL.get();
+    cull_data.occlusion_enabled = cvar_system->get_int_cvar("occlusion_culling");
 
     cull_data.p00 = proj[0][0];
     cull_data.p11 = proj[1][1];
@@ -3088,8 +3089,8 @@ void VulkanEngine::ready_meshlet_cull(RenderScene::MeshPass& pass, ClusterCullDa
     cull_data.resolution = glm::vec2(depth_pyramid.extent.width, depth_pyramid.extent.height);
     cull_data.texture_lod = static_cast<float>(std::floor(std::log2(static_cast<float>(std::max(depth_pyramid.extent.width, depth_pyramid.extent.height)))) + 1);
     cull_data.lod_distance_factor = 2.0f / (cull_data.p11 * static_cast<float>(swapchain.extent.height));
-    cull_data.lod_enabled = CVAR_RENDER_LOD.get();
-    cull_data.task_submit = CVAR_RENDER_MESH_SHADERS.get();
+    cull_data.lod_enabled = cvar_system->get_int_cvar("lod");
+    cull_data.task_submit = cvar_system->get_int_cvar("mesh_shaders");
 }
 
 void VulkanEngine::execute_compact_dispatch(VkCommandBuffer cmd)
@@ -3167,7 +3168,7 @@ void VulkanEngine::execute_shadow_cull(VkCommandBuffer cmd)
         cull_count += static_cast<uint32_t>(pass->unbatched_objects.size());
     }
     pc.count = cull_count;
-    pc.lod_enabled = CVAR_RENDER_LOD.get();
+    pc.lod_enabled = cvar_system->get_int_cvar("lod");
 
     VkPushDataInfoEXT push_data_info{};
     push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
@@ -3184,7 +3185,7 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass, ui
     VkClearValue clear_value{ .color = clear_color_value };
 
     std::vector<VkRenderingAttachmentInfo> rendering_attachment_infos{};
-    bool visibility_rendering = CVAR_RENDER_VBUFFER.get() && CVAR_RENDER_MESH_SHADERS.get();
+    bool visibility_rendering = cvar_system->get_int_cvar("vbuffer") && cvar_system->get_int_cvar("mesh_shaders");
     if (visibility_rendering)
     {
         rendering_attachment_infos.push_back(
@@ -3241,7 +3242,7 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass, ui
     pc.screen_size = glm::uvec2(swapchain.extent.width, swapchain.extent.height);
     pc.jitter_offset = glm::vec4(current_jitter, previous_jitter);
 
-    if (!CVAR_RENDER_MESH_SHADERS.get())
+    if (!cvar_system->get_int_cvar("mesh_shaders"))
     {
         vkCmdBeginQuery(cmd, get_current_frame().query_pool_pipelines, query, 0);
 
@@ -3335,7 +3336,7 @@ void VulkanEngine::render_transparent(VkCommandBuffer cmd, uint32_t query)
     pc.max_prefiltered_lod = static_cast<float>(std::floor(std::log2(static_cast<float>(std::max(prefiltered_envmap.extent.width, prefiltered_envmap.extent.height))))) + 1;
     pc.framebuffer_id = image_cache.get_draw_image();
 
-    if (!CVAR_RENDER_MESH_SHADERS.get())
+    if (!cvar_system->get_int_cvar("mesh_shaders"))
     {
         vkCmdBeginQuery(cmd, get_current_frame().query_pool_pipelines, query, 0);
 
@@ -3441,7 +3442,7 @@ void VulkanEngine::render_shadows(VkCommandBuffer cmd, uint32_t cascade_idx, uin
             sizeof(VkDrawIndexedIndirectCommand)
         );
 
-        if (CVAR_RENDER_ALPHACLIP.get())
+        if (cvar_system->get_int_cvar("alphaclip"))
         {
             current_pass = *shader_passes["depth_alphaclip"];
             vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
@@ -3618,11 +3619,11 @@ void VulkanEngine::execute_light_culling(VkCommandBuffer cmd)
 void VulkanEngine::execute_shading(VkCommandBuffer cmd)
 {
     ShaderPass current_pass{};
-    bool visibility_rendering = CVAR_RENDER_VBUFFER.get() && CVAR_RENDER_MESH_SHADERS.get();
+    bool visibility_rendering = cvar_system->get_int_cvar("vbuffer") && cvar_system->get_int_cvar("mesh_shaders");
     if (visibility_rendering)
     {
         current_pass = *shader_passes["resolve_vbuffer"];
-        // if (CVAR_RENDER_RT.get())
+        // if (cvar_system->get_int_cvar("rt"))
         //     current_pass = *shader_passes["ray_tracing"];
     }
     else
@@ -3655,16 +3656,16 @@ void VulkanEngine::execute_shading(VkCommandBuffer cmd)
     pc.depth_id = texture_cache.get_depth_image();
     pc.gbuffer_id = visibility_rendering ? texture_cache.get_visibility_buffer() : texture_cache.get_first_gbuffer();
     pc.shadow_id = texture_cache.get_shadowmap();
-    pc.light_culling = CVAR_RENDER_POINT_LIGHTS.get();
+    pc.light_culling = cvar_system->get_int_cvar("point_lights");
     pc.near = main_camera.near;
 
     const float ratio = main_camera.far / main_camera.near;
     pc.scale = static_cast<float>(CLUSTER_DEPTH_SLICES) / std::log(ratio);
     pc.bias = static_cast<float>(CLUSTER_DEPTH_SLICES) * std::log(main_camera.near) / std::log(ratio);
-    pc.shadows = CVAR_RENDER_SHADOWS.get();
-    pc.shadows_rt = CVAR_RENDER_SHADOWS_RT.get();
+    pc.shadows = cvar_system->get_int_cvar("shadows");
+    pc.shadows_rt = cvar_system->get_int_cvar("shadows_rt");
     pc.max_prefiltered_lod = static_cast<float>(std::floor(std::log2(static_cast<float>(std::max(prefiltered_envmap.extent.width, prefiltered_envmap.extent.height))))) + 1;
-    pc.debug = CVAR_DEBUG_TEXTURES.get();
+    pc.debug = cvar_system->get_int_cvar("debug.textures");
 
     VkPushDataInfoEXT push_data_info{};
     push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;

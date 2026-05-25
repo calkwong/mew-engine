@@ -81,20 +81,20 @@ void key_callback(SDL_Window* window, SDL_Event& e)
     {
         if (e.key.repeat == 0 && e.key.key == SDLK_SPACE)
         {
-            if (CVarSystem::get()->get_int_cvar("render.disable_camera") == 1)
+            if (CVarSystem::get()->get_int_cvar("disable_camera") == 1)
             {
-                CVarSystem::get()->set_int_cvar("render.disable_camera", 0);
+                CVarSystem::get()->set_int_cvar("disable_camera", 0);
                 SDL_SetWindowRelativeMouseMode(window, true);
             }
             else
             {
-                CVarSystem::get()->set_int_cvar("render.disable_camera", 1);
+                CVarSystem::get()->set_int_cvar("disable_camera", 1);
                 SDL_SetWindowRelativeMouseMode(window, false);
             }
         }
 
         if (e.key.repeat == 0 && e.key.key == SDLK_R)
-            toggle_cvar("render.imgui");
+            toggle_cvar("imgui");
 
         if (e.key.repeat == 0 && e.key.key == SDLK_Z)
             toggle_cvar("taa.variance_clip");
@@ -103,21 +103,21 @@ void key_callback(SDL_Window* window, SDL_Event& e)
             toggle_cvar("taa.catmull_rom");
 
         if (e.key.repeat == 0 && e.key.key == SDLK_C)
-            toggle_cvar("taa.ycogy");
+            toggle_cvar("taa.ycocg");
 
         if (e.key.repeat == 0 && e.key.key == SDLK_T)
-            toggle_cvar("render.taa");
+            toggle_cvar("taa");
 
         if (e.key.repeat == 0 && e.key.key == SDLK_G)
-            toggle_cvar("misc.hiz_spd");
+            toggle_cvar("hiz_spd");
 
         if (e.key.repeat == 0 && e.key.key == SDLK_F)
-            toggle_cvar("render.shadows_rt");
+            toggle_cvar("shadows_rt");
 
         if (e.key.repeat == 0 && e.key.key == SDLK_X)
-            toggle_cvar("render.ray_tracing");
+            toggle_cvar("rt");
 
         if (e.key.repeat == 0 && e.key.key == SDLK_Y)
-            CVarSystem::get()->set_int_cvar("render.hot_reload", 1);
+            CVarSystem::get()->set_int_cvar("hot_reload", 1);
     }
 }

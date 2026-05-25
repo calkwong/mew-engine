@@ -85,6 +85,7 @@ struct EngineStats
 struct SDL_Window;
 struct CullData;
 struct ClusterCullData;
+struct CVarSystem;
 
 class VulkanEngine
 {
@@ -178,6 +179,7 @@ public:
 
     VkAccelerationStructureKHR tlas_as{};
 
+    CVarSystem* cvar_system{};
     RenderScene render_scene{};
 
     // tracy::VkCtx* tracy_ctx{};
