@@ -88,6 +88,7 @@ struct DeferredPushConstants
     VkDeviceAddress index_buffer_address{};
     VkDeviceAddress mesh_buffer_address{};
     VkDeviceAddress sh_buffer_address{};
+    uint32_t draw_id;
     uint32_t depth_id{};
     uint32_t gbuffer_id{};
     uint32_t shadow_id{};
@@ -98,8 +99,6 @@ struct DeferredPushConstants
     uint32_t shadows{};
     uint32_t shadows_rt{};
     float max_prefiltered_lod{};
-    float metallic{};
-    float roughness{};
     uint32_t debug{};
 };
 

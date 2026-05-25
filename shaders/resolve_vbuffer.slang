@@ -21,6 +21,7 @@ struct PushConstants
 	uint* index_buffer;
 	MeshData* mesh_buffer;
 	SH* sh_buffer;
+	uint draw_id;
 	uint depth_id;
 	uint gbuffer_id;
 	uint shadowmap_id;
@@ -31,8 +32,6 @@ struct PushConstants
 	uint shadows;
 	uint shadows_rt;
 	float max_prefiltered_lod;
-	float metallic; // unused, for furnace test
-	float roughness; // unused, for furnace test
 	uint debug;
 };
 
@@ -358,6 +357,5 @@ void main(
 		    out_color = float4(0,0,0,1);
 	}
 
-    // TODO: hardcoded draw id to 0
-	images_rgba32f[0].Store(int2(frag_coord), out_color);
+	images_rgba32f[pc.draw_id].Store(int2(frag_coord), out_color);
 }

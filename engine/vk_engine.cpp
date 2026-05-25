@@ -90,9 +90,6 @@ AutoCVar_Int CVAR_TAA_MITCHELL{ "taa.mitchell", "Mitchell filter", 0, CVarFlags:
 AutoCVar_Int CVAR_TAA_YCOCG{ "taa.ycogy", "YCoCg", 1, CVarFlags::EditCheckbox };
 AutoCVar_Int CVAR_TAA_DYNAMIC{ "taa.dynamic", "Dynamic luma weights", 0, CVarFlags::EditCheckbox };
 
-AutoCVar_Float CVAR_PBR_METALLIC{ "pbr.metallic", "Metallic", 0.0f, CVarFlags::EditDragFloat, 0.f, 1.f, 0.05f };
-AutoCVar_Float CVAR_PBR_ROUGHNESS{ "pbr.roughness", "Roughness", 0.5f, CVarFlags::EditDragFloat, 0.f, 1.f, 0.05f };
-
 namespace
 {
 uint32_t nearest_pow2(uint32_t extent)
@@ -227,7 +224,6 @@ void VulkanEngine::init(int argc, char** argv)
     main_camera.far = static_cast<float>(CVAR_MISC_DRAW_DISTANCE.get());
     main_camera.near = 0.01f;
     main_camera.fov = 70.0f;
-    // TODO: refactor if window resize
     main_camera.set_perspective_matrix(glm::radians(main_camera.fov), static_cast<float>(swapchain.extent.width) / static_cast<float>(swapchain.extent.height), main_camera.near);
     init_renderables(argc, argv);
 
@@ -241,7 +237,8 @@ void VulkanEngine::init(int argc, char** argv)
 
     init_imgui();
 
-    build_cluster_grid(); // TODO: support draw distance change and rebuilding
+    // TODO: support draw distance change and rebuilding
+    build_cluster_grid();
     execute_baked_gi();
 
     auto create_query_pool_info = [&](VkQueryType query_type, uint32_t query_count, VkQueryPipelineStatisticFlags pipeline_statistics)
@@ -280,7 +277,7 @@ void VulkanEngine::init(int argc, char** argv)
     {
         float halton_x = 2.0f * Halton(i + 1, 2) - 1.0f;
         float halton_y = 2.0f * Halton(i + 1, 3) - 1.0f;
-        float x = halton_x / static_cast<float>(swapchain.extent.width); // TODO: image resize
+        float x = halton_x / static_cast<float>(swapchain.extent.width);
         float y = halton_y / static_cast<float>(swapchain.extent.height);
         jitter_offset[i] = glm::vec2(x, y);
     }
@@ -1236,7 +1233,7 @@ void VulkanEngine::draw()
 
                     TonemapPushConstants pc{};
                     pc.luminance_avg_buffer = get_buffer_address(device, render_scene.luminance_avg_buffer.buffer);
-                    pc.screen_size = glm::vec2(draw_image.extent.width, draw_image.extent.height);
+                    pc.screen_size = glm::vec2(swapchain.extent.width, swapchain.extent.height);
                     pc.src_id = CVAR_RENDER_TAA.get() ? image_cache.get_accumulation_buffer(frame_number % 2) : image_cache.get_draw_image();
                     pc.dst_id = image_cache.get_draw_image();
                     // pc.autoexposure = CVAR_MISC_AUTOEXPOSURE.get();
@@ -1246,8 +1243,8 @@ void VulkanEngine::draw()
                     push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
                     push_data_info.data = { &pc, sizeof(TonemapPushConstants) };
                     vkCmdPushDataEXT(cmd, &push_data_info);
-                    auto groupcount_x = get_groupcount(draw_image.extent.width, WARP_SIZE);
-                    auto groupcount_y = get_groupcount(draw_image.extent.height, WARP_SIZE);
+                    auto groupcount_x = get_groupcount(swapchain.extent.width, WARP_SIZE);
+                    auto groupcount_y = get_groupcount(swapchain.extent.height, WARP_SIZE);
                     vkCmdDispatch(cmd, groupcount_x, groupcount_y, 1);
                 }
             );
@@ -1319,7 +1316,7 @@ void VulkanEngine::draw()
     present_info.pImageIndices = &swapchain_image_idx;
 
     VkResult present_e = vkQueuePresentKHR(graphics_queue, &present_info);
-    // TODO: this is niri specific - implement a check to ensure size has indeed changed, if not, handle the false positive
+    // this is niri specific - implement a check to ensure size has indeed changed, if not, handle the false positive
     // see: https://github.com/zeux/niagara/commit/a9b85a2997772f15da82cb924871a2d51936bf71
     if (present_e == VK_ERROR_OUT_OF_DATE_KHR)
     {
@@ -1394,7 +1391,7 @@ void VulkanEngine::run()
                         for (const auto& [_, shader] : shader_passes)
                             vkDestroyPipeline(device, shader->pipeline, nullptr);
 
-                        // TODO: instead of rebuilding everything, we could just update relevant pipelines, but full rebuild is almost instantaneous so we roll with this for now
+                        // instead of rebuilding everything, we could just update relevant pipelines, but full rebuild is almost instantaneous so we roll with this for now
                         shader_passes.clear();
                         init_pipelines();
                     }
@@ -2598,7 +2595,6 @@ void VulkanEngine::update_scene()
         scene_data.proj = offset_projection * scene_data.proj;
     }
 
-    // TODO: how we handling frame 0?
     scene_data.previous_viewproj = scene_data.viewproj;
     scene_data.viewproj = scene_data.proj * scene_data.view;
     scene_data.inverse_viewproj = glm::inverse(scene_data.viewproj);
@@ -2705,7 +2701,6 @@ void VulkanEngine::update_cascade()
 
     glm::mat4 view = main_camera.get_view_matrix();
 
-    // TODO: refactor when implementing window resize
     glm::mat4 proj = glm::perspective(
         glm::radians(main_camera.fov),
         static_cast<float>(swapchain.extent.width) / static_cast<float>(swapchain.extent.height),
@@ -3656,6 +3651,7 @@ void VulkanEngine::execute_shading(VkCommandBuffer cmd)
     pc.mesh_buffer_address = get_buffer_address(device, render_scene.mesh_buffer.buffer);
     pc.sh_buffer_address = get_buffer_address(device, render_scene.sh_buffer.buffer);
 
+    pc.draw_id = image_cache.get_draw_image();
     pc.depth_id = texture_cache.get_depth_image();
     pc.gbuffer_id = visibility_rendering ? texture_cache.get_visibility_buffer() : texture_cache.get_first_gbuffer();
     pc.shadow_id = texture_cache.get_shadowmap();
@@ -3668,8 +3664,6 @@ void VulkanEngine::execute_shading(VkCommandBuffer cmd)
     pc.shadows = CVAR_RENDER_SHADOWS.get();
     pc.shadows_rt = CVAR_RENDER_SHADOWS_RT.get();
     pc.max_prefiltered_lod = static_cast<float>(std::floor(std::log2(static_cast<float>(std::max(prefiltered_envmap.extent.width, prefiltered_envmap.extent.height))))) + 1;
-    pc.metallic = CVAR_PBR_METALLIC.get();
-    pc.roughness = CVAR_PBR_ROUGHNESS.get();
     pc.debug = CVAR_DEBUG_TEXTURES.get();
 
     VkPushDataInfoEXT push_data_info{};
