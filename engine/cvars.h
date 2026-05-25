@@ -61,13 +61,11 @@ public:
     float get_float_cvar(std::string name);
     void set_float_cvar(std::string name, float value);
 
-    // TODO: move this to private post cleanup
+private:
+    std::unordered_map<std::string, size_t> hash{};
     std::vector<CVarParameter> parameters{};
     std::vector<int> ints{};
     std::vector<float> floats{};
-
-private:
-    std::unordered_map<std::string, size_t> hash{};
 
     void edit_parameters(CVarParameter& param);
 };
@@ -83,12 +81,10 @@ class AutoCVar_Int : public AutoCVar<int>
 {
 public:
     AutoCVar_Int(const char* name, const char* description, CVarFlags flags, int value, int min = 0, int max = 0, int step_size = 0);
-    int get();
 };
 
 class AutoCVar_Float : public AutoCVar<float>
 {
 public:
     AutoCVar_Float(const char* name, const char* description, CVarFlags flags, float value, float min = 0.0f, float max = 0.0f, float step_size = 0.0f);
-    float get();
 };

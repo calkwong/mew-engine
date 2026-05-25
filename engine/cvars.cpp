@@ -185,16 +185,3 @@ AutoCVar_Float::AutoCVar_Float(
 {
     index = CVarSystem::get()->create_float_cvar(name, description, flags, value, min, max, step_size);
 }
-
-// TODO: do away with these getters post cleanup
-int AutoCVar_Int::get()
-{
-    auto& param = CVarSystem::get()->parameters[index];
-    return CVarSystem::get()->ints[param.handle];
-}
-
-float AutoCVar_Float::get()
-{
-    auto& param = CVarSystem::get()->parameters[index];
-    return CVarSystem::get()->floats[param.handle];
-}
