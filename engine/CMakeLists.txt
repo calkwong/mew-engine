@@ -5,7 +5,6 @@ target_sources(engine PRIVATE
   main.cpp
   vk_engine.cpp
   resources.cpp
-  vk_initializers.cpp
   vk_loader.cpp
   pipelines.cpp
   cvars.cpp

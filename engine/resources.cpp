@@ -1,6 +1,5 @@
 #include "resources.h"
 #include "common.h"
-#include "vk_initializers.h"
 
 #include <vk_mem_alloc.h>
 
@@ -101,7 +100,17 @@ AllocatedImage create_image(
     new_image.extent = extent;
     new_image.format = format;
 
-    VkImageCreateInfo img_info = vkinit::image_create_info(format, usage, extent);
+    VkImageCreateInfo img_info{};
+    img_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    img_info.imageType = VK_IMAGE_TYPE_2D;
+    img_info.format = format;
+    img_info.extent = extent;
+    img_info.mipLevels = 1;
+    img_info.arrayLayers = 1;
+    img_info.samples = VK_SAMPLE_COUNT_1_BIT;
+    img_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+    img_info.usage = usage;
+
     if (mipmapped)
     {
         img_info.mipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(extent.width, extent.height)))) + 1;
@@ -133,7 +142,17 @@ AllocatedImage create_render_target(
     new_image.extent = extent;
     new_image.format = format;
 
-    VkImageCreateInfo img_info = vkinit::image_create_info(format, usage, extent);
+    VkImageCreateInfo img_info{};
+    img_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    img_info.imageType = VK_IMAGE_TYPE_2D;
+    img_info.format = format;
+    img_info.extent = extent;
+    img_info.mipLevels = 1;
+    img_info.arrayLayers = 1;
+    img_info.samples = VK_SAMPLE_COUNT_1_BIT;
+    img_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+    img_info.usage = usage;
+
     if (mipmapped)
     {
         img_info.mipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(extent.width, extent.height)))) + 1;
@@ -147,7 +166,18 @@ AllocatedImage create_render_target(
 
     VK_CHECK(vmaCreateImage(allocator, &img_info, &alloc_info, &new_image.image, &new_image.allocation, nullptr));
 
-    VkImageViewCreateInfo img_view_info = vkinit::imageview_create_info(format, new_image.image, aspect);
+    VkImageViewCreateInfo img_view_info{};
+    img_view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    img_view_info.image = new_image.image;
+    img_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    img_view_info.format = format;
+    VkImageSubresourceRange subresource_range{};
+    subresource_range.aspectMask = aspect;
+    subresource_range.baseMipLevel = 0;
+    subresource_range.levelCount = VK_REMAINING_MIP_LEVELS;
+    subresource_range.baseArrayLayer = 0;
+    subresource_range.layerCount = VK_REMAINING_ARRAY_LAYERS;
+    img_view_info.subresourceRange = subresource_range;
 
     VK_CHECK(vkCreateImageView(device, &img_view_info, nullptr, &new_image.view));
 
@@ -260,7 +290,15 @@ AllocatedImage create_cubemap(
     new_image.extent = extent;
     new_image.format = format;
 
-    VkImageCreateInfo img_info{ vkinit::image_create_info(format, usage, new_image.extent) };
+    VkImageCreateInfo img_info{};
+    img_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    img_info.imageType = VK_IMAGE_TYPE_2D;
+    img_info.format = format;
+    img_info.extent = extent;
+    img_info.mipLevels = 1;
+    img_info.samples = VK_SAMPLE_COUNT_1_BIT;
+    img_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+    img_info.usage = usage;
     img_info.flags = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
     img_info.arrayLayers = 6;
 
@@ -315,7 +353,15 @@ void stage_barrier(
     barrier.dstAccessMask = dst_access_mask;
     barrier.oldLayout = old_layout;
     barrier.newLayout = new_layout;
-    barrier.subresourceRange = vkinit::image_subresource_range(aspect);
+
+    VkImageSubresourceRange subresource_range{};
+    subresource_range.aspectMask = aspect;
+    subresource_range.baseMipLevel = 0;
+    subresource_range.levelCount = VK_REMAINING_MIP_LEVELS;
+    subresource_range.baseArrayLayer = 0;
+    subresource_range.layerCount = VK_REMAINING_ARRAY_LAYERS;
+
+    barrier.subresourceRange = subresource_range;
     barrier.image = image;
 
     VkDependencyInfo info{};
@@ -502,7 +548,15 @@ VkImageMemoryBarrier2 image_barrier(
     barrier.dstAccessMask = flags;
     barrier.oldLayout = old_layout;
     barrier.newLayout = new_layout;
-    barrier.subresourceRange = vkinit::image_subresource_range(aspect);
+
+    VkImageSubresourceRange subresource_range{};
+    subresource_range.aspectMask = aspect;
+    subresource_range.baseMipLevel = 0;
+    subresource_range.levelCount = VK_REMAINING_MIP_LEVELS;
+    subresource_range.baseArrayLayer = 0;
+    subresource_range.layerCount = VK_REMAINING_ARRAY_LAYERS;
+
+    barrier.subresourceRange = subresource_range;
     barrier.image = image;
     return barrier;
 }
@@ -587,10 +641,19 @@ void get_image_descriptor(
     uint32_t mip /* = 0 */
 )
 {
-    VkImageViewCreateInfo info = vkinit::imageview_create_info(format, image, aspect_flags);
-
+    VkImageViewCreateInfo info{};
+    info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    info.image = image;
     info.viewType = view_type;
-    info.subresourceRange.baseMipLevel = mip;
+    info.format = format;
+
+    VkImageSubresourceRange subresource_range{};
+    subresource_range.aspectMask = aspect_flags;
+    subresource_range.baseMipLevel = mip;
+    subresource_range.levelCount = VK_REMAINING_MIP_LEVELS;
+    subresource_range.baseArrayLayer = 0;
+    subresource_range.layerCount = VK_REMAINING_ARRAY_LAYERS;
+    info.subresourceRange = subresource_range;
 
     VkImageDescriptorInfoEXT img_descriptor_info{};
     img_descriptor_info.sType = VK_STRUCTURE_TYPE_IMAGE_DESCRIPTOR_INFO_EXT;
@@ -659,7 +722,9 @@ void immediate_submit(VkDevice device, VkQueue queue, VkFence fence, VkCommandPo
     VK_CHECK(vkResetFences(device, 1, &fence));
     VK_CHECK(vkResetCommandPool(device, command_pool, 0));
 
-    VkCommandBufferBeginInfo cmd_begin_info = vkinit::command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
+    VkCommandBufferBeginInfo cmd_begin_info{};
+    cmd_begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    cmd_begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 
     VK_CHECK(vkBeginCommandBuffer(cmd, &cmd_begin_info));
 
@@ -667,9 +732,14 @@ void immediate_submit(VkDevice device, VkQueue queue, VkFence fence, VkCommandPo
 
     VK_CHECK(vkEndCommandBuffer(cmd));
 
-    VkCommandBufferSubmitInfo cmd_submit_info = vkinit::command_buffer_submit_info(cmd);
+    VkCommandBufferSubmitInfo cmd_submit_info{};
+    cmd_submit_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+    cmd_submit_info.commandBuffer = cmd;
 
-    VkSubmitInfo2 submit = vkinit::submit_info(&cmd_submit_info, nullptr, nullptr);
+    VkSubmitInfo2 submit{};
+    submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+    submit.pCommandBufferInfos = &cmd_submit_info;
+    submit.commandBufferInfoCount = 1;
 
     VK_CHECK(vkQueueSubmit2(queue, 1, &submit, fence));
 

@@ -5,7 +5,6 @@
 #include "cvars.h"
 #include "inputs.h"
 #include "resources.h"
-#include "vk_initializers.h"
 #include "vk_loader.h"
 #include "pipelines.h"
 #include "vk_scene.h"
@@ -394,7 +393,11 @@ void VulkanEngine::execute_baked_gi()
 {
     VK_CHECK(vkResetFences(device, 1, &imm_fence));
     VK_CHECK(vkResetCommandPool(device, imm_command_pool, 0));
-    VkCommandBufferBeginInfo cmd_begin_info = vkinit::command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
+
+    VkCommandBufferBeginInfo cmd_begin_info{};
+    cmd_begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    cmd_begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
     VK_CHECK(vkBeginCommandBuffer(imm_command_buffer, &cmd_begin_info));
 
     VkBindHeapInfoEXT bind_resource_heap_info{};
@@ -567,8 +570,16 @@ void VulkanEngine::execute_baked_gi()
     graph.execute(imm_command_buffer);
 
     VK_CHECK(vkEndCommandBuffer(imm_command_buffer));
-    VkCommandBufferSubmitInfo cmd_info = vkinit::command_buffer_submit_info(imm_command_buffer);
-    VkSubmitInfo2 submit = vkinit::submit_info(&cmd_info, nullptr, nullptr);
+
+    VkCommandBufferSubmitInfo cmd_info{};
+    cmd_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+    cmd_info.commandBuffer = imm_command_buffer;
+
+    VkSubmitInfo2 submit{};
+    submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+    submit.pCommandBufferInfos = &cmd_info;
+    submit.commandBufferInfoCount = 1;
+
     VK_CHECK(vkQueueSubmit2(graphics_queue, 1, &submit, imm_fence));
     VK_CHECK(vkWaitForFences(device, 1, &imm_fence, true, 9999999999));
 }
@@ -691,7 +702,11 @@ void VulkanEngine::draw()
 
     VkCommandBuffer cmd = get_current_frame().main_command_buffer;
     VK_CHECK(vkResetCommandPool(device, get_current_frame().command_pool, 0));
-    VkCommandBufferBeginInfo cmd_begin_info = vkinit::command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
+
+    VkCommandBufferBeginInfo cmd_begin_info{};
+    cmd_begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    cmd_begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
     VK_CHECK(vkBeginCommandBuffer(cmd, &cmd_begin_info));
 
     vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 26);
@@ -1310,10 +1325,30 @@ void VulkanEngine::draw()
     // TracyVkCollect(tracy_ctx, get_current_frame().main_command_buffer);
     VK_CHECK(vkEndCommandBuffer(cmd));
 
-    VkCommandBufferSubmitInfo cmd_info = vkinit::command_buffer_submit_info(cmd);
-    VkSemaphoreSubmitInfo wait_info = vkinit::semaphore_submit_info(VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, get_current_frame().image_acquired_semaphore);
-    VkSemaphoreSubmitInfo submit_info = vkinit::semaphore_submit_info(VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, render_done_semaphores[swapchain_image_idx]); // all graphics bit?
-    VkSubmitInfo2 submit = vkinit::submit_info(&cmd_info, &submit_info, &wait_info);
+    VkCommandBufferSubmitInfo cmd_info{};
+    cmd_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+    cmd_info.commandBuffer = cmd;
+
+    VkSemaphoreSubmitInfo wait_info{};
+    wait_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+    wait_info.semaphore = get_current_frame().image_acquired_semaphore;
+    wait_info.value = 1;
+    wait_info.stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+
+    VkSemaphoreSubmitInfo signal_info{};
+    signal_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+    signal_info.semaphore = render_done_semaphores[swapchain_image_idx];
+    signal_info.value = 1;
+    signal_info.stageMask = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT;
+
+    VkSubmitInfo2 submit{};
+    submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+    submit.pSignalSemaphoreInfos = &signal_info;
+    submit.signalSemaphoreInfoCount = 1;
+    submit.pWaitSemaphoreInfos = &wait_info;
+    submit.waitSemaphoreInfoCount = 1;
+    submit.pCommandBufferInfos = &cmd_info;
+    submit.commandBufferInfoCount = 1;
     VK_CHECK(vkQueueSubmit2(graphics_queue, 1, &submit, get_current_frame().render_fence));
 
     VkPresentInfoKHR present_info{};
@@ -1729,17 +1764,19 @@ void VulkanEngine::init_vulkan()
 
 void VulkanEngine::init_commands()
 {
-    VkCommandPoolCreateInfo command_pool_info = vkinit::command_pool_create_info(
-        graphics_queue_family
-    );
+    VkCommandPoolCreateInfo command_pool_info{};
+    command_pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    command_pool_info.queueFamilyIndex = graphics_queue_family;
 
     for (auto& frame : frames)
     {
         VK_CHECK(vkCreateCommandPool(device, &command_pool_info, nullptr, &frame.command_pool));
 
-        VkCommandBufferAllocateInfo cmd_alloc_info = vkinit::command_buffer_allocate_info(
-            frame.command_pool
-        );
+        VkCommandBufferAllocateInfo cmd_alloc_info{};
+        cmd_alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        cmd_alloc_info.commandPool = frame.command_pool;
+        cmd_alloc_info.commandBufferCount = 1;
+        cmd_alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
 
         VK_CHECK(vkAllocateCommandBuffers(device, &cmd_alloc_info, &frame.main_command_buffer));
     }
@@ -1747,9 +1784,12 @@ void VulkanEngine::init_commands()
     // tracy_ctx = TracyVkContextCalibrated(physical_device, device, graphics_queue, frames[0].main_command_buffer, vkGetPhysicalDeviceCalibrateableTimeDomainsKHR, vkGetCalibratedTimestampsKHR);
 
     VK_CHECK(vkCreateCommandPool(device, &command_pool_info, nullptr, &imm_command_pool));
-    VkCommandBufferAllocateInfo cmd_alloc_info = vkinit::command_buffer_allocate_info(
-        imm_command_pool
-    );
+
+    VkCommandBufferAllocateInfo cmd_alloc_info{};
+    cmd_alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    cmd_alloc_info.commandPool = imm_command_pool;
+    cmd_alloc_info.commandBufferCount = 1;
+    cmd_alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
     VK_CHECK(vkAllocateCommandBuffers(device, &cmd_alloc_info, &imm_command_buffer));
 
     main_deletion_queue.push_function(
@@ -1762,8 +1802,12 @@ void VulkanEngine::init_commands()
 
 void VulkanEngine::init_sync_structures()
 {
-    VkFenceCreateInfo fence_info = vkinit::fence_create_info(VK_FENCE_CREATE_SIGNALED_BIT);
-    VkSemaphoreCreateInfo semaphore_info = vkinit::semaphore_create_info();
+    VkFenceCreateInfo fence_info{};
+    fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+
+    VkSemaphoreCreateInfo semaphore_info{};
+    semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 
     for (auto& frame : frames)
     {
@@ -2880,8 +2924,19 @@ void VulkanEngine::init_imgui()
 
 void VulkanEngine::draw_imgui(VkCommandBuffer cmd, VkImageView swapchain_view)
 {
-    VkRenderingAttachmentInfo color_attachment = vkinit::attachment_info(swapchain_view, nullptr);
-    VkRenderingInfo render_info = vkinit::rendering_info(swapchain.extent, &color_attachment, nullptr);
+    VkRenderingAttachmentInfo color_attachment{};
+    color_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+    color_attachment.imageView = swapchain_view;
+    color_attachment.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+    color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+    color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+    VkRenderingInfo render_info{};
+    render_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+    render_info.renderArea = VkRect2D{ VkOffset2D{ 0, 0 }, swapchain.extent };
+    render_info.layerCount = 1;
+    render_info.colorAttachmentCount = 1;
+    render_info.pColorAttachments = &color_attachment;
 
     vkCmdBeginRendering(cmd, &render_info);
 
@@ -3268,22 +3323,49 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass, ui
     bool visibility_rendering = cvar_system->get_int_cvar("vbuffer") && cvar_system->get_int_cvar("mesh_shaders");
     if (visibility_rendering)
     {
-        rendering_attachment_infos.push_back(
-            late ? vkinit::attachment_info(visibility_buffer.view, nullptr) : vkinit::attachment_info(visibility_buffer.view, &clear_value)
-        );
+        VkRenderingAttachmentInfo info{};
+        info.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+        info.imageView = visibility_buffer.view;
+        info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+        info.loadOp = late ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_CLEAR;
+        info.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        if (late)
+            info.clearValue = clear_value;
+
+        rendering_attachment_infos.push_back(info);
     }
     else
     {
         for (int i = 0; i < GBUFFER_COUNT; i++)
         {
-            rendering_attachment_infos.push_back(late ? vkinit::attachment_info(gbuffers[i].view, nullptr) : vkinit::attachment_info(gbuffers[i].view, &clear_value));
+            VkRenderingAttachmentInfo info{};
+            info.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+            info.imageView = gbuffers[i].view;
+            info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+            info.loadOp = late ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_CLEAR;
+            info.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+            if (late)
+                info.clearValue = clear_value;
+
+            rendering_attachment_infos.push_back(info);
         }
     }
 
-    VkRenderingAttachmentInfo depth_attachment = vkinit::depth_attachment_info(depth_image.view);
+    VkRenderingAttachmentInfo depth_attachment{};
+    depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+    depth_attachment.imageView = depth_image.view;
+    depth_attachment.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
     depth_attachment.loadOp = late ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_CLEAR;
-    VkRenderingInfo render_info = vkinit::rendering_info(swapchain.extent, rendering_attachment_infos.data(), &depth_attachment);
+    depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    depth_attachment.clearValue.depthStencil.depth = 0.f;
+
+    VkRenderingInfo render_info{};
+    render_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+    render_info.renderArea = VkRect2D{ VkOffset2D{ 0, 0 }, swapchain.extent };
+    render_info.layerCount = 1;
     render_info.colorAttachmentCount = static_cast<uint32_t>(rendering_attachment_infos.size());
+    render_info.pColorAttachments = rendering_attachment_infos.data();
+    render_info.pDepthAttachment = &depth_attachment;
 
     vkCmdBeginRendering(cmd, &render_info);
 
@@ -3380,10 +3462,20 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass, ui
 
 void VulkanEngine::render_transparent(VkCommandBuffer cmd, uint32_t query)
 {
-    VkRenderingAttachmentInfo depth_attachment = vkinit::depth_attachment_info(depth_image.view);
+    VkRenderingAttachmentInfo depth_attachment{};
+    depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+    depth_attachment.imageView = depth_image.view;
+    depth_attachment.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
     depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+    depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    depth_attachment.clearValue.depthStencil.depth = 0.f;
 
-    VkRenderingInfo render_info = vkinit::rendering_info(swapchain.extent, nullptr, &depth_attachment);
+    VkRenderingInfo render_info{};
+    render_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+    render_info.renderArea = VkRect2D{ VkOffset2D{ 0, 0 }, swapchain.extent };
+    render_info.layerCount = 1;
+    render_info.pDepthAttachment = &depth_attachment;
+    render_info.pStencilAttachment = nullptr;
 
     vkCmdBeginRendering(cmd, &render_info);
 
@@ -3466,10 +3558,20 @@ void VulkanEngine::render_transparent(VkCommandBuffer cmd, uint32_t query)
 void VulkanEngine::render_shadows(VkCommandBuffer cmd, uint32_t cascade_idx, uint32_t query)
 {
     vkCmdBeginQuery(cmd, get_current_frame().query_pool_pipelines, query, 0);
-    VkRenderingAttachmentInfo depth_attachment = vkinit::depth_attachment_info(cascade_data[cascade_idx].shadow_map.view);
+    VkRenderingAttachmentInfo depth_attachment{};
+    depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+    depth_attachment.imageView = cascade_data[cascade_idx].shadow_map.view;
+    depth_attachment.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+    depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR; // depth pyramid?
+    depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    depth_attachment.clearValue.depthStencil.depth = 0.f;
 
     auto shadow_extent = VkExtent2D{ SHADOW_MAP_SIZE, SHADOW_MAP_SIZE };
-    VkRenderingInfo render_info = vkinit::rendering_info(shadow_extent, nullptr, &depth_attachment);
+    VkRenderingInfo render_info{};
+    render_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+    render_info.renderArea = VkRect2D{ VkOffset2D{ 0, 0 }, shadow_extent };
+    render_info.layerCount = 1;
+    render_info.pDepthAttachment = &depth_attachment;
 
     vkCmdBeginRendering(cmd, &render_info);
 
@@ -3638,7 +3740,9 @@ void VulkanEngine::build_cluster_grid()
 
     VK_CHECK(vkResetCommandPool(device, imm_command_pool, 0));
 
-    VkCommandBufferBeginInfo cmd_begin_info = vkinit::command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
+    VkCommandBufferBeginInfo cmd_begin_info{};
+    cmd_begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    cmd_begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 
     VK_CHECK(vkBeginCommandBuffer(cmd, &cmd_begin_info));
 
@@ -3665,10 +3769,16 @@ void VulkanEngine::build_cluster_grid()
 
     VK_CHECK(vkEndCommandBuffer(cmd));
 
-    VkCommandBufferSubmitInfo cmd_info = vkinit::command_buffer_submit_info(cmd);
-    VkSubmitInfo2 submit = vkinit::submit_info(&cmd_info, nullptr, nullptr);
+    VkCommandBufferSubmitInfo cmd_info{};
+    cmd_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+    cmd_info.commandBuffer = cmd;
 
-    VK_CHECK(vkQueueSubmit2(graphics_queue, 1, &submit, imm_fence));
+    VkSubmitInfo2 submit_info{};
+    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+    submit_info.pCommandBufferInfos = &cmd_info;
+    submit_info.commandBufferInfoCount = 1;
+
+    VK_CHECK(vkQueueSubmit2(graphics_queue, 1, &submit_info, imm_fence));
     VK_CHECK(vkWaitForFences(device, 1, &imm_fence, true, 9999999999));
 }
 
