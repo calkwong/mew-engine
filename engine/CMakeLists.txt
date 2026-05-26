@@ -1,81 +1,65 @@
 add_executable(engine)
 
-set(imgui_sources
- "${PROJECT_SOURCE_DIR}/external/imgui/imconfig.h"
- "${PROJECT_SOURCE_DIR}/external/imgui/imgui.cpp"
- "${PROJECT_SOURCE_DIR}/external/imgui/imgui.h"
- "${PROJECT_SOURCE_DIR}/external/imgui/imgui_demo.cpp"
- "${PROJECT_SOURCE_DIR}/external/imgui/imgui_draw.cpp"
- "${PROJECT_SOURCE_DIR}/external/imgui/imgui_internal.h"
- "${PROJECT_SOURCE_DIR}/external/imgui/imgui_tables.cpp"
- "${PROJECT_SOURCE_DIR}/external/imgui/imgui_widgets.cpp"
- "${PROJECT_SOURCE_DIR}/external/imgui/imstb_rectpack.h"
- "${PROJECT_SOURCE_DIR}/external/imgui/imstb_textedit.h"
- "${PROJECT_SOURCE_DIR}/external/imgui/imstb_truetype.h"
- "${PROJECT_SOURCE_DIR}/external/imgui/backends/imgui_impl_sdl3.cpp"
- "${PROJECT_SOURCE_DIR}/external/imgui/backends/imgui_impl_sdl3.h"
- "${PROJECT_SOURCE_DIR}/external/imgui/backends/imgui_impl_vulkan.cpp"
- "${PROJECT_SOURCE_DIR}/external/imgui/backends/imgui_impl_vulkan.h"
-)
-
 target_sources(engine PRIVATE
   inputs.cpp
-  inputs.h
   main.cpp
   vk_engine.cpp
-  vk_engine.h
   resources.cpp
-  resources.h
   vk_initializers.cpp
-  vk_initializers.h
   vk_loader.cpp
-  vk_loader.h
   pipelines.cpp
-  pipelines.h
-  #vk_scene.cpp
-  vk_scene.h
-  common.h
-  cvars.h
   cvars.cpp
-  vk_math.h
-  cache.h
   cache.cpp
   extern.cpp
-  config.h
-  push_constants.h
-  rendergraph.h
   rendergraph.cpp
-  swapchain.h
   swapchain.cpp
- ${imgui_sources}
+  ${PROJECT_SOURCE_DIR}/external/imgui/imgui.cpp
+  ${PROJECT_SOURCE_DIR}/external/imgui/imgui_demo.cpp
+  ${PROJECT_SOURCE_DIR}/external/imgui/imgui_draw.cpp
+  ${PROJECT_SOURCE_DIR}/external/imgui/imgui_tables.cpp
+  ${PROJECT_SOURCE_DIR}/external/imgui/imgui_widgets.cpp
+  ${PROJECT_SOURCE_DIR}/external/imgui/backends/imgui_impl_sdl3.cpp
+  ${PROJECT_SOURCE_DIR}/external/imgui/backends/imgui_impl_vulkan.cpp
 )
 
-#set_property(TARGET engine PROPERTY CXX_STANDARD 20)
+add_library(basis_universal)
+add_library(MikkTSpace)
+
+target_sources(MikkTSpace PRIVATE
+  ${PROJECT_SOURCE_DIR}/external/MikkTSpace/mikktspace.c
+)
+
+target_sources(basis_universal PRIVATE
+  ${PROJECT_SOURCE_DIR}/external/basis_universal/transcoder/basisu_transcoder.cpp
+  ${PROJECT_SOURCE_DIR}/external/basis_universal/zstd/zstd.c
+)
+
+target_include_directories(engine SYSTEM PRIVATE ${PROJECT_SOURCE_DIR}/external/VulkanMemoryAllocator/include)
+target_include_directories(engine PRIVATE ${PROJECT_SOURCE_DIR}/external/glm)
+target_include_directories(engine PRIVATE ${PROJECT_SOURCE_DIR}/external/stb)
+target_include_directories(engine PRIVATE ${PROJECT_SOURCE_DIR}/external/MikkTSpace)
+target_include_directories(engine PRIVATE ${PROJECT_SOURCE_DIR}/external/basis_universal/transcoder)
+target_include_directories(engine PRIVATE ${PROJECT_SOURCE_DIR}/external/basis_universal/zstd)
+target_include_directories(engine PRIVATE ${PROJECT_SOURCE_DIR}/external/imgui/ ${PROJECT_SOURCE_DIR}/external/imgui/backends/)
+
 set_target_properties(engine PROPERTIES CXX_STANDARD 20 RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
-target_compile_definitions(engine PUBLIC GLM_FORCE_DEPTH_ZERO_TO_ONE VK_NO_PROTOTYPES IMGUI_IMPL_VULKAN_NO_PROTOTYPE)
+target_compile_definitions(engine PRIVATE GLM_FORCE_DEPTH_ZERO_TO_ONE VK_NO_PROTOTYPES IMGUI_IMPL_VULKAN_NO_PROTOTYPE)
 
 find_package(TBB)
+if (TBB_FOUND)
+  target_link_libraries(engine PRIVATE TBB::tbb)
+endif()
 
-target_include_directories(engine PUBLIC
- "${CMAKE_CURRENT_SOURCE_DIR}"
- "${PROJECT_SOURCE_DIR}/external/imgui/"
- "${PROJECT_SOURCE_DIR}/external/imgui/backends/"
-)
-
-target_link_libraries(engine PUBLIC
- vma
- glm
- # Vulkan::Vulkan
+target_link_libraries(engine PRIVATE
+ fastgltf::fastgltf
  fmt::fmt
- stb
  SDL3::SDL3
  vk-bootstrap::vk-bootstrap
- fastgltf::fastgltf
- MikkTSpace
- Tracy::TracyClient
- basis_universal
+ volk
  meshoptimizer
- volk_headers
+ MikkTSpace
+ basis_universal
+ # Tracy::TracyClient
 )
 
 target_precompile_headers(engine PRIVATE
@@ -95,18 +79,14 @@ target_precompile_headers(engine PRIVATE
   <glm/mat4x4.hpp>
   <glm/ext/matrix_transform.hpp>
   <glm/ext/matrix_clip_space.hpp>
-  # <glm/gtx/quaternion.hpp> # does not work
 )
 
-if (TBB_FOUND)
-  target_link_libraries(engine PUBLIC TBB::tbb)
-  target_compile_options(engine PRIVATE -ltbb)
-endif()
+# TODO: WIN32 specific defines, NOMINMAX etc.
 
 if (WIN32)
   add_custom_command(TARGET engine POST_BUILD
- #COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_RUNTIME_DLLS:engine> $<TARGET_FILE_DIR:engine> # this is CLion on windows
- COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_RUNTIME_DLLS:engine> ${CMAKE_BINARY_DIR}/$<CONFIG>
- COMMAND_EXPAND_LISTS
+  #COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_RUNTIME_DLLS:engine> $<TARGET_FILE_DIR:engine> # CLion
+  COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_RUNTIME_DLLS:engine> ${CMAKE_BINARY_DIR}/$<CONFIG>
+  COMMAND_EXPAND_LISTS
 )
 endif()

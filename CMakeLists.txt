@@ -6,12 +6,18 @@ find_package(Vulkan REQUIRED)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-add_subdirectory(external)
+add_subdirectory(external/fastgltf)
+add_subdirectory(external/fmt)
+add_subdirectory(external/SDL)
+add_subdirectory(external/vk-bootstrap)
+add_subdirectory(external/volk)
+add_subdirectory(external/meshoptimizer)
+# option(TRACY_ENABLE "" ON)
+# option(TRACY_ON_DEMAND "" ON)
+# add_subdirectory(external/tracy)
 add_subdirectory(engine)
 
-# slang
-# TODO:
-# - consider using slang compilation API if command line does not cache modules
+# TODO: consider Slang reflection API for proper module support
 
 find_program(SLANG_COMPILER slangc HINTS /usr/bin /usr/local/bin $ENV{VULKAN_SDK}/Bin/ $ENV{VULKAN_SDK}/Bin32/)
 

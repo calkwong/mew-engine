@@ -1,7 +1,7 @@
+#include "vk_loader.h"
 #include "common.h"
 #include "config.h"
 #include "vk_math.h"
-#include "vk_loader.h"
 #include "cache.h"
 #include "resources.h"
 
@@ -30,7 +30,7 @@
 #include <execution>
 #include <cassert>
 #include <cstddef>
-#include <tracy/Tracy.hpp>
+// #include <tracy/Tracy.hpp>
 
 namespace
 {
