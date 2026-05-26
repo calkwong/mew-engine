@@ -15,7 +15,7 @@ void destroy_buffer(VmaAllocator allocator, const AllocatedBuffer& buffer)
     vmaDestroyBuffer(allocator, buffer.buffer, buffer.allocation);
 }
 
-AllocatedBuffer create_buffer(VmaAllocator allocator, size_t alloc_size, VmaAllocationCreateFlags flags, VkBufferUsageFlags usage)
+AllocatedBuffer create_buffer(VmaAllocator allocator, size_t alloc_size, VmaAllocationCreateFlags flags, VkBufferUsageFlags usage, VkDeviceSize alignment/* = 0 */)
 {
     VkBufferCreateInfo buffer_info{};
     buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -27,9 +27,12 @@ AllocatedBuffer create_buffer(VmaAllocator allocator, size_t alloc_size, VmaAllo
     alloc_info.flags = flags;
 
     AllocatedBuffer new_buffer{};
-
-    VK_CHECK(vmaCreateBuffer(allocator, &buffer_info, &alloc_info, &new_buffer.buffer, &new_buffer.allocation, &new_buffer.info));
     new_buffer.size = alloc_size;
+
+    if (alignment != 0)
+        VK_CHECK(vmaCreateBufferWithAlignment(allocator, &buffer_info, &alloc_info, alignment, &new_buffer.buffer, &new_buffer.allocation, &new_buffer.info));
+    else
+        VK_CHECK(vmaCreateBuffer(allocator, &buffer_info, &alloc_info, &new_buffer.buffer, &new_buffer.allocation, &new_buffer.info));
 
     return new_buffer;
 }

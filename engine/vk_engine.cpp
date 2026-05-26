@@ -1727,7 +1727,9 @@ void VulkanEngine::init_vulkan()
 
     device_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
     desc_heap_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_HEAP_PROPERTIES_EXT;
-    device_properties.pNext = &desc_heap_properties;
+    as_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR;
+    as_properties.pNext = &desc_heap_properties;
+    device_properties.pNext = &as_properties;
     vkGetPhysicalDeviceProperties2(physical_device, &device_properties);
     assert(device_properties.properties.limits.timestampComputeAndGraphics);
 
@@ -3950,7 +3952,8 @@ void VulkanEngine::create_acceleration_structures()
     }
 
     blas_buffer = create_buffer(allocator, total_as_size, 0, VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
-    scratch_buffer = create_buffer(allocator, total_scratch_size, 0, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
+    auto scratch_buffer_address_alignment = as_properties.minAccelerationStructureScratchOffsetAlignment;
+    scratch_buffer = create_buffer(allocator, total_scratch_size, 0, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, scratch_buffer_address_alignment);
 
     // fmt::println("blas_buffer: {}", size_in_bytes(total_as_size));
     // fmt::println("scratch_buffer: {}", size_in_bytes(total_scratch_size));
@@ -3990,7 +3993,6 @@ void VulkanEngine::create_acceleration_structures()
     );
 
     destroy_buffer(allocator, scratch_buffer);
-
     std::vector<VkDeviceAddress> blas_addresses(meshes.size());
 
     for (size_t i = 0; i < meshes.size(); i++)

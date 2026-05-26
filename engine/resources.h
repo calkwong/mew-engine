@@ -24,7 +24,7 @@ struct AllocatedBuffer
     VkDeviceSize size{};
 };
 
-AllocatedBuffer create_buffer(VmaAllocator allocator, size_t alloc_size, VmaAllocationCreateFlags flags, VkBufferUsageFlags usage);
+AllocatedBuffer create_buffer(VmaAllocator allocator, size_t alloc_size, VmaAllocationCreateFlags flags, VkBufferUsageFlags usage, VkDeviceSize alignment = 0);
 
 AllocatedBuffer upload_buffer(
     VkDevice device,

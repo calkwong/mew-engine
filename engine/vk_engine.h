@@ -111,6 +111,7 @@ public:
     uint32_t graphics_queue_family{};
     VkPhysicalDeviceProperties2 device_properties{};
     VkPhysicalDeviceDescriptorHeapPropertiesEXT desc_heap_properties{};
+    VkPhysicalDeviceAccelerationStructurePropertiesKHR as_properties{};
     VkDevice device{};
 
     Swapchain swapchain{};
