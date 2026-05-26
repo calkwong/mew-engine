@@ -1443,7 +1443,6 @@ void VulkanEngine::run()
         bool update = update_swapchain(swapchain, window, physical_device, device, surface);
 
         // destroy and recreate textures
-        // TODO: handle TAA
         if (update)
         {
             // destroy resources
@@ -1455,6 +1454,8 @@ void VulkanEngine::run()
                 destroy_image(device, allocator, depth_image);
                 destroy_image(device, allocator, depth_pyramid);
                 destroy_buffer(allocator, render_scene.oit_buffer);
+                destroy_image(device, allocator, accumulation_buffers[0]);
+                destroy_image(device, allocator, accumulation_buffers[1]);
             }
 
             auto new_extent = VkExtent3D{ swapchain.extent.width, swapchain.extent.height, 1 };
@@ -1495,6 +1496,10 @@ void VulkanEngine::run()
                 0,
                 true
             );
+
+            // note: this is not the right way to handle TAA resize but for simplicity just destroy and recreate immediately
+            accumulation_buffers[0] = create_image(device, allocator, new_extent, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+            accumulation_buffers[1] = create_image(device, allocator, new_extent, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
 
             {
                 auto screen_pixels = new_extent.width * new_extent.height;
