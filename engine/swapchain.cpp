@@ -1,8 +1,9 @@
-#include "common.h"
 #include "swapchain.h"
+#include "common.h"
 
 #include <VkBootstrap.h>
-#include <SDL3/SDL_init.h>
+#include <SDL3/SDL_video.h>
+#include <cstdint>
 
 void create_swapchain(
     Swapchain& swapchain,

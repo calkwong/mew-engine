@@ -1,38 +1,40 @@
 #pragma once
 
+#include "common.h"
+#include "vk_math.h"
 #include "cache.h"
 #include "inputs.h"
+#include "resources.h"
 #include "vk_loader.h"
 #include "pipelines.h"
 #include "vk_scene.h"
 #include "swapchain.h"
 
-#include <VkBootstrap.h>
-#include <ranges>
-
 #include <array>
-#include <deque>
+#include <cstdint>
 #include <functional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 #include <memory>
 
 constexpr unsigned int FRAME_OVERLAP = 2;
 
+// TODO: move to cpp
 struct DeletionQueue
 {
-    std::deque<std::function<void()>> deletors{};
+    std::vector<std::function<void()>> deletors{};
 
     void push_function(std::function<void()>&& function)
     {
-        deletors.push_back(function);
+        deletors.emplace_back(function);
     }
 
     void flush()
     {
-        for (auto& deletor : std::ranges::reverse_view(deletors))
+        for (auto it = deletors.rbegin(); it != deletors.rend(); ++it)
         {
-            deletor();
+            (*it)();
         }
 
         deletors.clear();
@@ -92,7 +94,6 @@ class VulkanEngine
 public:
     bool is_initialized{ false };
     uint32_t frame_number{ 0 };
-    bool stop_rendering{ false };
     bool freeze_camera{ false };
     bool first_frame{ true };
     glm::mat4 last_view{};

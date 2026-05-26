@@ -4,32 +4,42 @@
 #include "vk_math.h"
 #include "cache.h"
 #include "resources.h"
+#include "vk_scene.h"
 
-#include <basisu_transcoder.h>
+#include <fastgltf/math.hpp>
+#include <fastgltf/util.hpp>
 #include <fastgltf/core.hpp>
 #include <fastgltf/glm_element_traits.hpp>
 #include <fastgltf/tools.hpp>
 #include <fastgltf/types.hpp>
-#include <fmt/core.h>
+#include <glm/fwd.hpp>
+#include <glm/geometric.hpp>
 #include <meshoptimizer.h>
 #include <mikktspace.h>
 #include <stb_image.h>
 #include <vk_mem_alloc.h>
+#include <basisu_transcoder.h>
 
+#include <algorithm>
+#include <array>
+#include <cassert>
+#include <cmath>
+#include <cstddef>
+#include <cstdint>
+#include <cstdlib>
+#include <cstring>
+#include <execution>
 #include <filesystem>
 #include <fstream>
+#include <ios>
+#include <memory>
 #include <optional>
+#include <string>
+#include <string_view>
+#include <utility>
 #include <variant>
 #include <vector>
-#include <memory>
-#include <string>
 
-// update
-#include <ranges>
-#include <algorithm>
-#include <execution>
-#include <cassert>
-#include <cstddef>
 // #include <tracy/Tracy.hpp>
 
 namespace
@@ -197,9 +207,9 @@ std::vector<AllocatedImage> load_images(
         return raw_image_data;
     };
 
-    // generates sequence of value by repeatedly incrementing initial value up to bound - types
-    // must match!
-    const auto indices = std::ranges::iota_view(static_cast<size_t>(0), asset.images.size());
+    std::vector<size_t> indices(asset.images.size());
+    for (size_t i = 0; i < indices.size(); i++)
+        indices[i] = i;
 
     auto has_ktx2_format = [&](std::string_view file_path) -> bool
     {
@@ -886,15 +896,9 @@ bool load_gltf(
     size_t texture_cache_offset = texture_cache.textures.size(); // important! do this before loading images
 
     // TODO: currently supports ktx2 in URI only
-    auto start = std::chrono::system_clock::now();
 
     if (!asset.images.empty())
         file.images = load_images(asset, device, queue, fence, command_pool, cmd, allocator, texture_cache, file.asset_path);
-
-    auto end = std::chrono::system_clock::now();
-    auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-    float ret = static_cast<float>(elapsed.count()) / 1000.0f;
-    fmt::println("load_images: {}ms", ret);
 
     for (fastgltf::Material& mat : asset.materials)
     {
@@ -1199,7 +1203,7 @@ bool load_gltf(
                     const glm::vec3 sc(transform.scale[0], transform.scale[1], transform.scale[2]);
 
                     const glm::mat4 tm = glm::translate(glm::mat4(1.f), tl);
-                    const glm::mat4 rm = glm::toMat4(rot);
+                    const glm::mat4 rm = glm::mat4_cast(rot);
                     const glm::mat4 sm = glm::scale(glm::mat4(1.f), sc);
 
                     node->local_transform = tm * rm * sm;

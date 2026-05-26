@@ -1,6 +1,13 @@
-#include "common.h"
 #include "rendergraph.h"
+#include "common.h"
 #include "resources.h"
+
+#include <cassert>
+#include <cstddef>
+#include <cstdint>
+#include <functional>
+#include <string>
+#include <vector>
 
 void RenderGraph::add_resource(VkImage image)
 {

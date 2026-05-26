@@ -1,9 +1,14 @@
 #pragma once
 
+#include "common.h"
+#include "vk_math.h"
+#include "resources.h"
 #include "vk_scene.h"
 
 #include <vk_mem_alloc.h>
 
+#include <array>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>

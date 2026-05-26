@@ -1,11 +1,13 @@
 #pragma once
 
+#include "common.h"
 #include "pipelines.h"
 
-#include <vector>
+#include <cstdint>
+#include <memory>
 #include <string>
 #include <unordered_map>
-#include <memory>
+#include <vector>
 
 struct TextureCache
 {

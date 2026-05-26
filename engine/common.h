@@ -1,7 +1,7 @@
 #pragma once
 
-#include <volk.h>
-#include <fmt/core.h>
+#include <volk.h> // IWYU pragma: export
+#include <fmt/base.h> // IWYU pragma: export
 #include <vulkan/vk_enum_string_helper.h> // string_VkResult
 
 #define VK_CHECK(x) \

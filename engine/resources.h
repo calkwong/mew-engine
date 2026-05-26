@@ -1,5 +1,10 @@
 #pragma once
 
+#include "common.h"
+
+#include <cstddef>
+#include <cstdint>
+#include <functional>
 #include <vk_mem_alloc.h>
 
 struct AllocatedImage

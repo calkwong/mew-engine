@@ -1,7 +1,7 @@
+#include "vk_engine.h"
 #include "common.h"
 #include "config.h"
 #include "vk_math.h"
-#include "vk_engine.h"
 #include "cvars.h"
 #include "inputs.h"
 #include "resources.h"
@@ -14,32 +14,40 @@
 #include "rendergraph.h"
 #include "swapchain.h"
 
-#include <filesystem>
+#include <stb_image.h>
 #include <vk_mem_alloc.h>
-// #include <tracy/Tracy.hpp>
-// #include <tracy/TracyVulkan.hpp>
-#include "stb_image.h"
-
+#include <VkBootstrap.h>
+#include <fmt/format.h>
+#include <glm/fwd.hpp>
+#include <glm/geometric.hpp>
+#include <glm/matrix.hpp>
+#include <glm/trigonometric.hpp>
+#include <SDL3/SDL_mouse.h>
+#include <SDL3/SDL_video.h>
 #include <SDL3/SDL_events.h>
 #include <SDL3/SDL_init.h>
 #include <SDL3/SDL_timer.h>
 #include <SDL3/SDL_vulkan.h>
 #include <SDL3/SDL_hints.h>
-
-#include "imgui.h"
+#include <imgui.h>
 #include <imgui_impl_sdl3.h>
 #include <imgui_impl_vulkan.h>
-#include <fmt/core.h>
+// #include <tracy/Tracy.hpp>
+// #include <tracy/TracyVulkan.hpp>
 
 #include <algorithm>
-#include <chrono>
+#include <array>
+#include <cassert>
 #include <cmath>
-#include <functional>
-#include <memory>
-#include <random>
-#include <thread>
-#include <utility>
+#include <cstddef>
+#include <cstdint>
 #include <cstdlib>
+#include <cstring>
+#include <filesystem>
+#include <random>
+#include <string>
+#include <utility>
+#include <vector>
 
 VulkanEngine* loaded_engine{};
 
@@ -1334,24 +1342,19 @@ void VulkanEngine::run()
     SDL_Event e;
     bool b_quit = false;
 
-    auto last_frame = std::chrono::system_clock::now();
+    auto last_frame = SDL_GetTicks();
 
     while (!b_quit)
     {
-        auto start = std::chrono::system_clock::now();
-        auto deltatime = std::chrono::duration_cast<std::chrono::microseconds>(start - last_frame);
-        stats.deltatime = static_cast<float>(deltatime.count()) / 1000000.0f; // microseconds to seconds
+        auto start = SDL_GetTicks();
+        auto deltatime = start - last_frame;
+        stats.deltatime = static_cast<float>(deltatime / 1000.0f);
         last_frame = start;
 
         while (SDL_PollEvent(&e) != 0)
         {
             if (e.type == SDL_EVENT_QUIT)
                 b_quit = true;
-
-            if (e.type == SDL_EVENT_WINDOW_MINIMIZED)
-                stop_rendering = true;
-            if (e.type == SDL_EVENT_WINDOW_RESTORED)
-                stop_rendering = false;
 
             key_callback(window, e);
 
@@ -1400,12 +1403,6 @@ void VulkanEngine::run()
             }
 
             ImGui_ImplSDL3_ProcessEvent(&e);
-        }
-
-        if (stop_rendering)
-        {
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            continue;
         }
 
         bool update = update_swapchain(swapchain, window, physical_device, device, surface);
@@ -1535,8 +1532,8 @@ void VulkanEngine::run()
 
         draw();
 
-        auto end = std::chrono::system_clock::now();
-        auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() / 1000.0f;
+        auto end = SDL_GetTicks();
+        auto elapsed = end - start;
         stats.cpu_time = stats.cpu_time * 0.95 + elapsed * 0.05;
     }
 }
@@ -2418,7 +2415,7 @@ void VulkanEngine::init_resources()
 
 void VulkanEngine::init_renderables(int argc, char** argv)
 {
-    auto start = std::chrono::system_clock::now();
+    auto start = SDL_GetTicks();
 
     {
         std::vector<std::string> file_paths(argc - 1);
@@ -2431,10 +2428,9 @@ void VulkanEngine::init_renderables(int argc, char** argv)
         loaded_scene = std::move(*asset_file);
     }
 
-    auto end = std::chrono::system_clock::now();
-    auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-    float ret = static_cast<float>(elapsed.count()) / 1000.0f;
-    fmt::println("load gltf: {}ms", ret);
+    auto end = SDL_GetTicks();
+    auto elapsed = end - start;
+    fmt::println("load gltf: {}ms", elapsed);
 
     VkBufferUsageFlags ray_tracing_flags = VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
 

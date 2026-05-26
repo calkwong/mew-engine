@@ -1,13 +1,16 @@
-#include "common.h"
 #include "pipelines.h"
+#include "common.h"
 
-#include <fmt/core.h>
-
-#include <initializer_list>
-#include <vector>
 #include <array>
-#include <fstream>
 #include <cassert>
+#include <cstddef>
+#include <cstdint>
+#include <fstream>
+#include <functional>
+#include <ios>
+#include <iterator>
+#include <memory>
+#include <vector>
 
 bool load_shader_module(const char* path, VkDevice device, VkShaderModule* out_shader_module)
 {

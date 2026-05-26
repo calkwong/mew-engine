@@ -1,12 +1,12 @@
 #pragma once
 
-#include <fmt/core.h>
+#include "common.h"
 
+#include <cstdint>
 #include <functional>
 #include <string>
-#include <vector>
 #include <unordered_map>
-#include <cassert>
+#include <vector>
 
 class RenderGraph;
 

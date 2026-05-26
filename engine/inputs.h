@@ -1,6 +1,7 @@
 #pragma once
 
 #include "vk_math.h"
+#include "glm/ext/quaternion_float.hpp"
 
 union SDL_Event;
 

@@ -2,9 +2,20 @@
 #include "vk_math.h"
 #include "cvars.h"
 
+#include <glm/ext/quaternion_common.hpp>
+#include <glm/ext/quaternion_float.hpp>
+#include <glm/ext/quaternion_trigonometric.hpp>
+#include <glm/geometric.hpp>
+#include <SDL3/SDL_keyboard.h>
+#include <SDL3/SDL_keycode.h>
+#include <SDL3/SDL_mouse.h>
+#include <SDL3/SDL_scancode.h>
+#include <SDL3/SDL_video.h>
 #include <SDL3/SDL_events.h>
 
 #include <cmath>
+#include <cstddef>
+#include <string>
 
 namespace
 {

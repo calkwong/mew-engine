@@ -1,5 +1,9 @@
 #pragma once
 
+#include "common.h"
+
+#include <cstdint>
+
 namespace vkinit
 {
 VkCommandPoolCreateInfo command_pool_create_info(uint32_t queueFamilyIndex, VkCommandPoolCreateFlags flags = 0);

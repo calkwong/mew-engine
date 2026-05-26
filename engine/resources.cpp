@@ -1,8 +1,15 @@
-#include "common.h"
 #include "resources.h"
+#include "common.h"
 #include "vk_initializers.h"
 
 #include <vk_mem_alloc.h>
+
+#include <algorithm>
+#include <cmath>
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
+#include <functional>
 
 void destroy_buffer(VmaAllocator allocator, const AllocatedBuffer& buffer)
 {

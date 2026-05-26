@@ -1,12 +1,11 @@
-#include "common.h"
 #include "cache.h"
+#include "common.h"
 #include "pipelines.h"
 
+#include <cstdint>
 #include <filesystem>
-#include <vector>
-#include <string>
-#include <unordered_map>
 #include <memory>
+#include <string>
 
 void TextureCache::set_draw_image(uint32_t id)
 {

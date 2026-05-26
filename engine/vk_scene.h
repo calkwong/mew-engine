@@ -3,7 +3,12 @@
 #include "vk_math.h"
 #include "resources.h"
 
+#include <glm/ext/quaternion_float.hpp>
+#include <glm/ext/vector_uint4.hpp>
+
 #include <array>
+#include <cstdint>
+#include <unordered_map>
 #include <vector>
 
 struct Material; // TODO: not declared/anywhere

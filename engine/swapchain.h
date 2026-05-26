@@ -1,5 +1,10 @@
 #pragma once
 
+#include "common.h"
+
+#include <cstdint>
+#include <vector>
+
 struct Swapchain
 {
     VkSwapchainKHR swapchain{};

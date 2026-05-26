@@ -1,7 +1,13 @@
 #pragma once
 
-#include <initializer_list>
+#include "common.h"
+
+#include <cstdint>
 #include <filesystem>
+#include <functional>
+#include <initializer_list>
+#include <memory>
+#include <string>
 
 struct ShaderPass
 {

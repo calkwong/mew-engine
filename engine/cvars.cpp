@@ -1,8 +1,10 @@
 #include "cvars.h"
-
 #include "imgui.h"
-#include <string>
+
 #include <cassert>
+#include <cstddef>
+#include <cstdint>
+#include <string>
 
 CVarFlags operator|(CVarFlags a, CVarFlags b)
 {

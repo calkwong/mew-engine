@@ -1,6 +1,11 @@
 #pragma once
 
+#include "common.h"
 #include "vk_math.h"
+#include "glm/ext/vector_uint2.hpp"
+
+#include <array>
+#include <cstdint>
 
 struct CompactDispatchPushConstants
 {

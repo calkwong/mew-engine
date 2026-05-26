@@ -1,5 +1,7 @@
-#include "common.h"
 #include "vk_initializers.h"
+#include "common.h"
+
+#include <cstdint>
 
 VkCommandPoolCreateInfo vkinit::command_pool_create_info(uint32_t queueFamilyIndex, VkCommandPoolCreateFlags flags /*= 0*/)
 {
