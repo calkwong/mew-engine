@@ -357,7 +357,7 @@ void VulkanEngine::cleanup()
         {
             destroy_image(device, allocator, draw_image);
             destroy_image(device, allocator, visibility_buffer);
-            for (size_t i = 0; i < GBUFFER_COUNT; ++i)
+            for (size_t i = 0; i < gbuffers.size(); ++i)
                 destroy_image(device, allocator, gbuffers[i]);
             destroy_image(device, allocator, depth_image);
             destroy_image(device, allocator, accumulation_buffers[0]);
@@ -837,13 +837,13 @@ void VulkanEngine::draw()
                 }
                 else
                 {
-                    for (uint32_t i = 0; i < GBUFFER_COUNT; i++)
+                    for (uint32_t i = 0; i < gbuffers.size(); i++)
                     {
                         pass.add_color_output(fmt::format("gbuffer{}", i), gbuffers[i].image);
                     }
                     if (!clear)
                     {
-                        for (uint32_t i = 0; i < GBUFFER_COUNT; i++)
+                        for (uint32_t i = 0; i < gbuffers.size(); i++)
                         {
                             pass.add_image_read(fmt::format("gbuffer{}", i), gbuffers[i].image);
                         }
@@ -1443,7 +1443,7 @@ void VulkanEngine::run()
             {
                 destroy_image(device, allocator, draw_image);
                 destroy_image(device, allocator, visibility_buffer);
-                for (size_t i = 0; i < GBUFFER_COUNT; ++i)
+                for (size_t i = 0; i < gbuffers.size(); ++i)
                     destroy_image(device, allocator, gbuffers[i]);
                 destroy_image(device, allocator, depth_image);
                 destroy_image(device, allocator, depth_pyramid);
@@ -1471,7 +1471,8 @@ void VulkanEngine::run()
             gbuffers.clear();
             gbuffers.emplace_back(create_render_target(device, allocator, new_extent, VK_FORMAT_R8G8B8A8_UNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
             gbuffers.emplace_back(create_render_target(device, allocator, new_extent, VK_FORMAT_R16G16B16A16_SFLOAT, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
-            gbuffers.emplace_back(create_render_target(device, allocator, new_extent, VK_FORMAT_R8G8_SNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
+            gbuffers.emplace_back(create_render_target(device, allocator, new_extent, VK_FORMAT_R8G8B8A8_UNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
+            gbuffers.emplace_back(create_render_target(device, allocator, new_extent, VK_FORMAT_R8G8B8A8_UNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
 
             VkExtent3D depth_pyramid_extent{};
             depth_pyramid_extent.width = nearest_pow2(swapchain.extent.width);
@@ -2045,7 +2046,7 @@ void VulkanEngine::init_pipelines(bool update /* = 0 */)
         shader_cache["rasterize_gbuffer.slang"],
         { VK_SHADER_STAGE_VERTEX_BIT, VK_SHADER_STAGE_FRAGMENT_BIT },
         &desc_set_and_binding_mapping_info,
-        { gbuffers[0].format, gbuffers[1].format, gbuffers[2].format },
+        { gbuffers[0].format, gbuffers[1].format, gbuffers[2].format, gbuffers[3].format },
         { 1 },
         [&](VkPipelineRasterizationStateCreateInfo& r, VkPipelineDepthStencilStateCreateInfo& d)
         {
@@ -2056,7 +2057,7 @@ void VulkanEngine::init_pipelines(bool update /* = 0 */)
         shader_cache["rasterize_gbuffer.slang"],
         { VK_SHADER_STAGE_VERTEX_BIT, VK_SHADER_STAGE_FRAGMENT_BIT },
         &desc_set_and_binding_mapping_info,
-        { gbuffers[0].format, gbuffers[1].format, gbuffers[2].format },
+        { gbuffers[0].format, gbuffers[1].format, gbuffers[2].format, gbuffers[3].format },
         { 0 },
         [&](VkPipelineRasterizationStateCreateInfo& r, VkPipelineDepthStencilStateCreateInfo& d)
         {
@@ -2068,7 +2069,7 @@ void VulkanEngine::init_pipelines(bool update /* = 0 */)
         shader_cache["rasterize_gbuffer.slang"],
         { VK_SHADER_STAGE_MESH_BIT_EXT, VK_SHADER_STAGE_FRAGMENT_BIT },
         &desc_set_and_binding_mapping_info,
-        { gbuffers[0].format, gbuffers[1].format, gbuffers[2].format },
+        { gbuffers[0].format, gbuffers[1].format, gbuffers[2].format, gbuffers[3].format },
         { 1 },
         [&](VkPipelineRasterizationStateCreateInfo& r, VkPipelineDepthStencilStateCreateInfo& d)
         {
@@ -2079,7 +2080,7 @@ void VulkanEngine::init_pipelines(bool update /* = 0 */)
         shader_cache["rasterize_gbuffer.slang"],
         { VK_SHADER_STAGE_MESH_BIT_EXT, VK_SHADER_STAGE_FRAGMENT_BIT },
         &desc_set_and_binding_mapping_info,
-        { gbuffers[0].format, gbuffers[1].format, gbuffers[2].format },
+        { gbuffers[0].format, gbuffers[1].format, gbuffers[2].format, gbuffers[3].format },
         { 0 },
         [&](VkPipelineRasterizationStateCreateInfo& r, VkPipelineDepthStencilStateCreateInfo& d)
         {
@@ -2229,7 +2230,9 @@ void VulkanEngine::init_resources()
         texture_cache.set_gbuffers(gbuffer_id);
         gbuffers.emplace_back(create_render_target(device, allocator, image_extent, VK_FORMAT_R16G16B16A16_SFLOAT, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
         texture_cache.add_texture();
-        gbuffers.emplace_back(create_render_target(device, allocator, image_extent, VK_FORMAT_R8G8_SNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
+        gbuffers.emplace_back(create_render_target(device, allocator, image_extent, VK_FORMAT_R8G8B8A8_UNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
+        texture_cache.add_texture();
+        gbuffers.emplace_back(create_render_target(device, allocator, image_extent, VK_FORMAT_R8G8B8A8_UNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
         texture_cache.add_texture();
     }
 
@@ -3315,7 +3318,7 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass, ui
     }
     else
     {
-        for (int i = 0; i < GBUFFER_COUNT; i++)
+        for (int i = 0; i < gbuffers.size(); i++)
         {
             VkRenderingAttachmentInfo info{};
             info.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
@@ -4132,6 +4135,7 @@ void VulkanEngine::refresh_sampled_textures()
         { gbuffers[0].image, gbuffers[0].format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT },
         { gbuffers[1].image, gbuffers[1].format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT },
         { gbuffers[2].image, gbuffers[2].format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT },
+        { gbuffers[3].image, gbuffers[3].format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT },
         { depth_image.image, depth_image.format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_DEPTH_BIT },
         { cascade_data[0].shadow_map.image, cascade_data[0].shadow_map.format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_DEPTH_BIT },
         { cascade_data[1].shadow_map.image, cascade_data[1].shadow_map.format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_DEPTH_BIT },

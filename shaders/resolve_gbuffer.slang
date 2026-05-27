@@ -61,7 +61,6 @@ enum Debug
     Meshlets
 };
 
-#define PBR
 #define IBL
 
 static const float PI = 3.14159265359;
@@ -83,6 +82,7 @@ void main(
 	uint albedo_id = pc.gbuffer_id;
 	uint normal_id = pc.gbuffer_id + 1;
 	uint metalroughness_id = pc.gbuffer_id + 2;
+	uint emissive_id = pc.gbuffer_id + 3;
 
 	float3 N = textures[normal_id].SampleLevel(samplers[NEAREST_SAMPLER], in_uv, 0.0).xyz;
 	N = normalize(N); // necessary to remove banding, RGB32 does not need this
@@ -93,7 +93,9 @@ void main(
 
 	float3 color = float3(0.0);
 
-	float2 metal_roughness = textures[metalroughness_id].SampleLevel(samplers[NEAREST_SAMPLER], in_uv, 0.0).xy;
+	float3 data = textures[metalroughness_id].SampleLevel(samplers[NEAREST_SAMPLER], in_uv, 0.0).xyz;
+	float2 metal_roughness = data.xy;
+	float ao = data.z;
 	float metallic = metal_roughness.x;
 	float perceptual_roughness = metal_roughness.y;
 	float roughness = perceptual_roughness * perceptual_roughness;
@@ -137,7 +139,10 @@ void main(
 		}
 	}
 
+	ambient *= ao;
 	color += ambient;
+	float4 emissive = textures[emissive_id].SampleLevel(samplers[NEAREST_SAMPLER], in_uv, 0.0);
+	color += emissive.xyz;
 
 	if (pc.light_culling == 1)
 	{
@@ -164,13 +169,8 @@ void main(
 
 			update_brdf_data(brdf_data, L);
 
-#ifdef PBR
             float attenuation = get_square_falloff_attenuation(distance, light_radius);
 			color += eval_brdf(brdf_data, albedo.xyz, roughness, metallic) * light_color * attenuation * brdf_data.NdotL;
-#else
-			float attenuation = get_square_falloff_attenuation(distance, light_radius);
-			color += (albedo.xyz * light_color * attenuation * NdotL);
-#endif
 		}
 	}
 

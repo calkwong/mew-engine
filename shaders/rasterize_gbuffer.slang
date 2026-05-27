@@ -202,7 +202,8 @@ void ps_main(
     bool is_front_face : SV_IsFrontFace,
     out float4 out_albedo : SV_Target0,
     out float4 out_normal : SV_Target1,
-    out float2 out_metal_roughness : SV_Target2
+    out float4 out_metal_roughness_occlusion : SV_Target2,
+    out float4 out_emissive : SV_Target3
 )
 {
 	MaterialData m = pc.material_buffer[in.material_id];
@@ -264,7 +265,20 @@ void ps_main(
 	N = normalize(in.normal);
 #endif
 
+    float ao = 1.0;
+    if (m.occlusion_id != 0)
+    {
+        ao = textures[m.occlusion_id].Sample(samplers[LINEAR_SAMPLER], in.uv).r;
+    }
+
+    float3 emissive = m.emissive_factor;
+	if (m.emissive_id != 0)
+	{
+	    emissive *= textures[m.emissive_id].Sample(samplers[LINEAR_SAMPLER], in.uv).rgb;
+	}
+
     out_albedo = albedo;
     out_normal = float4(N, 1);
-    out_metal_roughness = float2(metallic, perceptual_roughness);
+    out_metal_roughness_occlusion = float4(metallic, perceptual_roughness, ao, 1.0);
+    out_emissive = float4(emissive, 1.0);
 }

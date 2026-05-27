@@ -52,7 +52,6 @@ enum Debug
     Meshlets
 };
 
-#define PBR
 #define IBL
 
 static const float PI = 3.14159265359;
@@ -201,8 +200,8 @@ void main(
 
 	if (m.occlusion_id != 0)
 	{
+		// note: occlusion strength ignored
 	    ao = textures[m.occlusion_id].SampleGrad(samplers[LINEAR_SAMPLER], uv, uv_ddx, uv_ddy).r;
-		// note: this is simplified and z
 		ambient *= ao;
 	}
 #else
@@ -253,13 +252,8 @@ void main(
 
             update_brdf_data(brdf_data, L);
 
-#ifdef PBR
 			float attenuation = get_square_falloff_attenuation(distance, light_radius);
 			color += eval_brdf(brdf_data, albedo.xyz, roughness, metallic) * light_color * attenuation * brdf_data.NdotL;
-#else
-			float attenuation = get_square_falloff_attenuation(distance, light_radius);
-			color += albedo.xyz * light_color * attenuation * NdotL;
-#endif
 		}
 	}
 
@@ -346,7 +340,6 @@ void main(
 		    break;
 		case Debug::Meshlets:
 		    uint mhash = hash(meshlet_id);
-			// uint mhash = hash(material_id);
             out_color.xyz = float3(float(mhash & 255), float((mhash >> 8) & 255), float((mhash >> 16) & 255)) / 255.0;
 		    break;
 		default:
