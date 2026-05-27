@@ -22,7 +22,7 @@
 
 import bindings;
 
-[[vk::binding(0, 2)]][vk::image_format("r32f")] globallycoherent RWTexture2D<float> images_r32f_coherent[];
+[[vk::binding(0, 1)]][vk::image_format("r32f")] globallycoherent RWTexture2D<float> images_r32f_coherent[];
 
 struct PushConstants
 {

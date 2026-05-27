@@ -228,11 +228,6 @@ void VulkanEngine::init(int argc, char** argv)
 
     init_resources();
 
-    main_camera.position = glm::vec3(0, 0, 5);
-    main_camera.far = static_cast<float>(cvar_system->get_int_cvar("draw_distance"));
-    main_camera.near = 0.01f;
-    main_camera.fov = 70.0f;
-    main_camera.set_perspective_matrix(glm::radians(main_camera.fov), static_cast<float>(swapchain.extent.width) / static_cast<float>(swapchain.extent.height), main_camera.near);
     init_renderables(argc, argv);
 
     upload_buffers();
@@ -289,6 +284,12 @@ void VulkanEngine::init(int argc, char** argv)
         float y = halton_y / static_cast<float>(swapchain.extent.height);
         jitter_offset[i] = glm::vec2(x, y);
     }
+
+    main_camera.position = glm::vec3(0, 0, 5);
+    main_camera.far = static_cast<float>(cvar_system->get_int_cvar("draw_distance"));
+    main_camera.near = 0.01f;
+    main_camera.fov = 70.0f;
+    main_camera.set_perspective_matrix(glm::radians(main_camera.fov), static_cast<float>(swapchain.extent.width) / static_cast<float>(swapchain.extent.height), main_camera.near);
 
     is_initialized = true;
 }
@@ -1860,6 +1861,7 @@ void VulkanEngine::init_descriptors()
     uint32_t resource_heap_offset = 0;
     // TODO: use bufferDescriptorSize; using image now for simplicity
     auto buffer_descriptor_size = desc_heap_properties.imageDescriptorSize;
+    auto image_descriptor_size = desc_heap_properties.imageDescriptorSize;
 
     void* descriptor{};
     descriptor = static_cast<uint8_t*>(resource_heap.info.pMappedData) + 0 * buffer_descriptor_size + resource_heap_offset;
@@ -1871,32 +1873,23 @@ void VulkanEngine::init_descriptors()
     auto buffer_count = 3;
 
     resource_heap_offset += buffer_descriptor_size * buffer_count;
-    sampled_textures_offset = resource_heap_offset;
+    rw_images_offset = resource_heap_offset;
 
-    // textures
-    auto image_descriptor_size = desc_heap_properties.imageDescriptorSize;
-    auto sampled_texture_count = loaded_scene->images.size();
-
+    refresh_rw_images();
     refresh_sampled_textures();
 
-    // defer vkWriteResourceDescriptorsEXT
+    resource_heap_offset += image_descriptor_size * rw_images.size();
+    sampled_textures_offset = resource_heap_offset;
+
+    update_descriptor_heap();
     resource_heap_offset += image_descriptor_size * sampled_textures.size();
 
-    for (size_t i = 0; i < sampled_texture_count; ++i)
+    for (size_t i = 0; i < loaded_scene->images.size(); ++i)
     {
         AllocatedImage& image = loaded_scene->images[i];
         void* descriptor = static_cast<uint8_t*>(resource_heap.info.pMappedData) + i * image_descriptor_size + resource_heap_offset;
         get_image_descriptor(device, image.image, image.format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, descriptor, image_descriptor_size);
     }
-
-    // defer vkWriteResourceDescriptorsEXT
-    resource_heap_offset += image_descriptor_size * sampled_texture_count;
-    rw_images_offset = resource_heap_offset;
-
-    refresh_rw_images();
-
-    // now we vkWriteResourceDescriptorsEXT
-    update_descriptor_heap();
 
     // samplers
     // note: reduction mode hack
@@ -1975,7 +1968,7 @@ void VulkanEngine::init_pipelines()
             mappings.push_back(desc_set_and_binding_mapping);
         }
 
-        // set 1 - bindless sampled textures
+        // set 1 - bindless UAV textures
         {
             VkDescriptorSetAndBindingMappingEXT desc_set_and_binding_mapping{};
             desc_set_and_binding_mapping.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT;
@@ -1986,7 +1979,7 @@ void VulkanEngine::init_pipelines()
             desc_set_and_binding_mapping.source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_CONSTANT_OFFSET_EXT;
 
             VkDescriptorMappingSourceConstantOffsetEXT constant_offset{};
-            constant_offset.heapOffset = sampled_textures_offset;
+            constant_offset.heapOffset = rw_images_offset;
             constant_offset.heapArrayStride = desc_heap_properties.imageDescriptorSize;
 
             VkDescriptorMappingSourceDataEXT source_data{};
@@ -1997,7 +1990,7 @@ void VulkanEngine::init_pipelines()
             mappings.push_back(desc_set_and_binding_mapping);
         }
 
-        // set 2 - bindless rw images
+        // set 2 - bindless SRV textures
         {
             VkDescriptorSetAndBindingMappingEXT desc_set_and_binding_mapping{};
             desc_set_and_binding_mapping.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT;
@@ -2008,7 +2001,7 @@ void VulkanEngine::init_pipelines()
             desc_set_and_binding_mapping.source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_CONSTANT_OFFSET_EXT;
 
             VkDescriptorMappingSourceConstantOffsetEXT constant_offset{};
-            constant_offset.heapOffset = rw_images_offset;
+            constant_offset.heapOffset = sampled_textures_offset;
             constant_offset.heapArrayStride = desc_heap_properties.imageDescriptorSize;
 
             VkDescriptorMappingSourceDataEXT source_data{};
@@ -2222,12 +2215,11 @@ void VulkanEngine::init_resources()
         VK_IMAGE_ASPECT_COLOR_BIT
     );
 
+    // note: scene textures must be cached AFTER scene-independent textures as shaders check if material texture_id != 0 for validity
     auto id = texture_cache.add_texture();
-    assert(id == 0); // hardcode to id 0
     texture_cache.set_draw_image(id);
 
     id = image_cache.add_texture();
-    assert(id == 0); // hardcode to id 0
     image_cache.set_draw_image(id);
     VkImageUsageFlags gbuffer_flags{
         VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
@@ -2540,11 +2532,6 @@ void VulkanEngine::init_renderables(int argc, char** argv)
         loaded_scene->materials.data(),
         loaded_scene->materials.size() * sizeof(MaterialData)
     );
-    // fmt::println("vertex_buffer: {}mb", size_in_bytes(render_scene.vertex_buffer.info.size));
-    // fmt::println("index_buffer: {}mb", size_in_bytes(render_scene.index_buffer.info.size));
-    // fmt::println("meslet_indices: {}mb", size_in_bytes(render_scene.meshlet_indices.info.size));
-    // fmt::println("meshlet_buffer: {}mb", size_in_bytes(render_scene.meshlet_buffer.info.size));
-    // fmt::println("material_buffer: {}mb", size_in_bytes(render_scene.material_buffer.info.size));
 
     for (const auto& n : loaded_scene->top_nodes)
     {
@@ -2593,6 +2580,14 @@ void VulkanEngine::init_renderables(int argc, char** argv)
         meshlet_visibility_offset += meshlet_count;
     }
     render_scene.total_meshlets_bits = meshlet_visibility_offset;
+
+    loaded_scene->indices.clear();
+    loaded_scene->vertices.clear();
+    loaded_scene->meshlet_indices.clear();
+    loaded_scene->meshlets.clear();
+    loaded_scene->materials.clear();
+    // TODO: don't clear nodes if we have animation
+    loaded_scene->top_nodes.clear();
 }
 
 void VulkanEngine::register_object(const Node* node, const glm::mat4& top_matrix)
