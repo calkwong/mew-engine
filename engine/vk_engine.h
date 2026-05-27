@@ -213,7 +213,7 @@ public:
     void execute_light_culling(VkCommandBuffer cmd);
     void execute_shading(VkCommandBuffer cmd);
     void create_acceleration_structures();
-    void update_descriptor_heap();
+    void write_descriptor_heap(uint32_t& resource_heap_offset);
     void refresh_sampled_textures();
     void refresh_rw_images();
 

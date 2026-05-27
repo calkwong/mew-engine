@@ -221,26 +221,25 @@ void VulkanEngine::init(int argc, char** argv)
     SDL_SetWindowRelativeMouseMode(window, true);
 
     init_vulkan();
-
     init_commands();
-
     init_sync_structures();
-
     init_resources();
-
     init_renderables(argc, argv);
-
     upload_buffers();
-
     create_acceleration_structures();
-
     init_descriptors(); // after scene creation!
     init_shaders();
     init_pipelines();
 
     init_imgui();
+    main_camera.position = glm::vec3(0, 0, 5);
+    main_camera.far = static_cast<float>(cvar_system->get_int_cvar("draw_distance"));
+    main_camera.near = 0.01f;
+    main_camera.fov = 70.0f;
+    main_camera.set_perspective_matrix(glm::radians(main_camera.fov), static_cast<float>(swapchain.extent.width) / static_cast<float>(swapchain.extent.height), main_camera.near);
 
     // TODO: support draw distance change and rebuilding
+    // note: camera must already be set prior to building cluster grid
     build_cluster_grid();
     execute_baked_gi();
 
@@ -284,12 +283,6 @@ void VulkanEngine::init(int argc, char** argv)
         float y = halton_y / static_cast<float>(swapchain.extent.height);
         jitter_offset[i] = glm::vec2(x, y);
     }
-
-    main_camera.position = glm::vec3(0, 0, 5);
-    main_camera.far = static_cast<float>(cvar_system->get_int_cvar("draw_distance"));
-    main_camera.near = 0.01f;
-    main_camera.fov = 70.0f;
-    main_camera.set_perspective_matrix(glm::radians(main_camera.fov), static_cast<float>(swapchain.extent.width) / static_cast<float>(swapchain.extent.height), main_camera.near);
 
     is_initialized = true;
 }
@@ -1524,9 +1517,8 @@ void VulkanEngine::run()
                 );
             }
 
-            refresh_rw_images();
-            refresh_sampled_textures();
-            update_descriptor_heap();
+            uint32_t resource_heap_offset = 0;
+            write_descriptor_heap(resource_heap_offset);
         }
 
         freeze_camera = cvar_system->get_int_cvar("freeze_camera");
@@ -1859,31 +1851,9 @@ void VulkanEngine::init_descriptors()
     );
 
     uint32_t resource_heap_offset = 0;
-    // TODO: use bufferDescriptorSize; using image now for simplicity
-    auto buffer_descriptor_size = desc_heap_properties.imageDescriptorSize;
+    write_descriptor_heap(resource_heap_offset);
+
     auto image_descriptor_size = desc_heap_properties.imageDescriptorSize;
-
-    void* descriptor{};
-    descriptor = static_cast<uint8_t*>(resource_heap.info.pMappedData) + 0 * buffer_descriptor_size + resource_heap_offset;
-    get_buffer_descriptor(device, frames[0].scene_buffer, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, descriptor, buffer_descriptor_size);
-    descriptor = static_cast<uint8_t*>(resource_heap.info.pMappedData) + 1 * buffer_descriptor_size + resource_heap_offset;
-    get_buffer_descriptor(device, render_scene.oit_buffer, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, descriptor, buffer_descriptor_size);
-    descriptor = static_cast<uint8_t*>(resource_heap.info.pMappedData) + 2 * buffer_descriptor_size + resource_heap_offset;
-    get_as_descriptor(device, tlas_as, 0, descriptor, buffer_descriptor_size);
-    auto buffer_count = 3;
-
-    resource_heap_offset += buffer_descriptor_size * buffer_count;
-    rw_images_offset = resource_heap_offset;
-
-    refresh_rw_images();
-    refresh_sampled_textures();
-
-    resource_heap_offset += image_descriptor_size * rw_images.size();
-    sampled_textures_offset = resource_heap_offset;
-
-    update_descriptor_heap();
-    resource_heap_offset += image_descriptor_size * sampled_textures.size();
-
     for (size_t i = 0; i < loaded_scene->images.size(); ++i)
     {
         AllocatedImage& image = loaded_scene->images[i];
@@ -4102,17 +4072,38 @@ void VulkanEngine::create_acceleration_structures()
     );
 }
 
-void VulkanEngine::update_descriptor_heap()
+// writes descriptors for buffers, uav and srv textures (not including material textures)
+// rewrites everything during window resize for simplicity
+void VulkanEngine::write_descriptor_heap(uint32_t& resource_heap_offset)
 {
-    // note: heap offset of 0 for buffers, this could change in the future
-    auto resource_heap_offset = 0;
+    refresh_rw_images();
+    refresh_sampled_textures();
 
     // TODO: use bufferDescriptorSize; using image now for simplicity
     auto buffer_descriptor_size = desc_heap_properties.imageDescriptorSize;
-    void* descriptor = static_cast<uint8_t*>(resource_heap.info.pMappedData) + 1 * buffer_descriptor_size + 0;
-    get_buffer_descriptor(device, render_scene.oit_buffer, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, descriptor, buffer_descriptor_size);
-
     auto image_descriptor_size = desc_heap_properties.imageDescriptorSize;
+
+    void* descriptor{};
+    descriptor = static_cast<uint8_t*>(resource_heap.info.pMappedData) + 0 * buffer_descriptor_size + resource_heap_offset;
+    get_buffer_descriptor(device, frames[0].scene_buffer, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, descriptor, buffer_descriptor_size);
+    descriptor = static_cast<uint8_t*>(resource_heap.info.pMappedData) + 1 * buffer_descriptor_size + resource_heap_offset;
+    get_buffer_descriptor(device, render_scene.oit_buffer, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, descriptor, buffer_descriptor_size);
+    descriptor = static_cast<uint8_t*>(resource_heap.info.pMappedData) + 2 * buffer_descriptor_size + resource_heap_offset;
+    get_as_descriptor(device, tlas_as, 0, descriptor, buffer_descriptor_size);
+
+    auto buffer_count = 3;
+    resource_heap_offset += buffer_descriptor_size * buffer_count;
+    rw_images_offset = resource_heap_offset;
+
+    for (size_t i = 0; i < rw_images.size(); ++i)
+    {
+        auto& info = rw_images[i];
+        void* descriptor = static_cast<uint8_t*>(resource_heap.info.pMappedData) + i * image_descriptor_size + rw_images_offset;
+        get_image_descriptor(device, info.image, info.format, info.view_type, info.aspect_flag, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, descriptor, image_descriptor_size, info.mip);
+    }
+
+    resource_heap_offset += image_descriptor_size * rw_images.size();
+    sampled_textures_offset = resource_heap_offset;
 
     for (size_t i = 0; i < sampled_textures.size(); ++i)
     {
@@ -4121,12 +4112,7 @@ void VulkanEngine::update_descriptor_heap()
         get_image_descriptor(device, info.image, info.format, info.view_type, info.aspect_flag, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, descriptor, image_descriptor_size);
     }
 
-    for (size_t i = 0; i < rw_images.size(); ++i)
-    {
-        auto& info = rw_images[i];
-        void* descriptor = static_cast<uint8_t*>(resource_heap.info.pMappedData) + i * image_descriptor_size + rw_images_offset;
-        get_image_descriptor(device, info.image, info.format, info.view_type, info.aspect_flag, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, descriptor, image_descriptor_size, info.mip);
-    }
+    resource_heap_offset += image_descriptor_size * sampled_textures.size();
 }
 
 void VulkanEngine::refresh_sampled_textures()
