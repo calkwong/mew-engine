@@ -897,8 +897,11 @@ bool load_gltf(
 
     // TODO: currently supports ktx2 in URI only
 
+    std::vector<AllocatedImage> images{};
     if (!asset.images.empty())
-        file.images = load_images(asset, device, queue, fence, command_pool, cmd, allocator, texture_cache, file.asset_path);
+        images = load_images(asset, device, queue, fence, command_pool, cmd, allocator, texture_cache, file.asset_path);
+
+    file.images.insert(file.images.end(), images.begin(), images.end());
 
     for (fastgltf::Material& mat : asset.materials)
     {
