@@ -175,6 +175,8 @@ public:
     std::vector<DescriptorImageInfo> sampled_textures{};
     std::vector<DescriptorImageInfo> rw_images{};
 
+    std::vector<VkDescriptorSetAndBindingMappingEXT> desc_mappings{};
+
     uint32_t sampled_textures_offset{};
     uint32_t rw_images_offset{};
     uint32_t depth_pyramid_level_count{};
@@ -216,6 +218,7 @@ public:
     void write_descriptor_heap(uint32_t& resource_heap_offset);
     void refresh_sampled_textures();
     void refresh_rw_images();
+    std::vector<VkDescriptorSetAndBindingMappingEXT> get_desc_set_and_binding_mapping();
 
 private:
     void init_vulkan();
@@ -223,7 +226,7 @@ private:
     void init_sync_structures();
     void init_descriptors();
     void init_shaders();
-    void init_pipelines();
+    void init_pipelines(bool update = false);
     void init_resources();
     void init_renderables(int argc, char** argv);
     void execute_baked_gi();

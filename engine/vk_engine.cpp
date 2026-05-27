@@ -1426,7 +1426,7 @@ void VulkanEngine::run()
 
                         // instead of rebuilding everything, we could just update relevant pipelines, but full rebuild is almost instantaneous so we roll with this for now
                         shader_passes.clear();
-                        init_pipelines();
+                        init_pipelines(true);
                     }
                 }
             }
@@ -1908,107 +1908,114 @@ void VulkanEngine::init_shaders()
     // shader_cache.add_shader(device, "rt.slang", sizeof(DeferredPushConstants));
 }
 
-void VulkanEngine::init_pipelines()
+std::vector<VkDescriptorSetAndBindingMappingEXT> VulkanEngine::get_desc_set_and_binding_mapping()
 {
     std::vector<VkDescriptorSetAndBindingMappingEXT> mappings{};
 
+    // TODO: remove magic number
+    // TODO: use proper buffer descriptor size
+    // TODO: use finer grain flags instead of VK_SPIRV_RESOURCE_TYPE_ALL_EXT
+    auto buffer_count = 3;
+    auto buffer_descriptor_size = desc_heap_properties.imageDescriptorSize;
+    for (size_t i = 0; i < buffer_count; ++i)
     {
-        // TODO: remove magic number
-        // TODO: use proper buffer descriptor size
-        // TODO: use finer grain flags instead of VK_SPIRV_RESOURCE_TYPE_ALL_EXT
-        auto buffer_count = 3;
-        auto buffer_descriptor_size = desc_heap_properties.imageDescriptorSize;
-        for (size_t i = 0; i < buffer_count; ++i)
-        {
-            VkDescriptorSetAndBindingMappingEXT desc_set_and_binding_mapping{};
-            desc_set_and_binding_mapping.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT;
-            desc_set_and_binding_mapping.descriptorSet = 0;
-            desc_set_and_binding_mapping.firstBinding = i;
-            desc_set_and_binding_mapping.bindingCount = 1;
-            desc_set_and_binding_mapping.resourceMask = VK_SPIRV_RESOURCE_TYPE_ALL_EXT;
-            desc_set_and_binding_mapping.source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_CONSTANT_OFFSET_EXT;
+        VkDescriptorSetAndBindingMappingEXT desc_set_and_binding_mapping{};
+        desc_set_and_binding_mapping.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT;
+        desc_set_and_binding_mapping.descriptorSet = 0;
+        desc_set_and_binding_mapping.firstBinding = i;
+        desc_set_and_binding_mapping.bindingCount = 1;
+        desc_set_and_binding_mapping.resourceMask = VK_SPIRV_RESOURCE_TYPE_ALL_EXT;
+        desc_set_and_binding_mapping.source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_CONSTANT_OFFSET_EXT;
 
-            VkDescriptorMappingSourceConstantOffsetEXT constant_offset{};
-            constant_offset.heapOffset = i * buffer_descriptor_size;
-            constant_offset.heapArrayStride = buffer_descriptor_size;
+        VkDescriptorMappingSourceConstantOffsetEXT constant_offset{};
+        // assumes heapoffset starts from 0
+        constant_offset.heapOffset = i * buffer_descriptor_size;
+        constant_offset.heapArrayStride = buffer_descriptor_size;
 
-            VkDescriptorMappingSourceDataEXT source_data{};
-            source_data.constantOffset = constant_offset;
-            desc_set_and_binding_mapping.sourceData = source_data;
-            mappings.push_back(desc_set_and_binding_mapping);
-        }
-
-        // set 1 - bindless UAV textures
-        {
-            VkDescriptorSetAndBindingMappingEXT desc_set_and_binding_mapping{};
-            desc_set_and_binding_mapping.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT;
-            desc_set_and_binding_mapping.descriptorSet = 1;
-            desc_set_and_binding_mapping.firstBinding = 0;
-            desc_set_and_binding_mapping.bindingCount = 1;
-            desc_set_and_binding_mapping.resourceMask = VK_SPIRV_RESOURCE_TYPE_ALL_EXT;
-            desc_set_and_binding_mapping.source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_CONSTANT_OFFSET_EXT;
-
-            VkDescriptorMappingSourceConstantOffsetEXT constant_offset{};
-            constant_offset.heapOffset = rw_images_offset;
-            constant_offset.heapArrayStride = desc_heap_properties.imageDescriptorSize;
-
-            VkDescriptorMappingSourceDataEXT source_data{};
-            source_data.constantOffset = constant_offset;
-
-            desc_set_and_binding_mapping.sourceData = source_data;
-
-            mappings.push_back(desc_set_and_binding_mapping);
-        }
-
-        // set 2 - bindless SRV textures
-        {
-            VkDescriptorSetAndBindingMappingEXT desc_set_and_binding_mapping{};
-            desc_set_and_binding_mapping.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT;
-            desc_set_and_binding_mapping.descriptorSet = 2;
-            desc_set_and_binding_mapping.firstBinding = 0;
-            desc_set_and_binding_mapping.bindingCount = 1;
-            desc_set_and_binding_mapping.resourceMask = VK_SPIRV_RESOURCE_TYPE_ALL_EXT;
-            desc_set_and_binding_mapping.source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_CONSTANT_OFFSET_EXT;
-
-            VkDescriptorMappingSourceConstantOffsetEXT constant_offset{};
-            constant_offset.heapOffset = sampled_textures_offset;
-            constant_offset.heapArrayStride = desc_heap_properties.imageDescriptorSize;
-
-            VkDescriptorMappingSourceDataEXT source_data{};
-            source_data.constantOffset = constant_offset;
-
-            desc_set_and_binding_mapping.sourceData = source_data;
-
-            mappings.push_back(desc_set_and_binding_mapping);
-        }
-
-        // set 3 - samplers
-        {
-            VkDescriptorSetAndBindingMappingEXT desc_set_and_binding_mapping{};
-            desc_set_and_binding_mapping.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT;
-            desc_set_and_binding_mapping.descriptorSet = 3;
-            desc_set_and_binding_mapping.firstBinding = 0;
-            desc_set_and_binding_mapping.bindingCount = 1;
-            desc_set_and_binding_mapping.resourceMask = VK_SPIRV_RESOURCE_TYPE_ALL_EXT;
-            desc_set_and_binding_mapping.source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_CONSTANT_OFFSET_EXT;
-
-            VkDescriptorMappingSourceConstantOffsetEXT constant_offset{};
-            constant_offset.heapOffset = 0;
-            constant_offset.heapArrayStride = desc_heap_properties.samplerDescriptorSize;
-
-            VkDescriptorMappingSourceDataEXT source_data{};
-            source_data.constantOffset = constant_offset;
-
-            desc_set_and_binding_mapping.sourceData = source_data;
-
-            mappings.push_back(desc_set_and_binding_mapping);
-        }
+        VkDescriptorMappingSourceDataEXT source_data{};
+        source_data.constantOffset = constant_offset;
+        desc_set_and_binding_mapping.sourceData = source_data;
+        mappings.push_back(desc_set_and_binding_mapping);
     }
+
+    // set 1 - bindless UAV textures
+    {
+        VkDescriptorSetAndBindingMappingEXT desc_set_and_binding_mapping{};
+        desc_set_and_binding_mapping.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT;
+        desc_set_and_binding_mapping.descriptorSet = 1;
+        desc_set_and_binding_mapping.firstBinding = 0;
+        desc_set_and_binding_mapping.bindingCount = 1;
+        desc_set_and_binding_mapping.resourceMask = VK_SPIRV_RESOURCE_TYPE_ALL_EXT;
+        desc_set_and_binding_mapping.source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_CONSTANT_OFFSET_EXT;
+
+        VkDescriptorMappingSourceConstantOffsetEXT constant_offset{};
+        constant_offset.heapOffset = rw_images_offset;
+        constant_offset.heapArrayStride = desc_heap_properties.imageDescriptorSize;
+
+        VkDescriptorMappingSourceDataEXT source_data{};
+        source_data.constantOffset = constant_offset;
+
+        desc_set_and_binding_mapping.sourceData = source_data;
+
+        mappings.push_back(desc_set_and_binding_mapping);
+    }
+
+    // set 2 - bindless SRV textures
+    {
+        VkDescriptorSetAndBindingMappingEXT desc_set_and_binding_mapping{};
+        desc_set_and_binding_mapping.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT;
+        desc_set_and_binding_mapping.descriptorSet = 2;
+        desc_set_and_binding_mapping.firstBinding = 0;
+        desc_set_and_binding_mapping.bindingCount = 1;
+        desc_set_and_binding_mapping.resourceMask = VK_SPIRV_RESOURCE_TYPE_ALL_EXT;
+        desc_set_and_binding_mapping.source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_CONSTANT_OFFSET_EXT;
+
+        VkDescriptorMappingSourceConstantOffsetEXT constant_offset{};
+        constant_offset.heapOffset = sampled_textures_offset;
+        constant_offset.heapArrayStride = desc_heap_properties.imageDescriptorSize;
+
+        VkDescriptorMappingSourceDataEXT source_data{};
+        source_data.constantOffset = constant_offset;
+
+        desc_set_and_binding_mapping.sourceData = source_data;
+
+        mappings.push_back(desc_set_and_binding_mapping);
+    }
+
+    // set 3 - samplers
+    {
+        VkDescriptorSetAndBindingMappingEXT desc_set_and_binding_mapping{};
+        desc_set_and_binding_mapping.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT;
+        desc_set_and_binding_mapping.descriptorSet = 3;
+        desc_set_and_binding_mapping.firstBinding = 0;
+        desc_set_and_binding_mapping.bindingCount = 1;
+        desc_set_and_binding_mapping.resourceMask = VK_SPIRV_RESOURCE_TYPE_ALL_EXT;
+        desc_set_and_binding_mapping.source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_CONSTANT_OFFSET_EXT;
+
+        VkDescriptorMappingSourceConstantOffsetEXT constant_offset{};
+        constant_offset.heapOffset = 0;
+        constant_offset.heapArrayStride = desc_heap_properties.samplerDescriptorSize;
+
+        VkDescriptorMappingSourceDataEXT source_data{};
+        source_data.constantOffset = constant_offset;
+
+        desc_set_and_binding_mapping.sourceData = source_data;
+
+        mappings.push_back(desc_set_and_binding_mapping);
+    }
+
+    return mappings;
+}
+
+void VulkanEngine::init_pipelines(bool update /* = 0 */)
+{
+    if (!update)
+        desc_mappings = get_desc_set_and_binding_mapping();
 
     VkShaderDescriptorSetAndBindingMappingInfoEXT desc_set_and_binding_mapping_info{};
     desc_set_and_binding_mapping_info.sType = VK_STRUCTURE_TYPE_SHADER_DESCRIPTOR_SET_AND_BINDING_MAPPING_INFO_EXT;
-    desc_set_and_binding_mapping_info.mappingCount = mappings.size();
-    desc_set_and_binding_mapping_info.pMappings = mappings.data();
+    desc_set_and_binding_mapping_info.mappingCount = desc_mappings.size();
+    desc_set_and_binding_mapping_info.pMappings = desc_mappings.data();
 
     shader_passes["cluster_grid"] = create_compute_pipeline(device, shader_cache["cluster_grid.slang"], &desc_set_and_binding_mapping_info);
     shader_passes["light_culling"] = create_compute_pipeline(device, shader_cache["light_culling.slang"], &desc_set_and_binding_mapping_info);
