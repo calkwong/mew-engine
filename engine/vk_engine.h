@@ -221,6 +221,8 @@ public:
     std::vector<VkDescriptorSetAndBindingMappingEXT> get_desc_set_and_binding_mapping();
 
 private:
+    Bindless bindless{};
+
     void init_vulkan();
     void init_commands();
     void init_sync_structures();

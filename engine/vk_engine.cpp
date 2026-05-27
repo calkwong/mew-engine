@@ -422,8 +422,8 @@ void VulkanEngine::execute_baked_gi()
             ShaderPass current_pass = *shader_passes["equirectangular_to_cubemap"];
             IBLPushConstants pc{};
             pc.image_size = glm::vec2(hdri_cubemap.extent.width, hdri_cubemap.extent.height);
-            pc.texture_id = texture_cache.get_hdri();
-            pc.image_id = image_cache.get_hdri();
+            pc.texture_id = bindless.hdri_srv;
+            pc.image_id = bindless.skybox_uav;
 
             vkCmdBindPipeline(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
             VkPushDataInfoEXT push_data_info{};
@@ -489,7 +489,7 @@ void VulkanEngine::execute_baked_gi()
             IBLPushConstants pc{};
             pc.image_size = glm::vec2(irradiance_cubemap.extent.width, irradiance_cubemap.extent.height);
             pc.texture_id = static_cast<uint32_t>(scene_data.textures[0]);
-            pc.image_id = image_cache.get_irradiance();
+            pc.image_id = bindless.irradiance_uav;
 
             vkCmdBindPipeline(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
             VkPushDataInfoEXT push_data_info{};
@@ -521,7 +521,7 @@ void VulkanEngine::execute_baked_gi()
             auto mips = static_cast<uint32_t>(std::floor(std::log2(static_cast<float>(std::max(prefiltered_envmap.extent.width, prefiltered_envmap.extent.height))))) + 1;
             for (uint32_t i = 0; i < mips; i++)
             {
-                pc.image_id = image_cache.get_prefiltered() + i;
+                pc.image_id = bindless.prefiltered_uav + i;
                 pc.roughness = static_cast<float>(i) / static_cast<float>(mips);
 
                 VkPushDataInfoEXT push_data_info{};
@@ -547,7 +547,7 @@ void VulkanEngine::execute_baked_gi()
             ShaderPass current_pass = *shader_passes["brdf"];
             IBLPushConstants pc{};
             pc.image_size = glm::vec2(brdf_lut.extent.width, brdf_lut.extent.height);
-            pc.image_id = image_cache.get_brdf();
+            pc.image_id = bindless.brdf_uav;
 
             vkCmdBindPipeline(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
             VkPushDataInfoEXT push_data_info{};
@@ -1190,7 +1190,7 @@ void VulkanEngine::draw()
                     PushData pd{
                         get_buffer_address(device, render_scene.oit_buffer.buffer),
                         glm::uvec2(swapchain.extent.width, swapchain.extent.height),
-                        image_cache.get_draw_image()
+                        bindless.draw_uav
                     };
 
                     VkPushDataInfoEXT push_data_info{};
@@ -1252,8 +1252,8 @@ void VulkanEngine::draw()
                     TonemapPushConstants pc{};
                     pc.luminance_avg_buffer = get_buffer_address(device, render_scene.luminance_avg_buffer.buffer);
                     pc.screen_size = glm::vec2(swapchain.extent.width, swapchain.extent.height);
-                    pc.src_id = cvar_system->get_int_cvar("taa") ? image_cache.get_accumulation_buffer(frame_number % 2) : image_cache.get_draw_image();
-                    pc.dst_id = image_cache.get_draw_image();
+                    pc.src_id = cvar_system->get_int_cvar("taa") ? bindless.accum_uav + (frame_number % 2) : bindless.draw_uav;
+                    pc.dst_id = bindless.draw_uav;
                     // pc.autoexposure = cvar_system->get_int_cvar("autoexposure");
                     pc.tonemap_func = cvar_system->get_int_cvar("tonemapping_func");
 
@@ -2194,56 +2194,37 @@ void VulkanEngine::init_resources()
     );
 
     // note: scene textures must be cached AFTER scene-independent textures as shaders check if material texture_id != 0 for validity
-    auto id = texture_cache.add_texture();
-    texture_cache.set_draw_image(id);
+    bindless.draw_srv = texture_cache.add_texture();
+    bindless.draw_uav = image_cache.add_texture();
 
-    id = image_cache.add_texture();
-    image_cache.set_draw_image(id);
     VkImageUsageFlags gbuffer_flags{
         VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
     };
 
-    // visibility path - visibility
-    {
-        visibility_buffer = create_render_target(device, allocator, image_extent, VK_FORMAT_R32G32_UINT, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT);
-        auto vis_id = texture_cache.add_texture();
-        texture_cache.set_visibility_buffer(vis_id);
+    visibility_buffer = create_render_target(device, allocator, image_extent, VK_FORMAT_R32G32_UINT, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT);
+    bindless.vbuffer_srv = texture_cache.add_texture();
 
-        for (int i = 0; i < 2; ++i) // ping pong
-        {
-            accumulation_buffers[i] = create_image(device, allocator, image_extent, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
-            auto texture_accum_id = texture_cache.add_texture();
-            auto image_accum_id = image_cache.add_texture();
+    accumulation_buffers[0] = create_image(device, allocator, image_extent, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+    accumulation_buffers[1] = create_image(device, allocator, image_extent, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+    bindless.accum_srv = texture_cache.add_texture();
+    texture_cache.add_texture();
+    bindless.accum_uav = image_cache.add_texture();
+    image_cache.add_texture();
 
-            if (i == 0)
-            {
-                texture_cache.set_accumulation_buffer(texture_accum_id);
-                image_cache.set_accumulation_buffer(image_accum_id);
-            }
-        }
-    }
-
-    // deferred path - albedo, normal, metalroughness
-    {
-        gbuffers.emplace_back(create_render_target(device, allocator, image_extent, VK_FORMAT_R8G8B8A8_UNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
-        auto gbuffer_id = texture_cache.add_texture();
-        texture_cache.set_gbuffers(gbuffer_id);
-        gbuffers.emplace_back(create_render_target(device, allocator, image_extent, VK_FORMAT_R16G16B16A16_SFLOAT, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
-        texture_cache.add_texture();
-        gbuffers.emplace_back(create_render_target(device, allocator, image_extent, VK_FORMAT_R8G8B8A8_UNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
-        texture_cache.add_texture();
-        gbuffers.emplace_back(create_render_target(device, allocator, image_extent, VK_FORMAT_R8G8B8A8_UNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
-        texture_cache.add_texture();
-    }
+    // albedo, normal, metal-roughness-occlusion, emissive
+    gbuffers.emplace_back(create_render_target(device, allocator, image_extent, VK_FORMAT_R8G8B8A8_UNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
+    gbuffers.emplace_back(create_render_target(device, allocator, image_extent, VK_FORMAT_R16G16B16A16_SFLOAT, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
+    gbuffers.emplace_back(create_render_target(device, allocator, image_extent, VK_FORMAT_R8G8B8A8_UNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
+    gbuffers.emplace_back(create_render_target(device, allocator, image_extent, VK_FORMAT_R8G8B8A8_UNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
+    bindless.gbuffer_srv = texture_cache.add_texture();
+    texture_cache.add_texture();
+    texture_cache.add_texture();
+    texture_cache.add_texture();
 
     depth_image.format = VK_FORMAT_D32_SFLOAT;
-
     depth_image = create_render_target(device, allocator, image_extent, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_DEPTH_BIT);
+    bindless.depth_srv = texture_cache.add_texture();
 
-    id = texture_cache.add_texture();
-    texture_cache.set_depth_image(id);
-
-    // shadowmaps
     for (size_t idx = 0; idx < cascade_data.size(); idx++)
     {
         cascade_data[idx].shadow_map = create_render_target(
@@ -2254,22 +2235,11 @@ void VulkanEngine::init_resources()
             VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
             VK_IMAGE_ASPECT_DEPTH_BIT
         );
-        auto id = texture_cache.add_texture();
+        auto shadowmap_id = texture_cache.add_texture();
         if (idx == 0)
-            texture_cache.set_shadowmap(id);
+            bindless.shadowmap_srv = shadowmap_id;
     }
 
-    main_deletion_queue.push_function(
-        [&]()
-        {
-            for (auto& cascade : cascade_data)
-            {
-                destroy_image(device, allocator, cascade.shadow_map);
-            }
-        }
-    );
-
-    //> create depth pyramid
     VkExtent3D depth_pyramid_extent{};
     depth_pyramid_extent.width = nearest_pow2(swapchain.extent.width);
     depth_pyramid_extent.height = nearest_pow2(swapchain.extent.height);
@@ -2289,11 +2259,8 @@ void VulkanEngine::init_resources()
     depth_pyramid_level_count = static_cast<uint32_t>(std::floor(std::log2(static_cast<float>(std::max(depth_pyramid_extent.width, depth_pyramid_extent.height))))) + 1;
 
     // sampling in occlusion culling
-    id = texture_cache.add_texture();
-    texture_cache.set_depth_pyramid_image(id);
-
-    id = image_cache.add_texture();
-    image_cache.set_depth_pyramid_image(id);
+    bindless.depth_pyramid_srv = texture_cache.add_texture();
+    bindless.depth_pyramid_uav = image_cache.add_texture();
 
     // we reserve enough slots in image_cache to handle 1920x1080
     // this makes it easier updating descriptors if window is resized
@@ -2318,26 +2285,22 @@ void VulkanEngine::init_resources()
     }
 
     light_buffer = upload_buffer(device, graphics_queue, imm_fence, imm_command_pool, imm_command_buffer, allocator, light_data.data(), MAX_POINT_LIGHTS * sizeof(PointLight));
-    // fmt::println("light_buffer: {}mb", size_in_bytes(light_buffer.info.size));
 
     const uint32_t total_clusters = CLUSTER_X * CLUSTER_Y * CLUSTER_DEPTH_SLICES;
 
     light_cluster_buffer = create_buffer(allocator, total_clusters * sizeof(ClusterAABB), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
-    // could use smaller more conservative size
+    // TODO: could use smaller more conservative size
     light_index_buffer = create_buffer(allocator, total_clusters * MAX_POINT_LIGHTS * sizeof(uint32_t), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
     light_grid_buffer = create_buffer(allocator, total_clusters * sizeof(LightGrid), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
     light_count_buffer = create_buffer(allocator, sizeof(uint32_t), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
 
-    // gi
     const char* hdri_path = { "assets/pisa.hdr" };
     float* data{};
-
     int width{};
     int height{};
     int channels{};
 
     data = stbi_loadf(hdri_path, &width, &height, &channels, STBI_rgb_alpha);
-
     auto extent = VkExtent3D(static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1);
 
     hdri = upload_image(
@@ -2354,8 +2317,7 @@ void VulkanEngine::init_resources()
         VK_IMAGE_ASPECT_COLOR_BIT
     );
 
-    auto hdri_id = texture_cache.add_texture();
-    texture_cache.set_hdri(hdri_id);
+    bindless.hdri_srv = texture_cache.add_texture();
 
     extent.width /= 4;
     extent.height = extent.width;
@@ -2371,9 +2333,9 @@ void VulkanEngine::init_resources()
         true
     );
 
-    scene_data.textures[0] = static_cast<float>(texture_cache.add_texture());
-    auto hdri_cubemap_id = image_cache.add_texture();
-    image_cache.set_hdri(hdri_cubemap_id);
+    bindless.skybox_srv = texture_cache.add_texture();
+    scene_data.textures[0] = static_cast<float>(bindless.skybox_srv);
+    bindless.skybox_uav = image_cache.add_texture();
 
     irradiance_cubemap = create_cubemap(
         device,
@@ -2384,9 +2346,10 @@ void VulkanEngine::init_resources()
         VK_IMAGE_ASPECT_COLOR_BIT
     );
 
-    scene_data.textures[1] = static_cast<float>(texture_cache.add_texture());
-    auto irradiance_id = image_cache.add_texture();
-    image_cache.set_irradiance(irradiance_id);
+    // TODO: irradiance map is never used but leaving it in here for future debugging purposes
+    bindless.irradiance_srv = texture_cache.add_texture();
+    scene_data.textures[1] = static_cast<float>(bindless.irradiance_srv);
+    bindless.irradiance_uav = image_cache.add_texture();
 
     prefiltered_envmap = create_cubemap(
         device,
@@ -2399,10 +2362,10 @@ void VulkanEngine::init_resources()
         true
     );
 
-    scene_data.textures[2] = static_cast<float>(texture_cache.add_texture());
+    bindless.prefiltered_srv = texture_cache.add_texture();
+    scene_data.textures[2] = static_cast<float>(bindless.prefiltered_srv);
     auto prefiltered_mips = static_cast<uint32_t>(std::floor(std::log2(static_cast<float>(std::max(prefiltered_envmap.extent.width, prefiltered_envmap.extent.height))))) + 1;
-    auto prefiltered_id = image_cache.add_texture();
-    image_cache.set_prefiltered(prefiltered_id);
+    bindless.prefiltered_uav = image_cache.add_texture();
     for (auto i = 1; i < prefiltered_mips; i++)
         image_cache.add_texture();
 
@@ -2415,9 +2378,9 @@ void VulkanEngine::init_resources()
         VK_IMAGE_ASPECT_COLOR_BIT
     );
 
-    scene_data.textures[3] = static_cast<float>(texture_cache.add_texture());
-    auto brdf_id = image_cache.add_texture();
-    image_cache.set_brdf(brdf_id);
+    bindless.brdf_srv = texture_cache.add_texture();
+    scene_data.textures[3] = static_cast<float>(bindless.brdf_srv);
+    bindless.brdf_uav = image_cache.add_texture();
 
     main_deletion_queue.push_function(
         [&]()
@@ -2432,6 +2395,11 @@ void VulkanEngine::init_resources()
             destroy_image(device, allocator, irradiance_cubemap);
             destroy_image(device, allocator, prefiltered_envmap);
             destroy_image(device, allocator, brdf_lut);
+
+            for (auto& cascade : cascade_data)
+            {
+                destroy_image(device, allocator, cascade.shadow_map);
+            }
         }
     );
 }
@@ -2713,10 +2681,10 @@ void VulkanEngine::resolve_taa(VkCommandBuffer cmd)
     auto previous_jitter = jitter_offset[(frame_number - 1) % jitter_count];
     pc.jitter_offset = glm::vec4(current_jitter, previous_jitter);
     pc.screen_size = glm::vec2(static_cast<float>(swapchain.extent.width), static_cast<float>(swapchain.extent.height));
-    pc.current_id = texture_cache.get_draw_image();
-    pc.history_id = texture_cache.get_accumulation_buffer((frame_number + 1) % 2);
-    pc.resolve_id = image_cache.get_accumulation_buffer(frame_number % 2);
-    pc.depth_id = texture_cache.get_depth_image();
+    pc.current_id = bindless.draw_srv;
+    pc.history_id = bindless.accum_srv + ((frame_number + 1) % 2);
+    pc.resolve_id = bindless.accum_uav + (frame_number % 2);
+    pc.depth_id = bindless.depth_srv;
     pc.velocity_id = 0; // unused
     pc.variance_clipping = cvar_system->get_int_cvar("taa.variance_clip");
     pc.history_filter = cvar_system->get_int_cvar("taa.catmull_rom");
@@ -3147,7 +3115,7 @@ void VulkanEngine::ready_mesh_cull(RenderScene::MeshPass& pass, CullData& cull_d
     cull_data.prefix_sum_buffer = get_buffer_address(device, render_scene.prefix_sum_buffer.buffer);
 
     // cull_data.count = static_cast<uint32_t>(pass.unbatched_objects.size()); // set during execute
-    cull_data.texture_id = texture_cache.get_depth_pyramid_image();
+    cull_data.texture_id = bindless.depth_pyramid_srv;
     cull_data.occlusion_enabled = cvar_system->get_int_cvar("occlusion_culling");
 
     cull_data.p00 = proj[0][0];
@@ -3195,7 +3163,7 @@ void VulkanEngine::ready_meshlet_cull(RenderScene::MeshPass& pass, ClusterCullDa
     cull_data.prefix_sum_buffer = get_buffer_address(device, render_scene.prefix_sum_buffer.buffer);
 
     // cull_data.count = static_cast<uint32_t>(pass.unbatched_objects.size()); // unused
-    cull_data.texture_id = texture_cache.get_depth_pyramid_image();
+    cull_data.texture_id = bindless.depth_pyramid_srv;
     cull_data.occlusion_enabled = cvar_system->get_int_cvar("occlusion_culling");
 
     cull_data.p00 = proj[0][0];
@@ -3488,7 +3456,7 @@ void VulkanEngine::render_transparent(VkCommandBuffer cmd, uint32_t query)
     pc.sh_buffer = get_buffer_address(device, render_scene.sh_buffer.buffer);
     pc.screen_size = glm::uvec2(swapchain.extent.width, swapchain.extent.height);
     pc.max_prefiltered_lod = static_cast<float>(std::floor(std::log2(static_cast<float>(std::max(prefiltered_envmap.extent.width, prefiltered_envmap.extent.height))))) + 1;
-    pc.framebuffer_id = image_cache.get_draw_image();
+    pc.framebuffer_id = bindless.draw_uav;
 
     if (!cvar_system->get_int_cvar("mesh_shaders"))
     {
@@ -3646,8 +3614,8 @@ void VulkanEngine::execute_hiz_spd(VkCommandBuffer cmd)
     pc.rcp_resolution = glm::vec2(1.0) / glm::vec2(width, height);
     pc.mips = depth_pyramid_level_count;
     pc.num_wgs = groupcount_x * groupcount_y;
-    pc.src_id = texture_cache.get_depth_image();
-    pc.dst_id = image_cache.get_depth_pyramid_image();
+    pc.src_id = bindless.depth_srv;
+    pc.dst_id = bindless.depth_pyramid_uav;
     pc.sampler_id = DEPTH_REDUCTION_SAMPLER;
 
     VkPushDataInfoEXT push_data_info{};
@@ -3671,8 +3639,8 @@ void VulkanEngine::execute_hiz(VkCommandBuffer cmd)
         int32_t width = std::max(static_cast<int32_t>(depth_pyramid.extent.width) >> i, 1);
         int32_t height = std::max(static_cast<int32_t>(depth_pyramid.extent.height) >> i, 1);
         depth_pc.image_size = { width, height };
-        depth_pc.texture_id = i == 0 ? texture_cache.get_depth_image() : texture_cache.get_depth_pyramid_image();
-        depth_pc.image_id = image_cache.get_depth_pyramid_image() + i;
+        depth_pc.texture_id = i == 0 ? bindless.depth_srv : bindless.depth_pyramid_srv;
+        depth_pc.image_id = bindless.depth_pyramid_uav + i;
         depth_pc.lod = i == 0 ? 0 : i - 1;
 
         VkPushDataInfoEXT push_data_info{};
@@ -3824,10 +3792,10 @@ void VulkanEngine::execute_shading(VkCommandBuffer cmd)
     pc.mesh_buffer_address = get_buffer_address(device, render_scene.mesh_buffer.buffer);
     pc.sh_buffer_address = get_buffer_address(device, render_scene.sh_buffer.buffer);
 
-    pc.draw_id = image_cache.get_draw_image();
-    pc.depth_id = texture_cache.get_depth_image();
-    pc.gbuffer_id = visibility_rendering ? texture_cache.get_visibility_buffer() : texture_cache.get_first_gbuffer();
-    pc.shadow_id = texture_cache.get_shadowmap();
+    pc.draw_id = bindless.draw_uav;
+    pc.depth_id = bindless.depth_srv;
+    pc.gbuffer_id = visibility_rendering ? bindless.vbuffer_srv : bindless.gbuffer_srv;
+    pc.shadow_id = bindless.shadowmap_srv;
     pc.light_culling = cvar_system->get_int_cvar("point_lights");
     pc.near = main_camera.near;
 
