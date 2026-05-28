@@ -8,6 +8,7 @@
 #include <initializer_list>
 #include <memory>
 #include <string>
+#include <unordered_map>
 
 struct ShaderPass
 {
@@ -19,6 +20,15 @@ struct ShaderProgram
     VkShaderModule module{};
     std::string name{};
     std::filesystem::file_time_type time{};
+};
+
+struct ShaderCache
+{
+    std::unordered_map<std::string, std::unique_ptr<ShaderProgram>> data{};
+
+    ShaderProgram* operator[](const std::string& key);
+
+    void add_shader(VkDevice device, const char* path);
 };
 
 using SpecConstants = std::initializer_list<uint32_t>;

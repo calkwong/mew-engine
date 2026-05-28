@@ -8,7 +8,6 @@ target_sources(engine PRIVATE
   vk_loader.cpp
   pipelines.cpp
   cvars.cpp
-  cache.cpp
   extern.cpp
   rendergraph.cpp
   swapchain.cpp

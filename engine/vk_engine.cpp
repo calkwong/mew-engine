@@ -8,7 +8,6 @@
 #include "vk_loader.h"
 #include "pipelines.h"
 #include "vk_scene.h"
-#include "cache.h"
 #include "push_constants.h"
 #include "rendergraph.h"
 #include "swapchain.h"

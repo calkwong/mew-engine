@@ -5,11 +5,13 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <fstream>
 #include <functional>
 #include <ios>
 #include <iterator>
 #include <memory>
+#include <string>
 #include <vector>
 
 bool load_shader_module(const char* path, VkDevice device, VkShaderModule* out_shader_module)
@@ -283,4 +285,26 @@ std::unique_ptr<ShaderPass> create_compute_pipeline(
     result->pipeline = pipeline;
 
     return result;
+}
+
+ShaderProgram* ShaderCache::operator[](const std::string& key)
+{
+    return data[key].get();
+}
+
+void ShaderCache::add_shader(VkDevice device, const char* path)
+{
+    const auto it = data.find(path);
+
+    std::string shader_path{ "shaders/compiled/" };
+    shader_path += path;
+    shader_path += ".spv";
+
+    if (it == data.end())
+    {
+        VkShaderModule module{};
+        load_shader_module(shader_path.c_str(), device, &module);
+        auto time = std::filesystem::last_write_time(shader_path);
+        data[path] = std::make_unique<ShaderProgram>(module, path, time);
+    }
 }

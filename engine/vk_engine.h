@@ -2,7 +2,6 @@
 
 #include "common.h"
 #include "vk_math.h"
-#include "cache.h"
 #include "inputs.h"
 #include "resources.h"
 #include "vk_loader.h"
@@ -212,6 +211,32 @@ public:
     void create_acceleration_structures();
 
 private:
+    struct Bindless
+    {
+        uint32_t depth_pyramid_uav{};
+        uint32_t skybox_uav{};
+        uint32_t draw_uav{};
+        uint32_t accum_uav{};
+        uint32_t irradiance_uav{};
+        uint32_t prefiltered_uav{};
+        uint32_t brdf_uav{};
+
+        uint32_t draw_srv{};
+        uint32_t gbuffer_srv{};
+        uint32_t vbuffer_srv{};
+        uint32_t depth_srv{};
+        uint32_t depth_pyramid_srv{};
+        uint32_t shadowmap_srv{};
+        uint32_t accum_srv{};
+        uint32_t skybox_srv{};
+        uint32_t hdri_srv{};
+        uint32_t irradiance_srv{};
+        uint32_t prefiltered_srv{};
+        uint32_t brdf_srv{};
+
+        uint32_t oit{};
+    };
+
     Bindless bindless{};
 
     void init_vulkan();
