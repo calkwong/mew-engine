@@ -11,6 +11,7 @@
 #include "push_constants.h"
 #include "rendergraph.h"
 #include "swapchain.h"
+#include "descriptors.h"
 
 #include <stb_image.h>
 #include <vk_mem_alloc.h>
@@ -588,8 +589,16 @@ void VulkanEngine::draw()
     *scene_uniform_data = scene_data;
 
     // TODO: potential hazard, we should probably allocate FIF bindings for UBO and offset accordingly
+    // TODO: use proper bufferdescriptorsize
     void* descriptor = static_cast<uint8_t*>(resource_heap_buffer.info.pMappedData) + 0 * desc_heap_properties.imageDescriptorSize;
-    get_buffer_descriptor(device, get_current_frame().scene_buffer, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, descriptor, desc_heap_properties.imageDescriptorSize);
+    write_buffer_descriptor(
+        device,
+        descriptor,
+        get_buffer_address(device, get_current_frame().scene_buffer.buffer),
+        get_current_frame().scene_buffer.size,
+        VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+        desc_heap_properties.imageDescriptorSize
+    );
 
     CullData forward_mesh_cull_data{};
     ClusterCullData forward_cluster_cull_data{};

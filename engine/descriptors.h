@@ -71,3 +71,5 @@ private:
     std::vector<ImageInfo> uav_infos{};
     std::vector<ImageInfo> srv_infos{};
 };
+
+void write_buffer_descriptor(VkDevice device, void* descriptor, VkDeviceAddress buf_addr, VkDeviceSize buf_size, VkDescriptorType type, uint32_t buffer_descriptor_size);

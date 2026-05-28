@@ -366,3 +366,19 @@ void ResourceHeapManager::build_desc_set_bindings(std::vector<VkDescriptorSetAnd
         mappings.push_back(desc_set_and_binding_mapping);
     }
 }
+
+void write_buffer_descriptor(VkDevice device, void* descriptor, VkDeviceAddress buf_addr, VkDeviceSize buf_size, VkDescriptorType type, uint32_t buffer_descriptor_size)
+{
+    VkDeviceAddressRangeEXT addr_range{ .address = buf_addr, .size = buf_size };
+
+    VkResourceDescriptorDataEXT descriptor_data{};
+    descriptor_data.pAddressRange = &addr_range;
+
+    VkResourceDescriptorInfoEXT descriptor_info{};
+    descriptor_info.sType = VK_STRUCTURE_TYPE_RESOURCE_DESCRIPTOR_INFO_EXT;
+    descriptor_info.type = type;
+    descriptor_info.data = descriptor_data;
+
+    VkHostAddressRangeEXT host_address_range{ descriptor, buffer_descriptor_size };
+    VK_CHECK(vkWriteResourceDescriptorsEXT(device, 1, &descriptor_info, &host_address_range));
+};
