@@ -77,6 +77,11 @@ struct MaterialData
     uint32_t occlusion_id{};
     float transmission_factor{};
     uint32_t transmission_id{};
+
+    glm::vec3 attenuation_color{};
+    float attenuation_distance{};
+    float thickness_factor{};
+    uint32_t thickness_id{};
 };
 
 struct SceneData

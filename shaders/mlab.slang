@@ -21,6 +21,7 @@ struct Interp
     float4 tangent;
     nointerpolation uint material_id;
     nointerpolation uint transmission;
+    nointerpolation float scale;
 };
 
 struct PushConstants
@@ -68,6 +69,7 @@ Interp vs_main(
 	interp.material_id = o.material_id;
 
 	interp.transmission = (o.post_pass == 3) ? 1 : 0;
+	interp.scale = o.scale;
 
 	return interp;
 }
@@ -144,6 +146,7 @@ void mesh_main(
 		verts[i].material_id = o.material_id;
 
 		verts[i].transmission = (o.post_pass == 3) ? 1 : 0;
+		verts[i].scale = o.scale;
 	}
 
 #ifdef TRIANGLE_CULLING
@@ -230,14 +233,30 @@ void ps_main(
 
 	BRDFData brdf_data = prepare_brdf_data(N, L, V, albedo.xyz, roughness, metallic);
 	float3 direct_lighting;
+    float thickness = m.thickness_factor;
+    float ior = 1.5;
+    float scale = in.scale;
 	if (material_transmission)
 	{
     	// note: using lambertian here as I think burley's implicit Fresnel modulation breaks the model?
         float3 l_diffuse = eval_diffuse_brdf(brdf_data, albedo.xyz, roughness, metallic) * light_color * brdf_data.NdotL;
 
-        // TODO: account for volume transmission ray
+        if (thickness != 0.0 && m.thickness_id != 0)
+        {
+            thickness *= textures[m.thickness_id].Sample(samplers[LINEAR_SAMPLER], in.uv).g;
+        }
 
-        float3 transmitted_light = eval_punctual_radiance_transmission(brdf_data, albedo.xyz, roughness) * light_color;
+        // if light ray travels through geometry, use the point it exits the geometry again
+        // this changes angle to light source if material refracts the light ray
+        float3 transmission_ray = get_volume_transmission_ray(brdf_data, thickness, ior, scale);
+        // note: original L is stored in BRDFData
+        L -= transmission_ray;
+        L = normalize(L);
+
+        float3 transmitted_light = eval_punctual_radiance_transmission(brdf_data, L, albedo.xyz, roughness, ior) * light_color;
+        if (thickness != 0.0)
+            transmitted_light = apply_volume_attenuation(transmitted_light, length(transmission_ray), m.attenuation_color, m.attenuation_distance);
+
         l_diffuse = lerp(l_diffuse, transmitted_light, transmission_factor);
         float3 F;
         float3 l_specular = eval_specular_brdf(brdf_data, roughness, F) * light_color * brdf_data.NdotL;
@@ -259,7 +278,7 @@ void ps_main(
 	{
     	float3 f_diffuse = irradiance * albedo.xyz;
         float max_extent = float(max(pc.screen_size.x, pc.screen_size.y));
-        float3 f_specular_transmission = eval_ibl_volume_refraction(brdf_data, albedo.xyz, perceptual_roughness, in.world_pos, uniforms.view_proj, pc.framebuffer_id, max_extent);
+        float3 f_specular_transmission = eval_ibl_volume_refraction(brdf_data, albedo.xyz, perceptual_roughness, in.world_pos, uniforms.view_proj, pc.framebuffer_id, max_extent, thickness, m.attenuation_color, m.attenuation_distance, ior, scale);
         f_diffuse = lerp(f_diffuse, f_specular_transmission, transmission_factor);
 
         // for simplicity, use single scattering for transmission path

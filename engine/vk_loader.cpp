@@ -835,7 +835,10 @@ bool load_gltf(
 
     // note: currently not using fastgltf::Extensions::KHR_lights_punctual but some gltf files require it, then we include for sake of
     // being able to load and render the scene but its effectively ignored for now
-    constexpr auto supported_extensions = fastgltf::Extensions::KHR_texture_basisu | fastgltf::Extensions::KHR_materials_transmission;
+    constexpr auto supported_extensions =
+        fastgltf::Extensions::KHR_texture_basisu
+        | fastgltf::Extensions::KHR_materials_transmission
+        | fastgltf::Extensions::KHR_materials_volume;
 
     fastgltf::Parser parser(supported_extensions);
 
@@ -975,6 +978,21 @@ bool load_gltf(
             {
                 size_t image_index = asset.textures[transmission_material->transmissionTexture.value().textureIndex].imageIndex.value();
                 mat_data.transmission_id = static_cast<uint32_t>(texture_offset + image_index);
+            }
+        }
+
+        if (mat.volume.get())
+        {
+            auto* volume_material = mat.volume.get();
+            mat_data.thickness_factor = volume_material->thicknessFactor;
+            mat_data.attenuation_color.x = volume_material->attenuationColor[0];
+            mat_data.attenuation_color.y = volume_material->attenuationColor[1];
+            mat_data.attenuation_color.z = volume_material->attenuationColor[2];
+            mat_data.attenuation_distance = volume_material->attenuationDistance;
+            if (volume_material->thicknessTexture.has_value() && asset.textures[volume_material->thicknessTexture.value().textureIndex].imageIndex)
+            {
+                size_t image_index = asset.textures[volume_material->thicknessTexture.value().textureIndex].imageIndex.value();
+                mat_data.thickness_id = static_cast<uint32_t>(texture_offset + image_index);
             }
         }
 

@@ -48,6 +48,11 @@ public struct MaterialData
 	public uint occlusion_id;
 	public float transmission_factor;
 	public uint transmission_id;
+
+	public float3 attenuation_color;
+    public float attenuation_distance;
+    public float thickness_factor;
+    public uint32_t thickness_id;
 };
 
 public struct ObjectData
