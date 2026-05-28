@@ -78,6 +78,7 @@ AutoCVar_Int CVAR_SHADOWS{ "shadows", "Shadows", CVarFlags::EditCheckbox, 0 };
 AutoCVar_Int CVAR_SHADOWS_RT{ "shadows_rt", "Ray traced shadows", CVarFlags::EditCheckbox, 0 };
 AutoCVar_Int CVAR_TAA{ "taa", "TAA", CVarFlags::EditCheckbox, 0 };
 AutoCVar_Int CVAR_RT{ "rt", "RT", CVarFlags::EditCheckbox, 0 };
+AutoCVar_Int CVAR_VOLUME{ "volume", "KHR_volume", CVarFlags::EditCheckbox, 1 };
 
 AutoCVar_Float CVAR_SHADOWS_CASCADE_SPLIT{ "shadows.cascade_split", "Cascades log factor", CVarFlags::EditDragFloat, 0.95f, 0.f, 1.f, 0.005f };
 AutoCVar_Int CVAR_SHADOWS_DISTANCE{ "shadows.distance", "Shadow draw distance", CVarFlags::EditSliderInt, 48, 20, 200, 5 };
@@ -1160,7 +1161,24 @@ void VulkanEngine::draw()
         );
 
         if (cvar_system->get_int_cvar("transparent"))
+        {
+            // TODO: make below conditional on whether KHR_materials_volume is used
+            graph.add_pass(
+                "draw_image_mipmap",
+                Pass::PassType::ComputePass,
+                [&](Pass& pass)
+                {
+                    pass.add_image_read("draw", draw_image.image);
+                    pass.add_image_write("draw", draw_image.image);
+                },
+                [&]()
+                {
+                    vkutil::generate_mipmaps(cmd, draw_image.image, VkExtent2D{ swapchain.extent.width, swapchain.extent.height });
+                }
+            );
+
             transparency_pass(graph, "transparent_late_", 0, true, 2, 3, 16);
+        }
         else
         {
             vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame_query_pool_timestamps, 16);
@@ -1466,11 +1484,21 @@ void VulkanEngine::run()
                 allocator,
                 new_extent,
                 VK_FORMAT_R32G32B32A32_SFLOAT,
-                VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT,
-                VK_IMAGE_ASPECT_COLOR_BIT
+                VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+                VK_IMAGE_ASPECT_COLOR_BIT,
+                0,
+                true
             );
             resource_heap_manager.update_srv(bindless.draw_srv, draw_image);
             resource_heap_manager.update_uav(bindless.draw_uav, draw_image);
+            // TODO: make below conditional on whether KHR_materials_volume is used
+            auto draw_mip_levels = static_cast<uint32_t>(std::floor(std::log2(std::max(new_extent.width, new_extent.height)))) + 1;
+            for (uint32_t mip = 1; mip < 11; mip++)
+            {
+                (mip < draw_mip_levels)
+                    ? resource_heap_manager.update_uav(bindless.draw_uav + mip, draw_image, mip)
+                    : resource_heap_manager.update_uav(bindless.draw_uav + mip, draw_image, draw_mip_levels - 1);
+            }
 
             depth_image = create_render_target(device, allocator, new_extent, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_DEPTH_BIT);
             resource_heap_manager.update_srv(bindless.depth_srv, depth_image);
@@ -2096,11 +2124,22 @@ void VulkanEngine::init_resources()
         allocator,
         image_extent,
         VK_FORMAT_R32G32B32A32_SFLOAT,
-        VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT,
-        VK_IMAGE_ASPECT_COLOR_BIT
+        VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+        VK_IMAGE_ASPECT_COLOR_BIT,
+        0,
+        true
     );
     bindless.draw_srv = resource_heap_manager.add_srv(draw_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
     bindless.draw_uav = resource_heap_manager.add_uav(draw_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+
+    // TODO: make below conditional on whether KHR_materials_volume is used
+    auto draw_mip_levels = static_cast<uint32_t>(std::floor(std::log2(std::max(swapchain.extent.width, swapchain.extent.height)))) + 1;
+    for (uint32_t mip = 1; mip < 11; mip++)
+    {
+        (mip < draw_mip_levels)
+            ? resource_heap_manager.add_uav(draw_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, mip)
+            : resource_heap_manager.add_uav(draw_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, draw_mip_levels - 1);
+    }
 
     VkImageUsageFlags gbuffer_flags{
         VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
@@ -3359,6 +3398,7 @@ void VulkanEngine::render_transparent(VkCommandBuffer cmd, uint32_t query)
     pc.screen_size = glm::uvec2(swapchain.extent.width, swapchain.extent.height);
     pc.max_prefiltered_lod = static_cast<float>(std::floor(std::log2(static_cast<float>(std::max(prefiltered_envmap.extent.width, prefiltered_envmap.extent.height))))) + 1;
     pc.framebuffer_id = bindless.draw_srv;
+    pc.volume = cvar_system->get_int_cvar("volume");
 
     if (!cvar_system->get_int_cvar("mesh_shaders"))
     {

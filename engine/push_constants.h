@@ -76,6 +76,7 @@ struct OITPushConstants
     glm::uvec2 screen_size{};
     float max_prefiltered_lod{};
     uint32_t framebuffer_id{};
+    uint32_t volume{};
 };
 
 struct DeferredPushConstants

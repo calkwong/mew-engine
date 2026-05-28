@@ -26,8 +26,6 @@ public float3 eval_punctual_radiance_transmission(BRDFData brdf_data, float3 L, 
 public float3 get_transmission_sample(float2 uv, uint texture_index, float extent, float perceptual_roughness, float ior)
 {
     float framebuffer_lod = log2(extent) * apply_ior_to_roughness(perceptual_roughness, ior);
-    // TODO: remove after setting up mipmap of rendertarget
-    framebuffer_lod = 0.0;
     float3 transmitted_light = textures[texture_index].SampleLevel(samplers[NEAREST_SAMPLER], uv, framebuffer_lod).rgb;
 
     return transmitted_light;
@@ -48,7 +46,7 @@ public float3 eval_ibl_volume_refraction(BRDFData brdf_data, float3 albedo, floa
 
     float3 transmitted_light = get_transmission_sample(sample_uv, texture_index, extent, perceptual_roughness, ior);
 
-    // sample framebuffer
+    // noop if volume is off
     float3 attenuated_color = apply_volume_attenuation(transmitted_light, transmission_ray_length, attenuation_color, attenuation_distance);
 
     return attenuated_color * albedo;

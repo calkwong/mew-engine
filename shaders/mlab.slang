@@ -37,6 +37,7 @@ struct PushConstants
 	uint2 screen_size;
 	float max_prefiltered_lod;
 	uint framebuffer_id;
+	uint volume;
 };
 
 [[vk::push_constant]] PushConstants pc;
@@ -234,8 +235,16 @@ void ps_main(
 	BRDFData brdf_data = prepare_brdf_data(N, L, V, albedo.xyz, roughness, metallic);
 	float3 direct_lighting;
     float thickness = m.thickness_factor;
+    float3 attenuation_color = m.attenuation_color;
+    float3 attenuation_distance = m.attenuation_distance;
     float ior = 1.5;
     float scale = in.scale;
+    if (pc.volume == 0)
+    {
+        thickness = 0.0;
+        attenuation_color = float3(1.0);
+        attenuation_distance = 0.0; // infinity
+    }
 	if (material_transmission)
 	{
     	// note: using lambertian here as I think burley's implicit Fresnel modulation breaks the model?
@@ -254,7 +263,7 @@ void ps_main(
         L = normalize(L);
 
         float3 transmitted_light = eval_punctual_radiance_transmission(brdf_data, L, albedo.xyz, roughness, ior) * light_color;
-        if (thickness != 0.0)
+        if (pc.volume == 1)
             transmitted_light = apply_volume_attenuation(transmitted_light, length(transmission_ray), m.attenuation_color, m.attenuation_distance);
 
         l_diffuse = lerp(l_diffuse, transmitted_light, transmission_factor);
