@@ -1,10 +1,12 @@
 #include "descriptors.h"
 #include "common.h"
+#include "resources.h"
 
 #include <cstdint>
 #include <vector>
 
-void SamplerHeapManager::init_samplers(VkDevice device, void* p_heap)
+// implicitly initializes hardcoded sampler infos
+void SamplerHeapManager::write_sampler_heap(VkDevice device, void* p_heap)
 {
     VkSamplerReductionModeCreateInfo reduction_info{};
     reduction_info.sType = VK_STRUCTURE_TYPE_SAMPLER_REDUCTION_MODE_CREATE_INFO;
@@ -80,23 +82,39 @@ void SamplerHeapManager::build_desc_set_bindings(std::vector<VkDescriptorSetAndB
     mappings.push_back(desc_set_and_binding_mapping);
 }
 
-uint32_t ResourceHeapManager::add_uav(VkImage image, VkFormat format, VkImageViewType type, VkImageAspectFlags aspect, uint32_t mip)
+uint32_t ResourceHeapManager::add_uav(AllocatedImage& image, VkImageViewType type, VkImageAspectFlags aspect, uint32_t mip /* = 0 */)
 {
     auto new_id = uav_infos.size();
-    uav_infos.emplace_back(ImageInfo{ image, format, type, aspect, mip });
+    uav_infos.emplace_back(ImageInfo{ image.image, image.format, type, aspect, mip });
 
     return new_id;
 }
 
-uint32_t ResourceHeapManager::add_srv(VkImage image, VkFormat format, VkImageViewType type, VkImageAspectFlags aspect, uint32_t mip)
+uint32_t ResourceHeapManager::add_srv(AllocatedImage& image, VkImageViewType type, VkImageAspectFlags aspect)
 {
     auto new_id = srv_infos.size();
-    srv_infos.emplace_back(ImageInfo{ image, format, type, aspect, mip });
+    srv_infos.emplace_back(ImageInfo{ image.image, image.format, type, aspect, 0 });
 
     return new_id;
 }
 
-void ResourceHeapManager::write_resource_heap(VkDevice device, void* p_heap)
+uint32_t ResourceHeapManager::add_buffer(AllocatedBuffer& buffer, VkDescriptorType type)
+{
+    auto new_id = buffer_infos.size();
+    buffer_infos.emplace_back(BufferInfo{ buffer.buffer, buffer.size, type });
+
+    return new_id;
+}
+
+uint32_t ResourceHeapManager::add_acceleration_structure(VkAccelerationStructureKHR as, VkDeviceSize size)
+{
+    auto new_id = buffer_infos.size();
+    as_infos.emplace_back(ASInfo{ as, size });
+
+    return new_id;
+}
+
+void ResourceHeapManager::write_resource_heap(VkDevice device, void* p_heap, bool rebuild /* = false */)
 {
     uint32_t offset = 0;
 
@@ -124,8 +142,8 @@ void ResourceHeapManager::write_resource_heap(VkDevice device, void* p_heap)
     }
     offset += uav_infos.size() * image_descriptor_size;
 
-    // TODO: implement an early exit hack to ignore scene/material textures during rebuild
-    for (uint32_t i = 0; i < srv_infos.size(); ++i)
+    auto texture_count = rebuild ? srv_rebuild_size : srv_infos.size();
+    for (uint32_t i = 0; i < texture_count; ++i)
     {
         auto& info = srv_infos[i];
         void* descriptor = static_cast<uint8_t*>(p_heap) + i * image_descriptor_size + offset;
@@ -231,39 +249,35 @@ void ResourceHeapManager::get_buffer_descriptor(VkDevice device, void* descripto
     VK_CHECK(vkWriteResourceDescriptorsEXT(device, 1, &descriptor_info, &host_address_range));
 };
 
-void ResourceHeapManager::update_uav(uint32_t handle, VkImage image, uint32_t mip)
+void ResourceHeapManager::update_uav(uint32_t handle, AllocatedImage& image, uint32_t mip /* = 0 */)
 {
     auto& info = uav_infos[handle];
-    info.image = image;
+    info.image = image.image;
     info.mip = mip;
 }
 
-void ResourceHeapManager::update_srv(uint32_t handle, VkImage image, uint32_t mip)
+void ResourceHeapManager::update_srv(uint32_t handle, AllocatedImage& image)
 {
     auto& info = srv_infos[handle];
-    info.image = image;
-    info.mip = mip;
+    info.image = image.image;
 }
 
-void ResourceHeapManager::update_buffer(uint32_t handle, VkBuffer buffer, VkDeviceSize size)
+void ResourceHeapManager::update_buffer(uint32_t handle, AllocatedBuffer& buffer, VkDeviceSize size)
 {
     auto& info = buffer_infos[handle];
-    info.buffer = buffer;
+    info.buffer = buffer.buffer;
     info.size = size;
 }
 
-void ResourceHeapManager::set_srv_rebuild_size()
+uint32_t ResourceHeapManager::set_srv_rebuild_size()
 {
     srv_rebuild_size = srv_infos.size();
+    return srv_rebuild_size;
 }
 
-// set 2 - bindless SRV textures
 void ResourceHeapManager::build_desc_set_bindings(std::vector<VkDescriptorSetAndBindingMappingEXT>& mappings)
 {
-    // TODO: remove magic number
-    // TODO: use proper buffer descriptor size
     // TODO: use finer grain flags instead of VK_SPIRV_RESOURCE_TYPE_ALL_EXT
-
     for (uint32_t i = 0; i < buffer_infos.size(); ++i)
     {
         VkDescriptorSetAndBindingMappingEXT desc_set_and_binding_mapping{};
@@ -275,7 +289,6 @@ void ResourceHeapManager::build_desc_set_bindings(std::vector<VkDescriptorSetAnd
         desc_set_and_binding_mapping.source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_CONSTANT_OFFSET_EXT;
 
         VkDescriptorMappingSourceConstantOffsetEXT constant_offset{};
-        // assumes heapoffset starts from 0
         constant_offset.heapOffset = i * buffer_descriptor_size;
         constant_offset.heapArrayStride = buffer_descriptor_size;
 
@@ -298,7 +311,7 @@ void ResourceHeapManager::build_desc_set_bindings(std::vector<VkDescriptorSetAnd
         desc_set_and_binding_mapping.source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_CONSTANT_OFFSET_EXT;
 
         VkDescriptorMappingSourceConstantOffsetEXT constant_offset{};
-        constant_offset.heapOffset = i * buffer_descriptor_size + offset;
+        constant_offset.heapOffset = i * buffer_descriptor_size + heap_offset;
         constant_offset.heapArrayStride = buffer_descriptor_size;
 
         VkDescriptorMappingSourceDataEXT source_data{};
