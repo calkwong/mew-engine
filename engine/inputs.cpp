@@ -2,6 +2,7 @@
 #include "vk_math.h"
 #include "cvars.h"
 
+#include <fmt/base.h>
 #include <glm/ext/quaternion_common.hpp>
 #include <glm/ext/quaternion_float.hpp>
 #include <glm/ext/quaternion_trigonometric.hpp>
@@ -44,8 +45,15 @@ glm::quat Camera::get_rotation_matrix() const
     return yaw_rotation * pitch_rotation;
 }
 
-void Camera::process_sdl_event(const SDL_Event& e)
+void Camera::process_sdl_event(const SDL_Event& e, bool relative_mouse_mode)
 {
+    if (!relative_mouse_mode)
+    {
+        velocity.x = 0.0;
+        velocity.z = 0.0;
+        return;
+    }
+
     const bool* state = SDL_GetKeyboardState(NULL);
     velocity.x = static_cast<float>(state[SDL_SCANCODE_D]) - static_cast<float>(state[SDL_SCANCODE_A]);
     velocity.z = static_cast<float>(state[SDL_SCANCODE_S]) - static_cast<float>(state[SDL_SCANCODE_W]);

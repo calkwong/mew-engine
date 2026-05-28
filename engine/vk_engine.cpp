@@ -1386,8 +1386,7 @@ void VulkanEngine::run()
 
             key_callback(window, e);
 
-            if (SDL_GetWindowRelativeMouseMode(window))
-                main_camera.process_sdl_event(e);
+            main_camera.process_sdl_event(e, SDL_GetWindowRelativeMouseMode(window));
 
             if (CVarSystem::get()->get_int_cvar("hot_reload") == 1)
             {
