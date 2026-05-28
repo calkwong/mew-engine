@@ -824,7 +824,8 @@ bool load_gltf(
     VmaAllocator allocator,
     ResourceHeapManager* heap_manager,
     LoadedGLTF* scene,
-    const std::string& file_path
+    const std::string& file_path,
+    uint32_t texture_offset
 )
 {
     auto asset_path = "assets/" + file_path;
@@ -893,9 +894,6 @@ bool load_gltf(
     assert(!asset.materials.empty());
     auto& materials_data = scene->materials;
 
-    // important! this is necessary for correct indexing and skipping of unnecessary descriptor updates if swapchain resizes
-    auto texture_cache_offset = heap_manager->set_srv_rebuild_size();
-
     // TODO: currently supports ktx2 in URI only
 
     std::vector<AllocatedImage> images{};
@@ -926,7 +924,7 @@ bool load_gltf(
                 ? asset.textures[mat.pbrData.baseColorTexture.value().textureIndex].imageIndex.value()
                 : asset.textures[mat.pbrData.baseColorTexture.value().textureIndex].basisuImageIndex.value();
 
-            mat_data.diffuse_id = static_cast<uint32_t>(texture_cache_offset + image_index);
+            mat_data.diffuse_id = static_cast<uint32_t>(texture_offset + image_index);
         }
 
         if (mat.pbrData.metallicRoughnessTexture.has_value())
@@ -936,7 +934,7 @@ bool load_gltf(
                 ? asset.textures[mat.pbrData.metallicRoughnessTexture.value().textureIndex].imageIndex.value()
                 : asset.textures[mat.pbrData.metallicRoughnessTexture.value().textureIndex].basisuImageIndex.value();
 
-            mat_data.metal_roughness_id = static_cast<uint32_t>(texture_cache_offset + image_index);
+            mat_data.metal_roughness_id = static_cast<uint32_t>(texture_offset + image_index);
         }
 
         if (mat.normalTexture.has_value())
@@ -946,7 +944,7 @@ bool load_gltf(
                 ? asset.textures[mat.normalTexture.value().textureIndex].imageIndex.value()
                 : asset.textures[mat.normalTexture.value().textureIndex].basisuImageIndex.value();
 
-            mat_data.normal_id = static_cast<uint32_t>(texture_cache_offset + image_index);
+            mat_data.normal_id = static_cast<uint32_t>(texture_offset + image_index);
         }
 
         if (mat.occlusionTexture.has_value())
@@ -956,7 +954,7 @@ bool load_gltf(
                 ? asset.textures[mat.occlusionTexture.value().textureIndex].imageIndex.value()
                 : asset.textures[mat.occlusionTexture.value().textureIndex].basisuImageIndex.value();
 
-            mat_data.occlusion_id = static_cast<uint32_t>(texture_cache_offset + image_index);
+            mat_data.occlusion_id = static_cast<uint32_t>(texture_offset + image_index);
         }
 
         if (mat.emissiveTexture.has_value())
@@ -966,7 +964,7 @@ bool load_gltf(
                 ? asset.textures[mat.emissiveTexture.value().textureIndex].imageIndex.value()
                 : asset.textures[mat.emissiveTexture.value().textureIndex].basisuImageIndex.value();
 
-            mat_data.emissive_id = static_cast<uint32_t>(texture_cache_offset + image_index);
+            mat_data.emissive_id = static_cast<uint32_t>(texture_offset + image_index);
         }
 
         if (mat.transmission.get())
@@ -976,7 +974,7 @@ bool load_gltf(
             if (transmission_material->transmissionTexture.has_value())
             {
                 size_t image_index = asset.textures[transmission_material->transmissionTexture.value().textureIndex].imageIndex.value();
-                mat_data.transmission_id = static_cast<uint32_t>(texture_cache_offset + image_index);
+                mat_data.transmission_id = static_cast<uint32_t>(texture_offset + image_index);
             }
         }
 
@@ -1255,9 +1253,12 @@ std::optional<std::unique_ptr<LoadedGLTF>> load_gltfs(
     scene->device = device;
     scene->allocator = allocator;
 
+    // important! this is necessary for correct indexing and skipping of unnecessary descriptor updates if swapchain resizes
+    auto texture_offset = heap_manager->set_srv_rebuild_size();
+
     for (auto& file_path : file_paths)
     {
-        bool success = load_gltf(device, queue, fence, command_pool, cmd, allocator, heap_manager, scene.get(), file_path);
+        bool success = load_gltf(device, queue, fence, command_pool, cmd, allocator, heap_manager, scene.get(), file_path, texture_offset);
         if (!success)
         {
             fmt::println("Failed to load gltf: {}", file_path);
