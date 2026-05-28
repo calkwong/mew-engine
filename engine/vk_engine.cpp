@@ -3358,7 +3358,7 @@ void VulkanEngine::render_transparent(VkCommandBuffer cmd, uint32_t query)
     pc.sh_buffer = get_buffer_address(device, render_scene.sh_buffer.buffer);
     pc.screen_size = glm::uvec2(swapchain.extent.width, swapchain.extent.height);
     pc.max_prefiltered_lod = static_cast<float>(std::floor(std::log2(static_cast<float>(std::max(prefiltered_envmap.extent.width, prefiltered_envmap.extent.height))))) + 1;
-    pc.framebuffer_id = bindless.draw_uav;
+    pc.framebuffer_id = bindless.draw_srv;
 
     if (!cvar_system->get_int_cvar("mesh_shaders"))
     {

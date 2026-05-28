@@ -28,7 +28,7 @@ public float3 get_transmission_sample(float2 uv, uint texture_index, float exten
     float framebuffer_lod = log2(extent) * apply_ior_to_roughness(perceptual_roughness, ior);
     // TODO: remove after setting up mipmap of rendertarget
     framebuffer_lod = 0.0;
-    float3 transmitted_light = textures[texture_index].SampleLevel(samplers[LINEAR_SAMPLER], uv, framebuffer_lod).rgb;
+    float3 transmitted_light = textures[texture_index].SampleLevel(samplers[NEAREST_SAMPLER], uv, framebuffer_lod).rgb;
 
     return transmitted_light;
 }

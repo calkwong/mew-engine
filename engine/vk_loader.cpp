@@ -32,6 +32,7 @@
 #include <filesystem>
 #include <fstream>
 #include <ios>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <string>
@@ -976,7 +977,10 @@ bool load_gltf(
             mat_data.transmission_factor = transmission_material->transmissionFactor;
             if (transmission_material->transmissionTexture.has_value())
             {
-                size_t image_index = asset.textures[transmission_material->transmissionTexture.value().textureIndex].imageIndex.value();
+                size_t image_index =
+                    asset.textures[transmission_material->transmissionTexture.value().textureIndex].imageIndex
+                    ? asset.textures[transmission_material->transmissionTexture.value().textureIndex].imageIndex.value()
+                    : asset.textures[transmission_material->transmissionTexture.value().textureIndex].basisuImageIndex.value();
                 mat_data.transmission_id = static_cast<uint32_t>(texture_offset + image_index);
             }
         }
@@ -988,10 +992,16 @@ bool load_gltf(
             mat_data.attenuation_color.x = volume_material->attenuationColor[0];
             mat_data.attenuation_color.y = volume_material->attenuationColor[1];
             mat_data.attenuation_color.z = volume_material->attenuationColor[2];
-            mat_data.attenuation_distance = volume_material->attenuationDistance;
-            if (volume_material->thicknessTexture.has_value() && asset.textures[volume_material->thicknessTexture.value().textureIndex].imageIndex)
+            mat_data.attenuation_distance =
+                volume_material->attenuationDistance == std::numeric_limits<float>::infinity()
+                ? 0.0
+                : volume_material->attenuationDistance;
+            if (volume_material->thicknessTexture.has_value())
             {
-                size_t image_index = asset.textures[volume_material->thicknessTexture.value().textureIndex].imageIndex.value();
+                size_t image_index =
+                    asset.textures[volume_material->thicknessTexture.value().textureIndex].imageIndex
+                    ? asset.textures[volume_material->thicknessTexture.value().textureIndex].imageIndex.value()
+                    : asset.textures[volume_material->thicknessTexture.value().textureIndex].basisuImageIndex.value();
                 mat_data.thickness_id = static_cast<uint32_t>(texture_offset + image_index);
             }
         }
