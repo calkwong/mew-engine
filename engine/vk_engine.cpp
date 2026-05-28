@@ -348,8 +348,8 @@ void VulkanEngine::cleanup()
         destroy_buffer(allocator, render_scene.prefix_sum_buffer);
         destroy_buffer(allocator, render_scene.spd_counter_buffer);
 
-        destroy_buffer(allocator, resource_heap);
-        destroy_buffer(allocator, sampler_heap);
+        destroy_buffer(allocator, resource_heap_buffer);
+        destroy_buffer(allocator, sampler_heap_buffer);
 
         for (const auto& [_, shader] : shader_passes)
             vkDestroyPipeline(device, shader->pipeline, nullptr);
@@ -396,15 +396,15 @@ void VulkanEngine::execute_baked_gi()
 
     VkBindHeapInfoEXT bind_resource_heap_info{};
     bind_resource_heap_info.sType = VK_STRUCTURE_TYPE_BIND_HEAP_INFO_EXT;
-    bind_resource_heap_info.heapRange = { get_buffer_address(device, resource_heap.buffer), resource_heap.size };
-    bind_resource_heap_info.reservedRangeOffset = resource_heap.size - desc_heap_properties.minResourceHeapReservedRange;
+    bind_resource_heap_info.heapRange = { get_buffer_address(device, resource_heap_buffer.buffer), resource_heap_buffer.size };
+    bind_resource_heap_info.reservedRangeOffset = resource_heap_buffer.size - desc_heap_properties.minResourceHeapReservedRange;
     bind_resource_heap_info.reservedRangeSize = desc_heap_properties.minResourceHeapReservedRange;
     vkCmdBindResourceHeapEXT(imm_command_buffer, &bind_resource_heap_info);
 
     VkBindHeapInfoEXT bind_sampler_heap_info{};
     bind_sampler_heap_info.sType = VK_STRUCTURE_TYPE_BIND_HEAP_INFO_EXT;
-    bind_sampler_heap_info.heapRange = { get_buffer_address(device, sampler_heap.buffer), sampler_heap.size };
-    bind_sampler_heap_info.reservedRangeOffset = sampler_heap.size - desc_heap_properties.minSamplerHeapReservedRange;
+    bind_sampler_heap_info.heapRange = { get_buffer_address(device, sampler_heap_buffer.buffer), sampler_heap_buffer.size };
+    bind_sampler_heap_info.reservedRangeOffset = sampler_heap_buffer.size - desc_heap_properties.minSamplerHeapReservedRange;
     bind_sampler_heap_info.reservedRangeSize = desc_heap_properties.minSamplerHeapReservedRange;
     vkCmdBindSamplerHeapEXT(imm_command_buffer, &bind_sampler_heap_info);
 
@@ -589,7 +589,7 @@ void VulkanEngine::draw()
     *scene_uniform_data = scene_data;
 
     // TODO: potential hazard, we should probably allocate FIF bindings for UBO and offset accordingly
-    void* descriptor = static_cast<uint8_t*>(resource_heap.info.pMappedData) + 0 * desc_heap_properties.imageDescriptorSize;
+    void* descriptor = static_cast<uint8_t*>(resource_heap_buffer.info.pMappedData) + 0 * desc_heap_properties.imageDescriptorSize;
     get_buffer_descriptor(device, get_current_frame().scene_buffer, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, descriptor, desc_heap_properties.imageDescriptorSize);
 
     CullData forward_mesh_cull_data{};
@@ -707,15 +707,15 @@ void VulkanEngine::draw()
 
     VkBindHeapInfoEXT bind_resource_heap_info{};
     bind_resource_heap_info.sType = VK_STRUCTURE_TYPE_BIND_HEAP_INFO_EXT;
-    bind_resource_heap_info.heapRange = { get_buffer_address(device, resource_heap.buffer), resource_heap.size };
-    bind_resource_heap_info.reservedRangeOffset = resource_heap.size - desc_heap_properties.minResourceHeapReservedRange;
+    bind_resource_heap_info.heapRange = { get_buffer_address(device, resource_heap_buffer.buffer), resource_heap_buffer.size };
+    bind_resource_heap_info.reservedRangeOffset = resource_heap_buffer.size - desc_heap_properties.minResourceHeapReservedRange;
     bind_resource_heap_info.reservedRangeSize = desc_heap_properties.minResourceHeapReservedRange;
     vkCmdBindResourceHeapEXT(cmd, &bind_resource_heap_info);
 
     VkBindHeapInfoEXT bind_sampler_heap_info{};
     bind_sampler_heap_info.sType = VK_STRUCTURE_TYPE_BIND_HEAP_INFO_EXT;
-    bind_sampler_heap_info.heapRange = { get_buffer_address(device, sampler_heap.buffer), sampler_heap.size };
-    bind_sampler_heap_info.reservedRangeOffset = sampler_heap.size - desc_heap_properties.minSamplerHeapReservedRange;
+    bind_sampler_heap_info.heapRange = { get_buffer_address(device, sampler_heap_buffer.buffer), sampler_heap_buffer.size };
+    bind_sampler_heap_info.reservedRangeOffset = sampler_heap_buffer.size - desc_heap_properties.minSamplerHeapReservedRange;
     bind_sampler_heap_info.reservedRangeSize = desc_heap_properties.minSamplerHeapReservedRange;
     vkCmdBindSamplerHeapEXT(cmd, &bind_sampler_heap_info);
 
@@ -1426,7 +1426,7 @@ void VulkanEngine::run()
 
                         // instead of rebuilding everything, we could just update relevant pipelines, but full rebuild is almost instantaneous so we roll with this for now
                         shader_passes.clear();
-                        init_pipelines(true);
+                        init_pipelines();
                     }
                 }
             }
@@ -1462,9 +1462,13 @@ void VulkanEngine::run()
                 VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT,
                 VK_IMAGE_ASPECT_COLOR_BIT
             );
+            resource_heap_manager.update_srv(bindless.draw_srv, draw_image);
+            resource_heap_manager.update_uav(bindless.draw_uav, draw_image);
 
             depth_image = create_render_target(device, allocator, new_extent, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_DEPTH_BIT);
+            resource_heap_manager.update_srv(bindless.depth_srv, depth_image);
             visibility_buffer = create_render_target(device, allocator, new_extent, VK_FORMAT_R32G32_UINT, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+            resource_heap_manager.update_srv(bindless.vbuffer_srv, visibility_buffer);
 
             auto gbuffer_flags = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
 
@@ -1473,14 +1477,16 @@ void VulkanEngine::run()
             gbuffers.emplace_back(create_render_target(device, allocator, new_extent, VK_FORMAT_R16G16B16A16_SFLOAT, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
             gbuffers.emplace_back(create_render_target(device, allocator, new_extent, VK_FORMAT_R8G8B8A8_UNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
             gbuffers.emplace_back(create_render_target(device, allocator, new_extent, VK_FORMAT_R8G8B8A8_UNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
+            resource_heap_manager.update_srv(bindless.gbuffer_srv + 0, gbuffers[0]);
+            resource_heap_manager.update_srv(bindless.gbuffer_srv + 1, gbuffers[1]);
+            resource_heap_manager.update_srv(bindless.gbuffer_srv + 2, gbuffers[2]);
+            resource_heap_manager.update_srv(bindless.gbuffer_srv + 3, gbuffers[3]);
 
             VkExtent3D depth_pyramid_extent{};
             depth_pyramid_extent.width = nearest_pow2(swapchain.extent.width);
             depth_pyramid_extent.height = nearest_pow2(swapchain.extent.height);
             depth_pyramid_extent.depth = 1;
-
             depth_pyramid_level_count = static_cast<uint32_t>(std::floor(std::log2(static_cast<float>(std::max(depth_pyramid_extent.width, depth_pyramid_extent.height))))) + 1;
-
             depth_pyramid = create_image(
                 device,
                 allocator,
@@ -1491,10 +1497,22 @@ void VulkanEngine::run()
                 0,
                 true
             );
+            resource_heap_manager.update_srv(bindless.depth_pyramid_srv, depth_pyramid);
+            for (size_t mip = 0; mip < 11; mip++)
+            {
+                if (mip < depth_pyramid_level_count)
+                    resource_heap_manager.update_uav(bindless.depth_pyramid_uav + mip, depth_pyramid, mip);
+                else
+                    resource_heap_manager.update_uav(bindless.depth_pyramid_uav + mip, depth_pyramid, depth_pyramid_level_count - 1);
+            }
 
             // note: this is not the right way to handle TAA resize but for simplicity just destroy and recreate immediately
             accumulation_buffers[0] = create_image(device, allocator, new_extent, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
             accumulation_buffers[1] = create_image(device, allocator, new_extent, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+            resource_heap_manager.update_srv(bindless.accum_srv, accumulation_buffers[0]);
+            resource_heap_manager.update_srv(bindless.accum_srv + 1, accumulation_buffers[1]);
+            resource_heap_manager.update_uav(bindless.accum_uav, accumulation_buffers[0]);
+            resource_heap_manager.update_uav(bindless.accum_uav + 1, accumulation_buffers[1]);
 
             {
                 auto screen_pixels = new_extent.width * new_extent.height;
@@ -1504,6 +1522,7 @@ void VulkanEngine::run()
                     0,
                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT
                 );
+                resource_heap_manager.update_buffer(bindless.oit, render_scene.oit_buffer, render_scene.oit_buffer.size);
 
                 immediate_submit(
                     device,
@@ -1518,8 +1537,7 @@ void VulkanEngine::run()
                 );
             }
 
-            uint32_t resource_heap_offset = 0;
-            write_descriptor_heap(resource_heap_offset);
+            resource_heap_manager.write_resource_heap(device, resource_heap_buffer.info.pMappedData, true);
         }
 
         freeze_camera = cvar_system->get_int_cvar("freeze_camera");
@@ -1836,7 +1854,7 @@ void VulkanEngine::init_sync_structures()
 void VulkanEngine::init_descriptors()
 {
     // TODO: use proper size
-    resource_heap = create_buffer(
+    resource_heap_buffer = create_buffer(
         allocator,
         // TODO: compute this properly, accounting for image and buffer separately
         3000 * desc_heap_properties.imageDescriptorSize + desc_heap_properties.minResourceHeapReservedRange,
@@ -1844,40 +1862,23 @@ void VulkanEngine::init_descriptors()
         VK_BUFFER_USAGE_DESCRIPTOR_HEAP_BIT_EXT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
     );
 
-    sampler_heap = create_buffer(
+    sampler_heap_buffer = create_buffer(
         allocator,
         7 * desc_heap_properties.samplerDescriptorSize + desc_heap_properties.minSamplerHeapReservedRange,
         VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
         VK_BUFFER_USAGE_DESCRIPTOR_HEAP_BIT_EXT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
     );
 
-    uint32_t resource_heap_offset = 0;
-    write_descriptor_heap(resource_heap_offset);
+    // TODO: use proper buffer descriptor size
+    resource_heap_manager.buffer_descriptor_size = desc_heap_properties.imageDescriptorSize;
+    resource_heap_manager.image_descriptor_size = desc_heap_properties.imageDescriptorSize;
+    sampler_heap_manager.sampler_descriptor_size = desc_heap_properties.samplerDescriptorSize;
 
-    auto image_descriptor_size = desc_heap_properties.imageDescriptorSize;
-    for (size_t i = 0; i < loaded_scene->images.size(); ++i)
-    {
-        AllocatedImage& image = loaded_scene->images[i];
-        void* descriptor = static_cast<uint8_t*>(resource_heap.info.pMappedData) + i * image_descriptor_size + resource_heap_offset;
-        get_image_descriptor(device, image.image, image.format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, descriptor, image_descriptor_size);
-    }
+    resource_heap_manager.write_resource_heap(device, resource_heap_buffer.info.pMappedData);
+    sampler_heap_manager.write_sampler_heap(device, sampler_heap_buffer.info.pMappedData);
 
-    // samplers
-    // note: reduction mode hack
-    VkSamplerReductionModeCreateInfo reduction_info{};
-    reduction_info.sType = VK_STRUCTURE_TYPE_SAMPLER_REDUCTION_MODE_CREATE_INFO;
-    reduction_info.reductionMode = VK_SAMPLER_REDUCTION_MODE_MIN;
-    const uint32_t sampler_count = 7;
-    {
-        auto sampler_descriptor_size = desc_heap_properties.samplerDescriptorSize;
-        get_sample_descriptor(device, VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_LINEAR, VK_SAMPLER_ADDRESS_MODE_REPEAT, nullptr, static_cast<uint8_t*>(sampler_heap.info.pMappedData) + 0 * sampler_descriptor_size, sampler_descriptor_size); // 0: linear
-        get_sample_descriptor(device, VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_LINEAR, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, nullptr, static_cast<uint8_t*>(sampler_heap.info.pMappedData) + 1 * sampler_descriptor_size, sampler_descriptor_size); // 1: cube map sampling
-        get_sample_descriptor(device, VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_LINEAR, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, nullptr, static_cast<uint8_t*>(sampler_heap.info.pMappedData) + 2 * sampler_descriptor_size, sampler_descriptor_size); // 2: shadow map sampler
-        get_sample_descriptor(device, VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, &reduction_info, static_cast<uint8_t*>(sampler_heap.info.pMappedData) + 3 * sampler_descriptor_size, sampler_descriptor_size); // 3: hiz
-        get_sample_descriptor(device, VK_FILTER_NEAREST, VK_SAMPLER_MIPMAP_MODE_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER, nullptr, static_cast<uint8_t*>(sampler_heap.info.pMappedData) + 4 * sampler_descriptor_size, sampler_descriptor_size); // 4: nearest clamp to border
-        get_sample_descriptor(device, VK_FILTER_NEAREST, VK_SAMPLER_MIPMAP_MODE_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, nullptr, static_cast<uint8_t*>(sampler_heap.info.pMappedData) + 5 * sampler_descriptor_size, sampler_descriptor_size); // 5: nearest clamp to edge
-        get_sample_descriptor(device, VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_LINEAR, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, nullptr, static_cast<uint8_t*>(sampler_heap.info.pMappedData) + 6 * sampler_descriptor_size, sampler_descriptor_size); // 6: linear clamp to edge
-    }
+    resource_heap_manager.build_desc_set_bindings(desc_mappings);
+    sampler_heap_manager.build_desc_set_bindings(desc_mappings);
 }
 
 void VulkanEngine::init_shaders()
@@ -1909,110 +1910,8 @@ void VulkanEngine::init_shaders()
     // shader_cache.add_shader(device, "rt.slang", sizeof(DeferredPushConstants));
 }
 
-std::vector<VkDescriptorSetAndBindingMappingEXT> VulkanEngine::get_desc_set_and_binding_mapping()
+void VulkanEngine::init_pipelines()
 {
-    std::vector<VkDescriptorSetAndBindingMappingEXT> mappings{};
-
-    // TODO: remove magic number
-    // TODO: use proper buffer descriptor size
-    // TODO: use finer grain flags instead of VK_SPIRV_RESOURCE_TYPE_ALL_EXT
-    auto buffer_count = 3;
-    auto buffer_descriptor_size = desc_heap_properties.imageDescriptorSize;
-    for (size_t i = 0; i < buffer_count; ++i)
-    {
-        VkDescriptorSetAndBindingMappingEXT desc_set_and_binding_mapping{};
-        desc_set_and_binding_mapping.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT;
-        desc_set_and_binding_mapping.descriptorSet = 0;
-        desc_set_and_binding_mapping.firstBinding = i;
-        desc_set_and_binding_mapping.bindingCount = 1;
-        desc_set_and_binding_mapping.resourceMask = VK_SPIRV_RESOURCE_TYPE_ALL_EXT;
-        desc_set_and_binding_mapping.source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_CONSTANT_OFFSET_EXT;
-
-        VkDescriptorMappingSourceConstantOffsetEXT constant_offset{};
-        // assumes heapoffset starts from 0
-        constant_offset.heapOffset = i * buffer_descriptor_size;
-        constant_offset.heapArrayStride = buffer_descriptor_size;
-
-        VkDescriptorMappingSourceDataEXT source_data{};
-        source_data.constantOffset = constant_offset;
-        desc_set_and_binding_mapping.sourceData = source_data;
-        mappings.push_back(desc_set_and_binding_mapping);
-    }
-
-    // set 1 - bindless UAV textures
-    {
-        VkDescriptorSetAndBindingMappingEXT desc_set_and_binding_mapping{};
-        desc_set_and_binding_mapping.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT;
-        desc_set_and_binding_mapping.descriptorSet = 1;
-        desc_set_and_binding_mapping.firstBinding = 0;
-        desc_set_and_binding_mapping.bindingCount = 1;
-        desc_set_and_binding_mapping.resourceMask = VK_SPIRV_RESOURCE_TYPE_ALL_EXT;
-        desc_set_and_binding_mapping.source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_CONSTANT_OFFSET_EXT;
-
-        VkDescriptorMappingSourceConstantOffsetEXT constant_offset{};
-        constant_offset.heapOffset = rw_images_offset;
-        constant_offset.heapArrayStride = desc_heap_properties.imageDescriptorSize;
-
-        VkDescriptorMappingSourceDataEXT source_data{};
-        source_data.constantOffset = constant_offset;
-
-        desc_set_and_binding_mapping.sourceData = source_data;
-
-        mappings.push_back(desc_set_and_binding_mapping);
-    }
-
-    // set 2 - bindless SRV textures
-    {
-        VkDescriptorSetAndBindingMappingEXT desc_set_and_binding_mapping{};
-        desc_set_and_binding_mapping.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT;
-        desc_set_and_binding_mapping.descriptorSet = 2;
-        desc_set_and_binding_mapping.firstBinding = 0;
-        desc_set_and_binding_mapping.bindingCount = 1;
-        desc_set_and_binding_mapping.resourceMask = VK_SPIRV_RESOURCE_TYPE_ALL_EXT;
-        desc_set_and_binding_mapping.source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_CONSTANT_OFFSET_EXT;
-
-        VkDescriptorMappingSourceConstantOffsetEXT constant_offset{};
-        constant_offset.heapOffset = sampled_textures_offset;
-        constant_offset.heapArrayStride = desc_heap_properties.imageDescriptorSize;
-
-        VkDescriptorMappingSourceDataEXT source_data{};
-        source_data.constantOffset = constant_offset;
-
-        desc_set_and_binding_mapping.sourceData = source_data;
-
-        mappings.push_back(desc_set_and_binding_mapping);
-    }
-
-    // set 3 - samplers
-    {
-        VkDescriptorSetAndBindingMappingEXT desc_set_and_binding_mapping{};
-        desc_set_and_binding_mapping.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT;
-        desc_set_and_binding_mapping.descriptorSet = 3;
-        desc_set_and_binding_mapping.firstBinding = 0;
-        desc_set_and_binding_mapping.bindingCount = 1;
-        desc_set_and_binding_mapping.resourceMask = VK_SPIRV_RESOURCE_TYPE_ALL_EXT;
-        desc_set_and_binding_mapping.source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_CONSTANT_OFFSET_EXT;
-
-        VkDescriptorMappingSourceConstantOffsetEXT constant_offset{};
-        constant_offset.heapOffset = 0;
-        constant_offset.heapArrayStride = desc_heap_properties.samplerDescriptorSize;
-
-        VkDescriptorMappingSourceDataEXT source_data{};
-        source_data.constantOffset = constant_offset;
-
-        desc_set_and_binding_mapping.sourceData = source_data;
-
-        mappings.push_back(desc_set_and_binding_mapping);
-    }
-
-    return mappings;
-}
-
-void VulkanEngine::init_pipelines(bool update /* = 0 */)
-{
-    if (!update)
-        desc_mappings = get_desc_set_and_binding_mapping();
-
     VkShaderDescriptorSetAndBindingMappingInfoEXT desc_set_and_binding_mapping_info{};
     desc_set_and_binding_mapping_info.sType = VK_STRUCTURE_TYPE_SHADER_DESCRIPTOR_SET_AND_BINDING_MAPPING_INFO_EXT;
     desc_set_and_binding_mapping_info.mappingCount = desc_mappings.size();
@@ -2180,6 +2079,7 @@ void VulkanEngine::init_resources()
             VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
         );
     }
+    resource_heap_manager.add_buffer(frames[0].scene_buffer, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
 
     auto image_extent = VkExtent3D{ swapchain.extent.width, swapchain.extent.height, 1 };
 
@@ -2192,38 +2092,36 @@ void VulkanEngine::init_resources()
         VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT,
         VK_IMAGE_ASPECT_COLOR_BIT
     );
-
-    // note: scene textures must be cached AFTER scene-independent textures as shaders check if material texture_id != 0 for validity
-    bindless.draw_srv = texture_cache.add_texture();
-    bindless.draw_uav = image_cache.add_texture();
+    bindless.draw_srv = resource_heap_manager.add_srv(draw_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+    bindless.draw_uav = resource_heap_manager.add_uav(draw_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
 
     VkImageUsageFlags gbuffer_flags{
         VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
     };
 
     visibility_buffer = create_render_target(device, allocator, image_extent, VK_FORMAT_R32G32_UINT, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT);
-    bindless.vbuffer_srv = texture_cache.add_texture();
+    bindless.vbuffer_srv = resource_heap_manager.add_srv(visibility_buffer, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
 
     accumulation_buffers[0] = create_image(device, allocator, image_extent, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
     accumulation_buffers[1] = create_image(device, allocator, image_extent, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
-    bindless.accum_srv = texture_cache.add_texture();
-    texture_cache.add_texture();
-    bindless.accum_uav = image_cache.add_texture();
-    image_cache.add_texture();
+    bindless.accum_srv = resource_heap_manager.add_srv(accumulation_buffers[0], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+    resource_heap_manager.add_srv(accumulation_buffers[1], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+    bindless.accum_uav = resource_heap_manager.add_uav(accumulation_buffers[0], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+    resource_heap_manager.add_uav(accumulation_buffers[1], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
 
     // albedo, normal, metal-roughness-occlusion, emissive
     gbuffers.emplace_back(create_render_target(device, allocator, image_extent, VK_FORMAT_R8G8B8A8_UNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
     gbuffers.emplace_back(create_render_target(device, allocator, image_extent, VK_FORMAT_R16G16B16A16_SFLOAT, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
     gbuffers.emplace_back(create_render_target(device, allocator, image_extent, VK_FORMAT_R8G8B8A8_UNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
     gbuffers.emplace_back(create_render_target(device, allocator, image_extent, VK_FORMAT_R8G8B8A8_UNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
-    bindless.gbuffer_srv = texture_cache.add_texture();
-    texture_cache.add_texture();
-    texture_cache.add_texture();
-    texture_cache.add_texture();
+    bindless.gbuffer_srv = resource_heap_manager.add_srv(gbuffers[0], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+    resource_heap_manager.add_srv(gbuffers[1], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+    resource_heap_manager.add_srv(gbuffers[2], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+    resource_heap_manager.add_srv(gbuffers[3], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
 
     depth_image.format = VK_FORMAT_D32_SFLOAT;
     depth_image = create_render_target(device, allocator, image_extent, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_DEPTH_BIT);
-    bindless.depth_srv = texture_cache.add_texture();
+    bindless.depth_srv = resource_heap_manager.add_srv(depth_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_DEPTH_BIT);
 
     for (size_t idx = 0; idx < cascade_data.size(); idx++)
     {
@@ -2235,7 +2133,7 @@ void VulkanEngine::init_resources()
             VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
             VK_IMAGE_ASPECT_DEPTH_BIT
         );
-        auto shadowmap_id = texture_cache.add_texture();
+        auto shadowmap_id = resource_heap_manager.add_srv(cascade_data[idx].shadow_map, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_DEPTH_BIT);
         if (idx == 0)
             bindless.shadowmap_srv = shadowmap_id;
     }
@@ -2255,18 +2153,18 @@ void VulkanEngine::init_resources()
         0,
         true
     );
-
     depth_pyramid_level_count = static_cast<uint32_t>(std::floor(std::log2(static_cast<float>(std::max(depth_pyramid_extent.width, depth_pyramid_extent.height))))) + 1;
-
-    // sampling in occlusion culling
-    bindless.depth_pyramid_srv = texture_cache.add_texture();
-    bindless.depth_pyramid_uav = image_cache.add_texture();
-
+    bindless.depth_pyramid_srv = resource_heap_manager.add_srv(depth_pyramid, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_COLOR_BIT);
+    bindless.depth_pyramid_uav = resource_heap_manager.add_uav(depth_pyramid, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_COLOR_BIT, 0);
     // we reserve enough slots in image_cache to handle 1920x1080
     // this makes it easier updating descriptors if window is resized
-    auto depth_pyramid_mip_levels = static_cast<uint32_t>(std::floor(std::log2(static_cast<float>(1920)))) + 1;
-    for (uint32_t mip = 1; mip < depth_pyramid_mip_levels; mip++)
-        image_cache.add_texture();
+    for (size_t mip = 1; mip < 11; mip++)
+    {
+        if (mip < depth_pyramid_level_count)
+            resource_heap_manager.add_uav(depth_pyramid, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_COLOR_BIT, mip);
+        else
+            resource_heap_manager.add_uav(depth_pyramid, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_COLOR_BIT, depth_pyramid_level_count - 1);
+    }
 
     // global light list
     std::mt19937 mt(42);
@@ -2316,8 +2214,7 @@ void VulkanEngine::init_resources()
         VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
         VK_IMAGE_ASPECT_COLOR_BIT
     );
-
-    bindless.hdri_srv = texture_cache.add_texture();
+    bindless.hdri_srv = resource_heap_manager.add_srv(hdri, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
 
     extent.width /= 4;
     extent.height = extent.width;
@@ -2332,10 +2229,9 @@ void VulkanEngine::init_resources()
         0,
         true
     );
-
-    bindless.skybox_srv = texture_cache.add_texture();
+    bindless.skybox_srv = resource_heap_manager.add_srv(hdri_cubemap, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT);
     scene_data.textures[0] = static_cast<float>(bindless.skybox_srv);
-    bindless.skybox_uav = image_cache.add_texture();
+    bindless.skybox_uav = resource_heap_manager.add_uav(hdri_cubemap, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT);
 
     irradiance_cubemap = create_cubemap(
         device,
@@ -2347,9 +2243,9 @@ void VulkanEngine::init_resources()
     );
 
     // TODO: irradiance map is never used but leaving it in here for future debugging purposes
-    bindless.irradiance_srv = texture_cache.add_texture();
+    bindless.irradiance_srv = resource_heap_manager.add_srv(irradiance_cubemap, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT);
     scene_data.textures[1] = static_cast<float>(bindless.irradiance_srv);
-    bindless.irradiance_uav = image_cache.add_texture();
+    bindless.irradiance_uav = resource_heap_manager.add_uav(irradiance_cubemap, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT);
 
     prefiltered_envmap = create_cubemap(
         device,
@@ -2361,13 +2257,12 @@ void VulkanEngine::init_resources()
         0,
         true
     );
-
-    bindless.prefiltered_srv = texture_cache.add_texture();
+    bindless.prefiltered_srv = resource_heap_manager.add_srv(prefiltered_envmap, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT);
     scene_data.textures[2] = static_cast<float>(bindless.prefiltered_srv);
     auto prefiltered_mips = static_cast<uint32_t>(std::floor(std::log2(static_cast<float>(std::max(prefiltered_envmap.extent.width, prefiltered_envmap.extent.height))))) + 1;
-    bindless.prefiltered_uav = image_cache.add_texture();
-    for (auto i = 1; i < prefiltered_mips; i++)
-        image_cache.add_texture();
+    bindless.prefiltered_uav = resource_heap_manager.add_uav(prefiltered_envmap, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT, 0);
+    for (auto mip = 1; mip < prefiltered_mips; mip++)
+        resource_heap_manager.add_uav(prefiltered_envmap, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT, mip);
 
     brdf_lut = create_image(
         device,
@@ -2377,10 +2272,9 @@ void VulkanEngine::init_resources()
         VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
         VK_IMAGE_ASPECT_COLOR_BIT
     );
-
-    bindless.brdf_srv = texture_cache.add_texture();
+    bindless.brdf_srv = resource_heap_manager.add_srv(brdf_lut, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
     scene_data.textures[3] = static_cast<float>(bindless.brdf_srv);
-    bindless.brdf_uav = image_cache.add_texture();
+    bindless.brdf_uav = resource_heap_manager.add_uav(brdf_lut, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
 
     main_deletion_queue.push_function(
         [&]()
@@ -2414,7 +2308,7 @@ void VulkanEngine::init_renderables(int argc, char** argv)
         {
             file_paths[i - 1] = argv[i];
         }
-        auto asset_file = load_gltfs(device, graphics_queue, imm_fence, imm_command_pool, imm_command_buffer, allocator, texture_cache, file_paths);
+        auto asset_file = load_gltfs(device, graphics_queue, imm_fence, imm_command_pool, imm_command_buffer, allocator, &resource_heap_manager, file_paths);
         assert(asset_file.has_value());
         loaded_scene = std::move(*asset_file);
     }
@@ -3048,6 +2942,7 @@ void VulkanEngine::upload_buffers()
             0,
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT
         );
+        bindless.oit = resource_heap_manager.add_buffer(render_scene.oit_buffer, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
         // fmt::println("oit_buffer: {}mb", size_in_bytes(render_scene.oit_buffer.info.size));
 
         immediate_submit(
@@ -4048,113 +3943,6 @@ void VulkanEngine::create_acceleration_structures()
             vkDestroyAccelerationStructureKHR(device, tlas_as, nullptr);
         }
     );
-}
 
-// writes descriptors for buffers, uav and srv textures (not including material textures)
-// rewrites everything during window resize for simplicity
-void VulkanEngine::write_descriptor_heap(uint32_t& resource_heap_offset)
-{
-    refresh_rw_images();
-    refresh_sampled_textures();
-
-    // TODO: use bufferDescriptorSize; using image now for simplicity
-    auto buffer_descriptor_size = desc_heap_properties.imageDescriptorSize;
-    auto image_descriptor_size = desc_heap_properties.imageDescriptorSize;
-
-    void* descriptor{};
-    descriptor = static_cast<uint8_t*>(resource_heap.info.pMappedData) + 0 * buffer_descriptor_size + resource_heap_offset;
-    get_buffer_descriptor(device, frames[0].scene_buffer, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, descriptor, buffer_descriptor_size);
-    descriptor = static_cast<uint8_t*>(resource_heap.info.pMappedData) + 1 * buffer_descriptor_size + resource_heap_offset;
-    get_buffer_descriptor(device, render_scene.oit_buffer, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, descriptor, buffer_descriptor_size);
-    descriptor = static_cast<uint8_t*>(resource_heap.info.pMappedData) + 2 * buffer_descriptor_size + resource_heap_offset;
-    get_as_descriptor(device, tlas_as, 0, descriptor, buffer_descriptor_size);
-
-    auto buffer_count = 3;
-    resource_heap_offset += buffer_descriptor_size * buffer_count;
-    rw_images_offset = resource_heap_offset;
-
-    for (size_t i = 0; i < rw_images.size(); ++i)
-    {
-        auto& info = rw_images[i];
-        void* descriptor = static_cast<uint8_t*>(resource_heap.info.pMappedData) + i * image_descriptor_size + rw_images_offset;
-        get_image_descriptor(device, info.image, info.format, info.view_type, info.aspect_flag, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, descriptor, image_descriptor_size, info.mip);
-    }
-
-    resource_heap_offset += image_descriptor_size * rw_images.size();
-    sampled_textures_offset = resource_heap_offset;
-
-    for (size_t i = 0; i < sampled_textures.size(); ++i)
-    {
-        auto& info = sampled_textures[i];
-        void* descriptor = static_cast<uint8_t*>(resource_heap.info.pMappedData) + i * image_descriptor_size + sampled_textures_offset;
-        get_image_descriptor(device, info.image, info.format, info.view_type, info.aspect_flag, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, descriptor, image_descriptor_size);
-    }
-
-    resource_heap_offset += image_descriptor_size * sampled_textures.size();
-}
-
-void VulkanEngine::refresh_sampled_textures()
-{
-    sampled_textures = {
-        { draw_image.image, draw_image.format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT },
-        { visibility_buffer.image, visibility_buffer.format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT },
-        { accumulation_buffers[0].image, accumulation_buffers[0].format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT },
-        { accumulation_buffers[1].image, accumulation_buffers[1].format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT },
-        { gbuffers[0].image, gbuffers[0].format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT },
-        { gbuffers[1].image, gbuffers[1].format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT },
-        { gbuffers[2].image, gbuffers[2].format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT },
-        { gbuffers[3].image, gbuffers[3].format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT },
-        { depth_image.image, depth_image.format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_DEPTH_BIT },
-        { cascade_data[0].shadow_map.image, cascade_data[0].shadow_map.format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_DEPTH_BIT },
-        { cascade_data[1].shadow_map.image, cascade_data[1].shadow_map.format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_DEPTH_BIT },
-        { cascade_data[2].shadow_map.image, cascade_data[2].shadow_map.format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_DEPTH_BIT },
-        { cascade_data[3].shadow_map.image, cascade_data[3].shadow_map.format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_DEPTH_BIT },
-        { depth_pyramid.image, depth_pyramid.format, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_COLOR_BIT },
-        { hdri.image, hdri.format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT },
-        { hdri_cubemap.image, hdri_cubemap.format, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT },
-        { irradiance_cubemap.image, irradiance_cubemap.format, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT },
-        { prefiltered_envmap.image, prefiltered_envmap.format, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT },
-        { brdf_lut.image, brdf_lut.format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT },
-    };
-}
-
-void VulkanEngine::refresh_rw_images()
-{
-    auto max_depth_pyramid_mip_level = depth_pyramid_level_count - 1;
-
-    rw_images = {
-        { draw_image.image, draw_image.format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT },
-        { accumulation_buffers[0].image, accumulation_buffers[0].format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT },
-        { accumulation_buffers[1].image, accumulation_buffers[1].format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT },
-
-        // hardcoded to support up to 1920 x 1080
-        { depth_pyramid.image, depth_pyramid.format, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_COLOR_BIT, std::min(0u, max_depth_pyramid_mip_level) },
-        { depth_pyramid.image, depth_pyramid.format, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_COLOR_BIT, std::min(1u, max_depth_pyramid_mip_level) },
-        { depth_pyramid.image, depth_pyramid.format, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_COLOR_BIT, std::min(2u, max_depth_pyramid_mip_level) },
-        { depth_pyramid.image, depth_pyramid.format, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_COLOR_BIT, std::min(3u, max_depth_pyramid_mip_level) },
-        { depth_pyramid.image, depth_pyramid.format, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_COLOR_BIT, std::min(4u, max_depth_pyramid_mip_level) },
-        { depth_pyramid.image, depth_pyramid.format, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_COLOR_BIT, std::min(5u, max_depth_pyramid_mip_level) },
-        { depth_pyramid.image, depth_pyramid.format, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_COLOR_BIT, std::min(6u, max_depth_pyramid_mip_level) },
-        { depth_pyramid.image, depth_pyramid.format, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_COLOR_BIT, std::min(7u, max_depth_pyramid_mip_level) },
-        { depth_pyramid.image, depth_pyramid.format, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_COLOR_BIT, std::min(8u, max_depth_pyramid_mip_level) },
-        { depth_pyramid.image, depth_pyramid.format, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_COLOR_BIT, std::min(9u, max_depth_pyramid_mip_level) },
-        { depth_pyramid.image, depth_pyramid.format, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_COLOR_BIT, std::min(10u, max_depth_pyramid_mip_level) },
-
-        { hdri_cubemap.image, hdri_cubemap.format, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT },
-        { irradiance_cubemap.image, irradiance_cubemap.format, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT },
-
-        // auto prefiltered_mips = static_cast<uint32_t>(std::floor(std::log2(static_cast<float>(std::max(prefiltered_envmap.extent.width, prefiltered_envmap.extent.height))))) + 1;
-        { prefiltered_envmap.image, prefiltered_envmap.format, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT, 0 },
-        { prefiltered_envmap.image, prefiltered_envmap.format, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT, 1 },
-        { prefiltered_envmap.image, prefiltered_envmap.format, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT, 2 },
-        { prefiltered_envmap.image, prefiltered_envmap.format, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT, 3 },
-        { prefiltered_envmap.image, prefiltered_envmap.format, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT, 4 },
-        { prefiltered_envmap.image, prefiltered_envmap.format, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT, 5 },
-        { prefiltered_envmap.image, prefiltered_envmap.format, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT, 6 },
-        { prefiltered_envmap.image, prefiltered_envmap.format, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT, 7 },
-        { prefiltered_envmap.image, prefiltered_envmap.format, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT, 8 },
-        { prefiltered_envmap.image, prefiltered_envmap.format, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT, 9 },
-
-        { brdf_lut.image, brdf_lut.format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT }
-    };
+    resource_heap_manager.add_acceleration_structure(tlas_as, 0);
 }

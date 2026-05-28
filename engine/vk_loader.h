@@ -72,7 +72,7 @@ private:
     void clear();
 };
 
-struct TextureCache;
+class ResourceHeapManager;
 
 std::optional<std::unique_ptr<LoadedGLTF>> load_gltfs(
     VkDevice device,
@@ -81,6 +81,6 @@ std::optional<std::unique_ptr<LoadedGLTF>> load_gltfs(
     VkCommandPool command_pool,
     VkCommandBuffer cmd,
     VmaAllocator allocator,
-    TextureCache& texture_cache,
+    ResourceHeapManager* heap_manager,
     std::vector<std::string>& file_paths
 );

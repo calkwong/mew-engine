@@ -2,9 +2,9 @@
 #include "common.h"
 #include "config.h"
 #include "vk_math.h"
-#include "cache.h"
 #include "resources.h"
 #include "vk_scene.h"
+#include "descriptors.h"
 
 #include <fastgltf/math.hpp>
 #include <fastgltf/util.hpp>
@@ -90,7 +90,7 @@ std::vector<AllocatedImage> load_images(
     VkCommandPool command_pool,
     VkCommandBuffer cmd,
     VmaAllocator allocator,
-    TextureCache& texture_cache,
+    ResourceHeapManager* heap_manager,
     std::string_view asset_path
 )
 {
@@ -356,9 +356,9 @@ std::vector<AllocatedImage> load_images(
         }
     }
 
-    for (const auto& image : images)
+    for (auto& image : images)
     {
-        texture_cache.add_texture();
+        heap_manager->add_srv(image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
     }
 
     // note: flush image uploads - call this in immediate submit
@@ -822,7 +822,7 @@ bool load_gltf(
     VkCommandPool command_pool,
     VkCommandBuffer cmd,
     VmaAllocator allocator,
-    TextureCache& texture_cache,
+    ResourceHeapManager* heap_manager,
     LoadedGLTF* scene,
     const std::string& file_path
 )
@@ -893,13 +893,14 @@ bool load_gltf(
     assert(!asset.materials.empty());
     auto& materials_data = scene->materials;
 
-    size_t texture_cache_offset = texture_cache.textures.size(); // important! do this before loading images
+    // important! this is necessary for correct indexing and skipping of unnecessary descriptor updates if swapchain resizes
+    auto texture_cache_offset = heap_manager->set_srv_rebuild_size();
 
     // TODO: currently supports ktx2 in URI only
 
     std::vector<AllocatedImage> images{};
     if (!asset.images.empty())
-        images = load_images(asset, device, queue, fence, command_pool, cmd, allocator, texture_cache, file.asset_path);
+        images = load_images(asset, device, queue, fence, command_pool, cmd, allocator, heap_manager, file.asset_path);
 
     file.images.insert(file.images.end(), images.begin(), images.end());
 
@@ -1246,7 +1247,7 @@ std::optional<std::unique_ptr<LoadedGLTF>> load_gltfs(
     VkCommandPool command_pool,
     VkCommandBuffer cmd,
     VmaAllocator allocator,
-    TextureCache& texture_cache,
+    ResourceHeapManager* heap_manager,
     std::vector<std::string>& file_paths
 )
 {
@@ -1256,7 +1257,7 @@ std::optional<std::unique_ptr<LoadedGLTF>> load_gltfs(
 
     for (auto& file_path : file_paths)
     {
-        bool success = load_gltf(device, queue, fence, command_pool, cmd, allocator, texture_cache, scene.get(), file_path);
+        bool success = load_gltf(device, queue, fence, command_pool, cmd, allocator, heap_manager, scene.get(), file_path);
         if (!success)
         {
             fmt::println("Failed to load gltf: {}", file_path);

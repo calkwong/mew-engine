@@ -2,22 +2,9 @@
 #include "common.h"
 #include "pipelines.h"
 
-#include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <string>
-
-uint32_t TextureCache::add_texture()
-{
-    textures.push_back(0);
-    return static_cast<uint32_t>(textures.size() - 1);
-}
-
-uint32_t ImageCache::add_texture()
-{
-    textures.push_back(0);
-    return static_cast<uint32_t>(textures.size() - 1);
-}
 
 ShaderProgram* ShaderCache::operator[](const std::string& key)
 {

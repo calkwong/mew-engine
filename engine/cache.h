@@ -7,21 +7,6 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
-#include <vector>
-
-struct TextureCache
-{
-    std::vector<uint8_t> textures{};
-
-    uint32_t add_texture();
-};
-
-struct ImageCache
-{
-    std::vector<uint8_t> textures{};
-
-    uint32_t add_texture();
-};
 
 struct ShaderCache
 {
@@ -54,4 +39,6 @@ struct Bindless
     uint32_t irradiance_srv{};
     uint32_t prefiltered_srv{};
     uint32_t brdf_srv{};
+
+    uint32_t oit{};
 };

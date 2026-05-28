@@ -9,6 +9,7 @@
 #include "pipelines.h"
 #include "vk_scene.h"
 #include "swapchain.h"
+#include "descriptors.h"
 
 #include <array>
 #include <cstdint>
@@ -140,8 +141,6 @@ public:
     std::array<glm::vec2, 8> jitter_offset{};
     EngineStats stats{};
 
-    TextureCache texture_cache{};
-    ImageCache image_cache{};
     ShaderCache shader_cache{};
 
     std::unordered_map<std::string, std::unique_ptr<ShaderPass>> shader_passes{};
@@ -169,16 +168,12 @@ public:
     AllocatedBuffer tlas_buffer{};
     AllocatedBuffer tlas_instance_buffer{};
 
-    AllocatedBuffer resource_heap{};
-    AllocatedBuffer sampler_heap{};
+    AllocatedBuffer resource_heap_buffer{};
+    AllocatedBuffer sampler_heap_buffer{};
 
-    std::vector<DescriptorImageInfo> sampled_textures{};
-    std::vector<DescriptorImageInfo> rw_images{};
-
+    ResourceHeapManager resource_heap_manager{};
+    SamplerHeapManager sampler_heap_manager{};
     std::vector<VkDescriptorSetAndBindingMappingEXT> desc_mappings{};
-
-    uint32_t sampled_textures_offset{};
-    uint32_t rw_images_offset{};
     uint32_t depth_pyramid_level_count{};
 
     VkAccelerationStructureKHR tlas_as{};
@@ -215,10 +210,6 @@ public:
     void execute_light_culling(VkCommandBuffer cmd);
     void execute_shading(VkCommandBuffer cmd);
     void create_acceleration_structures();
-    void write_descriptor_heap(uint32_t& resource_heap_offset);
-    void refresh_sampled_textures();
-    void refresh_rw_images();
-    std::vector<VkDescriptorSetAndBindingMappingEXT> get_desc_set_and_binding_mapping();
 
 private:
     Bindless bindless{};
@@ -228,7 +219,7 @@ private:
     void init_sync_structures();
     void init_descriptors();
     void init_shaders();
-    void init_pipelines(bool update = false);
+    void init_pipelines();
     void init_resources();
     void init_renderables(int argc, char** argv);
     void execute_baked_gi();
