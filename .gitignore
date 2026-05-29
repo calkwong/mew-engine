@@ -1,7 +1,7 @@
 /bin
 /assets
 *.spv
-# /external
+/external
 *.slang-module
 imgui.ini
 tasks.json

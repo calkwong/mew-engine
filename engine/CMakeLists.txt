@@ -32,12 +32,14 @@ target_sources(basis_universal PRIVATE
   ${PROJECT_SOURCE_DIR}/external/basis_universal/zstd/zstd.c
 )
 
+# target_compile_definitions(basis_universal PRIVATE BASISU_FORCE_DEVEL_MESSAGES)
+
 target_include_directories(engine SYSTEM PRIVATE ${PROJECT_SOURCE_DIR}/external/VulkanMemoryAllocator/include)
 target_include_directories(engine PRIVATE ${PROJECT_SOURCE_DIR}/external/glm)
 target_include_directories(engine PRIVATE ${PROJECT_SOURCE_DIR}/external/stb)
 target_include_directories(engine PRIVATE ${PROJECT_SOURCE_DIR}/external/MikkTSpace)
-target_include_directories(engine PRIVATE ${PROJECT_SOURCE_DIR}/external/basis_universal/transcoder)
-target_include_directories(engine PRIVATE ${PROJECT_SOURCE_DIR}/external/basis_universal/zstd)
+target_include_directories(engine SYSTEM PRIVATE ${PROJECT_SOURCE_DIR}/external/basis_universal/transcoder)
+target_include_directories(engine SYSTEM PRIVATE ${PROJECT_SOURCE_DIR}/external/basis_universal/zstd)
 target_include_directories(engine PRIVATE ${PROJECT_SOURCE_DIR}/external/imgui/ ${PROJECT_SOURCE_DIR}/external/imgui/backends/)
 
 set_target_properties(engine PROPERTIES CXX_STANDARD 20 RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
