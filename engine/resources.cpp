@@ -37,7 +37,7 @@ AllocatedBuffer create_buffer(VmaAllocator allocator, size_t alloc_size, VmaAllo
     return new_buffer;
 }
 
-AllocatedBuffer upload_buffer(
+AllocatedBuffer create_buffer_with_data(
     VkDevice device,
     VkQueue queue,
     VkFence fence,
@@ -130,7 +130,7 @@ AllocatedImage create_image(
     return new_image;
 }
 
-AllocatedImage create_render_target(
+AllocatedImage create_image_with_view(
     VkDevice device,
     VmaAllocator allocator,
     VkExtent3D extent,
@@ -141,33 +141,7 @@ AllocatedImage create_render_target(
     bool mipmapped /*= false*/
 )
 {
-    AllocatedImage new_image{};
-    new_image.extent = extent;
-    new_image.format = format;
-
-    VkImageCreateInfo img_info{};
-    img_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    img_info.imageType = VK_IMAGE_TYPE_2D;
-    img_info.format = format;
-    img_info.extent = extent;
-    img_info.mipLevels = 1;
-    img_info.arrayLayers = 1;
-    img_info.samples = VK_SAMPLE_COUNT_1_BIT;
-    img_info.tiling = VK_IMAGE_TILING_OPTIMAL;
-    img_info.usage = usage;
-
-    if (mipmapped)
-    {
-        img_info.mipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(extent.width, extent.height)))) + 1;
-        img_info.usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-    }
-
-    VmaAllocationCreateInfo alloc_info{};
-    alloc_info.flags = flags;
-    alloc_info.usage = VMA_MEMORY_USAGE_AUTO;
-    alloc_info.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-
-    VK_CHECK(vmaCreateImage(allocator, &img_info, &alloc_info, &new_image.image, &new_image.allocation, nullptr));
+    AllocatedImage new_image = create_image(device, allocator, extent, format, usage, aspect, flags, mipmapped);
 
     VkImageViewCreateInfo img_view_info{};
     img_view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -207,14 +181,14 @@ AllocatedImage upload_image(
     size_t data_size = extent.depth * extent.width * extent.height * 4; // 4 is # of channels
     if (format == VK_FORMAT_R32G32B32A32_SFLOAT) // TODO: hdr only?
         data_size *= sizeof(float);
-    AllocatedBuffer upload_buffer = create_buffer(
+    AllocatedBuffer create_buffer_with_data = create_buffer(
         allocator,
         data_size,
         VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
         VK_BUFFER_USAGE_TRANSFER_SRC_BIT
     );
 
-    memcpy(upload_buffer.info.pMappedData, data, data_size);
+    memcpy(create_buffer_with_data.info.pMappedData, data, data_size);
 
     // dst_bit to account for copy from staging buffer
     AllocatedImage new_image = create_image(device, allocator, extent, format, usage | VK_IMAGE_USAGE_TRANSFER_DST_BIT, aspect, flags, mipmapped);
@@ -250,7 +224,7 @@ AllocatedImage upload_image(
 
             copy_region.imageExtent = extent;
 
-            vkCmdCopyBufferToImage(cmd, upload_buffer.buffer, new_image.image, VK_IMAGE_LAYOUT_GENERAL, 1, &copy_region);
+            vkCmdCopyBufferToImage(cmd, create_buffer_with_data.buffer, new_image.image, VK_IMAGE_LAYOUT_GENERAL, 1, &copy_region);
 
             if (mipmapped)
             {
@@ -272,7 +246,7 @@ AllocatedImage upload_image(
         }
     );
 
-    destroy_buffer(allocator, upload_buffer);
+    destroy_buffer(allocator, create_buffer_with_data);
 
     return new_image;
 }
@@ -411,6 +385,7 @@ void vkutil::copy_image(VkCommandBuffer cmd, VkImage src, VkImage dst, VkExtent2
     vkCmdBlitImage2(cmd, &blit_info);
 }
 
+// assumes entire image begins in transfer_dst format, and returns in transfer_src format
 void vkutil::generate_mipmaps(VkCommandBuffer cmd, VkImage image, VkExtent2D extent, uint32_t layers /*= 1*/)
 {
     int mip_levels = static_cast<int>(std::floor(std::log2(std::max(extent.width, extent.height)))) + 1;

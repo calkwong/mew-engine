@@ -43,6 +43,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <functional>
 #include <random>
 #include <string>
 #include <utility>
@@ -196,7 +197,22 @@ VkBool32 custom_debug_callback(
 }
 } // namespace
 
-void VulkanEngine::init(int argc, char** argv)
+void DeletionQueue::push_function(std::function<void()>&& function)
+{
+    deletors.emplace_back(function);
+}
+
+void DeletionQueue::flush()
+{
+    for (auto it = deletors.rbegin(); it != deletors.rend(); ++it)
+    {
+        (*it)();
+    }
+
+    deletors.clear();
+}
+
+void VulkanEngine::init(int file_count, char** file_paths)
 {
     assert(loaded_engine == nullptr);
     loaded_engine = this;
@@ -225,8 +241,7 @@ void VulkanEngine::init(int argc, char** argv)
     init_commands();
     init_sync_structures();
     init_resources();
-    init_renderables(argc, argv);
-    upload_buffers();
+    init_renderables(file_count, file_paths);
     create_acceleration_structures();
     init_descriptors(); // after scene creation!
     init_shaders();
@@ -284,102 +299,97 @@ void VulkanEngine::init(int argc, char** argv)
         float y = halton_y / static_cast<float>(swapchain.extent.height);
         jitter_offset[i] = glm::vec2(x, y);
     }
-
-    is_initialized = true;
 }
 
 void VulkanEngine::cleanup()
 {
-    if (is_initialized)
+    vkDeviceWaitIdle(device);
+
+    // TracyVkDestroy(tracy_ctx);
+
+    loaded_scene.reset();
+
+    for (auto& frame : frames)
     {
-        vkDeviceWaitIdle(device);
+        vkDestroyCommandPool(device, frame.command_pool, nullptr);
 
-        // TracyVkDestroy(tracy_ctx);
+        vkDestroyFence(device, frame.render_fence, nullptr);
+        vkDestroySemaphore(device, frame.image_acquired_semaphore, nullptr);
 
-        loaded_scene.reset();
+        destroy_buffer(allocator, frame.scene_buffer);
 
-        for (auto& frame : frames)
-        {
-            vkDestroyCommandPool(device, frame.command_pool, nullptr);
+        frame.deletion_queue.flush();
 
-            vkDestroyFence(device, frame.render_fence, nullptr);
-            vkDestroySemaphore(device, frame.image_acquired_semaphore, nullptr);
-
-            destroy_buffer(allocator, frame.scene_buffer);
-
-            frame.deletion_queue.flush();
-
-            vkDestroyQueryPool(device, frame.query_pool_timestamps, nullptr);
-            vkDestroyQueryPool(device, frame.query_pool_pipelines, nullptr);
-            vkDestroyQueryPool(device, frame.query_pool_mesh_primitives, nullptr);
-        }
-
-        for (auto& sem : render_done_semaphores)
-        {
-            vkDestroySemaphore(device, sem, nullptr);
-        }
-
-        for (const auto& [_, shader_program] : shader_cache.data)
-        {
-            vkDestroyShaderModule(device, shader_program.get()->module, nullptr);
-        }
-
-        destroy_buffer(allocator, render_scene.object_buffer);
-        destroy_buffer(allocator, render_scene.mesh_buffer);
-        destroy_buffer(allocator, render_scene.meshlet_buffer);
-        destroy_buffer(allocator, render_scene.meshlet_indices);
-        destroy_buffer(allocator, render_scene.material_buffer);
-        destroy_buffer(allocator, render_scene.vertex_buffer);
-        destroy_buffer(allocator, render_scene.index_buffer);
-
-        destroy_buffer(allocator, render_scene.draw_indirect_buffer);
-        destroy_buffer(allocator, render_scene.dispatch_buffer);
-        destroy_buffer(allocator, render_scene.vis_buffer);
-        destroy_buffer(allocator, render_scene.meshlet_vis_buffer);
-        destroy_buffer(allocator, render_scene.meshlet_dispatch_buffer);
-        destroy_buffer(allocator, render_scene.cluster_indices);
-
-        destroy_buffer(allocator, render_scene.oit_buffer);
-        destroy_buffer(allocator, render_scene.indices_buffer);
-
-        destroy_buffer(allocator, render_scene.sh_buffer);
-        destroy_buffer(allocator, render_scene.luminance_buffer);
-        destroy_buffer(allocator, render_scene.luminance_avg_buffer);
-
-        destroy_buffer(allocator, render_scene.prefix_sum_buffer);
-        destroy_buffer(allocator, render_scene.spd_counter_buffer);
-
-        destroy_buffer(allocator, resource_heap_buffer);
-        destroy_buffer(allocator, sampler_heap_buffer);
-
-        for (const auto& [_, shader] : shader_passes)
-            vkDestroyPipeline(device, shader->pipeline, nullptr);
-
-        {
-            destroy_image(device, allocator, draw_image);
-            destroy_image(device, allocator, visibility_buffer);
-            for (size_t i = 0; i < gbuffers.size(); ++i)
-                destroy_image(device, allocator, gbuffers[i]);
-            destroy_image(device, allocator, depth_image);
-            destroy_image(device, allocator, accumulation_buffers[0]);
-            destroy_image(device, allocator, accumulation_buffers[1]);
-            destroy_image(device, allocator, depth_pyramid);
-        }
-
-        main_deletion_queue.flush();
-
-        destroy_swapchain(swapchain, device);
-
-        vkDestroySurfaceKHR(instance, surface, nullptr);
-        vkDestroyDevice(device, nullptr);
-
-        vkb::destroy_debug_utils_messenger(instance, debug_messenger);
-        vkDestroyInstance(instance, nullptr);
-
-        SDL_DestroyWindow(window);
-
-        volkFinalize();
+        vkDestroyQueryPool(device, frame.query_pool_timestamps, nullptr);
+        vkDestroyQueryPool(device, frame.query_pool_pipelines, nullptr);
+        vkDestroyQueryPool(device, frame.query_pool_mesh_primitives, nullptr);
     }
+
+    for (auto& sem : render_done_semaphores)
+    {
+        vkDestroySemaphore(device, sem, nullptr);
+    }
+
+    for (const auto& [_, shader_program] : shader_cache.data)
+    {
+        vkDestroyShaderModule(device, shader_program.get()->module, nullptr);
+    }
+
+    destroy_buffer(allocator, render_scene.object_buffer);
+    destroy_buffer(allocator, render_scene.mesh_buffer);
+    destroy_buffer(allocator, render_scene.meshlet_buffer);
+    destroy_buffer(allocator, render_scene.meshlet_indices);
+    destroy_buffer(allocator, render_scene.material_buffer);
+    destroy_buffer(allocator, render_scene.vertex_buffer);
+    destroy_buffer(allocator, render_scene.index_buffer);
+
+    destroy_buffer(allocator, render_scene.draw_indirect_buffer);
+    destroy_buffer(allocator, render_scene.dispatch_buffer);
+    destroy_buffer(allocator, render_scene.vis_buffer);
+    destroy_buffer(allocator, render_scene.meshlet_vis_buffer);
+    destroy_buffer(allocator, render_scene.meshlet_dispatch_buffer);
+    destroy_buffer(allocator, render_scene.cluster_indices);
+
+    destroy_buffer(allocator, render_scene.oit_buffer);
+    destroy_buffer(allocator, render_scene.indices_buffer);
+
+    destroy_buffer(allocator, render_scene.sh_buffer);
+    destroy_buffer(allocator, render_scene.luminance_buffer);
+    destroy_buffer(allocator, render_scene.luminance_avg_buffer);
+
+    destroy_buffer(allocator, render_scene.prefix_sum_buffer);
+    destroy_buffer(allocator, render_scene.spd_counter_buffer);
+
+    destroy_buffer(allocator, resource_heap_buffer);
+    destroy_buffer(allocator, sampler_heap_buffer);
+
+    for (const auto& [_, shader] : shader_passes)
+        vkDestroyPipeline(device, shader->pipeline, nullptr);
+
+    {
+        destroy_image(device, allocator, draw_image);
+        destroy_image(device, allocator, visibility_buffer);
+        for (size_t i = 0; i < gbuffers.size(); ++i)
+            destroy_image(device, allocator, gbuffers[i]);
+        destroy_image(device, allocator, depth_image);
+        destroy_image(device, allocator, accumulation_buffers[0]);
+        destroy_image(device, allocator, accumulation_buffers[1]);
+        destroy_image(device, allocator, depth_pyramid);
+    }
+
+    main_deletion_queue.flush();
+
+    destroy_swapchain(swapchain, device);
+
+    vkDestroySurfaceKHR(instance, surface, nullptr);
+    vkDestroyDevice(device, nullptr);
+
+    vkb::destroy_debug_utils_messenger(instance, debug_messenger);
+    vkDestroyInstance(instance, nullptr);
+
+    SDL_DestroyWindow(window);
+
+    volkFinalize();
 
     loaded_engine = nullptr;
 }
@@ -416,13 +426,13 @@ void VulkanEngine::execute_baked_gi()
         Pass::PassType::ComputePass,
         [&](Pass& pass)
         {
-            pass.add_image_write("skybox", hdri_cubemap.image);
+            pass.add_image_write("skybox", skybox_cubemap.image);
         },
         [&]()
         {
             ShaderPass current_pass = *shader_passes["equirectangular_to_cubemap"];
             IBLPushConstants pc{};
-            pc.image_size = glm::vec2(hdri_cubemap.extent.width, hdri_cubemap.extent.height);
+            pc.image_size = glm::vec2(skybox_cubemap.extent.width, skybox_cubemap.extent.height);
             pc.texture_id = bindless.hdri_srv;
             pc.image_id = bindless.skybox_uav;
 
@@ -431,8 +441,8 @@ void VulkanEngine::execute_baked_gi()
             push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
             push_data_info.data = { &pc, sizeof(IBLPushConstants) };
             vkCmdPushDataEXT(imm_command_buffer, &push_data_info);
-            auto groupcount_x = get_groupcount(hdri_cubemap.extent.width, WARP_SIZE);
-            auto groupcount_y = get_groupcount(hdri_cubemap.extent.height, WARP_SIZE);
+            auto groupcount_x = get_groupcount(skybox_cubemap.extent.width, WARP_SIZE);
+            auto groupcount_y = get_groupcount(skybox_cubemap.extent.height, WARP_SIZE);
             vkCmdDispatch(imm_command_buffer, groupcount_x, groupcount_y, 6);
         }
     );
@@ -442,12 +452,12 @@ void VulkanEngine::execute_baked_gi()
         Pass::PassType::ComputePass,
         [&](Pass& pass)
         {
-            pass.add_image_read("skybox", hdri_cubemap.image);
-            pass.add_image_write("skybox", hdri_cubemap.image);
+            pass.add_image_read("skybox", skybox_cubemap.image);
+            pass.add_image_write("skybox", skybox_cubemap.image);
         },
         [&]()
         {
-            vkutil::generate_mipmaps(imm_command_buffer, hdri_cubemap.image, VkExtent2D(hdri_cubemap.extent.width, hdri_cubemap.extent.height), 6);
+            vkutil::generate_mipmaps(imm_command_buffer, skybox_cubemap.image, VkExtent2D(skybox_cubemap.extent.width, skybox_cubemap.extent.height), 6);
         }
     );
 
@@ -456,7 +466,7 @@ void VulkanEngine::execute_baked_gi()
         Pass::PassType::ComputePass,
         [&](Pass& pass)
         {
-            pass.add_image_read("skybox", hdri_cubemap.image);
+            pass.add_image_read("skybox", skybox_cubemap.image);
             pass.add_storage_buffer_write("sh");
         },
         [&]()
@@ -481,7 +491,7 @@ void VulkanEngine::execute_baked_gi()
         Pass::PassType::ComputePass,
         [&](Pass& pass)
         {
-            pass.add_image_read("skybox", hdri_cubemap.image);
+            pass.add_image_read("skybox", skybox_cubemap.image);
             pass.add_image_write("irradiance", irradiance_cubemap.image);
         },
         [&]()
@@ -508,7 +518,7 @@ void VulkanEngine::execute_baked_gi()
         Pass::PassType::ComputePass,
         [&](Pass& pass)
         {
-            pass.add_image_read("skybox", hdri_cubemap.image);
+            pass.add_image_read("skybox", skybox_cubemap.image);
             pass.add_image_write("prefiltered", prefiltered_envmap.image);
         },
         // TODO: fix - we are dispatching wg_size that is more than necessary here
@@ -1500,18 +1510,18 @@ void VulkanEngine::run()
                     : resource_heap_manager.update_uav(bindless.draw_uav + mip, draw_image, draw_mip_levels - 1);
             }
 
-            depth_image = create_render_target(device, allocator, new_extent, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_DEPTH_BIT);
+            depth_image = create_image_with_view(device, allocator, new_extent, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_DEPTH_BIT);
             resource_heap_manager.update_srv(bindless.depth_srv, depth_image);
-            visibility_buffer = create_render_target(device, allocator, new_extent, VK_FORMAT_R32G32_UINT, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+            visibility_buffer = create_image_with_view(device, allocator, new_extent, VK_FORMAT_R32G32_UINT, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
             resource_heap_manager.update_srv(bindless.vbuffer_srv, visibility_buffer);
 
             auto gbuffer_flags = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
 
             gbuffers.clear();
-            gbuffers.emplace_back(create_render_target(device, allocator, new_extent, VK_FORMAT_R8G8B8A8_UNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
-            gbuffers.emplace_back(create_render_target(device, allocator, new_extent, VK_FORMAT_R16G16B16A16_SFLOAT, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
-            gbuffers.emplace_back(create_render_target(device, allocator, new_extent, VK_FORMAT_R8G8B8A8_UNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
-            gbuffers.emplace_back(create_render_target(device, allocator, new_extent, VK_FORMAT_R8G8B8A8_UNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
+            gbuffers.emplace_back(create_image_with_view(device, allocator, new_extent, VK_FORMAT_R8G8B8A8_UNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
+            gbuffers.emplace_back(create_image_with_view(device, allocator, new_extent, VK_FORMAT_R16G16B16A16_SFLOAT, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
+            gbuffers.emplace_back(create_image_with_view(device, allocator, new_extent, VK_FORMAT_R8G8B8A8_UNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
+            gbuffers.emplace_back(create_image_with_view(device, allocator, new_extent, VK_FORMAT_R8G8B8A8_UNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
             resource_heap_manager.update_srv(bindless.gbuffer_srv + 0, gbuffers[0]);
             resource_heap_manager.update_srv(bindless.gbuffer_srv + 1, gbuffers[1]);
             resource_heap_manager.update_srv(bindless.gbuffer_srv + 2, gbuffers[2]);
@@ -2145,7 +2155,7 @@ void VulkanEngine::init_resources()
         VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
     };
 
-    visibility_buffer = create_render_target(device, allocator, image_extent, VK_FORMAT_R32G32_UINT, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT);
+    visibility_buffer = create_image_with_view(device, allocator, image_extent, VK_FORMAT_R32G32_UINT, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT);
     bindless.vbuffer_srv = resource_heap_manager.add_srv(visibility_buffer, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
 
     accumulation_buffers[0] = create_image(device, allocator, image_extent, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
@@ -2156,22 +2166,22 @@ void VulkanEngine::init_resources()
     resource_heap_manager.add_uav(accumulation_buffers[1], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
 
     // albedo, normal, metal-roughness-occlusion, emissive
-    gbuffers.emplace_back(create_render_target(device, allocator, image_extent, VK_FORMAT_R8G8B8A8_UNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
-    gbuffers.emplace_back(create_render_target(device, allocator, image_extent, VK_FORMAT_R16G16B16A16_SFLOAT, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
-    gbuffers.emplace_back(create_render_target(device, allocator, image_extent, VK_FORMAT_R8G8B8A8_UNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
-    gbuffers.emplace_back(create_render_target(device, allocator, image_extent, VK_FORMAT_R8G8B8A8_UNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
+    gbuffers.emplace_back(create_image_with_view(device, allocator, image_extent, VK_FORMAT_R8G8B8A8_UNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
+    gbuffers.emplace_back(create_image_with_view(device, allocator, image_extent, VK_FORMAT_R16G16B16A16_SFLOAT, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
+    gbuffers.emplace_back(create_image_with_view(device, allocator, image_extent, VK_FORMAT_R8G8B8A8_UNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
+    gbuffers.emplace_back(create_image_with_view(device, allocator, image_extent, VK_FORMAT_R8G8B8A8_UNORM, gbuffer_flags, VK_IMAGE_ASPECT_COLOR_BIT));
     bindless.gbuffer_srv = resource_heap_manager.add_srv(gbuffers[0], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
     resource_heap_manager.add_srv(gbuffers[1], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
     resource_heap_manager.add_srv(gbuffers[2], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
     resource_heap_manager.add_srv(gbuffers[3], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
 
     depth_image.format = VK_FORMAT_D32_SFLOAT;
-    depth_image = create_render_target(device, allocator, image_extent, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_DEPTH_BIT);
+    depth_image = create_image_with_view(device, allocator, image_extent, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_DEPTH_BIT);
     bindless.depth_srv = resource_heap_manager.add_srv(depth_image, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_DEPTH_BIT);
 
     for (size_t idx = 0; idx < cascade_data.size(); idx++)
     {
-        cascade_data[idx].shadow_map = create_render_target(
+        cascade_data[idx].shadow_map = create_image_with_view(
             device,
             allocator,
             VkExtent3D{ SHADOW_MAP_SIZE, SHADOW_MAP_SIZE, 1 },
@@ -2228,7 +2238,7 @@ void VulkanEngine::init_resources()
         light_data[i].color = glm::vec4(color_dist(mt), color_dist(mt), color_dist(mt), 1.0);
     }
 
-    light_buffer = upload_buffer(device, graphics_queue, imm_fence, imm_command_pool, imm_command_buffer, allocator, light_data.data(), MAX_POINT_LIGHTS * sizeof(PointLight));
+    light_buffer = create_buffer_with_data(device, graphics_queue, imm_fence, imm_command_pool, imm_command_buffer, allocator, light_data.data(), MAX_POINT_LIGHTS * sizeof(PointLight));
 
     const uint32_t total_clusters = CLUSTER_X * CLUSTER_Y * CLUSTER_DEPTH_SLICES;
 
@@ -2265,7 +2275,7 @@ void VulkanEngine::init_resources()
     extent.width /= 4;
     extent.height = extent.width;
 
-    hdri_cubemap = create_cubemap(
+    skybox_cubemap = create_cubemap(
         device,
         allocator,
         extent,
@@ -2275,9 +2285,9 @@ void VulkanEngine::init_resources()
         0,
         true
     );
-    bindless.skybox_srv = resource_heap_manager.add_srv(hdri_cubemap, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT);
+    bindless.skybox_srv = resource_heap_manager.add_srv(skybox_cubemap, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT);
     scene_data.textures[0] = static_cast<float>(bindless.skybox_srv);
-    bindless.skybox_uav = resource_heap_manager.add_uav(hdri_cubemap, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT);
+    bindless.skybox_uav = resource_heap_manager.add_uav(skybox_cubemap, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT);
 
     irradiance_cubemap = create_cubemap(
         device,
@@ -2331,7 +2341,7 @@ void VulkanEngine::init_resources()
             destroy_buffer(allocator, light_grid_buffer);
             destroy_buffer(allocator, light_count_buffer);
             destroy_image(device, allocator, hdri);
-            destroy_image(device, allocator, hdri_cubemap);
+            destroy_image(device, allocator, skybox_cubemap);
             destroy_image(device, allocator, irradiance_cubemap);
             destroy_image(device, allocator, prefiltered_envmap);
             destroy_image(device, allocator, brdf_lut);
@@ -2342,19 +2352,86 @@ void VulkanEngine::init_resources()
             }
         }
     );
+
+    {
+        auto screen_pixels = swapchain.extent.width * swapchain.extent.height;
+        render_scene.oit_buffer = create_buffer(
+            allocator,
+            screen_pixels * sizeof(OITData),
+            0,
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT
+        );
+        bindless.oit = resource_heap_manager.add_buffer(render_scene.oit_buffer, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+
+        immediate_submit(
+            device,
+            graphics_queue,
+            imm_fence,
+            imm_command_pool,
+            imm_command_buffer,
+            [&](VkCommandBuffer cmd)
+            {
+                vkCmdFillBuffer(cmd, render_scene.oit_buffer.buffer, 0, VK_WHOLE_SIZE, 0x3F800000);
+            }
+        );
+    }
+
+    render_scene.sh_buffer = create_buffer(allocator, 27 * sizeof(float), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
+    render_scene.luminance_buffer = create_buffer(allocator, 256 * sizeof(uint32_t), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+    render_scene.luminance_avg_buffer = create_buffer(allocator, sizeof(float), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+    // limit of ~16.7 meshlets, ~64mb
+    // TODO: implement error handling/limit check in shader; just drop the meshlets?
+    render_scene.cluster_indices = create_buffer(allocator, MESHLET_LIMIT * sizeof(uint32_t), 0, VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT);
+
+    render_scene.dispatch_buffer = create_buffer(
+        allocator,
+        3 * sizeof(uint32_t),
+        0,
+        VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_2_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_2_TRANSFER_DST_BIT
+    );
+    render_scene.meshlet_dispatch_buffer = create_buffer(
+        allocator,
+        3 * sizeof(uint32_t),
+        0,
+        VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_2_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_2_TRANSFER_DST_BIT
+    );
+
+    auto count_size = 2 * sizeof(uint32_t);
+    auto draw_commands_size = (MAX_OPAQUE_DRAWS + MAX_ALPHACLIP_DRAWS) * sizeof(VkDrawIndexedIndirectCommand);
+    render_scene.draw_indirect_buffer = create_buffer(
+        allocator,
+        (count_size + draw_commands_size) * NUMBER_OF_CASCADES,
+        0,
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT
+    );
+
+    {
+        render_scene.spd_counter_buffer = create_buffer(allocator, sizeof(uint32_t), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+        immediate_submit(
+            device,
+            graphics_queue,
+            imm_fence,
+            imm_command_pool,
+            imm_command_buffer,
+            [&](VkCommandBuffer cmd)
+            {
+                vkCmdFillBuffer(cmd, render_scene.spd_counter_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
+            }
+        );
+    }
 }
 
-void VulkanEngine::init_renderables(int argc, char** argv)
+void VulkanEngine::init_renderables(int file_count, char** file_paths)
 {
     auto start = SDL_GetTicks();
 
     {
-        std::vector<std::string> file_paths(argc - 1);
-        for (int i = 1; i < argc; i++)
+        std::vector<std::string> asset_paths(file_count - 1);
+        for (int i = 1; i < file_count; i++)
         {
-            file_paths[i - 1] = argv[i];
+            asset_paths[i - 1] = file_paths[i];
         }
-        auto asset_file = load_gltfs(device, graphics_queue, imm_fence, imm_command_pool, imm_command_buffer, allocator, &resource_heap_manager, file_paths);
+        auto asset_file = load_gltfs(device, graphics_queue, imm_fence, imm_command_pool, imm_command_buffer, allocator, &resource_heap_manager, asset_paths);
         assert(asset_file.has_value());
         loaded_scene = std::move(*asset_file);
     }
@@ -2362,64 +2439,6 @@ void VulkanEngine::init_renderables(int argc, char** argv)
     auto end = SDL_GetTicks();
     auto elapsed = end - start;
     fmt::println("load gltf: {}ms", elapsed);
-
-    VkBufferUsageFlags ray_tracing_flags = VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
-
-    render_scene.vertex_buffer = upload_buffer(
-        device,
-        graphics_queue,
-        imm_fence,
-        imm_command_pool,
-        imm_command_buffer,
-        allocator,
-        loaded_scene->vertices.data(),
-        loaded_scene->vertices.size() * sizeof(Vertex),
-        ray_tracing_flags
-    );
-
-    render_scene.index_buffer = upload_buffer(
-        device,
-        graphics_queue,
-        imm_fence,
-        imm_command_pool,
-        imm_command_buffer,
-        allocator,
-        loaded_scene->indices.data(),
-        loaded_scene->indices.size() * sizeof(uint32_t),
-        VK_BUFFER_USAGE_INDEX_BUFFER_BIT | ray_tracing_flags
-    );
-    render_scene.meshlet_indices = upload_buffer(
-        device,
-        graphics_queue,
-        imm_fence,
-        imm_command_pool,
-        imm_command_buffer,
-        allocator,
-        loaded_scene->meshlet_indices.data(),
-        loaded_scene->meshlet_indices.size() * sizeof(uint32_t)
-    );
-
-    render_scene.meshlet_buffer = upload_buffer(
-        device,
-        graphics_queue,
-        imm_fence,
-        imm_command_pool,
-        imm_command_buffer,
-        allocator,
-        loaded_scene->meshlets.data(),
-        loaded_scene->meshlets.size() * sizeof(Meshlet)
-    );
-
-    render_scene.material_buffer = upload_buffer(
-        device,
-        graphics_queue,
-        imm_fence,
-        imm_command_pool,
-        imm_command_buffer,
-        allocator,
-        loaded_scene->materials.data(),
-        loaded_scene->materials.size() * sizeof(MaterialData)
-    );
 
     for (const auto& n : loaded_scene->top_nodes)
     {
@@ -2460,14 +2479,7 @@ void VulkanEngine::init_renderables(int argc, char** argv)
     }
 #endif
 
-    uint32_t meshlet_visibility_offset{};
-    for (auto& renderable : render_scene.renderables)
-    {
-        uint32_t meshlet_count = renderable.meshlet_bit_offset; // meshlet count for LOD 0 only
-        renderable.meshlet_bit_offset = meshlet_visibility_offset;
-        meshlet_visibility_offset += meshlet_count;
-    }
-    render_scene.total_meshlets_bits = meshlet_visibility_offset;
+    upload_scene_data_to_buffers();
 
     loaded_scene->indices.clear();
     loaded_scene->vertices.clear();
@@ -2745,6 +2757,7 @@ void VulkanEngine::update_cascade()
 		    shadow_proj[3][0] += offset.x;
 		    shadow_proj[3][1] += offset.y;
 		*/
+
         cascade_data[i].viewproj = shadow_proj * shadow_view;
     }
 }
@@ -2835,9 +2848,79 @@ void VulkanEngine::draw_imgui(VkCommandBuffer cmd, VkImageView swapchain_view)
     vkCmdEndRendering(cmd);
 }
 
-void VulkanEngine::upload_buffers()
+void VulkanEngine::upload_scene_data_to_buffers()
 {
-    render_scene.object_buffer = upload_buffer(
+    VkBufferUsageFlags ray_tracing_flags = VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
+
+    render_scene.vertex_buffer = create_buffer_with_data(
+        device,
+        graphics_queue,
+        imm_fence,
+        imm_command_pool,
+        imm_command_buffer,
+        allocator,
+        loaded_scene->vertices.data(),
+        loaded_scene->vertices.size() * sizeof(Vertex),
+        ray_tracing_flags
+    );
+
+    render_scene.index_buffer = create_buffer_with_data(
+        device,
+        graphics_queue,
+        imm_fence,
+        imm_command_pool,
+        imm_command_buffer,
+        allocator,
+        loaded_scene->indices.data(),
+        loaded_scene->indices.size() * sizeof(uint32_t),
+        VK_BUFFER_USAGE_INDEX_BUFFER_BIT | ray_tracing_flags
+    );
+    render_scene.meshlet_indices = create_buffer_with_data(
+        device,
+        graphics_queue,
+        imm_fence,
+        imm_command_pool,
+        imm_command_buffer,
+        allocator,
+        loaded_scene->meshlet_indices.data(),
+        loaded_scene->meshlet_indices.size() * sizeof(uint32_t)
+    );
+
+    render_scene.meshlet_buffer = create_buffer_with_data(
+        device,
+        graphics_queue,
+        imm_fence,
+        imm_command_pool,
+        imm_command_buffer,
+        allocator,
+        loaded_scene->meshlets.data(),
+        loaded_scene->meshlets.size() * sizeof(Meshlet)
+    );
+
+    render_scene.material_buffer = create_buffer_with_data(
+        device,
+        graphics_queue,
+        imm_fence,
+        imm_command_pool,
+        imm_command_buffer,
+        allocator,
+        loaded_scene->materials.data(),
+        loaded_scene->materials.size() * sizeof(MaterialData)
+    );
+
+    {
+        uint32_t meshlet_visibility_offset{};
+        for (auto& renderable : render_scene.renderables)
+        {
+            // meshlet count for LOD 0 only
+            uint32_t meshlet_count = renderable.meshlet_bit_offset;
+            renderable.meshlet_bit_offset = meshlet_visibility_offset;
+            meshlet_visibility_offset += meshlet_count;
+        }
+        render_scene.total_meshlets_bits = meshlet_visibility_offset;
+    }
+
+    render_scene.object_buffer = create_buffer_with_data(
         device,
         graphics_queue,
         imm_fence,
@@ -2848,9 +2931,8 @@ void VulkanEngine::upload_buffers()
         render_scene.renderables.size() * sizeof(ObjectData),
         0
     );
-    // fmt::println("object_buffer: {}mb", size_in_bytes(render_scene.object_buffer.info.size));
 
-    render_scene.mesh_buffer = upload_buffer(
+    render_scene.mesh_buffer = create_buffer_with_data(
         device,
         graphics_queue,
         imm_fence,
@@ -2861,16 +2943,6 @@ void VulkanEngine::upload_buffers()
         render_scene.meshes.size() * sizeof(Mesh),
         0
     );
-    // fmt::println("mesh_buffer: {}mb", size_in_bytes(render_scene.mesh_buffer.info.size));
-
-    render_scene.sh_buffer = create_buffer(allocator, 27 * sizeof(float), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
-    // fmt::println("sh_buffer: {}mb", size_in_bytes(render_scene.sh_buffer.info.size));
-
-    render_scene.luminance_buffer = create_buffer(allocator, 256 * sizeof(uint32_t), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
-    // fmt::println("luminance_buffer: {}mb", size_in_bytes(render_scene.luminance_buffer.info.size));
-
-    render_scene.luminance_avg_buffer = create_buffer(allocator, sizeof(float), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
-    // fmt::println("luminance_avg_buffer: {}mb", size_in_bytes(render_scene.luminance_avg_buffer.info.size));
 
     {
         std::array<RenderScene::MeshPass*, 3> passes = { &render_scene.opaque_pass, &render_scene.mask_pass, &render_scene.transparent_pass };
@@ -2887,7 +2959,7 @@ void VulkanEngine::upload_buffers()
             }
         }
 
-        render_scene.indices_buffer = upload_buffer(
+        render_scene.indices_buffer = create_buffer_with_data(
             device,
             graphics_queue,
             imm_fence,
@@ -2897,7 +2969,6 @@ void VulkanEngine::upload_buffers()
             staging.data(),
             total * sizeof(uint32_t)
         );
-        // fmt::println("indices_buffer: {}mb", size_in_bytes(render_scene.indices_buffer.info.size));
     }
 
     // allocating for worst case
@@ -2907,7 +2978,6 @@ void VulkanEngine::upload_buffers()
         0,
         VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT
     );
-    // fmt::println("vis_buffer: {}mb", size_in_bytes(render_scene.vis_buffer.info.size));
 
     // TODO: implement limit, currently shader side has 1000000 hardcoded
     // TODO: modify with shadows in mind
@@ -2917,7 +2987,6 @@ void VulkanEngine::upload_buffers()
         0,
         VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT
     );
-    // fmt::println("prefix_sum_buffer: {}mb", size_in_bytes(render_scene.prefix_sum_buffer.info.size));
 
     immediate_submit(
         device,
@@ -2932,40 +3001,9 @@ void VulkanEngine::upload_buffers()
         }
     );
 
-    render_scene.dispatch_buffer = create_buffer(
-        allocator,
-        3 * sizeof(uint32_t),
-        0,
-        VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_2_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_2_TRANSFER_DST_BIT
-    );
-    // TODO: can we combine both of these?
-    render_scene.meshlet_dispatch_buffer = create_buffer(
-        allocator,
-        3 * sizeof(uint32_t),
-        0,
-        VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_2_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_2_TRANSFER_DST_BIT
-    );
-
-    auto count_size = 2 * sizeof(uint32_t);
-    auto draw_commands_size = (MAX_OPAQUE_DRAWS + MAX_ALPHACLIP_DRAWS) * sizeof(VkDrawIndexedIndirectCommand);
-    render_scene.draw_indirect_buffer = create_buffer(
-        allocator,
-        (count_size + draw_commands_size) * NUMBER_OF_CASCADES,
-        0,
-        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT
-    );
-    // fmt::println("draw_indirect_buffer: {}mb", size_in_bytes(render_scene.draw_indirect_buffer.info.size));
-
-    // limit of ~16.7 meshlets, ~64mb
-    // TODO: implement error handling/limit check in shader; just drop the meshlets?
-    render_scene.cluster_indices = create_buffer(allocator, MESHLET_LIMIT * sizeof(uint32_t), 0, VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT);
-    // fmt::println("cluster_indices: {}mb", size_in_bytes(render_scene.cluster_indices.info.size));
-
     {
         size_t meshlet_visibility_size = (render_scene.total_meshlets_bits + 31) / 32;
         render_scene.meshlet_vis_buffer = create_buffer(allocator, meshlet_visibility_size * sizeof(uint32_t), 0, VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
-        // fmt::println("number of instances: {}", render_scene.renderables.size());
-        // fmt::println("meshlet_vis_buffer: {}mb", size_in_bytes(render_scene.meshlet_vis_buffer.info.size));
 
         immediate_submit(
             device,
@@ -2979,47 +3017,6 @@ void VulkanEngine::upload_buffers()
             }
         );
     }
-
-    {
-        auto screen_pixels = swapchain.extent.width * swapchain.extent.height;
-        render_scene.oit_buffer = create_buffer(
-            allocator,
-            screen_pixels * sizeof(OITData),
-            0,
-            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT
-        );
-        bindless.oit = resource_heap_manager.add_buffer(render_scene.oit_buffer, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-        // fmt::println("oit_buffer: {}mb", size_in_bytes(render_scene.oit_buffer.info.size));
-
-        immediate_submit(
-            device,
-            graphics_queue,
-            imm_fence,
-            imm_command_pool,
-            imm_command_buffer,
-            [&](VkCommandBuffer cmd)
-            {
-                vkCmdFillBuffer(cmd, render_scene.oit_buffer.buffer, 0, VK_WHOLE_SIZE, 0x3F800000);
-            }
-        );
-    }
-
-    {
-        render_scene.spd_counter_buffer = create_buffer(allocator, sizeof(uint32_t), 0, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
-        immediate_submit(
-            device,
-            graphics_queue,
-            imm_fence,
-            imm_command_pool,
-            imm_command_buffer,
-            [&](VkCommandBuffer cmd)
-            {
-                vkCmdFillBuffer(cmd, render_scene.spd_counter_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
-            }
-        );
-    }
-
-    // TODO: move filling of buffers to a single location?
 }
 
 // indices address, count, late & post_pass set in executecomputecull
@@ -3908,7 +3905,7 @@ void VulkanEngine::create_acceleration_structures()
         instances[i].accelerationStructureReference = blas_addresses[obj.mesh_id];
     }
 
-    tlas_instance_buffer = upload_buffer(
+    tlas_instance_buffer = create_buffer_with_data(
         device,
         graphics_queue,
         imm_fence,
@@ -3992,4 +3989,18 @@ void VulkanEngine::create_acceleration_structures()
     );
 
     resource_heap_manager.add_acceleration_structure(tlas_as, 0);
+}
+
+int main(int argc, char** argv)
+{
+    VulkanEngine engine{};
+
+    if (argc < 2)
+        return 1;
+
+    engine.init(argc, argv);
+    engine.run();
+    engine.cleanup();
+
+    return 0;
 }

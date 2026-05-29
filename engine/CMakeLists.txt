@@ -2,7 +2,6 @@ add_executable(engine)
 
 target_sources(engine PRIVATE
   inputs.cpp
-  main.cpp
   vk_engine.cpp
   resources.cpp
   vk_loader.cpp

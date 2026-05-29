@@ -20,25 +20,12 @@
 
 constexpr unsigned int FRAME_OVERLAP = 2;
 
-// TODO: move to cpp
 struct DeletionQueue
 {
     std::vector<std::function<void()>> deletors{};
 
-    void push_function(std::function<void()>&& function)
-    {
-        deletors.emplace_back(function);
-    }
-
-    void flush()
-    {
-        for (auto it = deletors.rbegin(); it != deletors.rend(); ++it)
-        {
-            (*it)();
-        }
-
-        deletors.clear();
-    }
+    void push_function(std::function<void()>&& function);
+    void flush();
 };
 
 struct FrameData
@@ -92,7 +79,6 @@ struct CVarSystem;
 class VulkanEngine
 {
 public:
-    bool is_initialized{ false };
     uint32_t frame_number{ 0 };
     bool freeze_camera{ false };
     bool first_frame{ true };
@@ -151,7 +137,7 @@ public:
     std::vector<AllocatedImage> gbuffers{};
     AllocatedImage depth_pyramid{};
     AllocatedImage hdri{};
-    AllocatedImage hdri_cubemap{};
+    AllocatedImage skybox_cubemap{};
     AllocatedImage irradiance_cubemap{}; // for SH reference
     AllocatedImage prefiltered_envmap{};
     AllocatedImage brdf_lut{};
@@ -184,7 +170,7 @@ public:
 
     static VulkanEngine& get();
 
-    void init(int argc, char** argv);
+    void init(int file_count, char** file_paths);
     void cleanup();
     void draw();
     void run();
@@ -194,7 +180,7 @@ public:
     void resolve_taa(VkCommandBuffer cmd);
     void update_cascade();
     void draw_imgui(VkCommandBuffer cmd, VkImageView swapchain_view);
-    void upload_buffers();
+    void upload_scene_data_to_buffers();
     void ready_mesh_cull(RenderScene::MeshPass& pass, CullData& cull_data, glm::mat4& proj);
     void ready_meshlet_cull(RenderScene::MeshPass& pass, ClusterCullData& cull_data, glm::mat4& proj);
     void execute_compact_dispatch(VkCommandBuffer cmd);
@@ -246,7 +232,7 @@ private:
     void init_shaders();
     void init_pipelines();
     void init_resources();
-    void init_renderables(int argc, char** argv);
+    void init_renderables(int file_count, char** file_paths);
     void execute_baked_gi();
     void init_imgui();
     void build_cluster_grid();
