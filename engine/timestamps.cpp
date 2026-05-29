@@ -12,56 +12,113 @@ TimestampManager& TimestampManager::get()
     return manager;
 }
 
-void TimestampManager::get_render_time(double timestamp_period)
+// applies lerp to a recorded timestamp; also updates the timer from outside the timestamp manager
+void TimestampManager::lerp_timestamp(uint32_t current_frame, const char* pass, double& timer, double factor /* = 0.95 */)
 {
-    render_time.clear();
-    render_time.resize(renderpasses.size());
+    auto index = current_frame % 2;
+    auto& frame = frames[index];
 
-    for (uint32_t i = 0; i < timestamps.size(); i = i + 2)
+    for (uint32_t i = 0; i < frame.renderpasses.size(); i++)
     {
-        render_time[i] = static_cast<double>(timestamps[i + 1] - timestamps[i]) * timestamp_period * 1e-6;
+        // TODO: verify there's no implemention defined shenanigans here
+        if (frame.renderpasses[i] == pass)
+        {
+            auto& recorded_time = frame.render_time[i];
+            recorded_time = recorded_time + factor * (timer - recorded_time);
+            timer = recorded_time;
+            return;
+        }
     }
 }
 
-void TimestampManager::add_imgui_text()
+void TimestampManager::get_render_time(uint32_t current_frame, double timestamp_period)
 {
-    for (uint32_t i = 0; i < renderpasses.size(); i++)
+    auto index = current_frame % 2;
+    auto& frame = frames[index];
+
+    if (frame.skip)
+        return;
+
+    frame.render_time.resize(frame.renderpasses.size());
+
+    // hardcoded lerp for GPU render time
+    frame.render_time[0] = static_cast<double>(frame.timestamps[1] - frame.timestamps[0]) * timestamp_period * 1e-6;
+
+    for (uint32_t i = 1; i < frame.render_time.size(); i++)
     {
-        ImGui::Text("%s", renderpasses[i]);
+        frame.render_time[i] = static_cast<double>(frame.timestamps[i * 2 + 1] - frame.timestamps[i * 2]) * timestamp_period * 1e-6;
+    }
+}
+
+void TimestampManager::reset(uint32_t frame_number)
+{
+    auto& frame = frames[frame_number % 2];
+    frame.timestamps.clear();
+    frame.render_time.clear();
+    frame.renderpasses.clear();
+}
+
+void TimestampManager::add_imgui_text(uint32_t current_frame)
+{
+    auto index = current_frame % 2;
+    auto& frame = frames[index];
+    if (frame.skip)
+    {
+        frame.skip = false;
+        return;
+    }
+
+    for (uint32_t i = 0; i < frame.renderpasses.size(); i++)
+    {
+        ImGui::Text("%s", frame.renderpasses[i]);
         ImGui::SameLine();
-        ImGui::SetCursorPosX(100.0f);
-        ImGui::Text("%.3f ms", render_time[i]);
+        ImGui::SetCursorPosX(200.0f);
+        ImGui::Text("%.3f ms", frame.render_time[i]);
     }
 }
 
-void TimestampManager::get_query_pool_results(VkDevice device, VkQueryPool pool)
+void TimestampManager::get_query_pool_results(uint32_t current_frame, VkDevice device, VkQueryPool pool)
 {
-    timestamps.clear();
-    timestamps.resize(renderpasses.size() * 2);
+    auto index = current_frame % 2;
+    auto& frame = frames[index];
+
+    if (frame.skip)
+        return;
+
+    frame.timestamps.resize(frame.renderpasses.size() * 2);
 
     vkGetQueryPoolResults(
         device,
         pool,
         0,
-        static_cast<uint32_t>(timestamps.size()),
-        timestamps.size() * sizeof(uint64_t),
-        timestamps.data(),
+        static_cast<uint32_t>(frame.timestamps.size()),
+        frame.timestamps.size() * sizeof(uint64_t),
+        frame.timestamps.data(),
         sizeof(uint64_t),
         VK_QUERY_RESULT_64_BIT
     );
 }
 
-ScopedTimestamp::ScopedTimestamp(VkCommandBuffer command_buffer, VkQueryPool query_pool, const char* renderpass)
+uint32_t TimestampManager::add_pass(uint32_t current_frame, const char* pass)
+{
+    auto index = current_frame % 2;
+    auto& frame = frames[index];
+    auto size = frame.renderpasses.size();
+    frame.renderpasses.push_back(pass);
+
+    return size;
+}
+
+ScopedTimestamp::ScopedTimestamp(uint32_t current_frame, VkCommandBuffer command_buffer, VkQueryPool query_pool, const char* renderpass)
 {
     TimestampManager& manager = TimestampManager::get();
 
     cmd = command_buffer;
     pool = query_pool;
-    query = static_cast<uint32_t>(manager.renderpasses.size()) * 2;
+    // double the returned size as we write timestamp begin and end
+    query = manager.add_pass(current_frame, renderpass) * 2;
 
-    manager.renderpasses.push_back(renderpass);
-
-    vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, query_pool, query);
+    vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, pool, query);
 }
 
 ScopedTimestamp::~ScopedTimestamp()

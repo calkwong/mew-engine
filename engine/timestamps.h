@@ -7,22 +7,34 @@
 
 // TODO: private constructor and delete copy constructor/assignment
 // TODO: also do the above for engine and cvars
-struct TimestampManager
+class TimestampManager
 {
-    std::vector<const char*> renderpasses{};
-    std::vector<double> render_time{};
-    std::vector<uint64_t> timestamps{};
-
+public:
     static TimestampManager& get();
-    void get_query_pool_results(VkDevice device, VkQueryPool pool);
-    void get_render_time(double timestamp_period);
-    void add_imgui_text();
+
+    void get_query_pool_results(uint32_t current_frame, VkDevice device, VkQueryPool pool);
+    void get_render_time(uint32_t current_frame, double timestamp_period);
+    void add_imgui_text(uint32_t current_frame);
+    void reset(uint32_t current_frame);
+    void lerp_timestamp(uint32_t current_frame, const char* pass, double& timer, double factor = 0.95);
+    uint32_t add_pass(uint32_t current_frame, const char* pass);
+
+private:
+    struct Frame
+    {
+        std::vector<const char*> renderpasses{};
+        std::vector<double> render_time{};
+        std::vector<uint64_t> timestamps{};
+        bool skip = true; // hack
+    };
+
+    Frame frames[2]{};
 };
 
 class ScopedTimestamp
 {
 public:
-    ScopedTimestamp(VkCommandBuffer command_buffer, VkQueryPool query_pool, const char* renderpass);
+    ScopedTimestamp(uint32_t current_frame, VkCommandBuffer command_buffer, VkQueryPool query_pool, const char* renderpass);
     ~ScopedTimestamp();
 
 private:
