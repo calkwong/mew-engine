@@ -195,6 +195,7 @@ public:
     void execute_light_culling(VkCommandBuffer cmd);
     void execute_shading(VkCommandBuffer cmd);
     void create_acceleration_structures();
+    void register_queries_with_imgui();
 
 private:
     struct Bindless
