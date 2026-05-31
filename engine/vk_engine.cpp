@@ -63,7 +63,7 @@ VulkanEngine& VulkanEngine::get()
 constexpr bool USE_VALIDATION_LAYERS = true;
 // #endif
 
-// #define STRESS_TEST // uncomment if loading a proper scene
+#define STRESS_TEST // uncomment if loading a proper scene
 
 AutoCVar_Int CVAR_IMGUI{ "imgui", "Imgui", CVarFlags::EditCheckbox | CVarFlags::EditHide, 1 };
 AutoCVar_Int CVAR_DISABLE_CAMERA{ "disable_camera", "Disable camera", CVarFlags::EditCheckbox | CVarFlags::EditHide, 0 };
@@ -756,9 +756,9 @@ void VulkanEngine::draw()
                         pass.add_image_read("hiz", depth_pyramid.image);
                     }
                 },
-                [&, late, post_pass, timestamp]()
+                [&, late, post_pass, timestamp, prefix]()
                 {
-                    auto ts = ScopedTimestamp(frame_number, cmd, get_current_frame().query_pool_timestamps, "cull_meshes");
+                    auto ts = ScopedTimestamp(frame_number, cmd, get_current_frame().query_pool_timestamps, prefix + "cull_meshes");
                     execute_compute_cull(cmd, mesh_pass, forward_mesh_cull_data, late, post_pass);
                 }
             );
@@ -797,9 +797,9 @@ void VulkanEngine::draw()
                             pass.add_image_read("hiz", depth_pyramid.image);
                         }
                     },
-                    [&, mesh_pass, offset, late, post_pass, timestamp]()
+                    [&, mesh_pass, offset, late, post_pass, timestamp, prefix]()
                     {
-                        auto ts = ScopedTimestamp(frame_number, cmd, get_current_frame().query_pool_timestamps, "cull_meshlets");
+                        auto ts = ScopedTimestamp(frame_number, cmd, get_current_frame().query_pool_timestamps, prefix + "cull_meshlets");
                         execute_compute_cull(cmd, forward_cluster_cull_data, render_scene.dispatch_buffer.buffer, offset, late, post_pass);
                     }
                 );
@@ -841,9 +841,9 @@ void VulkanEngine::draw()
                         }
                     }
                 },
-                [&, late, post_pass, query, timestamp]()
+                [&, late, post_pass, query, timestamp, prefix]()
                 {
-                    auto ts = ScopedTimestamp(frame_number, cmd, get_current_frame().query_pool_timestamps, "rasterization");
+                    auto ts = ScopedTimestamp(frame_number, cmd, get_current_frame().query_pool_timestamps, prefix + "rasterization");
                     render(cmd, late, post_pass, query);
                 }
             );
@@ -886,9 +886,9 @@ void VulkanEngine::draw()
                             pass.add_image_read("hiz", depth_pyramid.image);
                         }
                     },
-                    [&, late, post_pass, timestamp]()
+                    [&, late, post_pass, timestamp, prefix]()
                     {
-                        auto ts = ScopedTimestamp(frame_number, cmd, get_current_frame().query_pool_timestamps, "cull transparent");
+                        auto ts = ScopedTimestamp(frame_number, cmd, get_current_frame().query_pool_timestamps, prefix + "cull_meshes");
                         execute_compute_cull(cmd, render_scene.transparent_pass, forward_mesh_cull_data, late, post_pass);
                     }
                 );
@@ -927,16 +927,16 @@ void VulkanEngine::draw()
                                 pass.add_image_read("hiz", depth_pyramid.image);
                             }
                         },
-                        [&, offset, late, post_pass, timestamp]()
+                        [&, offset, late, post_pass, timestamp, prefix]()
                         {
-                            auto ts = ScopedTimestamp(frame_number, cmd, get_current_frame().query_pool_timestamps, "cull transparent");
+                            auto ts = ScopedTimestamp(frame_number, cmd, get_current_frame().query_pool_timestamps, prefix + "cull_meshlets");
                             execute_compute_cull(cmd, forward_cluster_cull_data, render_scene.dispatch_buffer.buffer, offset, late, post_pass);
                         }
                     );
                 }
             }
             graph.add_pass(
-                "transparent_forward",
+                "mlab",
                 Pass::PassType::GraphicsPass,
                 [&](Pass& pass)
                 {
@@ -1095,7 +1095,7 @@ void VulkanEngine::draw()
             }
 
             graph.add_pass(
-                "lighting pass",
+                "lighting_pass",
                 Pass::PassType::ComputePass,
                 [&](Pass& pass)
                 {
@@ -1112,7 +1112,7 @@ void VulkanEngine::draw()
                 },
                 [&]()
                 {
-                    auto ts = ScopedTimestamp(frame_number, cmd, get_current_frame().query_pool_timestamps, "lighting pass");
+                    auto ts = ScopedTimestamp(frame_number, cmd, get_current_frame().query_pool_timestamps, "lighting_pass");
                     execute_shading(cmd);
                 }
             );
@@ -1219,6 +1219,7 @@ void VulkanEngine::draw()
                     },
                     [&]()
                     {
+                        auto ts = ScopedTimestamp(frame_number, cmd, get_current_frame().query_pool_timestamps, "tonemapping");
                         ShaderPass current_pass = *shader_passes["tonemap"];
                         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
 

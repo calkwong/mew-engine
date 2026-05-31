@@ -4,6 +4,7 @@
 #include <imgui.h>
 
 #include <cstdint>
+#include <string>
 #include <vector>
 
 TimestampManager& TimestampManager::get()
@@ -13,7 +14,7 @@ TimestampManager& TimestampManager::get()
 }
 
 // applies lerp to a recorded timestamp; also updates the timer from outside the timestamp manager
-void TimestampManager::lerp_timestamp(uint32_t current_frame, const char* pass, double& timer, double factor /* = 0.95 */)
+void TimestampManager::lerp_timestamp(uint32_t current_frame, const std::string& pass, double& timer, double factor /* = 0.95 */)
 {
     auto index = current_frame % 2;
     auto& frame = frames[index];
@@ -70,9 +71,9 @@ void TimestampManager::add_imgui_text(uint32_t current_frame)
 
     for (uint32_t i = 0; i < frame.renderpasses.size(); i++)
     {
-        ImGui::Text("%s", frame.renderpasses[i]);
+        ImGui::Text("%s", frame.renderpasses[i].c_str());
         ImGui::SameLine();
-        ImGui::SetCursorPosX(200.0f);
+        ImGui::SetCursorPosX(300.0f);
         ImGui::Text("%.3f ms", frame.render_time[i]);
     }
 }
@@ -99,7 +100,7 @@ void TimestampManager::get_query_pool_results(uint32_t current_frame, VkDevice d
     );
 }
 
-uint32_t TimestampManager::add_pass(uint32_t current_frame, const char* pass)
+uint32_t TimestampManager::add_pass(uint32_t current_frame, const std::string& pass)
 {
     auto index = current_frame % 2;
     auto& frame = frames[index];
@@ -109,7 +110,7 @@ uint32_t TimestampManager::add_pass(uint32_t current_frame, const char* pass)
     return size;
 }
 
-ScopedTimestamp::ScopedTimestamp(uint32_t current_frame, VkCommandBuffer command_buffer, VkQueryPool query_pool, const char* renderpass)
+ScopedTimestamp::ScopedTimestamp(uint32_t current_frame, VkCommandBuffer command_buffer, VkQueryPool query_pool, const std::string& renderpass)
 {
     TimestampManager& manager = TimestampManager::get();
 
