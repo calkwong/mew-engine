@@ -6,13 +6,9 @@
 #include <string>
 #include <vector>
 
-// TODO: private constructor and delete copy constructor/assignment
-// TODO: also do the above for engine and cvars
 class TimestampManager
 {
 public:
-    static TimestampManager& get();
-
     void get_query_pool_results(uint32_t current_frame, VkDevice device, VkQueryPool pool);
     void get_render_time(uint32_t current_frame, double timestamp_period);
     void add_imgui_text(uint32_t current_frame);
@@ -35,10 +31,13 @@ private:
 class ScopedTimestamp
 {
 public:
-    ScopedTimestamp(uint32_t current_frame, VkCommandBuffer command_buffer, VkQueryPool query_pool, const std::string& renderpass);
+    ScopedTimestamp(TimestampManager* manager, uint32_t current_frame, VkCommandBuffer command_buffer, VkQueryPool query_pool, const std::string& renderpass);
     ~ScopedTimestamp();
+    ScopedTimestamp(const ScopedTimestamp& timestamp) = delete;
+    ScopedTimestamp& operator=(const ScopedTimestamp& timestamp) = delete;
 
 private:
+    TimestampManager* manager{};
     VkCommandBuffer cmd{};
     VkQueryPool pool{};
     uint32_t query{};

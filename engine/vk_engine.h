@@ -9,6 +9,7 @@
 #include "vk_scene.h"
 #include "swapchain.h"
 #include "descriptors.h"
+#include "timestamps.h"
 
 #include <array>
 #include <cstdint>
@@ -165,6 +166,8 @@ public:
 
     CVarSystem* cvar_system{};
     RenderScene render_scene{};
+
+    TimestampManager timestamp_manager{};
 
     // tracy::VkCtx* tracy_ctx{};
 

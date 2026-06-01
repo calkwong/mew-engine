@@ -218,6 +218,7 @@ void VulkanEngine::init(int file_count, char** file_paths)
     assert(loaded_engine == nullptr);
     loaded_engine = this;
     cvar_system = CVarSystem::get();
+    timestamp_manager = TimestampManager{};
 
     VK_CHECK(volkInitialize());
 
@@ -634,13 +635,13 @@ void VulkanEngine::draw()
         std::array<uint64_t, PIPELINE_QUERIES> pipeline_results{};
         std::array<uint64_t, PIPELINE_QUERIES> mesh_primitive_results{};
 
-        TimestampManager::get().get_query_pool_results(frame_number, device, get_current_frame().query_pool_timestamps);
-        TimestampManager::get().get_render_time(frame_number, device_properties.properties.limits.timestampPeriod);
-        TimestampManager::get().lerp_timestamp(frame_number, "gpu_time", stats.gpu_time);
+        timestamp_manager.get_query_pool_results(frame_number, device, get_current_frame().query_pool_timestamps);
+        timestamp_manager.get_render_time(frame_number, device_properties.properties.limits.timestampPeriod);
+        timestamp_manager.lerp_timestamp(frame_number, "gpu_time", stats.gpu_time);
 
         register_queries_with_imgui();
 
-        TimestampManager::get().reset(frame_number);
+        timestamp_manager.reset(frame_number);
 
         vkGetQueryPoolResults(
             device,
@@ -696,7 +697,7 @@ void VulkanEngine::draw()
     VK_CHECK(vkBeginCommandBuffer(cmd, &cmd_begin_info));
 
     {
-        auto ts = ScopedTimestamp(frame_number, cmd, get_current_frame().query_pool_timestamps, "gpu_time");
+        auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, "gpu_time");
 
         VkBindHeapInfoEXT bind_resource_heap_info{};
         bind_resource_heap_info.sType = VK_STRUCTURE_TYPE_BIND_HEAP_INFO_EXT;
@@ -758,7 +759,7 @@ void VulkanEngine::draw()
                 },
                 [&, late, post_pass, timestamp, prefix]()
                 {
-                    auto ts = ScopedTimestamp(frame_number, cmd, get_current_frame().query_pool_timestamps, prefix + "cull_meshes");
+                    auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, prefix + "cull_meshes");
                     execute_compute_cull(cmd, mesh_pass, forward_mesh_cull_data, late, post_pass);
                 }
             );
@@ -799,7 +800,7 @@ void VulkanEngine::draw()
                     },
                     [&, mesh_pass, offset, late, post_pass, timestamp, prefix]()
                     {
-                        auto ts = ScopedTimestamp(frame_number, cmd, get_current_frame().query_pool_timestamps, prefix + "cull_meshlets");
+                        auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, prefix + "cull_meshlets");
                         execute_compute_cull(cmd, forward_cluster_cull_data, render_scene.dispatch_buffer.buffer, offset, late, post_pass);
                     }
                 );
@@ -843,7 +844,7 @@ void VulkanEngine::draw()
                 },
                 [&, late, post_pass, query, timestamp, prefix]()
                 {
-                    auto ts = ScopedTimestamp(frame_number, cmd, get_current_frame().query_pool_timestamps, prefix + "rasterization");
+                    auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, prefix + "rasterization");
                     render(cmd, late, post_pass, query);
                 }
             );
@@ -888,7 +889,7 @@ void VulkanEngine::draw()
                     },
                     [&, late, post_pass, timestamp, prefix]()
                     {
-                        auto ts = ScopedTimestamp(frame_number, cmd, get_current_frame().query_pool_timestamps, prefix + "cull_meshes");
+                        auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, prefix + "cull_meshes");
                         execute_compute_cull(cmd, render_scene.transparent_pass, forward_mesh_cull_data, late, post_pass);
                     }
                 );
@@ -929,7 +930,7 @@ void VulkanEngine::draw()
                         },
                         [&, offset, late, post_pass, timestamp, prefix]()
                         {
-                            auto ts = ScopedTimestamp(frame_number, cmd, get_current_frame().query_pool_timestamps, prefix + "cull_meshlets");
+                            auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, prefix + "cull_meshlets");
                             execute_compute_cull(cmd, forward_cluster_cull_data, render_scene.dispatch_buffer.buffer, offset, late, post_pass);
                         }
                     );
@@ -952,7 +953,7 @@ void VulkanEngine::draw()
                 },
                 [&, query, timestamp]()
                 {
-                    auto ts = ScopedTimestamp(frame_number, cmd, get_current_frame().query_pool_timestamps, "mlab");
+                    auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, "mlab");
                     render_transparent(cmd, query);
                 }
             );
@@ -979,7 +980,7 @@ void VulkanEngine::draw()
                     },
                     [&]()
                     {
-                        auto ts = ScopedTimestamp(frame_number, cmd, get_current_frame().query_pool_timestamps, "hiz");
+                        auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, "hiz");
                         if (cvar_system->get_int_cvar("hiz_spd"))
                             execute_hiz_spd(cmd);
                         else
@@ -1029,7 +1030,7 @@ void VulkanEngine::draw()
                     },
                     [&]()
                     {
-                        auto ts = ScopedTimestamp(frame_number, cmd, get_current_frame().query_pool_timestamps, "light_culling");
+                        auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, "light_culling");
                         execute_light_culling(cmd);
                     }
                 );
@@ -1064,7 +1065,7 @@ void VulkanEngine::draw()
                     },
                     [&]()
                     {
-                        auto ts = ScopedTimestamp(frame_number, cmd, get_current_frame().query_pool_timestamps, "shadow_culling");
+                        auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, "shadow_culling");
                         execute_shadow_cull(cmd);
                     }
                 );
@@ -1081,7 +1082,7 @@ void VulkanEngine::draw()
                     },
                     [&]()
                     {
-                        auto ts = ScopedTimestamp(frame_number, cmd, get_current_frame().query_pool_timestamps, "shadow_pass");
+                        auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, "shadow_pass");
                         uint32_t query_index = 4;
                         for (size_t i = 0; i < cascade_data.size(); i++, query_index++)
                             render_shadows(cmd, static_cast<uint32_t>(i), query_index);
@@ -1112,7 +1113,7 @@ void VulkanEngine::draw()
                 },
                 [&]()
                 {
-                    auto ts = ScopedTimestamp(frame_number, cmd, get_current_frame().query_pool_timestamps, "lighting_pass");
+                    auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, "lighting_pass");
                     execute_shading(cmd);
                 }
             );
@@ -1200,7 +1201,7 @@ void VulkanEngine::draw()
                     },
                     [&]()
                     {
-                        auto ts = ScopedTimestamp(frame_number, cmd, get_current_frame().query_pool_timestamps, "taa");
+                        auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, "taa");
                         resolve_taa(cmd);
                     }
                 );
@@ -1219,7 +1220,7 @@ void VulkanEngine::draw()
                     },
                     [&]()
                     {
-                        auto ts = ScopedTimestamp(frame_number, cmd, get_current_frame().query_pool_timestamps, "tonemapping");
+                        auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, "tonemapping");
                         ShaderPass current_pass = *shader_passes["tonemap"];
                         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
 
@@ -3902,7 +3903,7 @@ void VulkanEngine::register_queries_with_imgui()
     ImGui::Begin("Stats");
     ImGui::Text("Total render time:    %.3f ms", stats.cpu_time);
 
-    TimestampManager::get().add_imgui_text(frame_number);
+    timestamp_manager.add_imgui_text(frame_number);
 
     ImGui::Text("Triangles:            %u", stats.triangle_count);
     ImGui::Text("Cascade 0:            %u", stats.cascade0);

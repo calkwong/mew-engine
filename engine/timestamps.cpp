@@ -7,12 +7,6 @@
 #include <string>
 #include <vector>
 
-TimestampManager& TimestampManager::get()
-{
-    static TimestampManager manager{};
-    return manager;
-}
-
 // applies lerp to a recorded timestamp; also updates the timer from outside the timestamp manager
 void TimestampManager::lerp_timestamp(uint32_t current_frame, const std::string& pass, double& timer, double factor /* = 0.95 */)
 {
@@ -42,10 +36,7 @@ void TimestampManager::get_render_time(uint32_t current_frame, double timestamp_
 
     frame.render_time.resize(frame.renderpasses.size());
 
-    // hardcoded lerp for GPU render time
-    frame.render_time[0] = static_cast<double>(frame.timestamps[1] - frame.timestamps[0]) * timestamp_period * 1e-6;
-
-    for (uint32_t i = 1; i < frame.render_time.size(); i++)
+    for (uint32_t i = 0; i < frame.render_time.size(); i++)
     {
         frame.render_time[i] = static_cast<double>(frame.timestamps[i * 2 + 1] - frame.timestamps[i * 2]) * timestamp_period * 1e-6;
     }
@@ -73,7 +64,7 @@ void TimestampManager::add_imgui_text(uint32_t current_frame)
     {
         ImGui::Text("%s", frame.renderpasses[i].c_str());
         ImGui::SameLine();
-        ImGui::SetCursorPosX(300.0f);
+        ImGui::SetCursorPosX(220.0f);
         ImGui::Text("%.3f ms", frame.render_time[i]);
     }
 }
@@ -110,14 +101,11 @@ uint32_t TimestampManager::add_pass(uint32_t current_frame, const std::string& p
     return size;
 }
 
-ScopedTimestamp::ScopedTimestamp(uint32_t current_frame, VkCommandBuffer command_buffer, VkQueryPool query_pool, const std::string& renderpass)
+ScopedTimestamp::ScopedTimestamp(TimestampManager* manager, uint32_t current_frame, VkCommandBuffer command_buffer, VkQueryPool query_pool, const std::string& renderpass)
+    : manager{ manager }, cmd{ command_buffer }, pool{ query_pool }
 {
-    TimestampManager& manager = TimestampManager::get();
-
-    cmd = command_buffer;
-    pool = query_pool;
     // double the returned size as we write timestamp begin and end
-    query = manager.add_pass(current_frame, renderpass) * 2;
+    query = manager->add_pass(current_frame, renderpass) * 2;
 
     vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, pool, query);
 }
