@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common.h"
+#include "config.h"
 
 #include <cstdint>
 #include <string>
@@ -25,7 +26,7 @@ private:
         bool skip = true; // hack
     };
 
-    Frame frames[2]{};
+    Frame frames[MAX_FRAMES_IN_FLIGHT]{};
 };
 
 class ScopedTimestamp

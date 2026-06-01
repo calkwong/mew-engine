@@ -10,6 +10,7 @@
 #include "swapchain.h"
 #include "descriptors.h"
 #include "timestamps.h"
+#include "config.h"
 
 #include <array>
 #include <cstdint>
@@ -18,8 +19,6 @@
 #include <unordered_map>
 #include <vector>
 #include <memory>
-
-constexpr unsigned int FRAME_OVERLAP = 2;
 
 struct DeletionQueue
 {
@@ -103,11 +102,11 @@ public:
 
     Swapchain swapchain{};
 
-    FrameData frames[FRAME_OVERLAP]{};
+    FrameData frames[MAX_FRAMES_IN_FLIGHT]{};
 
     FrameData& get_current_frame()
     {
-        return frames[frame_number % FRAME_OVERLAP];
+        return frames[frame_number % MAX_FRAMES_IN_FLIGHT];
     }
 
     std::vector<VkSemaphore> render_done_semaphores{};

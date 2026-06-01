@@ -39,3 +39,5 @@
 #define NEAREST_CLAMP_BORDER_SAMPLER 4
 #define NEAREST_SAMPLER 5 // clamp to edge
 #define LINEAR_CLAMP_SAMPLER 6 // clamp to edge
+
+#define MAX_FRAMES_IN_FLIGHT 2
