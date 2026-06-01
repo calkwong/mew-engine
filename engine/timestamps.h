@@ -23,7 +23,6 @@ private:
         std::vector<std::string> renderpasses{};
         std::vector<double> render_time{};
         std::vector<uint64_t> timestamps{};
-        bool skip = true; // hack
     };
 
     Frame frames[MAX_FRAMES_IN_FLIGHT]{};

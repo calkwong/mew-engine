@@ -32,7 +32,7 @@ void TimestampManager::get_render_time(uint32_t current_frame, double timestamp_
     auto index = current_frame % 2;
     auto& frame = frames[index];
 
-    if (frame.skip)
+    if (frame.renderpasses.size() == 0)
         return;
 
     frame.render_time.resize(frame.renderpasses.size());
@@ -55,13 +55,12 @@ void TimestampManager::add_imgui_text(uint32_t current_frame)
 {
     auto index = current_frame % 2;
     auto& frame = frames[index];
-    if (frame.skip)
-    {
-        frame.skip = false;
-        return;
-    }
 
-    for (uint32_t i = 0; i < frame.renderpasses.size(); i++)
+    auto size = frame.renderpasses.size();
+    if (size == 0)
+        return;
+
+    for (uint32_t i = 0; i < size; i++)
     {
         ImGui::Text("%s", frame.renderpasses[i].c_str());
         ImGui::SameLine();
@@ -75,7 +74,7 @@ void TimestampManager::get_query_pool_results(uint32_t current_frame, VkDevice d
     auto index = current_frame % 2;
     auto& frame = frames[index];
 
-    if (frame.skip)
+    if (frame.renderpasses.size() == 0)
         return;
 
     frame.timestamps.resize(frame.renderpasses.size() * 2);

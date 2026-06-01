@@ -649,13 +649,9 @@ void VulkanEngine::draw()
         query_manager.reset(frame_number);
     }
 
-    auto& frame_query_pool_timestamps = get_current_frame().query_pool_timestamps;
-    auto& frame_query_pool_pipelines = get_current_frame().query_pool_pipelines;
-    auto& frame_query_pool_mesh_primitives = get_current_frame().query_pool_mesh_primitives;
-
-    vkResetQueryPool(device, frame_query_pool_timestamps, 0, QUERY_COUNT);
-    vkResetQueryPool(device, frame_query_pool_pipelines, 0, QUERY_COUNT);
-    vkResetQueryPool(device, frame_query_pool_mesh_primitives, 0, QUERY_COUNT);
+    vkResetQueryPool(device, get_current_frame().query_pool_timestamps, 0, QUERY_COUNT);
+    vkResetQueryPool(device, get_current_frame().query_pool_pipelines, 0, QUERY_COUNT);
+    vkResetQueryPool(device, get_current_frame().query_pool_mesh_primitives, 0, QUERY_COUNT);
 
     VkCommandBuffer cmd = get_current_frame().main_command_buffer;
     VK_CHECK(vkResetCommandPool(device, get_current_frame().command_pool, 0));
