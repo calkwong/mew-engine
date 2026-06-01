@@ -65,6 +65,11 @@ public:
     void set_float_cvar(std::string name, float value);
 
 private:
+    CVarSystem(const CVarSystem& system) = delete;
+    CVarSystem& operator=(const CVarSystem& system) = delete;
+    ~CVarSystem() = default;
+    CVarSystem() = default;
+
     std::unordered_map<std::string, size_t> hash{};
     std::vector<CVarParameter> parameters{};
     std::vector<int> ints{};
