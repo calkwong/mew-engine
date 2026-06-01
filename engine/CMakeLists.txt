@@ -11,7 +11,7 @@ target_sources(engine PRIVATE
   rendergraph.cpp
   swapchain.cpp
   descriptors.cpp
-  timestamps.cpp
+  queries.cpp
   ${PROJECT_SOURCE_DIR}/external/imgui/imgui.cpp
   ${PROJECT_SOURCE_DIR}/external/imgui/imgui_demo.cpp
   ${PROJECT_SOURCE_DIR}/external/imgui/imgui_draw.cpp

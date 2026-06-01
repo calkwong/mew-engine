@@ -9,7 +9,7 @@
 #include "vk_scene.h"
 #include "swapchain.h"
 #include "descriptors.h"
-#include "timestamps.h"
+#include "queries.h"
 #include "config.h"
 
 #include <array>

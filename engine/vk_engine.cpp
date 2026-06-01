@@ -12,7 +12,7 @@
 #include "rendergraph.h"
 #include "swapchain.h"
 #include "descriptors.h"
-#include "timestamps.h"
+#include "queries.h"
 
 #include <stb_image.h>
 #include <vk_mem_alloc.h>
