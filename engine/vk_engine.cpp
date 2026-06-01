@@ -219,6 +219,7 @@ void VulkanEngine::init(int file_count, char** file_paths)
     loaded_engine = this;
     cvar_system = CVarSystem::get();
     timestamp_manager = TimestampManager{};
+    query_manager = PipelineQueryManager{};
 
     VK_CHECK(volkInitialize());
 
@@ -632,51 +633,20 @@ void VulkanEngine::draw()
     }
 
     {
-        std::array<uint64_t, PIPELINE_QUERIES> pipeline_results{};
-        std::array<uint64_t, PIPELINE_QUERIES> mesh_primitive_results{};
-
         timestamp_manager.get_query_pool_results(frame_number, device, get_current_frame().query_pool_timestamps);
         timestamp_manager.get_render_time(frame_number, device_properties.properties.limits.timestampPeriod);
         timestamp_manager.lerp_timestamp(frame_number, "gpu_time", stats.gpu_time);
 
+        bool mesh_shaders = cvar_system->get_int_cvar("mesh_shaders");
+        if (mesh_shaders)
+            query_manager.get_query_pool_results(frame_number, device, get_current_frame().query_pool_mesh_primitives, PipelineQueryType::Mesh);
+        if (!mesh_shaders || (cvar_system->get_int_cvar("shadows") && !cvar_system->get_int_cvar("shadows_rt")))
+            query_manager.get_query_pool_results(frame_number, device, get_current_frame().query_pool_pipelines, PipelineQueryType::Vertex);
+
         register_queries_with_imgui();
 
         timestamp_manager.reset(frame_number);
-
-        vkGetQueryPoolResults(
-            device,
-            get_current_frame().query_pool_pipelines,
-            0,
-            static_cast<uint32_t>(pipeline_results.size()),
-            pipeline_results.size() * sizeof(uint64_t),
-            pipeline_results.data(),
-            sizeof(uint64_t),
-            VK_QUERY_RESULT_64_BIT
-        );
-
-        vkGetQueryPoolResults(
-            device,
-            get_current_frame().query_pool_mesh_primitives,
-            0,
-            static_cast<uint32_t>(mesh_primitive_results.size()),
-            mesh_primitive_results.size() * sizeof(uint64_t),
-            mesh_primitive_results.data(),
-            sizeof(uint64_t),
-            VK_QUERY_RESULT_64_BIT
-        );
-
-        stats.triangle_count = 0;
-        for (size_t i = 0; i < pipeline_results.size(); i++)
-        {
-            stats.triangle_count += static_cast<unsigned int>(pipeline_results[i]);
-            stats.triangle_count += static_cast<unsigned int>(mesh_primitive_results[i]);
-        }
-
-        // TODO: remove magic numbers
-        stats.cascade0 = static_cast<unsigned int>(pipeline_results[4]);
-        stats.cascade1 = static_cast<unsigned int>(pipeline_results[5]);
-        stats.cascade2 = static_cast<unsigned int>(pipeline_results[6]);
-        stats.cascade3 = static_cast<unsigned int>(pipeline_results[7]);
+        query_manager.reset(frame_number);
     }
 
     auto& frame_query_pool_timestamps = get_current_frame().query_pool_timestamps;
@@ -994,11 +964,6 @@ void VulkanEngine::draw()
             // alphaclip postpass only, this is using early pass hiz for culling
             if (cvar_system->get_int_cvar("alphaclip"))
                 two_pass_occlusion_culling(graph, "alphaclip_late_", render_scene.mask_pass, 0, true, 1, 2, 8);
-            else
-            {
-                vkCmdBeginQuery(cmd, get_current_frame().query_pool_pipelines, 2, 0);
-                vkCmdEndQuery(cmd, get_current_frame().query_pool_pipelines, 2);
-            }
 
             if (cvar_system->get_int_cvar("point_lights"))
             {
@@ -1089,11 +1054,6 @@ void VulkanEngine::draw()
                     }
                 );
             }
-            else
-            {
-                vkCmdBeginQuery(cmd, get_current_frame().query_pool_pipelines, 4, 0);
-                vkCmdEndQuery(cmd, get_current_frame().query_pool_pipelines, 4);
-            }
 
             graph.add_pass(
                 "lighting_pass",
@@ -1137,11 +1097,6 @@ void VulkanEngine::draw()
 
                 transparency_pass(graph, "transparent_late_", 0, true, 2, 3, 16);
             }
-            else
-            {
-                vkCmdBeginQuery(cmd, get_current_frame().query_pool_pipelines, 3, 0);
-                vkCmdEndQuery(cmd, get_current_frame().query_pool_pipelines, 3);
-            };
 
             if (cvar_system->get_int_cvar("transparent"))
             {
@@ -1288,7 +1243,6 @@ void VulkanEngine::draw()
             VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
             0
         );
-
     }
     // TracyVkCollect(tracy_ctx, get_current_frame().main_command_buffer);
     VK_CHECK(vkEndCommandBuffer(cmd));
@@ -3201,7 +3155,7 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass, ui
 
     if (!cvar_system->get_int_cvar("mesh_shaders"))
     {
-        vkCmdBeginQuery(cmd, get_current_frame().query_pool_pipelines, query, 0);
+        auto pq = ScopedPipelineQuery(&query_manager, frame_number, cmd, get_current_frame().query_pool_pipelines, PipelineQueryType::Vertex);
 
         ShaderPass current_pass = post_pass == 0 ? *shader_passes["gbuffer_vert"] : *shader_passes["gbuffer_vert_alphaclip"];
 
@@ -3224,12 +3178,10 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass, ui
             MAX_MESH_DRAWS,
             sizeof(VkDrawIndexedIndirectCommand)
         );
-
-        vkCmdEndQuery(cmd, get_current_frame().query_pool_pipelines, query);
     }
     else // mesh shading path
     {
-        vkCmdBeginQuery(cmd, get_current_frame().query_pool_mesh_primitives, query, 0);
+        auto pq = ScopedPipelineQuery(&query_manager, frame_number, cmd, get_current_frame().query_pool_mesh_primitives, PipelineQueryType::Mesh);
 
         ShaderPass current_pass{};
         if (visibility_rendering)
@@ -3248,8 +3200,6 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass, ui
 
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
         vkCmdDrawMeshTasksIndirectEXT(cmd, render_scene.meshlet_dispatch_buffer.buffer, 0, 1, 0);
-
-        vkCmdEndQuery(cmd, get_current_frame().query_pool_mesh_primitives, query);
     }
 
     vkCmdEndRendering(cmd);
@@ -3306,7 +3256,7 @@ void VulkanEngine::render_transparent(VkCommandBuffer cmd, uint32_t query)
 
     if (!cvar_system->get_int_cvar("mesh_shaders"))
     {
-        vkCmdBeginQuery(cmd, get_current_frame().query_pool_pipelines, query, 0);
+        auto pq = ScopedPipelineQuery(&query_manager, frame_number, cmd, get_current_frame().query_pool_pipelines, PipelineQueryType::Vertex);
 
         ShaderPass current_pass = *shader_passes["mlab_vert"];
 
@@ -3328,12 +3278,10 @@ void VulkanEngine::render_transparent(VkCommandBuffer cmd, uint32_t query)
             MAX_MESH_DRAWS,
             sizeof(VkDrawIndexedIndirectCommand)
         );
-
-        vkCmdEndQuery(cmd, get_current_frame().query_pool_pipelines, query);
     }
     else // mesh shading path
     {
-        vkCmdBeginQuery(cmd, get_current_frame().query_pool_mesh_primitives, query, 0);
+        auto pq = ScopedPipelineQuery(&query_manager, frame_number, cmd, get_current_frame().query_pool_mesh_primitives, PipelineQueryType::Mesh);
 
         ShaderPass current_pass = *shader_passes["mlab_mesh"];
 
@@ -3344,8 +3292,6 @@ void VulkanEngine::render_transparent(VkCommandBuffer cmd, uint32_t query)
 
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
         vkCmdDrawMeshTasksIndirectEXT(cmd, render_scene.meshlet_dispatch_buffer.buffer, 0, 1, 0);
-
-        vkCmdEndQuery(cmd, get_current_frame().query_pool_mesh_primitives, query);
     }
 
     vkCmdEndRendering(cmd);
@@ -3353,7 +3299,7 @@ void VulkanEngine::render_transparent(VkCommandBuffer cmd, uint32_t query)
 
 void VulkanEngine::render_shadows(VkCommandBuffer cmd, uint32_t cascade_idx, uint32_t query)
 {
-    vkCmdBeginQuery(cmd, get_current_frame().query_pool_pipelines, query, 0);
+    auto pq = ScopedPipelineQuery(&query_manager, frame_number, cmd, get_current_frame().query_pool_pipelines, PipelineQueryType::Vertex);
     VkRenderingAttachmentInfo depth_attachment{};
     depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
     depth_attachment.imageView = cascade_data[cascade_idx].shadow_map.view;
@@ -3442,7 +3388,6 @@ void VulkanEngine::render_shadows(VkCommandBuffer cmd, uint32_t cascade_idx, uin
     }
 
     vkCmdEndRendering(cmd);
-    vkCmdEndQuery(cmd, get_current_frame().query_pool_pipelines, query);
 }
 
 void VulkanEngine::execute_hiz_spd(VkCommandBuffer cmd)
@@ -3901,19 +3846,14 @@ void VulkanEngine::create_acceleration_structures()
 void VulkanEngine::register_queries_with_imgui()
 {
     ImGui::Begin("Stats");
+
     ImGui::Text("Total render time:    %.3f ms", stats.cpu_time);
-
+    ImGui::NewLine();
     timestamp_manager.add_imgui_text(frame_number);
-
-    ImGui::Text("Triangles:            %u", stats.triangle_count);
-    ImGui::Text("Cascade 0:            %u", stats.cascade0);
-    ImGui::Text("Cascade 1:            %u", stats.cascade1);
-    ImGui::Text("Cascade 2:            %u", stats.cascade2);
-    ImGui::Text("Cascade 3:            %u", stats.cascade3);
-    ImGui::Text("Clipping invocations: %.1fM", static_cast<double>(stats.triangle_count) * 1e-6);
+    ImGui::NewLine();
+    query_manager.add_imgui_text(frame_number);
 
     ImGui::End();
-
     ImGui::Render();
 }
 

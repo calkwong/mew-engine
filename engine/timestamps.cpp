@@ -3,6 +3,7 @@
 
 #include <imgui.h>
 
+#include <cassert>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -113,4 +114,109 @@ ScopedTimestamp::ScopedTimestamp(TimestampManager* manager, uint32_t current_fra
 ScopedTimestamp::~ScopedTimestamp()
 {
     vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, pool, query + 1);
+}
+
+void PipelineQueryManager::get_query_pool_results(uint32_t current_frame, VkDevice device, VkQueryPool pool, PipelineQueryType type)
+{
+    auto index = current_frame % 2;
+    auto& frame = frames[index];
+
+    uint64_t* data{};
+    uint32_t size{};
+
+    switch (type)
+    {
+    case PipelineQueryType::Vertex:
+        size = frame.pipeline_results.size();
+        data = frame.pipeline_results.data();
+        break;
+    case PipelineQueryType::Mesh:
+        size = frame.mesh_pipeline_results.size();
+        data = frame.mesh_pipeline_results.data();
+        break;
+    default:
+        assert(0);
+    }
+
+    if (size == 0)
+        return;
+
+    vkGetQueryPoolResults(
+        device,
+        pool,
+        0,
+        size,
+        size * sizeof(uint64_t),
+        data,
+        sizeof(uint64_t),
+        VK_QUERY_RESULT_64_BIT
+    );
+}
+
+void PipelineQueryManager::add_imgui_text(uint32_t current_frame)
+{
+    auto index = current_frame % 2;
+    auto& frame = frames[index];
+
+    if (frame.pipeline_results.size() == 0 && frame.mesh_pipeline_results.size() == 0)
+        return;
+
+    uint64_t total{};
+
+    for (auto result : frame.pipeline_results)
+        total += result;
+
+    for (auto result : frame.mesh_pipeline_results)
+        total += result;
+
+    {
+        ImGui::Text("Triangles");
+        ImGui::SameLine();
+        ImGui::SetCursorPosX(220.0f);
+        ImGui::Text("%u", static_cast<unsigned int>(total));
+
+        ImGui::Text("Triangles");
+        ImGui::SameLine();
+        ImGui::SetCursorPosX(220.0f);
+        ImGui::Text("%.1fM", static_cast<double>(total) * 1e-6);
+    }
+}
+
+void PipelineQueryManager::reset(uint32_t current_frame)
+{
+    auto index = current_frame % 2;
+    auto& frame = frames[index];
+
+    frame.pipeline_results.clear();
+    frame.mesh_pipeline_results.clear();
+}
+
+uint32_t PipelineQueryManager::add_query(uint32_t current_frame, PipelineQueryType type)
+{
+    auto index = current_frame % 2;
+    auto& frame = frames[index];
+
+    switch (type)
+    {
+    case PipelineQueryType::Vertex:
+        frame.pipeline_results.push_back(0);
+        return static_cast<uint32_t>(frame.pipeline_results.size());
+    case PipelineQueryType::Mesh:
+        frame.mesh_pipeline_results.push_back(0);
+        return static_cast<uint32_t>(frame.mesh_pipeline_results.size());
+    default:
+        assert(0);
+    }
+}
+
+ScopedPipelineQuery::ScopedPipelineQuery(PipelineQueryManager* manager, uint32_t current_frame, VkCommandBuffer command_buffer, VkQueryPool query_pool, PipelineQueryType type)
+    : manager(manager), cmd(command_buffer), pool(query_pool)
+{
+    query = manager->add_query(current_frame, type);
+    vkCmdBeginQuery(cmd, query_pool, query, 0);
+}
+
+ScopedPipelineQuery::~ScopedPipelineQuery()
+{
+    vkCmdEndQuery(cmd, pool, query);
 }

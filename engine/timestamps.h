@@ -43,3 +43,42 @@ private:
     VkQueryPool pool{};
     uint32_t query{};
 };
+
+enum class PipelineQueryType
+{
+    Vertex,
+    Mesh
+};
+
+class PipelineQueryManager
+{
+public:
+    void get_query_pool_results(uint32_t current_frame, VkDevice device, VkQueryPool pool, PipelineQueryType type);
+    void add_imgui_text(uint32_t current_frame);
+    void reset(uint32_t current_frame);
+    uint32_t add_query(uint32_t current_frame, PipelineQueryType type);
+
+private:
+    struct Frame
+    {
+        std::vector<uint64_t> pipeline_results{};
+        std::vector<uint64_t> mesh_pipeline_results{};
+    };
+
+    Frame frames[MAX_FRAMES_IN_FLIGHT]{};
+};
+
+class ScopedPipelineQuery
+{
+public:
+    ScopedPipelineQuery(PipelineQueryManager* manager, uint32_t current_frame, VkCommandBuffer command_buffer, VkQueryPool query_pool, PipelineQueryType type);
+    ~ScopedPipelineQuery();
+    ScopedPipelineQuery(const ScopedPipelineQuery& pipeline_query) = delete;
+    ScopedPipelineQuery& operator=(const ScopedPipelineQuery& pipeline_query) = delete;
+
+private:
+    PipelineQueryManager* manager{};
+    VkCommandBuffer cmd{};
+    VkQueryPool pool{};
+    uint32_t query{};
+};

@@ -167,6 +167,7 @@ public:
     RenderScene render_scene{};
 
     TimestampManager timestamp_manager{};
+    PipelineQueryManager query_manager{};
 
     // tracy::VkCtx* tracy_ctx{};
 
