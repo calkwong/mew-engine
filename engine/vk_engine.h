@@ -47,28 +47,9 @@ struct FrameData
 
 struct EngineStats
 {
-    unsigned int triangle_count{};
     double deltatime{};
     double cpu_time{};
     double gpu_time{};
-    double early_cull{};
-    double late_cull{};
-    double mask_cull{};
-    double hiz{};
-    double early_indirect{};
-    double late_indirect{};
-    double mask_indirect{};
-    double deferred_shading{};
-    double light_culling{};
-    double transparent_cull{};
-    double transparent_render{};
-    double shadow_cull{};
-    double shadow_render{};
-    double taa_resolve{};
-    unsigned int cascade0{};
-    unsigned int cascade1{};
-    unsigned int cascade2{};
-    unsigned int cascade3{};
 };
 
 struct SDL_Window;
@@ -178,29 +159,8 @@ public:
     void draw();
     void run();
 
-    void update_scene();
-    void register_object(const Node* node, const glm::mat4& top_matrix);
-    void resolve_taa(VkCommandBuffer cmd);
-    void update_cascade();
-    void draw_imgui(VkCommandBuffer cmd, VkImageView swapchain_view);
-    void upload_scene_data_to_buffers();
-    void ready_mesh_cull(RenderScene::MeshPass& pass, CullData& cull_data, glm::mat4& proj);
-    void ready_meshlet_cull(RenderScene::MeshPass& pass, ClusterCullData& cull_data, glm::mat4& proj);
-    void execute_compact_dispatch(VkCommandBuffer cmd);
-    void execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPass& pass, CullData& cull_data, bool late, uint32_t post_pass);
-    void execute_compute_cull(VkCommandBuffer cmd, ClusterCullData& cull_data, VkBuffer dispatch_buffer, uint32_t offset, bool late, uint32_t post_pass);
-    void execute_shadow_cull(VkCommandBuffer cmd);
-    void render(VkCommandBuffer cmd, bool late, uint32_t post_pass, uint32_t query);
-    void render_transparent(VkCommandBuffer cmd, uint32_t query);
-    void render_shadows(VkCommandBuffer cmd, uint32_t cascade_idx, uint32_t query);
-    void execute_hiz_spd(VkCommandBuffer cmd);
-    void execute_hiz(VkCommandBuffer cmd);
-    void execute_light_culling(VkCommandBuffer cmd);
-    void execute_shading(VkCommandBuffer cmd);
-    void create_acceleration_structures();
-    void register_queries_with_imgui();
-
-private:
+    // TODO: implement RWTexture ids as Texture+1 so we track a single id - careful with handling ping pong textures that also have RW
+    // TODO: this requires moving to untyped pointers, using DescriptorHandle<T>? overall cleaner to manage
     struct Bindless
     {
         uint32_t depth_pyramid_uav{};
@@ -228,7 +188,7 @@ private:
     };
 
     Bindless bindless{};
-
+private:
     void init_vulkan();
     void init_commands();
     void init_sync_structures();
@@ -240,4 +200,26 @@ private:
     void execute_baked_gi();
     void init_imgui();
     void build_cluster_grid();
+
+    void update_scene();
+    void register_object(const Node* node, const glm::mat4& top_matrix);
+    void resolve_taa(VkCommandBuffer cmd);
+    void update_cascade();
+    void draw_imgui(VkCommandBuffer cmd, VkImageView swapchain_view);
+    void upload_scene_data_to_buffers();
+    void ready_mesh_cull(RenderScene::MeshPass& pass, CullData& cull_data, glm::mat4& proj);
+    void ready_meshlet_cull(RenderScene::MeshPass& pass, ClusterCullData& cull_data, glm::mat4& proj);
+    void execute_compact_dispatch(VkCommandBuffer cmd);
+    void execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPass& pass, CullData& cull_data, bool late, uint32_t post_pass);
+    void execute_compute_cull(VkCommandBuffer cmd, ClusterCullData& cull_data, VkBuffer dispatch_buffer, uint32_t offset, bool late, uint32_t post_pass);
+    void execute_shadow_cull(VkCommandBuffer cmd);
+    void render(VkCommandBuffer cmd, bool late, uint32_t post_pass, uint32_t query);
+    void render_transparent(VkCommandBuffer cmd, uint32_t query);
+    void render_shadows(VkCommandBuffer cmd, uint32_t cascade_idx, uint32_t query);
+    void execute_hiz_spd(VkCommandBuffer cmd);
+    void execute_hiz(VkCommandBuffer cmd);
+    void execute_light_culling(VkCommandBuffer cmd);
+    void execute_shading(VkCommandBuffer cmd);
+    void create_acceleration_structures();
+    void register_queries_with_imgui();
 };
