@@ -5,6 +5,6 @@
 *.slang-module
 imgui.ini
 tasks.json
-
+debug.json
 # CLion
 .idea
