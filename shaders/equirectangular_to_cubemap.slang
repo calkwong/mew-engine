@@ -54,6 +54,8 @@ void main(
 	}
 
 	float2 sample_uv = sample_equirectangular_map(direction);
-	float4 color = textures[pc.texture_id].SampleLevel(samplers[LINEAR_SAMPLER], sample_uv, 0.0);
-	images_array_rgba32f[pc.image_id].Store(int3(texel_coord, face), color);
+	SamplerState samp = get_sampler<SamplerState>(LINEAR_SAMPLER);
+	float4 color = get_sampled_image<Texture2D>(pc.texture_id).SampleLevel(samp, sample_uv, 0.0);
+	RWTexture2DArray<float4> tex = get_storage_image<RWTexture2DArray<float4>>(pc.image_id);
+	tex.Store(int3(texel_coord, face), color);
 }

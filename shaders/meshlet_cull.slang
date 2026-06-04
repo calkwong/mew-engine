@@ -84,8 +84,8 @@ bool occlusion_culled(float3 center, float radius)
 
 		float mip = ceil(log2(max_dim));
 		mip = min(mip, pc.texture_lod);
-
-		float depth = textures[pc.texture_id].SampleLevel(samplers[DEPTH_REDUCTION_SAMPLER], (aabb.zw + aabb.xy) * 0.5, mip).r;
+		SamplerState samp = get_sampler<SamplerState>(DEPTH_REDUCTION_SAMPLER);
+		float depth = get_sampled_image<Texture2D>(pc.texture_id).SampleLevel(samp, (aabb.zw + aabb.xy) * 0.5, mip).r;
 
 		float depth_sphere = pc.near / (-center.z - radius);
 		return depth_sphere < depth; // reverse depth

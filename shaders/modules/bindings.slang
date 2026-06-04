@@ -28,15 +28,6 @@ public struct UniformBuffer
 [[vk::binding(1, 0)]] public globallycoherent RasterizerOrderedStructuredBuffer<OITData> oit_buffer;
 [[vk::binding(2, 0)]] public RaytracingAccelerationStructure acceleration_structure;
 
-[[vk::binding(0, 1)]][vk::image_format("r32f")] public RWTexture2D<float> images_r32f[];
-[[vk::binding(0, 1)]][vk::image_format("rgba32f")] public RWTexture2DArray<float4> images_array_rgba32f[];
-[[vk::binding(0, 1)]][vk::image_format("rgba32f")] public RWTexture2D<float4> images_rgba32f[];
-[[vk::binding(0, 1)]][vk::image_format("rg16f")] public RWTexture2D<float2> images_rg16f[];
-
-[[vk::binding(0, 2)]] public Texture2D<float4> textures[];
-[[vk::binding(0, 2)]] public TextureCube<float4> textures_cube[];
-[[vk::binding(0, 2)]] public Texture2D<uint4> textures_u[];
-
 public static const uint LINEAR_SAMPLER = 0;
 public static const uint CUBE_SAMPLER = 1;
 public static const uint SHADOW_SAMPLER = 2;
@@ -45,4 +36,27 @@ public static const uint NEAREST_CLAMP_BORDER_SAMPLER = 4;
 public static const uint NEAREST_SAMPLER = 5; // clamp to edge
 public static const uint LINEAR_CLAMP_SAMPLER = 6; // clamp to edge
 
-[[vk::binding(0, 3)]] public SamplerState samplers[];
+// https://shader-slang.org/slang/user-guide/convenience-features.html#descriptorhandle-for-bindless-descriptor-access
+[vk::binding(0, 1)]
+__DynamicResource<__DynamicResourceKind.General> storage_images[];
+
+[vk::binding(0, 2)]
+__DynamicResource<__DynamicResourceKind.General> sampled_images[];
+
+[vk::binding(0, 3)]
+__DynamicResource<__DynamicResourceKind.Sampler> samplers[];
+
+public T get_storage_image<T>(uint handle) where T : IOpaqueDescriptor
+{
+    return storage_images[handle].asOpaqueDescriptor<T>();
+}
+
+public T get_sampled_image<T>(uint handle) where T : IOpaqueDescriptor
+{
+    return sampled_images[handle].asOpaqueDescriptor<T>();
+}
+
+public T get_sampler<T>(uint handle) where T : IOpaqueDescriptor
+{
+    return samplers[handle].asOpaqueDescriptor<T>();
+}

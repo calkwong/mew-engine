@@ -176,7 +176,8 @@ void ps_main(
 	if (OPAQUE == 0)
 	{
 		MaterialData m = pc.material_buffer[in.material_id];
-		float4 albedo = textures[m.diffuse_id].Sample(samplers[LINEAR_SAMPLER], in.uv);
+		SamplerState samp = get_sampler<SamplerState>(LINEAR_SAMPLER);
+		float4 albedo = get_sampled_image<Texture2D>(m.diffuse_id).Sample(samp, in.uv);
 
 		if (albedo.a < 0.5)
 			discard;

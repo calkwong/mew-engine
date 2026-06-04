@@ -206,12 +206,14 @@ void ps_main(
     out float4 out_emissive : SV_Target3
 )
 {
+    SamplerState samp = get_sampler<SamplerState>(LINEAR_SAMPLER);
+
 	MaterialData m = pc.material_buffer[in.material_id];
 
 	float4 albedo = m.base_color_factor;
 	if (m.diffuse_id != 0)
 	{
-		float4 sampled_albedo = textures[m.diffuse_id].Sample(samplers[LINEAR_SAMPLER], in.uv);
+		float4 sampled_albedo = get_sampled_image<Texture2D>(m.diffuse_id).Sample(samp, in.uv);
 
 		if (OPAQUE == 0)
 		{
@@ -242,7 +244,7 @@ void ps_main(
 		if (OPAQUE == 0)
 			T.w = is_front_face ? T.w : -T.w;
 
-		float3 shading_normal = textures[m.normal_id].Sample(samplers[LINEAR_SAMPLER], in.uv).xyz;
+		float3 shading_normal = get_sampled_image<Texture2D>(m.normal_id).Sample(samp, in.uv).xyz;
 		shading_normal = shading_normal * 2.0 - 1.0;
 		N = tangent_to_world_space(shading_normal, T, N);
 	}
@@ -256,7 +258,7 @@ void ps_main(
 	float2 metal_roughness = float2(0.0);
 	if (m.metalroughness_id != 0)
 	{
-		metal_roughness = textures[m.metalroughness_id].Sample(samplers[LINEAR_SAMPLER], in.uv).bg;
+		metal_roughness = get_sampled_image<Texture2D>(m.metalroughness_id).Sample(samp, in.uv).bg;
 		metallic *= metal_roughness.x;
 		perceptual_roughness *= metal_roughness.y;
 	}
@@ -268,13 +270,13 @@ void ps_main(
     float ao = 1.0;
     if (m.occlusion_id != 0)
     {
-        ao = textures[m.occlusion_id].Sample(samplers[LINEAR_SAMPLER], in.uv).r;
+        ao = get_sampled_image<Texture2D>(m.occlusion_id).Sample(samp, in.uv).r;
     }
 
     float3 emissive = m.emissive_factor;
 	if (m.emissive_id != 0)
 	{
-	    emissive *= textures[m.emissive_id].Sample(samplers[LINEAR_SAMPLER], in.uv).rgb;
+	    emissive *= get_sampled_image<Texture2D>(m.emissive_id).Sample(samp, in.uv).rgb;
 	}
 
     out_albedo = albedo;

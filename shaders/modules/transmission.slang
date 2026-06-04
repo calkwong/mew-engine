@@ -26,7 +26,8 @@ public float3 eval_punctual_radiance_transmission(BRDFData brdf_data, float3 L, 
 public float3 get_transmission_sample(float2 uv, uint texture_index, float extent, float perceptual_roughness, float ior)
 {
     float framebuffer_lod = log2(extent) * apply_ior_to_roughness(perceptual_roughness, ior);
-    float3 transmitted_light = textures[texture_index].SampleLevel(samplers[NEAREST_SAMPLER], uv, framebuffer_lod).rgb;
+    SamplerState samp = get_sampler<SamplerState>(NEAREST_SAMPLER);
+    float3 transmitted_light = get_sampled_image<Texture2D>(texture_index).SampleLevel(samp, uv, framebuffer_lod).rgb;
 
     return transmitted_light;
 }

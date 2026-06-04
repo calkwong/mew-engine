@@ -76,6 +76,10 @@ void main(
     if (frag_coord.x >= pc.screen_size.x || frag_coord.y >= pc.screen_size.y)
         return;
 
+    SamplerState nearest_samp = get_sampler<SamplerState>(NEAREST_SAMPLER);
+    SamplerState cube_samp = get_sampler<SamplerState>(CUBE_SAMPLER);
+    SamplerState linear_clamp_samp = get_sampler<SamplerState>(LINEAR_CLAMP_SAMPLER);
+
     float4 out_color;
     float2 in_uv = frag_coord / pc.screen_size;
 
@@ -84,16 +88,16 @@ void main(
 	uint metalroughness_id = pc.gbuffer_id + 2;
 	uint emissive_id = pc.gbuffer_id + 3;
 
-	float3 N = textures[normal_id].SampleLevel(samplers[NEAREST_SAMPLER], in_uv, 0.0).xyz;
+	float3 N = get_sampled_image<Texture2D>(normal_id).SampleLevel(nearest_samp, in_uv, 0.0).xyz;
 	N = normalize(N); // necessary to remove banding, RGB32 does not need this
 
-	float4 albedo = float4(textures[albedo_id].SampleLevel(samplers[NEAREST_SAMPLER], in_uv, 0.0).xyz, 1.0);
-	float depth = textures[pc.depth_id].SampleLevel(samplers[NEAREST_SAMPLER], in_uv, 0.0).r;
+	float4 albedo = float4(get_sampled_image<Texture2D>(albedo_id).SampleLevel(nearest_samp, in_uv, 0.0).xyz, 1.0);
+	float depth = get_sampled_image<Texture2D>(pc.depth_id).SampleLevel(nearest_samp, in_uv, 0.0).r;
 	float3 world_pos = reconstruct_world_pos(depth, uniforms.inverse_view_proj, in_uv);
 
 	float3 color = float3(0.0);
 
-	float3 data = textures[metalroughness_id].SampleLevel(samplers[NEAREST_SAMPLER], in_uv, 0.0).xyz;
+	float3 data = get_sampled_image<Texture2D>(metalroughness_id).SampleLevel(nearest_samp, in_uv, 0.0).xyz;
 	float2 metal_roughness = data.xy;
 	float ao = data.z;
 	float metallic = metal_roughness.x;
@@ -116,8 +120,8 @@ void main(
 	float prefiltered_mip = pc.max_prefiltered_lod * perceptual_roughness;
 
 	float3 irradiance = evaluate_sh(pc.sh_buffer->r_coefficients, pc.sh_buffer->g_coefficients, pc.sh_buffer->b_coefficients, N);
-	float3 radiance = textures_cube[uniforms.prefiltered_id].SampleLevel(samplers[CUBE_SAMPLER], R, prefiltered_mip).xyz;
-	float2 brdf_lut = textures[uniforms.brdf_id].SampleLevel(samplers[LINEAR_CLAMP_SAMPLER], float2(brdf_data.NdotV, perceptual_roughness), 0.0).rg;
+	float3 radiance = get_sampled_image<TextureCube>(uniforms.prefiltered_id).SampleLevel(cube_samp, R, prefiltered_mip).xyz;
+	float2 brdf_lut = get_sampled_image<Texture2D>(uniforms.brdf_id).SampleLevel(linear_clamp_samp, float2(brdf_data.NdotV, perceptual_roughness), 0.0).rg;
 
 	float3 ambient = eval_indirect_multiscattering(brdf_data, irradiance, radiance, brdf_lut, albedo.xyz, perceptual_roughness, metallic);
 #else
@@ -141,7 +145,7 @@ void main(
 
 	ambient *= ao;
 	color += ambient;
-	float4 emissive = textures[emissive_id].SampleLevel(samplers[NEAREST_SAMPLER], in_uv, 0.0);
+	float4 emissive = get_sampled_image<Texture2D>(emissive_id).SampleLevel(nearest_samp, in_uv, 0.0);
 	color += emissive.xyz;
 
 	if (pc.light_culling == 1)
@@ -179,7 +183,7 @@ void main(
 		float2 ndc = in_uv * 2.0 - 1.0;
 		ndc.y *= -1.0;
 		float3 sample_dir = mul(uniforms.inverse_view_proj, float4(ndc, 0.0, 1.0)).xyz;
-		color = textures_cube[uniforms.skybox_id].SampleLevel(samplers[CUBE_SAMPLER], sample_dir, 0.0).xyz;
+		color = get_sampled_image<TextureCube>(uniforms.skybox_id).SampleLevel(cube_samp, sample_dir, 0.0).xyz;
 	}
 
 	out_color = float4(color, 1.0);
@@ -220,7 +224,7 @@ void main(
                 float2 shadow_uv = uv * 4.0;
                 shadow_uv = fmod(shadow_uv, float2(1.0));
 
-                out_color.xyz = textures[pc.shadowmap_id + cascade].SampleLevel(samplers[NEAREST_SAMPLER], shadow_uv, 0.0).rrr;
+                out_color.xyz = get_sampled_image<Texture2D>(pc.shadowmap_id + cascade).SampleLevel(nearest_samp, shadow_uv, 0.0).rrr;
                 valid = true; // overwrite skybox
             }
             break;
@@ -252,5 +256,6 @@ void main(
             out_color = float4(0,0,0,1);
     }
 
-    images_rgba32f[pc.draw_id].Store(int2(frag_coord), out_color);
+	RWTexture2D tex = get_storage_image<RWTexture2D>(pc.draw_id);
+    tex.Store(int2(frag_coord), out_color);
 }

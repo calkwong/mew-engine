@@ -47,6 +47,7 @@ public bool in_shadow(float3 pos, ObjectData* object_buffer, MeshData* mesh_buff
 
     rq.TraceRayInline(acceleration_structure, ray_flags, 0xFF, shadow_ray_desc);
 
+    SamplerState samp = get_sampler<SamplerState>(LINEAR_SAMPLER);
     while (rq.Proceed())
     {
         uint instance_id = rq.CandidateRayInstanceCustomIndex();
@@ -58,8 +59,8 @@ public bool in_shadow(float3 pos, ObjectData* object_buffer, MeshData* mesh_buff
         float2 uv = intersection_uv(mesh_id, prim_index, rq.CandidateTriangleBarycentrics(), mesh_buffer, index_buffer, vertex_buffer);
 
         // TODO: enable mip sampling?
-        float4 color = textures[albedo_id].SampleLevel(samplers[LINEAR_SAMPLER], uv, 0.0);
-        // float4 color = textures[albedo_id].Sample(samplers[LINEAR_SAMPLER], uv);
+        float4 color = get_sampled_image<Texture2D>(albedo_id).SampleLevel(samp, uv, 0.0);
+        // float4 color = get_sampled_image<Texture2D>(albedo_id].Sample(samp, uv);
         if (color.a >= 0.5)
         {
             rq.CommitNonOpaqueTriangleHit();
@@ -96,11 +97,12 @@ public float calculate_shadow(float3 world_pos, inout uint cascade_index, uint s
 
 	float layers;
 	float2 offset;
-	textures[shadowmap_id + cascade_index].GetDimensions(0, offset.x, offset.y, layers);
+	get_sampled_image<Texture2D>(shadowmap_id + cascade_index).GetDimensions(0, offset.x, offset.y, layers);
 	offset = float2(1.0) / offset;
 
 	float shadow = 0.0;
 	float closest_depth = 0.0;
+    SamplerState samp = get_sampler<SamplerState>(SHADOW_SAMPLER);
 
     // TODO: bias
 	for (int y = -1; y <= 1; y++)
@@ -108,7 +110,7 @@ public float calculate_shadow(float3 world_pos, inout uint cascade_index, uint s
 		for (int x = -1; x <= 1; x++)
 		{
 			float2 sample_uv = float2(uv.x + x * offset.x, uv.y + y * offset.y);
-			closest_depth = textures[shadowmap_id + cascade_index].SampleLevel(samplers[SHADOW_SAMPLER], sample_uv, 0.0).r;
+			closest_depth = get_sampled_image<Texture2D>(shadowmap_id + cascade_index).SampleLevel(samp, sample_uv, 0.0).r;
 
 			if (closest_depth > current_depth)
 				shadow += 0.0;

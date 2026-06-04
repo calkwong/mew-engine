@@ -95,9 +95,9 @@ float3 maybe_ycocg_to_rgb(float3 c)
     return clamp(float3(r,g,b), float3(0.0), float3(1.0));
 }
 
-float3 sample_color(uint texture_index, uint sampler_index, float2 uv)
+float3 sample_color(uint texture_index, SamplerState samp, float2 uv)
 {
-    return tonemap(textures[texture_index].SampleLevel(samplers[sampler_index], uv, 0.0).xyz);
+    return tonemap(get_sampled_image<Texture2D>(texture_index).SampleLevel(samp, uv, 0.0).xyz);
 }
 
 float luminance(float3 c)
@@ -150,16 +150,20 @@ float3 sample_texture_catmull_rom(float2 uv, uint texture_index, float2 resoluti
     tex_pos_3 /= resolution;
     tex_pos_12 /= resolution;
 
+    SamplerState linear_clamp_samp = get_sampler<SamplerState>(LINEAR_CLAMP_SAMPLER);
+
     float3 result = float3(0);
-    result += tonemap(textures[texture_index].SampleLevel(samplers[LINEAR_CLAMP_SAMPLER], float2(tex_pos_0.x, tex_pos_0.y), 0.0).rgb) * w0.x * w0.y;
-    result += tonemap(textures[texture_index].SampleLevel(samplers[LINEAR_CLAMP_SAMPLER], float2(tex_pos_12.x, tex_pos_0.y), 0.0).rgb) * w12.x * w0.y;
-    result += tonemap(textures[texture_index].SampleLevel(samplers[LINEAR_CLAMP_SAMPLER], float2(tex_pos_3.x, tex_pos_0.y), 0.0).rgb) * w3.x * w0.y;
-    result += tonemap(textures[texture_index].SampleLevel(samplers[LINEAR_CLAMP_SAMPLER], float2(tex_pos_0.x, tex_pos_12.y), 0.0).rgb) * w0.x * w12.y;
-    result += tonemap(textures[texture_index].SampleLevel(samplers[LINEAR_CLAMP_SAMPLER], float2(tex_pos_12.x, tex_pos_12.y), 0.0).rgb) * w12.x * w12.y;
-    result += tonemap(textures[texture_index].SampleLevel(samplers[LINEAR_CLAMP_SAMPLER], float2(tex_pos_3.x, tex_pos_12.y), 0.0).rgb) * w3.x * w12.y;
-    result += tonemap(textures[texture_index].SampleLevel(samplers[LINEAR_CLAMP_SAMPLER], float2(tex_pos_0.x, tex_pos_3.y), 0.0).rgb) * w0.x * w3.y;
-    result += tonemap(textures[texture_index].SampleLevel(samplers[LINEAR_CLAMP_SAMPLER], float2(tex_pos_12.x, tex_pos_3.y), 0.0).rgb) * w12.x * w3.y;
-    result += tonemap(textures[texture_index].SampleLevel(samplers[LINEAR_CLAMP_SAMPLER], float2(tex_pos_3.x, tex_pos_3.y), 0.0).rgb) * w3.x * w3.y;
+    Texture2D tex = get_sampled_image<Texture2D>(texture_index);
+
+    result += tonemap(tex.SampleLevel(linear_clamp_samp, float2(tex_pos_0.x, tex_pos_0.y), 0.0).rgb) * w0.x * w0.y;
+    result += tonemap(tex.SampleLevel(linear_clamp_samp, float2(tex_pos_12.x, tex_pos_0.y), 0.0).rgb) * w12.x * w0.y;
+    result += tonemap(tex.SampleLevel(linear_clamp_samp, float2(tex_pos_3.x, tex_pos_0.y), 0.0).rgb) * w3.x * w0.y;
+    result += tonemap(tex.SampleLevel(linear_clamp_samp, float2(tex_pos_0.x, tex_pos_12.y), 0.0).rgb) * w0.x * w12.y;
+    result += tonemap(tex.SampleLevel(linear_clamp_samp, float2(tex_pos_12.x, tex_pos_12.y), 0.0).rgb) * w12.x * w12.y;
+    result += tonemap(tex.SampleLevel(linear_clamp_samp, float2(tex_pos_3.x, tex_pos_12.y), 0.0).rgb) * w3.x * w12.y;
+    result += tonemap(tex.SampleLevel(linear_clamp_samp, float2(tex_pos_0.x, tex_pos_3.y), 0.0).rgb) * w0.x * w3.y;
+    result += tonemap(tex.SampleLevel(linear_clamp_samp, float2(tex_pos_12.x, tex_pos_3.y), 0.0).rgb) * w12.x * w3.y;
+    result += tonemap(tex.SampleLevel(linear_clamp_samp, float2(tex_pos_3.x, tex_pos_3.y), 0.0).rgb) * w3.x * w3.y;
 
     return result;
 }
@@ -193,14 +197,18 @@ void main(
     if (texel_coord.x >= pc.screen_size.x || texel_coord.y >= pc.screen_size.y)
         return;
 
+    SamplerState nearest_samp = get_sampler<SamplerState>(NEAREST_SAMPLER);
+    SamplerState linear_clamp_samp = get_sampler<SamplerState>(LINEAR_CLAMP_SAMPLER);
+    RWTexture2D tex = get_storage_image<RWTexture2D>(pc.resolve_id);
+
 	float2 uv = float2(texel_coord) + float2(0.5);
 	uv /= pc.screen_size;
 
 	// frame 0 copy
 	if (pc.valid_history == 0)
 	{
-		float3 history_color = textures[pc.current_id].SampleLevel(samplers[NEAREST_SAMPLER], uv, 0.0).xyz;
-		images_rgba32f[pc.resolve_id].Store(texel_coord, float4(history_color, 1.0));
+		float3 history_color = get_sampled_image<Texture2D>(pc.current_id).SampleLevel(nearest_samp, uv, 0.0).xyz;
+		tex.Store(texel_coord, float4(history_color, 1.0));
 		return;
 	}
 
@@ -216,7 +224,7 @@ void main(
 	{
 	    for (int y = -1; y <= 1; y++)
     	{
-            float3 col = sample_color(pc.current_id, NEAREST_SAMPLER, uv + (float2(x, y) / pc.screen_size));
+            float3 col = sample_color(pc.current_id, nearest_samp, uv + (float2(x, y) / pc.screen_size));
             col = maybe_rgb_to_ycocg(col);
 
             if (x == 0 && y == 0)
@@ -238,7 +246,7 @@ void main(
 		for (int y = -1; y <= 1; y++)
 		{
 			float2 uv_offset = float2(x, y) / pc.screen_size;
-			float neighbour_depth = textures[pc.depth_id].SampleLevel(samplers[NEAREST_SAMPLER], uv + uv_offset, 0.0).r;
+			float neighbour_depth = get_sampled_image<Texture2D>(pc.depth_id).SampleLevel(nearest_samp, uv + uv_offset, 0.0).r;
 			if (neighbour_depth > closest_depth)
 			{
 				closest_depth = neighbour_depth;
@@ -248,7 +256,7 @@ void main(
 	}
 
 	// note: our scene is entirely static now, so we recompute it here
-	float current_depth = textures[pc.depth_id].SampleLevel(samplers[NEAREST_SAMPLER], uv, 0.0).r;
+	float current_depth = get_sampled_image<Texture2D>(pc.depth_id).SampleLevel(nearest_samp, uv, 0.0).r;
 	float2 current_ndc = uv * 2.0 - 1.0;
 	current_ndc.y *= -1.0;
 	float4 world_pos = mul(uniforms.inverse_view_proj, float4(current_ndc, current_depth, 1.0));
@@ -263,7 +271,7 @@ void main(
 	camera_velocity = current_depth != 0.0 ? camera_velocity : float2(0.0);
 
 	// TODO: object motion
-	// float2 object_velocity = texture(sampler2D(textures[velocity_id], samplers[NEAREST_SAMPLER]), uv + closest_uv_offset).rg; // uv space
+	// float2 object_velocity = texture(sampler2D(get_sampled_image<Texture2D>(velocity_id), nearest_samp), uv + closest_uv_offset).rg; // uv space
     float2 reprojected_uv = uv - camera_velocity; // - object_velocity;
 
 	// alternative: catmull 5-taps from COD?
@@ -271,7 +279,7 @@ void main(
 	if (pc.history_filter == 1)
 		history_color = sample_texture_catmull_rom(reprojected_uv, pc.history_id, pc.screen_size);
 	else
-		history_color = sample_color(pc.history_id, LINEAR_CLAMP_SAMPLER, reprojected_uv);
+		history_color = sample_color(pc.history_id, linear_clamp_samp, reprojected_uv);
 
 	history_color = maybe_rgb_to_ycocg(history_color);
 
@@ -319,5 +327,5 @@ void main(
 
 	// TODO: we can optimize by storing tonemapped value for next frame's history, skipping tonemapping for reprojected colors
 	// but this is an inconvenience for experimenting with other post-fx for now, so we store reverse tonemapped values
-	images_rgba32f[pc.resolve_id].Store(texel_coord, float4(final_color, 1.0));
+	tex.Store(texel_coord, float4(final_color, 1.0));
 }

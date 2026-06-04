@@ -67,10 +67,13 @@ void main(
     if (frag_coord.x >= pc.screen_size.x || frag_coord.y >= pc.screen_size.y)
         return;
 
+    SamplerState nearest_samp = get_sampler<SamplerState>(NEAREST_SAMPLER);
+    SamplerState linear_samp = get_sampler<SamplerState>(LINEAR_SAMPLER);
+
     float4 out_color;
     float2 in_uv = frag_coord / pc.screen_size;
 
-	uint2 data = textures_u[pc.gbuffer_id].SampleLevel(samplers[NEAREST_SAMPLER], in_uv, 0.0).rg;
+	uint2 data = get_sampled_image<Texture2D<uint2>>(pc.gbuffer_id).SampleLevel(nearest_samp, in_uv, 0.0).rg;
 
 	uint draw_id = data.x;
 	uint packed_id = data.y;
@@ -145,7 +148,7 @@ void main(
 
 	if (m.diffuse_id != 0)
 	{
-		albedo.xyz *= textures[m.diffuse_id].SampleGrad(samplers[LINEAR_SAMPLER], uv, uv_ddx, uv_ddy).xyz;
+		albedo.xyz *= get_sampled_image<Texture2D>(m.diffuse_id).SampleGrad(linear_samp, uv, uv_ddx, uv_ddy).xyz;
 	}
 
 	float3 color = albedo.xyz;
@@ -163,7 +166,7 @@ void main(
 	if (m.normal_id != 0)
 	{
 		float3 B = sign * cross(N, T.xyz);
-		float3 shading_normal = textures[m.normal_id].SampleGrad(samplers[LINEAR_SAMPLER], uv, uv_ddx, uv_ddy).xyz;
+		float3 shading_normal = get_sampled_image<Texture2D>(m.normal_id).SampleGrad(linear_samp, uv, uv_ddx, uv_ddy).xyz;
 		shading_normal = shading_normal * 2.0 - 1.0;
 		N = normalize(shading_normal.x * T.xyz + shading_normal.y * B + shading_normal.z * N);
 	}
@@ -175,7 +178,7 @@ void main(
 	float2 metal_roughness = float2(0.0);
 	if (m.metalroughness_id != 0)
 	{
-		metal_roughness = textures[m.metalroughness_id].SampleGrad(samplers[LINEAR_SAMPLER], uv, uv_ddx, uv_ddy).bg;
+		metal_roughness = get_sampled_image<Texture2D>(m.metalroughness_id).SampleGrad(linear_samp, uv, uv_ddx, uv_ddy).bg;
 		metallic *= metal_roughness.x;
 		perceptual_roughness *= metal_roughness.y;
 	}
@@ -215,7 +218,7 @@ void main(
 	color += albedo.xyz;
 #endif
 
-	float depth = textures[pc.depth_id].SampleLevel(samplers[NEAREST_SAMPLER], in_uv, 0.0).r;
+	float depth = get_sampled_image<Texture2D>(pc.depth_id).SampleLevel(nearest_samp, in_uv, 0.0).r;
 
 	if (depth == 0.0)
 	{
@@ -229,6 +232,6 @@ void main(
 
 	out_color = float4(color, 1.0);
 
-    // TODO: hardcoded draw id to 0
-	images_rgba32f[pc.draw_id].Store(int2(frag_coord), out_color);
+    RWTexture2D tex = get_storage_image<RWTexture2D>(pc.draw_id);
+	tex.Store(int2(frag_coord), out_color);
 }

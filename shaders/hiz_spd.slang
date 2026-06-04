@@ -22,6 +22,7 @@
 
 import bindings;
 
+// TODO: globallycoherent variant of get_storage_image
 [[vk::binding(0, 1)]][vk::image_format("r32f")] globallycoherent RWTexture2D<float> images_r32f_coherent[];
 
 struct PushConstants
@@ -66,9 +67,9 @@ uint2 ARmpRed8x8(uint a)
     return uint2(ABfiM(ABfe(a, 2u, 3u), a, 1u), ABfiM(ABfe(a, 3u, 3u), ABfe(a, 1u, 2u), 2u));
 }
 
-float sample_texture(uint texture_id, uint sampler_id, float2 uv, uint slice)
+float sample_texture(Texture2D<float> tex, SamplerState samp, float2 uv, uint slice)
 {
-    return textures[texture_id].SampleLevel(samplers[sampler_id], uv, 0.0).r;
+    return tex.SampleLevel(samp, uv, 0.0).r;
 }
 
 void spd_store_coherent(int2 coords, float value, uint slice)
@@ -78,7 +79,8 @@ void spd_store_coherent(int2 coords, float value, uint slice)
 
 void spd_store(int2 coords, float value, uint mip, uint slice)
 {
-    images_r32f[pc.dst_id + mip].Store(coords, value);
+    RWTexture2D<float> tex = get_storage_image<RWTexture2D<float>>(pc.dst_id + mip);
+    tex.Store(coords, value);
 }
 
 void spd_store_intermediate(uint x, uint y, float value)
@@ -89,7 +91,8 @@ void spd_store_intermediate(uint x, uint y, float value)
 // switch to this when we want min and max depth
 float spd_load(int2 coords, uint mip, uint slice)
 {
-    return images_r32f[pc.dst_id + mip].Load(coords).r;
+    RWTexture2D<float> tex = get_storage_image<RWTexture2D<float>>(pc.dst_id + mip);
+    return tex.Load(coords).r;
 }
 
 float spd_load_intermediate(uint x, uint y)
@@ -126,30 +129,33 @@ float spd_reduce_coherent_load(int2 base, uint slice)
 
 void spd_downsample_mips_0_1(uint x, uint y, uint2 wg_id, uint local_id, uint mips, uint slice)
 {
+    SamplerState samp = get_sampler<SamplerState>(DEPTH_REDUCTION_SAMPLER);
+    Texture2D<float> depth_tex = get_sampled_image<Texture2D<float>>(pc.src_id);
+
     float v[4];
 
     int2 tex = int2(wg_id * 64) + int2(x * 2, y * 2);
     float2 uv = (float2(tex) + float2(0.5)) * pc.rcp_resolution;
     int2 pix = int2(wg_id * 32) + int2(x, y);
-    v[0] = sample_texture(pc.src_id, pc.sampler_id, uv, 0);
+    v[0] = sample_texture(depth_tex, samp, uv, 0);
     spd_store(pix, v[0], 0, slice);
 
     tex = int2(wg_id * 64) + int2(x * 2 + 32, y * 2);
     uv = (float2(tex) + float2(0.5)) * pc.rcp_resolution;
     pix = int2(wg_id * 32) + int2(x + 16, y);
-    v[1] = sample_texture(pc.src_id, pc.sampler_id, uv, 0);
+    v[1] = sample_texture(depth_tex, samp, uv, 0);
     spd_store(pix, v[1], 0, slice);
 
     tex = int2(wg_id * 64) + int2(x * 2, y * 2 + 32);
     uv = (float2(tex) + float2(0.5)) * pc.rcp_resolution;
     pix = int2(wg_id * 32) + int2(x, y + 16);
-    v[2] = sample_texture(pc.src_id, pc.sampler_id, uv, 0);
+    v[2] = sample_texture(depth_tex, samp, uv, 0);
     spd_store(pix, v[2], 0, slice);
 
     tex = int2(wg_id * 64) + int2(x * 2 + 32, y * 2 + 32);
     uv = (float2(tex) + float2(0.5)) * pc.rcp_resolution;
     pix = int2(wg_id * 32) + int2(x + 16, y + 16);
-    v[3] = sample_texture(pc.src_id, pc.sampler_id, uv, 0);
+    v[3] = sample_texture(depth_tex, samp, uv, 0);
     spd_store(pix, v[3], 0, slice);
 
     if (mips <= 1)

@@ -53,13 +53,13 @@ void main(
 		{
 			float3 temp_vec = cos(phi) * T + sin(phi) * B;
 			float3 sample_vec = cos(theta) * N + sin(theta) * temp_vec;
-
-			irradiance += textures_cube[pc.texture_id].SampleLevel(samplers[CUBE_SAMPLER], sample_vec, 0).xyz * cos(theta) * sin(theta);
+			SamplerState samp = get_sampler<SamplerState>(CUBE_SAMPLER);
+			irradiance += get_sampled_image<TextureCube>(pc.texture_id).SampleLevel(samp, sample_vec, 0).xyz * cos(theta) * sin(theta);
 			sample_count++;
 		}
 	}
 
 	irradiance = PI * irradiance / float(sample_count);
-
-	images_array_rgba32f[pc.image_id].Store(int3(texel_coord, face), float4(irradiance, 1.0));
+	RWTexture2DArray<float4> tex = get_storage_image<RWTexture2DArray<float4>>(pc.image_id);
+	tex.Store(int3(texel_coord, face), float4(irradiance, 1.0));
 }

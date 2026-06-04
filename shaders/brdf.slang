@@ -59,5 +59,5 @@ void main(
 
 	float2 color = IntegratedBRDF(uv.x, uv.y);
 
-	images_rg16f[pc.image_id].Store(int2(texel_coord), color);
+	get_storage_image<RWTexture2D<float2>>(pc.image_id).Store(int2(texel_coord), color);
 }

@@ -20,8 +20,8 @@ void main(
 
 	float2 uv = float2(pos) + float2(0.5);
 	uv = uv / pc.image_size;
-
-	float depth = textures[pc.texture_id].SampleLevel(samplers[DEPTH_REDUCTION_SAMPLER], uv, pc.lod).r;
-
-	images_r32f[pc.image_id].Store(pos, depth);
+	SamplerState samp = get_sampler<SamplerState>(DEPTH_REDUCTION_SAMPLER);
+	float depth = get_sampled_image<Texture2D>(pc.texture_id).SampleLevel(samp, uv, pc.lod).r;
+	RWTexture2D<float> tex = get_storage_image<RWTexture2D<float>>(pc.image_id);
+	tex.Store(pos, depth);
 }

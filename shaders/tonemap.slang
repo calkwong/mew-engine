@@ -98,9 +98,12 @@ void main(
 {
 	int2 texel_coord = int2(global_id.xy);
 
+	RWTexture2D src_tex = get_storage_image<RWTexture2D>(pc.src_id);
+	RWTexture2D dst_tex = get_storage_image<RWTexture2D>(pc.dst_id);
+
 	if (texel_coord.x < pc.screen_size.x && texel_coord.y < pc.screen_size.y)
 	{
-		float3 color = images_rgba32f[pc.src_id].Load(texel_coord).rgb;
+		float3 color = src_tex.Load(texel_coord).rgb;
 
 		float exposure = 1.0;
 
@@ -127,6 +130,6 @@ void main(
 			default: break; // clamp only
 		}
 
-		images_rgba32f[pc.dst_id].Store(texel_coord, float4(color, 1.0));
+		dst_tex.Store(texel_coord, float4(color, 1.0));
 	}
 }

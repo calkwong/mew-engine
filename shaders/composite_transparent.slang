@@ -20,13 +20,14 @@ void main(
 
     if (texel_coord.x < pc.screen_size.x && texel_coord.y < pc.screen_size.y)
     {
-        float3 color = images_rgba32f[pc.draw_id].Load(int2(texel_coord)).rgb;
+        RWTexture2D tex = get_storage_image<RWTexture2D>(pc.draw_id);
+        float3 color = tex.Load(int2(texel_coord)).rgb;
 
         uint index = texel_coord.x + texel_coord.y * pc.screen_size.x;
         bool update = false;
         color = composite_transparent(pc.oit_buffer, index, color, texel_coord, update);
 
         if (update)
-            images_rgba32f[pc.draw_id].Store(texel_coord, float4(color, 1.0));
+            tex.Store(texel_coord, float4(color, 1.0));
     }
 }

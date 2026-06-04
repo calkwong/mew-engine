@@ -26,7 +26,8 @@ void main(
 	int2 texel_coord = int2(global_id.xy);
 	int2 image_size;
 	int layers;
-	images_array_rgba32f[pc.image_id].GetDimensions(image_size.x, image_size.y, layers);
+	RWTexture2DArray<float4> tex = get_storage_image<RWTexture2DArray<float4>>(pc.image_id);
+	tex.GetDimensions(image_size.x, image_size.y, layers);
 
 	if (texel_coord.x >= image_size.x || texel_coord.y >= image_size.y)
 		return;
@@ -36,7 +37,7 @@ void main(
 
 	float perceptual_roughness = pc.roughness;
 	int2 envmap_size;
-	textures_cube[pc.texture_id].GetDimensions(0, envmap_size.x, envmap_size.y, layers);
+	get_sampled_image<TextureCube>(pc.texture_id).GetDimensions(0, envmap_size.x, envmap_size.y, layers);
 
 	uint face = wg_id.z;
 
@@ -74,13 +75,13 @@ void main(
 			float omegaS = 1.0 / (float(sample_count) * pdf);  // solid angle of a sample
 			float omegaP = 4.0 * PI / (6.0 * envmap_size.x * envmap_size.y); // solid angle of one pixel from cubemap/sphere
 			float mipLevel = perceptual_roughness == 0.0 ? 0.0 : max(0.5 * log2(omegaS / omegaP) + 1.0, 0.0);
-
-			prefiltered_color += textures_cube[pc.texture_id].SampleLevel(samplers[CUBE_SAMPLER], L, mipLevel).rgb * NdotL;
+			SamplerState samp = get_sampler<SamplerState>(CUBE_SAMPLER);
+			prefiltered_color += get_sampled_image<TextureCube>(pc.texture_id).SampleLevel(samp, L, mipLevel).rgb * NdotL;
 			total_weight += NdotL;
 		}
 	}
 
 	prefiltered_color = prefiltered_color / total_weight;
 
-	images_array_rgba32f[pc.image_id].Store(int3(texel_coord, face), float4(prefiltered_color, 1.0));
+	tex.Store(int3(texel_coord, face), float4(prefiltered_color, 1.0));
 }

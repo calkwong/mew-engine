@@ -50,7 +50,8 @@ void main(
 	int2 texel_coord = int2(global_id.xy);
 	if (texel_coord.x < pc.screen_size.x && texel_coord.y < pc.screen_size.y)
 	{
-		float3 color = images_rgba32f[pc.image_id].Load(texel_coord).rgb;
+	    RWTexture2D tex = get_storage_image<RWTexture2D>(pc.image_id);
+		float3 color = tex.Load(texel_coord).rgb;
 
 		uint bin = color_to_bin(color);
 

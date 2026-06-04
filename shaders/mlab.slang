@@ -181,11 +181,13 @@ void ps_main(
     Interp in
 )
 {
+    SamplerState samp = get_sampler<SamplerState>(LINEAR_SAMPLER);
+
 	MaterialData m = pc.material_buffer[in.material_id];
 
 	float4 albedo = m.base_color_factor;
 	if (m.diffuse_id != 0)
-		albedo *= textures[m.diffuse_id].Sample(samplers[LINEAR_SAMPLER], in.uv);
+		albedo *= get_sampled_image<Texture2D>(m.diffuse_id).Sample(samp, in.uv);
 
 	float3 N = in.normal;
 	if (m.normal_id != 0)
@@ -193,7 +195,7 @@ void ps_main(
 		float4 T = in.tangent; // mikktspace
 		float sign = in.tangent.w; // sign is flipped during tangent generation so mikktspace is consistent with glTF handedness
 
-		float3 shading_normal = textures[m.normal_id].Sample(samplers[LINEAR_SAMPLER], in.uv).xyz;
+		float3 shading_normal = get_sampled_image<Texture2D>(m.normal_id).Sample(samp, in.uv).xyz;
 		shading_normal = shading_normal * 2.0 - 1.0;
 		N = tangent_to_world_space(shading_normal, T, N);
 	}
@@ -206,7 +208,7 @@ void ps_main(
 	float perceptual_roughness = m.roughness_factor;
 	if (m.metalroughness_id != 0)
 	{
-		float2 metal_roughness = textures[m.metalroughness_id].Sample(samplers[LINEAR_SAMPLER], in.uv).bg;
+		float2 metal_roughness = get_sampled_image<Texture2D>(m.metalroughness_id).Sample(samp, in.uv).bg;
 		metallic *= metal_roughness.x;
 		perceptual_roughness *= metal_roughness.y;
 	}
@@ -220,7 +222,7 @@ void ps_main(
 	    transmission_factor = m.transmission_factor;
     	if (m.transmission_id != 0)
         {
-            transmission_factor *= textures[m.transmission_id].Sample(samplers[LINEAR_SAMPLER], in.uv).r;
+            transmission_factor *= get_sampled_image<Texture2D>(m.transmission_id).Sample(samp, in.uv).r;
         }
 	}
 
@@ -252,7 +254,7 @@ void ps_main(
 
         if (thickness != 0.0 && m.thickness_id != 0)
         {
-            thickness *= textures[m.thickness_id].Sample(samplers[LINEAR_SAMPLER], in.uv).g;
+            thickness *= get_sampled_image<Texture2D>(m.thickness_id).Sample(samp, in.uv).g;
         }
 
         // if light ray travels through geometry, use the point it exits the geometry again
@@ -278,9 +280,12 @@ void ps_main(
 	float3 R = reflect(-V, N);
 	float prefiltered_mip = pc.max_prefiltered_lod * perceptual_roughness;
 
+	SamplerState cube_samp = get_sampler<SamplerState>(CUBE_SAMPLER);
+	SamplerState linear_clamp_samp = get_sampler<SamplerState>(LINEAR_CLAMP_SAMPLER);
+
 	float3 irradiance = evaluate_sh(pc.sh_buffer->r_coefficients, pc.sh_buffer->g_coefficients, pc.sh_buffer->b_coefficients, N);
-	float3 radiance = textures_cube[uniforms.prefiltered_id].SampleLevel(samplers[CUBE_SAMPLER], R, prefiltered_mip).xyz;
-	float2 brdf_lut = textures[uniforms.brdf_id].SampleLevel(samplers[LINEAR_CLAMP_SAMPLER], float2(brdf_data.NdotV, perceptual_roughness), 0.0).rg;
+	float3 radiance = get_sampled_image<TextureCube>(uniforms.prefiltered_id).SampleLevel(cube_samp, R, prefiltered_mip).xyz;
+	float2 brdf_lut = get_sampled_image<Texture2D>(uniforms.brdf_id).SampleLevel(linear_clamp_samp, float2(brdf_data.NdotV, perceptual_roughness), 0.0).rg;
 
 	float3 indirect_lighting;
 	if (material_transmission)
