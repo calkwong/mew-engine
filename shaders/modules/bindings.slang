@@ -16,7 +16,10 @@ public struct UniformBuffer
 	public float4 camera_pos;
 	public float4 sunlight_color;
 	public float4 sunlight_dir; // w for sun power
-	public float4 textures; // cubemap/skybox, irradiance, prefiltered, brdf
+	public uint skybox_id;
+	public uint irradiance_id;
+	public uint prefiltered_id;
+	public uint brdf_id;
 	public float4x4 shadow_views[4]; // for shadow cull
 	public float4 shadow_widths; // for shadow cull, each channel for a diff cascade; TODO: move to pc?
 }

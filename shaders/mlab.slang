@@ -279,8 +279,8 @@ void ps_main(
 	float prefiltered_mip = pc.max_prefiltered_lod * perceptual_roughness;
 
 	float3 irradiance = evaluate_sh(pc.sh_buffer->r_coefficients, pc.sh_buffer->g_coefficients, pc.sh_buffer->b_coefficients, N);
-	float3 radiance = textures_cube[uint(uniforms.textures[2])].SampleLevel(samplers[CUBE_SAMPLER], R, prefiltered_mip).xyz;
-	float2 brdf_lut = textures[uint(uniforms.textures[3])].SampleLevel(samplers[LINEAR_CLAMP_SAMPLER], float2(brdf_data.NdotV, perceptual_roughness), 0.0).rg;
+	float3 radiance = textures_cube[uniforms.prefiltered_id].SampleLevel(samplers[CUBE_SAMPLER], R, prefiltered_mip).xyz;
+	float2 brdf_lut = textures[uniforms.brdf_id].SampleLevel(samplers[LINEAR_CLAMP_SAMPLER], float2(brdf_data.NdotV, perceptual_roughness), 0.0).rg;
 
 	float3 indirect_lighting;
 	if (material_transmission)

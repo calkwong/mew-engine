@@ -116,8 +116,8 @@ void main(
 	float prefiltered_mip = pc.max_prefiltered_lod * perceptual_roughness;
 
 	float3 irradiance = evaluate_sh(pc.sh_buffer->r_coefficients, pc.sh_buffer->g_coefficients, pc.sh_buffer->b_coefficients, N);
-	float3 radiance = textures_cube[uint(uniforms.textures[2])].SampleLevel(samplers[CUBE_SAMPLER], R, prefiltered_mip).xyz;
-	float2 brdf_lut = textures[uint(uniforms.textures[3])].SampleLevel(samplers[LINEAR_CLAMP_SAMPLER], float2(brdf_data.NdotV, perceptual_roughness), 0.0).rg;
+	float3 radiance = textures_cube[uniforms.prefiltered_id].SampleLevel(samplers[CUBE_SAMPLER], R, prefiltered_mip).xyz;
+	float2 brdf_lut = textures[uniforms.brdf_id].SampleLevel(samplers[LINEAR_CLAMP_SAMPLER], float2(brdf_data.NdotV, perceptual_roughness), 0.0).rg;
 
 	float3 ambient = eval_indirect_multiscattering(brdf_data, irradiance, radiance, brdf_lut, albedo.xyz, perceptual_roughness, metallic);
 #else
@@ -179,7 +179,7 @@ void main(
 		float2 ndc = in_uv * 2.0 - 1.0;
 		ndc.y *= -1.0;
 		float3 sample_dir = mul(uniforms.inverse_view_proj, float4(ndc, 0.0, 1.0)).xyz;
-		color = textures_cube[uint(uniforms.textures[0])].SampleLevel(samplers[CUBE_SAMPLER], sample_dir, 0.0).xyz;
+		color = textures_cube[uniforms.skybox_id].SampleLevel(samplers[CUBE_SAMPLER], sample_dir, 0.0).xyz;
 	}
 
 	out_color = float4(color, 1.0);

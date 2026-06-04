@@ -63,7 +63,7 @@ VulkanEngine& VulkanEngine::get()
 constexpr bool USE_VALIDATION_LAYERS = true;
 // #endif
 
-#define STRESS_TEST // uncomment if loading a proper scene
+// #define STRESS_TEST // uncomment if loading a proper scene
 
 AutoCVar_Int CVAR_IMGUI{ "imgui", "Imgui", CVarFlags::EditCheckbox | CVarFlags::EditHide, 1 };
 AutoCVar_Int CVAR_DISABLE_CAMERA{ "disable_camera", "Disable camera", CVarFlags::EditCheckbox | CVarFlags::EditHide, 0 };
@@ -477,7 +477,7 @@ void VulkanEngine::execute_baked_gi()
             ShaderPass current_pass = *shader_passes["spherical_harmonics"];
             SHPushConstants pc{};
             pc.sh_buffer_address = get_buffer_address(device, render_scene.sh_buffer.buffer);
-            pc.cubemap_id = static_cast<uint32_t>(scene_data.textures[0]);
+            pc.cubemap_id = scene_data.skybox_id;
 
             vkCmdBindPipeline(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
             VkPushDataInfoEXT push_data_info{};
@@ -502,7 +502,7 @@ void VulkanEngine::execute_baked_gi()
             ShaderPass current_pass = *shader_passes["irradiance"];
             IBLPushConstants pc{};
             pc.image_size = glm::vec2(irradiance_cubemap.extent.width, irradiance_cubemap.extent.height);
-            pc.texture_id = static_cast<uint32_t>(scene_data.textures[0]);
+            pc.texture_id = scene_data.skybox_id;
             pc.image_id = bindless.irradiance_uav;
 
             vkCmdBindPipeline(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
@@ -530,7 +530,7 @@ void VulkanEngine::execute_baked_gi()
             ShaderPass current_pass = *shader_passes["prefiltered"];
             vkCmdBindPipeline(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
             IBLPushConstants pc{};
-            pc.texture_id = static_cast<uint32_t>(scene_data.textures[0]);
+            pc.texture_id = scene_data.skybox_id;
 
             auto mips = static_cast<uint32_t>(std::floor(std::log2(static_cast<float>(std::max(prefiltered_envmap.extent.width, prefiltered_envmap.extent.height))))) + 1;
             for (uint32_t i = 0; i < mips; i++)
@@ -2143,7 +2143,7 @@ void VulkanEngine::init_resources()
         true
     );
     bindless.skybox_srv = resource_heap_manager.add_srv(skybox_cubemap, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT);
-    scene_data.textures[0] = static_cast<float>(bindless.skybox_srv);
+    scene_data.skybox_id = bindless.skybox_srv;
     bindless.skybox_uav = resource_heap_manager.add_uav(skybox_cubemap, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT);
 
     irradiance_cubemap = create_cubemap(
@@ -2157,7 +2157,7 @@ void VulkanEngine::init_resources()
 
     // TODO: irradiance map is never used but leaving it in here for future debugging purposes
     bindless.irradiance_srv = resource_heap_manager.add_srv(irradiance_cubemap, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT);
-    scene_data.textures[1] = static_cast<float>(bindless.irradiance_srv);
+    scene_data.irradiance_id = bindless.irradiance_srv;
     bindless.irradiance_uav = resource_heap_manager.add_uav(irradiance_cubemap, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT);
 
     prefiltered_envmap = create_cubemap(
@@ -2171,7 +2171,7 @@ void VulkanEngine::init_resources()
         true
     );
     bindless.prefiltered_srv = resource_heap_manager.add_srv(prefiltered_envmap, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT);
-    scene_data.textures[2] = static_cast<float>(bindless.prefiltered_srv);
+    scene_data.prefiltered_id = bindless.prefiltered_srv;
     auto prefiltered_mips = static_cast<uint32_t>(std::floor(std::log2(static_cast<float>(std::max(prefiltered_envmap.extent.width, prefiltered_envmap.extent.height))))) + 1;
     bindless.prefiltered_uav = resource_heap_manager.add_uav(prefiltered_envmap, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_ASPECT_COLOR_BIT, 0);
     for (auto mip = 1; mip < prefiltered_mips; mip++)
@@ -2186,7 +2186,7 @@ void VulkanEngine::init_resources()
         VK_IMAGE_ASPECT_COLOR_BIT
     );
     bindless.brdf_srv = resource_heap_manager.add_srv(brdf_lut, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
-    scene_data.textures[3] = static_cast<float>(bindless.brdf_srv);
+    scene_data.brdf_id = bindless.brdf_srv;
     bindless.brdf_uav = resource_heap_manager.add_uav(brdf_lut, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
 
     main_deletion_queue.push_function(
