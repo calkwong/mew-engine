@@ -25,8 +25,8 @@ public struct UniformBuffer
 }
 
 [[vk::binding(0, 0)]] public ConstantBuffer<UniformBuffer> uniforms;
-[[vk::binding(1, 0)]] public globallycoherent RasterizerOrderedStructuredBuffer<OITData> oit_buffer;
-[[vk::binding(2, 0)]] public RaytracingAccelerationStructure acceleration_structure;
+[[vk::binding(2, 0)]] public globallycoherent RasterizerOrderedStructuredBuffer<OITData> oit_buffer;
+[[vk::binding(3, 0)]] public RaytracingAccelerationStructure acceleration_structure;
 
 public static const uint LINEAR_SAMPLER = 0;
 public static const uint CUBE_SAMPLER = 1;

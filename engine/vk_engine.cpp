@@ -223,8 +223,8 @@ void VulkanEngine::init(int file_count, char** file_paths)
 
     VK_CHECK(volkInitialize());
 
-    SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "wayland");
-    // SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "x11");
+    // SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "wayland");
+    SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "x11");
     SDL_SetHint(SDL_HINT_APP_ID, "mew-engine");
     SDL_Init(SDL_INIT_VIDEO);
 
@@ -1980,8 +1980,8 @@ void VulkanEngine::init_resources()
             VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
             VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
         );
+        resource_heap_manager.add_buffer(frame.scene_buffer, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
     }
-    resource_heap_manager.add_buffer(frames[0].scene_buffer, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
 
     auto image_extent = VkExtent3D{ swapchain.extent.width, swapchain.extent.height, 1 };
 
