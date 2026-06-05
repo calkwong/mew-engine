@@ -63,7 +63,7 @@ VulkanEngine& VulkanEngine::get()
 constexpr bool USE_VALIDATION_LAYERS = true;
 // #endif
 
-#define STRESS_TEST // uncomment if loading a proper scene
+// #define STRESS_TEST // uncomment if loading a proper scene
 
 AutoCVar_Int CVAR_IMGUI{ "imgui", "Imgui", CVarFlags::EditCheckbox | CVarFlags::EditHide, 1 };
 AutoCVar_Int CVAR_DISABLE_CAMERA{ "disable_camera", "Disable camera", CVarFlags::EditCheckbox | CVarFlags::EditHide, 0 };
@@ -246,6 +246,7 @@ void VulkanEngine::init(int file_count, char** file_paths)
     init_resources();
     init_renderables(file_count, file_paths);
     create_acceleration_structures();
+    register_bda_table();
     init_descriptors(); // after scene creation!
     init_shaders();
     init_pipelines();
@@ -476,7 +477,7 @@ void VulkanEngine::execute_baked_gi()
         {
             ShaderPass current_pass = *shader_passes["spherical_harmonics"];
             SHPushConstants pc{};
-            pc.sh_buffer_address = get_buffer_address(device, sh_buffer.buffer);
+            pc.sh_buffer_address = bda_table.sh_buffer;
             pc.cubemap_id = scene_data.skybox_id;
 
             vkCmdBindPipeline(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
@@ -1119,7 +1120,7 @@ void VulkanEngine::draw()
                         };
 
                         PushData pd{
-                            get_buffer_address(device, oit_buffer.buffer),
+                            bda_table.oit_buffer,
                             glm::uvec2(swapchain.extent.width, swapchain.extent.height),
                             bindless.draw_uav
                         };
@@ -1176,7 +1177,7 @@ void VulkanEngine::draw()
                         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
 
                         TonemapPushConstants pc{};
-                        pc.luminance_avg_buffer = get_buffer_address(device, luminance_avg_buffer.buffer);
+                        pc.luminance_avg_buffer = bda_table.luminance_avg_buffer;
                         pc.screen_size = glm::vec2(swapchain.extent.width, swapchain.extent.height);
                         pc.src_id = cvar_system->get_int_cvar("taa") ? bindless.accum_uav + (frame_number % 2) : bindless.draw_uav;
                         pc.dst_id = bindless.draw_uav;
@@ -1471,6 +1472,7 @@ void VulkanEngine::run()
             }
 
             resource_heap_manager.write_resource_heap(device, resource_heap_buffer.info.pMappedData, true);
+            register_bda_table();
         }
 
         freeze_camera = cvar_system->get_int_cvar("freeze_camera");
@@ -2902,12 +2904,12 @@ void VulkanEngine::ready_mesh_cull(RenderScene::MeshPass& pass, CullData& cull_d
     cull_data.frustum_planes = glm::vec4(left_plane.x, left_plane.z, bottom_plane.y, bottom_plane.z);
 
     // cull_data.indices_buffer_address; // set during execute
-    cull_data.object_buffer_address = get_buffer_address(device, object_buffer.buffer);
-    cull_data.mesh_buffer_address = get_buffer_address(device, mesh_buffer.buffer);
-    cull_data.draw_indirect_address = get_buffer_address(device, draw_indirect_buffer.buffer);
-    cull_data.dispatch_buffer_address = get_buffer_address(device, dispatch_buffer.buffer);
-    cull_data.vis_buffer_address = get_buffer_address(device, vis_buffer.buffer);
-    cull_data.prefix_sum_buffer = get_buffer_address(device, prefix_sum_buffer.buffer);
+    cull_data.object_buffer_address = bda_table.object_buffer;
+    cull_data.mesh_buffer_address = bda_table.mesh_buffer;
+    cull_data.draw_indirect_address = bda_table.draw_indirect_buffer;
+    cull_data.dispatch_buffer_address = bda_table.dispatch_buffer;
+    cull_data.vis_buffer_address = bda_table.vis_buffer;
+    cull_data.prefix_sum_buffer = bda_table.prefix_sum_buffer;
 
     // cull_data.count = static_cast<uint32_t>(pass.unbatched_objects.size()); // set during execute
     cull_data.texture_id = bindless.depth_pyramid_srv;
@@ -2950,12 +2952,12 @@ void VulkanEngine::ready_meshlet_cull(RenderScene::MeshPass& pass, ClusterCullDa
     cull_data.view = freeze_camera ? last_view : scene_data.view;
     cull_data.frustum_planes = glm::vec4(left_plane.x, left_plane.z, bottom_plane.y, bottom_plane.z);
 
-    cull_data.object_buffer_address = get_buffer_address(device, object_buffer.buffer);
-    cull_data.meshlet_buffer_address = get_buffer_address(device, meshlet_buffer.buffer);
-    cull_data.cluster_indices_address = get_buffer_address(device, cluster_indices.buffer);
-    cull_data.meshlet_dispatch_address = get_buffer_address(device, meshlet_dispatch_buffer.buffer);
-    cull_data.cluster_vis_address = get_buffer_address(device, meshlet_vis_buffer.buffer);
-    cull_data.prefix_sum_buffer = get_buffer_address(device, prefix_sum_buffer.buffer);
+    cull_data.object_buffer_address = bda_table.object_buffer;
+    cull_data.meshlet_buffer_address = bda_table.meshlet_buffer;
+    cull_data.cluster_indices_address = bda_table.cluster_indices;
+    cull_data.meshlet_dispatch_address = bda_table.meshlet_dispatch_buffer;
+    cull_data.cluster_vis_address = bda_table.meshlet_vis_buffer;
+    cull_data.prefix_sum_buffer = bda_table.prefix_sum_buffer;
 
     // cull_data.count = static_cast<uint32_t>(pass.unbatched_objects.size()); // unused
     cull_data.texture_id = bindless.depth_pyramid_srv;
@@ -2980,8 +2982,8 @@ void VulkanEngine::execute_compact_dispatch(VkCommandBuffer cmd)
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
 
     CompactDispatchPushConstants pc{};
-    pc.prefix_sum_buffer = get_buffer_address(device, prefix_sum_buffer.buffer);
-    pc.dispatch_buffer = get_buffer_address(device, dispatch_buffer.buffer);
+    pc.prefix_sum_buffer = bda_table.prefix_sum_buffer;
+    pc.dispatch_buffer = bda_table.dispatch_buffer;
 
     VkPushDataInfoEXT push_data_info{};
     push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
@@ -2995,7 +2997,7 @@ void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPa
     ShaderPass current_pass = *shader_passes["mesh_cull"];
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
 
-    cull_data.indices_buffer_address = get_buffer_address(device, indices_buffer.buffer);
+    cull_data.indices_buffer_address = bda_table.indices_buffer;
     cull_data.indices_buffer_address += pass.indices_offset * sizeof(uint32_t);
 
     cull_data.count = static_cast<uint32_t>(pass.unbatched_objects.size());
@@ -3036,10 +3038,10 @@ void VulkanEngine::execute_shadow_cull(VkCommandBuffer cmd)
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
 
     ShadowCullPushConstants pc{};
-    pc.object_buffer_address = get_buffer_address(device, object_buffer.buffer);
-    pc.mesh_buffer_address = get_buffer_address(device, mesh_buffer.buffer);
-    pc.indices_buffer_address = get_buffer_address(device, indices_buffer.buffer);
-    pc.draw_buffer_address = get_buffer_address(device, draw_indirect_buffer.buffer);
+    pc.object_buffer_address = bda_table.object_buffer;
+    pc.mesh_buffer_address = bda_table.mesh_buffer;
+    pc.indices_buffer_address = bda_table.indices_buffer;
+    pc.draw_buffer_address = bda_table.draw_indirect_buffer;
 
     std::vector<RenderScene::MeshPass*> passes = { &render_scene.opaque_pass, &render_scene.mask_pass };
     uint32_t cull_count{};
@@ -3136,13 +3138,13 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass, ui
     // vkCmdSetDepthBias(cmd, -depth_bias, 0.0f, -slope_scaled_depth_bias);
 
     GPUPushConstants pc{};
-    pc.object_buffer_address = get_buffer_address(device, object_buffer.buffer);
-    pc.vertex_buffer_address = get_buffer_address(device, vertex_buffer.buffer);
-    pc.meshlet_buffer_address = get_buffer_address(device, meshlet_buffer.buffer);
-    pc.meshlet_indices_buffer_address = get_buffer_address(device, meshlet_indices.buffer);
-    pc.cluster_indices_address = get_buffer_address(device, cluster_indices.buffer);
-    pc.material_buffer_address = get_buffer_address(device, material_buffer.buffer);
-    pc.prefix_sum_buffer = get_buffer_address(device, prefix_sum_buffer.buffer);
+    pc.object_buffer_address = bda_table.object_buffer;
+    pc.vertex_buffer_address = bda_table.vertex_buffer;
+    pc.meshlet_buffer_address = bda_table.meshlet_buffer;
+    pc.meshlet_indices_buffer_address = bda_table.meshlet_indices;
+    pc.cluster_indices_address = bda_table.cluster_indices;
+    pc.material_buffer_address = bda_table.material_buffer;
+    pc.prefix_sum_buffer = bda_table.prefix_sum_buffer;
     auto jitter_count = jitter_offset.size();
     auto current_jitter = jitter_offset[frame_number % jitter_count];
     auto previous_jitter = jitter_offset[(frame_number - 1) % jitter_count];
@@ -3237,14 +3239,14 @@ void VulkanEngine::render_transparent(VkCommandBuffer cmd, uint32_t query)
     vkCmdSetScissor(cmd, 0, 1, &scissor);
 
     OITPushConstants pc{};
-    pc.object_buffer_address = get_buffer_address(device, object_buffer.buffer);
-    pc.vertex_buffer_address = get_buffer_address(device, vertex_buffer.buffer);
-    pc.meshlet_buffer_address = get_buffer_address(device, meshlet_buffer.buffer);
-    pc.meshlet_indices_buffer_address = get_buffer_address(device, meshlet_indices.buffer);
-    pc.cluster_indices_address = get_buffer_address(device, cluster_indices.buffer);
-    pc.material_buffer_address = get_buffer_address(device, material_buffer.buffer);
-    pc.prefix_sum_buffer = get_buffer_address(device, prefix_sum_buffer.buffer);
-    pc.sh_buffer = get_buffer_address(device, sh_buffer.buffer);
+    pc.object_buffer_address = bda_table.object_buffer;
+    pc.vertex_buffer_address = bda_table.vertex_buffer;
+    pc.meshlet_buffer_address = bda_table.meshlet_buffer;
+    pc.meshlet_indices_buffer_address = bda_table.meshlet_indices;
+    pc.cluster_indices_address = bda_table.cluster_indices;
+    pc.material_buffer_address = bda_table.material_buffer;
+    pc.prefix_sum_buffer = bda_table.prefix_sum_buffer;
+    pc.sh_buffer = bda_table.sh_buffer;
     pc.screen_size = glm::uvec2(swapchain.extent.width, swapchain.extent.height);
     pc.max_prefiltered_lod = static_cast<float>(std::floor(std::log2(static_cast<float>(std::max(prefiltered_envmap.extent.width, prefiltered_envmap.extent.height))))) + 1;
     pc.framebuffer_id = bindless.draw_srv;
@@ -3335,9 +3337,9 @@ void VulkanEngine::render_shadows(VkCommandBuffer cmd, uint32_t cascade_idx, uin
 
     ShadowPushConstants pc{};
     pc.viewproj = cascade_data[cascade_idx].viewproj;
-    pc.material_buffer_address = get_buffer_address(device, material_buffer.buffer);
-    pc.object_buffer_address = get_buffer_address(device, object_buffer.buffer);
-    pc.vertex_buffer_address = get_buffer_address(device, vertex_buffer.buffer);
+    pc.material_buffer_address = bda_table.material_buffer;
+    pc.object_buffer_address = bda_table.object_buffer;
+    pc.vertex_buffer_address = bda_table.vertex_buffer;
 
     {
         ShaderPass current_pass = *shader_passes["depth"];
@@ -3397,7 +3399,7 @@ void VulkanEngine::execute_hiz_spd(VkCommandBuffer cmd)
     auto groupcount_y = get_groupcount(height, 64);
 
     SpdPushConstants pc{};
-    pc.spd_counter_buffer = get_buffer_address(device, spd_counter_buffer.buffer);
+    pc.spd_counter_buffer = bda_table.spd_counter_buffer;
     pc.rcp_resolution = glm::vec2(1.0) / glm::vec2(width, height);
     pc.mips = depth_pyramid_level_count;
     pc.num_wgs = groupcount_x * groupcount_y;
@@ -3488,7 +3490,7 @@ void VulkanEngine::build_cluster_grid()
 
     ClusterGridPushConstants pc{};
     pc.inverse_proj = glm::inverse(main_camera.perspective);
-    pc.light_cluster_buffer_address = get_buffer_address(device, light_cluster_buffer.buffer);
+    pc.light_cluster_buffer_address = bda_table.light_cluster_buffer;
     pc.screen_size = glm::vec2(swapchain.extent.width, swapchain.extent.height);
     auto cluster_x = ceil(static_cast<float>(swapchain.extent.width) / CLUSTER_X); // # cluster dim
     auto cluster_y = ceil(static_cast<float>(swapchain.extent.height) / CLUSTER_Y); // # cluster dim
@@ -3529,11 +3531,11 @@ void VulkanEngine::execute_light_culling(VkCommandBuffer cmd)
     pc.view = scene_data.view;
     pc.light_rot = scene_data.light_rot;
 
-    pc.light_cluster_buffer_address = get_buffer_address(device, light_cluster_buffer.buffer);
-    pc.light_buffer_address = get_buffer_address(device, light_buffer.buffer);
-    pc.light_index_buffer_address = get_buffer_address(device, light_index_buffer.buffer);
-    pc.light_grid_buffer_address = get_buffer_address(device, light_grid_buffer.buffer);
-    pc.light_count_buffer_address = get_buffer_address(device, light_count_buffer.buffer);
+    pc.light_cluster_buffer_address = bda_table.light_cluster_buffer;
+    pc.light_buffer_address = bda_table.light_buffer;
+    pc.light_index_buffer_address = bda_table.light_index_buffer;
+    pc.light_grid_buffer_address = bda_table.light_grid_buffer;
+    pc.light_count_buffer_address = bda_table.light_count_buffer;
 
     VkPushDataInfoEXT push_data_info{};
     push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
@@ -3567,17 +3569,17 @@ void VulkanEngine::execute_shading(VkCommandBuffer cmd)
     pc.cluster_size = glm::vec4(cluster_x, cluster_y, CLUSTER_DEPTH_SLICES, 0.0);
     pc.screen_size = glm::vec2(swapchain.extent.width, swapchain.extent.height);
 
-    pc.light_buffer_address = get_buffer_address(device, light_buffer.buffer);
-    pc.light_index_buffer_address = get_buffer_address(device, light_index_buffer.buffer);
-    pc.light_grid_buffer_address = get_buffer_address(device, light_grid_buffer.buffer);
-    pc.meshlet_indices_address = get_buffer_address(device, meshlet_indices.buffer);
-    pc.meshlet_buffer_address = get_buffer_address(device, meshlet_buffer.buffer);
-    pc.vertex_buffer_address = get_buffer_address(device, vertex_buffer.buffer);
-    pc.object_buffer_address = get_buffer_address(device, object_buffer.buffer);
-    pc.material_buffer_address = get_buffer_address(device, material_buffer.buffer);
-    pc.index_buffer_address = get_buffer_address(device, index_buffer.buffer);
-    pc.mesh_buffer_address = get_buffer_address(device, mesh_buffer.buffer);
-    pc.sh_buffer_address = get_buffer_address(device, sh_buffer.buffer);
+    pc.light_buffer_address = bda_table.light_buffer;
+    pc.light_index_buffer_address = bda_table.light_index_buffer;
+    pc.light_grid_buffer_address = bda_table.light_grid_buffer;
+    pc.meshlet_indices_address = bda_table.meshlet_indices;
+    pc.meshlet_buffer_address = bda_table.meshlet_buffer;
+    pc.vertex_buffer_address = bda_table.vertex_buffer;
+    pc.object_buffer_address = bda_table.object_buffer;
+    pc.material_buffer_address = bda_table.material_buffer;
+    pc.index_buffer_address = bda_table.index_buffer;
+    pc.mesh_buffer_address = bda_table.mesh_buffer;
+    pc.sh_buffer_address = bda_table.sh_buffer;
 
     pc.draw_id = bindless.draw_uav;
     pc.depth_id = bindless.depth_srv;
@@ -3851,6 +3853,35 @@ void VulkanEngine::register_queries_with_imgui()
 
     ImGui::End();
     ImGui::Render();
+}
+
+void VulkanEngine::register_bda_table()
+{
+    bda_table.light_buffer = get_buffer_address(device, light_buffer.buffer);
+    bda_table.light_cluster_buffer = get_buffer_address(device, light_cluster_buffer.buffer);
+    bda_table.light_index_buffer = get_buffer_address(device, light_index_buffer.buffer);
+    bda_table.light_grid_buffer = get_buffer_address(device, light_grid_buffer.buffer);
+    bda_table.light_count_buffer = get_buffer_address(device, light_count_buffer.buffer);
+    bda_table.vertex_buffer = get_buffer_address(device, vertex_buffer.buffer);
+    bda_table.index_buffer = get_buffer_address(device, index_buffer.buffer);
+    bda_table.indices_buffer = get_buffer_address(device, indices_buffer.buffer);
+    bda_table.object_buffer = get_buffer_address(device, object_buffer.buffer);
+    bda_table.mesh_buffer = get_buffer_address(device, mesh_buffer.buffer);
+    bda_table.meshlet_buffer = get_buffer_address(device, meshlet_buffer.buffer);
+    bda_table.meshlet_indices = get_buffer_address(device, meshlet_indices.buffer);
+    bda_table.material_buffer = get_buffer_address(device, material_buffer.buffer);
+    bda_table.draw_indirect_buffer = get_buffer_address(device, draw_indirect_buffer.buffer);
+    bda_table.dispatch_buffer = get_buffer_address(device, dispatch_buffer.buffer);
+    bda_table.vis_buffer = get_buffer_address(device, vis_buffer.buffer);
+    bda_table.meshlet_vis_buffer = get_buffer_address(device, meshlet_vis_buffer.buffer);
+    bda_table.meshlet_dispatch_buffer = get_buffer_address(device, meshlet_dispatch_buffer.buffer);
+    bda_table.cluster_indices = get_buffer_address(device, cluster_indices.buffer);
+    bda_table.oit_buffer = get_buffer_address(device, oit_buffer.buffer);
+    bda_table.sh_buffer = get_buffer_address(device, sh_buffer.buffer);
+    bda_table.luminance_buffer = get_buffer_address(device, luminance_buffer.buffer);
+    bda_table.luminance_avg_buffer = get_buffer_address(device, luminance_avg_buffer.buffer);
+    bda_table.prefix_sum_buffer = get_buffer_address(device, prefix_sum_buffer.buffer);
+    bda_table.spd_counter_buffer = get_buffer_address(device, spd_counter_buffer.buffer);
 }
 
 int main(int argc, char** argv)

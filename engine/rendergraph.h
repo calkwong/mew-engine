@@ -8,6 +8,35 @@
 #include <unordered_map>
 #include <vector>
 
+struct BDATable
+{
+    VkDeviceAddress light_buffer{};
+    VkDeviceAddress light_cluster_buffer{};
+    VkDeviceAddress light_index_buffer{};
+    VkDeviceAddress light_grid_buffer{};
+    VkDeviceAddress light_count_buffer{};
+    VkDeviceAddress vertex_buffer{};
+    VkDeviceAddress index_buffer{};
+    VkDeviceAddress indices_buffer{};
+    VkDeviceAddress object_buffer{};
+    VkDeviceAddress mesh_buffer{};
+    VkDeviceAddress meshlet_buffer{};
+    VkDeviceAddress meshlet_indices{};
+    VkDeviceAddress material_buffer{};
+    VkDeviceAddress draw_indirect_buffer{};
+    VkDeviceAddress dispatch_buffer{};
+    VkDeviceAddress vis_buffer{};
+    VkDeviceAddress meshlet_vis_buffer{};
+    VkDeviceAddress meshlet_dispatch_buffer{};
+    VkDeviceAddress cluster_indices{};
+    VkDeviceAddress oit_buffer{};
+    VkDeviceAddress sh_buffer{};
+    VkDeviceAddress luminance_buffer{};
+    VkDeviceAddress luminance_avg_buffer{};
+    VkDeviceAddress prefix_sum_buffer{};
+    VkDeviceAddress spd_counter_buffer{};
+};
+
 class RenderGraph;
 
 struct Pass

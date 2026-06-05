@@ -11,6 +11,7 @@
 #include "descriptors.h"
 #include "queries.h"
 #include "config.h"
+#include "rendergraph.h"
 
 #include <array>
 #include <cstdint>
@@ -171,6 +172,7 @@ public:
     VkAccelerationStructureKHR tlas_as{};
 
     CVarSystem* cvar_system{};
+    BDATable bda_table{};
     RenderScene render_scene{};
 
     TimestampManager timestamp_manager{};
@@ -248,4 +250,5 @@ private:
     void execute_shading(VkCommandBuffer cmd);
     void create_acceleration_structures();
     void register_queries_with_imgui();
+    void register_bda_table();
 };

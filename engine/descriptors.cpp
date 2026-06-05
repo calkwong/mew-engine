@@ -229,11 +229,7 @@ void ResourceHeapManager::get_buffer_descriptor(VkDevice device, void* descripto
     VkDeviceSize size = buf_info.size;
     VkDescriptorType type = buf_info.type;
 
-    // get_buffer_address
-    VkBufferDeviceAddressInfo address_info{};
-    address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
-    address_info.buffer = buffer;
-    VkDeviceAddress addr = vkGetBufferDeviceAddress(device, &address_info);
+    VkDeviceAddress addr = get_buffer_address(device, buffer);
 
     VkDeviceAddressRangeEXT addr_range{ .address = addr, .size = size };
 
