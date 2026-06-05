@@ -1,5 +1,6 @@
 #include "queries.h"
 #include "common.h"
+#include "config.h"
 
 #include <imgui.h>
 
@@ -11,8 +12,7 @@
 // applies lerp to a recorded timestamp; also updates the timer from outside the timestamp manager
 void TimestampManager::lerp_timestamp(uint32_t current_frame, const std::string& pass, double& timer, double factor /* = 0.95 */)
 {
-    auto index = current_frame % 2;
-    auto& frame = frames[index];
+    auto& frame = frames[current_frame % MAX_FRAMES_IN_FLIGHT];
 
     for (uint32_t i = 0; i < frame.renderpasses.size(); i++)
     {
@@ -29,8 +29,7 @@ void TimestampManager::lerp_timestamp(uint32_t current_frame, const std::string&
 
 void TimestampManager::get_render_time(uint32_t current_frame, double timestamp_period)
 {
-    auto index = current_frame % 2;
-    auto& frame = frames[index];
+    auto& frame = frames[current_frame % MAX_FRAMES_IN_FLIGHT];
 
     if (frame.renderpasses.size() == 0)
         return;
@@ -45,7 +44,7 @@ void TimestampManager::get_render_time(uint32_t current_frame, double timestamp_
 
 void TimestampManager::reset(uint32_t frame_number)
 {
-    auto& frame = frames[frame_number % 2];
+    auto& frame = frames[frame_number % MAX_FRAMES_IN_FLIGHT];
     frame.timestamps.clear();
     frame.render_time.clear();
     frame.renderpasses.clear();
@@ -53,8 +52,7 @@ void TimestampManager::reset(uint32_t frame_number)
 
 void TimestampManager::add_imgui_text(uint32_t current_frame)
 {
-    auto index = current_frame % 2;
-    auto& frame = frames[index];
+    auto& frame = frames[current_frame % MAX_FRAMES_IN_FLIGHT];
 
     auto size = frame.renderpasses.size();
     if (size == 0)
@@ -71,8 +69,7 @@ void TimestampManager::add_imgui_text(uint32_t current_frame)
 
 void TimestampManager::get_query_pool_results(uint32_t current_frame, VkDevice device, VkQueryPool pool)
 {
-    auto index = current_frame % 2;
-    auto& frame = frames[index];
+    auto& frame = frames[current_frame % MAX_FRAMES_IN_FLIGHT];
 
     if (frame.renderpasses.size() == 0)
         return;
@@ -93,8 +90,7 @@ void TimestampManager::get_query_pool_results(uint32_t current_frame, VkDevice d
 
 uint32_t TimestampManager::add_pass(uint32_t current_frame, const std::string& pass)
 {
-    auto index = current_frame % 2;
-    auto& frame = frames[index];
+    auto& frame = frames[current_frame % MAX_FRAMES_IN_FLIGHT];
     auto size = frame.renderpasses.size();
     frame.renderpasses.push_back(pass);
 
@@ -117,8 +113,7 @@ ScopedTimestamp::~ScopedTimestamp()
 
 void PipelineQueryManager::get_query_pool_results(uint32_t current_frame, VkDevice device, VkQueryPool pool, PipelineQueryType type)
 {
-    auto index = current_frame % 2;
-    auto& frame = frames[index];
+    auto& frame = frames[current_frame % MAX_FRAMES_IN_FLIGHT];
 
     uint64_t* data{};
     uint32_t size{};
@@ -154,8 +149,7 @@ void PipelineQueryManager::get_query_pool_results(uint32_t current_frame, VkDevi
 
 void PipelineQueryManager::add_imgui_text(uint32_t current_frame)
 {
-    auto index = current_frame % 2;
-    auto& frame = frames[index];
+    auto& frame = frames[current_frame % MAX_FRAMES_IN_FLIGHT];
 
     if (frame.pipeline_results.size() == 0 && frame.mesh_pipeline_results.size() == 0)
         return;
@@ -183,8 +177,7 @@ void PipelineQueryManager::add_imgui_text(uint32_t current_frame)
 
 void PipelineQueryManager::reset(uint32_t current_frame)
 {
-    auto index = current_frame % 2;
-    auto& frame = frames[index];
+    auto& frame = frames[current_frame % MAX_FRAMES_IN_FLIGHT];
 
     frame.pipeline_results.clear();
     frame.mesh_pipeline_results.clear();
@@ -192,8 +185,7 @@ void PipelineQueryManager::reset(uint32_t current_frame)
 
 uint32_t PipelineQueryManager::add_query(uint32_t current_frame, PipelineQueryType type)
 {
-    auto index = current_frame % 2;
-    auto& frame = frames[index];
+    auto& frame = frames[current_frame % MAX_FRAMES_IN_FLIGHT];
 
     switch (type)
     {
