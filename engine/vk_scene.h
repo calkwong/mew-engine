@@ -195,32 +195,6 @@ struct RenderScene
     std::vector<Mesh> meshes{};
     std::unordered_map<MeshAsset*, uint32_t> mesh_cache{};
 
-    AllocatedBuffer vertex_buffer{};
-    AllocatedBuffer index_buffer{};
-    AllocatedBuffer indices_buffer{}; // an indirection buffer - for indexing into the right MeshData
-    AllocatedBuffer object_buffer{};
-    AllocatedBuffer mesh_buffer{};
-    AllocatedBuffer meshlet_buffer{};
-    AllocatedBuffer meshlet_indices{};
-    AllocatedBuffer material_buffer{};
-
-    AllocatedBuffer draw_indirect_buffer{};
-    AllocatedBuffer dispatch_buffer{};
-    AllocatedBuffer vis_buffer{};
-    AllocatedBuffer meshlet_vis_buffer{};
-
-    AllocatedBuffer meshlet_dispatch_buffer{};
-    AllocatedBuffer cluster_indices{};
-    AllocatedBuffer oit_buffer{};
-
-    AllocatedBuffer sh_buffer{};
-    AllocatedBuffer luminance_buffer{};
-    AllocatedBuffer luminance_avg_buffer{};
-
-    AllocatedBuffer prefix_sum_buffer{};
-
-    AllocatedBuffer spd_counter_buffer{};
-
     MeshPass opaque_pass{};
     MeshPass mask_pass{};
     MeshPass transparent_pass{};
