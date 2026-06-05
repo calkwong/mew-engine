@@ -142,7 +142,7 @@ void ResourceHeapManager::write_resource_heap(VkDevice device, void* p_heap, boo
     }
     offset += uav_infos.size() * image_descriptor_size;
 
-    auto texture_count = rebuild ? srv_rebuild_size : srv_infos.size();
+    auto texture_count = rebuild ? texture_offset : srv_infos.size();
     for (uint32_t i = 0; i < texture_count; ++i)
     {
         auto& info = srv_infos[i];
@@ -269,10 +269,10 @@ void ResourceHeapManager::update_buffer(uint32_t handle, AllocatedBuffer& buffer
     info.size = size;
 }
 
-uint32_t ResourceHeapManager::set_srv_rebuild_size()
+uint32_t ResourceHeapManager::set_texture_offset()
 {
-    srv_rebuild_size = srv_infos.size();
-    return srv_rebuild_size;
+    texture_offset = srv_infos.size();
+    return texture_offset;
 }
 
 void ResourceHeapManager::build_desc_set_bindings(std::vector<VkDescriptorSetAndBindingMappingEXT>& mappings)

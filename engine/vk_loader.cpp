@@ -1282,7 +1282,7 @@ std::optional<std::unique_ptr<LoadedGLTF>> load_gltfs(
     scene->allocator = allocator;
 
     // important! this is necessary for correct indexing and skipping of unnecessary descriptor updates if swapchain resizes
-    auto texture_offset = heap_manager->set_srv_rebuild_size();
+    auto texture_offset = heap_manager->set_texture_offset();
 
     for (auto& file_path : file_paths)
     {

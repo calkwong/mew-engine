@@ -30,7 +30,7 @@ public:
     void update_uav(uint32_t handle, AllocatedImage& image, uint32_t mip = 0);
     void update_srv(uint32_t handle, AllocatedImage& image);
 
-    uint32_t set_srv_rebuild_size();
+    uint32_t set_texture_offset();
     void write_resource_heap(VkDevice device, void* p_heap, bool rebuild = false);
     void build_desc_set_bindings(std::vector<VkDescriptorSetAndBindingMappingEXT>& mappings);
 
@@ -64,7 +64,7 @@ private:
     void get_as_descriptor(VkDevice device, void* descriptor, ASInfo& as_info);
     void get_buffer_descriptor(VkDevice device, void* descriptor, BufferInfo& buf_info);
 
-    uint32_t srv_rebuild_size{};
+    uint32_t texture_offset{};
 
     std::vector<BufferInfo> buffer_infos{};
     std::vector<ASInfo> as_infos{};

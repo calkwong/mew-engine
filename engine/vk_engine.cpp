@@ -2649,13 +2649,13 @@ void VulkanEngine::init_imgui()
     init_info.QueueFamily = graphics_queue_family;
     init_info.Queue = graphics_queue;
     init_info.DescriptorPool = imgui_pool;
-    init_info.MinImageCount = 2;
-    init_info.ImageCount = 2;
+    init_info.MinImageCount = 2; // TODO: are these related to FIF or swapchain count?
+    init_info.ImageCount = 2; // TODO: are these related to FIF or swapchain count?
     init_info.UseDynamicRendering = true;
     VkPipelineRenderingCreateInfo render_info{};
     render_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
     render_info.colorAttachmentCount = 1;
-    auto swapchain_image_format = VK_FORMAT_B8G8R8A8_UNORM;
+    auto swapchain_image_format = VK_FORMAT_B8G8R8A8_UNORM; // TODO: do not hardcore in case of mismatch
     render_info.pColorAttachmentFormats = &swapchain_image_format;
     init_info.PipelineInfoMain.PipelineRenderingCreateInfo = render_info;
 
