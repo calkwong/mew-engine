@@ -970,7 +970,6 @@ void VulkanEngine::draw()
                         if (cvar_system->get_int_cvar("hiz_spd"))
                         {
                             pass.add_storage_buffer_write("spd_counter");
-                            pass.add_storage_buffer_read("spd_counter");
                         }
                         pass.add_image_read("depth", depth_image.image);
                         pass.add_image_write("hiz", depth_pyramid.image);
@@ -1052,7 +1051,7 @@ void VulkanEngine::draw()
                     {
                         pass.add_storage_buffer_read("object");
                         pass.add_storage_buffer_read("mesh");
-                        pass.add_storage_buffer_write("indices");
+                        pass.add_storage_buffer_read("indices");
                         pass.add_storage_buffer_write("draw_indirect");
                     },
                     [&]()
@@ -1067,8 +1066,8 @@ void VulkanEngine::draw()
                     Pass::PassType::GraphicsPass,
                     [&](Pass& pass)
                     {
-                        pass.add_storage_buffer_write("material");
-                        pass.add_storage_buffer_write("object");
+                        pass.add_storage_buffer_read("material");
+                        pass.add_storage_buffer_read("object");
                         for (size_t i = 0; i < cascade_data.size(); i++)
                             pass.add_depth_stencil_output("shadowmap_" + std::to_string(i), cascade_data[i].shadow_map.image);
                     },
@@ -1196,7 +1195,10 @@ void VulkanEngine::draw()
                     [&](Pass& pass)
                     {
                         pass.add_storage_buffer_read("luminance_avg");
-                        pass.add_image_read("draw", draw_image.image);
+                        if (cvar_system->get_int_cvar("taa"))
+                            pass.add_image_read("taa_resolve", accumulation_buffers[frame_number % 2].image); // verify
+                        else
+                            pass.add_image_read("draw", draw_image.image);
                         pass.add_image_write("draw", draw_image.image);
                     },
                     [&]()
