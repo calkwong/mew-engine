@@ -63,7 +63,7 @@ VulkanEngine& VulkanEngine::get()
 constexpr bool USE_VALIDATION_LAYERS = true;
 // #endif
 
-#define STRESS_TEST // uncomment if loading a proper scene
+// #define STRESS_TEST // uncomment if loading a proper scene
 
 AutoCVar_Int CVAR_IMGUI{ "imgui", "Imgui", CVarFlags::EditCheckbox | CVarFlags::EditHide, 1 };
 AutoCVar_Int CVAR_DISABLE_CAMERA{ "disable_camera", "Disable camera", CVarFlags::EditCheckbox | CVarFlags::EditHide, 0 };
@@ -742,7 +742,7 @@ void VulkanEngine::draw()
                         pass.add_image_read("hiz", depth_pyramid.image);
                     }
                 },
-                [&, late, post_pass, prefix]()
+                [&, mesh_pass, late, post_pass, prefix]()
                 {
                     auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, prefix + "cull_meshes");
                     execute_compute_cull(cmd, mesh_pass, forward_mesh_cull_data, late, post_pass);
@@ -782,7 +782,7 @@ void VulkanEngine::draw()
                             pass.add_image_read("hiz", depth_pyramid.image);
                         }
                     },
-                    [&, mesh_pass, offset, late, post_pass, prefix]()
+                    [&, offset, late, post_pass, prefix]()
                     {
                         auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, prefix + "cull_meshlets");
                         execute_compute_cull(cmd, forward_cluster_cull_data, dispatch_buffer.buffer, offset, late, post_pass);
@@ -841,102 +841,110 @@ void VulkanEngine::draw()
                                                uint32_t post_pass
                                            )
         {
-            {
-                graph.add_pass(
-                    prefix + "zero_buffers",
-                    Pass::PassType::ComputePass,
-                    [&](Pass& pass)
+            bool mesh_rendering = cvar_system->get_int_cvar("mesh_shaders");
+
+            graph.add_pass(
+                prefix + "zero_buffers",
+                Pass::PassType::ComputePass,
+                [&](Pass& pass)
+                {
+                    if (mesh_rendering)
                     {
                         pass.add_storage_buffer_write("dispatch");
                         pass.add_storage_buffer_write("meshlet_dispatch");
+                    }
+                    pass.add_storage_buffer_write("draw_indirect");
+                    pass.add_storage_buffer_write("prefix_sum");
+                },
+                [&]()
+                {
+                    zero_buffers();
+                }
+            );
+
+            graph.add_pass(
+                prefix + "cull_meshes",
+                Pass::PassType::ComputePass,
+                [&](Pass& pass)
+                {
+                    pass.add_storage_buffer_read("object");
+                    pass.add_storage_buffer_read("mesh");
+                    pass.add_storage_buffer_read("indices");
+                    if (!mesh_rendering)
+                    {
                         pass.add_storage_buffer_write("draw_indirect");
-                        pass.add_storage_buffer_write("prefix_sum");
+                    }
+                    pass.add_storage_buffer_write("dispatch");
+                    pass.add_storage_buffer_read("vis");
+                    pass.add_storage_buffer_write("prefix_sum");
+                    // for transparent, it is always late
+                    if (late)
+                    {
+                        pass.add_storage_buffer_write("vis");
+                        pass.add_image_read("hiz", depth_pyramid.image);
+                    }
+                },
+                [&, late, post_pass, prefix]()
+                {
+                    auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, prefix + "cull_meshes");
+                    execute_compute_cull(cmd, render_scene.transparent_pass, forward_mesh_cull_data, late, post_pass);
+                }
+            );
+
+            if (cvar_system->get_int_cvar("mesh_shaders"))
+            {
+                graph.add_pass(
+                    prefix + "compact_dispatch",
+                    Pass::PassType::ComputePass,
+                    [&](Pass& pass)
+                    {
+                        pass.add_storage_buffer_write("dispatch");
+                        pass.add_storage_buffer_read("prefix_sum");
                     },
                     [&]()
                     {
-                        zero_buffers();
+                        execute_compact_dispatch(cmd);
                     }
                 );
 
                 graph.add_pass(
-                    prefix + "cull_meshes",
+                    prefix + "cull_meshlets",
                     Pass::PassType::ComputePass,
                     [&](Pass& pass)
                     {
-                        pass.add_storage_buffer_write("object");
-                        pass.add_storage_buffer_write("mesh");
-                        pass.add_storage_buffer_write("indices");
-                        pass.add_storage_buffer_write("draw_indirect");
-                        pass.add_storage_buffer_write("dispatch");
-                        pass.add_storage_buffer_write("vis");
-                        pass.add_storage_buffer_write("prefix_sum");
+                        pass.add_storage_buffer_read("object");
+                        pass.add_storage_buffer_read("meshlet");
+                        pass.add_storage_buffer_write("cluster_indices");
+                        pass.add_storage_buffer_write("meshlet_dispatch");
+                        pass.add_storage_buffer_read("cluster_vis");
+                        pass.add_storage_buffer_read("prefix_sum");
                         if (late)
                         {
-                            pass.add_image_read("depth", depth_image.image);
+                            pass.add_storage_buffer_write("cluster_vis");
                             pass.add_image_read("hiz", depth_pyramid.image);
                         }
                     },
-                    [&, late, post_pass, prefix]()
+                    [&, offset, late, post_pass, prefix]()
                     {
-                        auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, prefix + "cull_meshes");
-                        execute_compute_cull(cmd, render_scene.transparent_pass, forward_mesh_cull_data, late, post_pass);
+                        auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, prefix + "cull_meshlets");
+                        execute_compute_cull(cmd, forward_cluster_cull_data, dispatch_buffer.buffer, offset, late, post_pass);
                     }
                 );
-
-                if (cvar_system->get_int_cvar("mesh_shaders"))
-                {
-                    graph.add_pass(
-                        prefix + "compact_dispatch",
-                        Pass::PassType::ComputePass,
-                        [&](Pass& pass)
-                        {
-                            pass.add_storage_buffer_read("dispatch");
-                            pass.add_storage_buffer_write("dispatch");
-                            pass.add_storage_buffer_write("prefix_sum");
-                        },
-                        [&]()
-                        {
-                            execute_compact_dispatch(cmd);
-                        }
-                    );
-
-                    graph.add_pass(
-                        prefix + "cull_meshlets",
-                        Pass::PassType::ComputePass,
-                        [&](Pass& pass)
-                        {
-                            pass.add_storage_buffer_write("object");
-                            pass.add_storage_buffer_write("meshlet");
-                            pass.add_storage_buffer_write("cluster_indices");
-                            pass.add_storage_buffer_write("meshlet_dispatch");
-                            pass.add_storage_buffer_write("cluster_vis");
-                            pass.add_storage_buffer_write("prefix_sum");
-                            if (late)
-                            {
-                                pass.add_image_read("depth", depth_image.image);
-                                pass.add_image_read("hiz", depth_pyramid.image);
-                            }
-                        },
-                        [&, offset, late, post_pass, prefix]()
-                        {
-                            auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, prefix + "cull_meshlets");
-                            execute_compute_cull(cmd, forward_cluster_cull_data, dispatch_buffer.buffer, offset, late, post_pass);
-                        }
-                    );
-                }
             }
+
             graph.add_pass(
                 "mlab",
                 Pass::PassType::GraphicsPass,
                 [&](Pass& pass)
                 {
+                    pass.add_storage_buffer_read("oit");
                     pass.add_storage_buffer_write("oit");
-                    pass.add_storage_buffer_write("object");
-                    pass.add_storage_buffer_write("meshlet");
-                    pass.add_storage_buffer_write("meshlet_indices");
-                    pass.add_storage_buffer_write("cluster_indices");
-                    pass.add_storage_buffer_write("material");
-                    pass.add_storage_buffer_write("prefix_sum");
+                    pass.add_storage_buffer_read("object");
+                    pass.add_storage_buffer_read("meshlet");
+                    pass.add_storage_buffer_read("meshlet_indices");
+                    pass.add_storage_buffer_read("cluster_indices");
+                    pass.add_storage_buffer_read("material");
+                    pass.add_storage_buffer_read("prefix_sum");
                     pass.add_storage_buffer_read("sh");
                     pass.add_image_read("depth", depth_image.image);
                 },
@@ -3013,8 +3021,9 @@ void VulkanEngine::execute_compact_dispatch(VkCommandBuffer cmd)
     vkCmdDispatch(cmd, 1, 1, 1);
 }
 
-void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPass& pass, CullData& cull_data, bool late, uint32_t post_pass)
+void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, const RenderScene::MeshPass& pass, CullData& cull_data, bool late, uint32_t post_pass)
 {
+    fmt::println("{}", pass.type == RenderScene::MeshPassType::Opaque);
     ShaderPass current_pass = *shader_passes["mesh_cull"];
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
 
