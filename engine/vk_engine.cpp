@@ -686,7 +686,15 @@ void VulkanEngine::draw()
             vkCmdFillBuffer(cmd, prefix_sum_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
         };
 
-        auto two_pass_occlusion_culling = [&](RenderGraph& graph, const std::string& prefix, RenderScene::MeshPass& mesh_pass, uint32_t offset, bool late, uint32_t post_pass, uint32_t query, uint32_t timestamp, bool clear = false)
+        auto cull_and_render = [&](
+                                   RenderGraph& graph,
+                                   const std::string& prefix,
+                                   RenderScene::MeshPass& mesh_pass,
+                                   uint32_t offset,
+                                   bool late,
+                                   uint32_t post_pass,
+                                   bool clear = false
+                               )
         {
             graph.add_pass(
                 prefix + "zero_buffers",
@@ -722,7 +730,7 @@ void VulkanEngine::draw()
                         pass.add_image_read("hiz", depth_pyramid.image);
                     }
                 },
-                [&, late, post_pass, timestamp, prefix]()
+                [&, late, post_pass, prefix]()
                 {
                     auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, prefix + "cull_meshes");
                     execute_compute_cull(cmd, mesh_pass, forward_mesh_cull_data, late, post_pass);
@@ -763,7 +771,7 @@ void VulkanEngine::draw()
                             pass.add_image_read("hiz", depth_pyramid.image);
                         }
                     },
-                    [&, mesh_pass, offset, late, post_pass, timestamp, prefix]()
+                    [&, mesh_pass, offset, late, post_pass, prefix]()
                     {
                         auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, prefix + "cull_meshlets");
                         execute_compute_cull(cmd, forward_cluster_cull_data, dispatch_buffer.buffer, offset, late, post_pass);
@@ -807,15 +815,21 @@ void VulkanEngine::draw()
                         }
                     }
                 },
-                [&, late, post_pass, query, timestamp, prefix]()
+                [&, late, post_pass, prefix]()
                 {
                     auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, prefix + "rasterization");
-                    render(cmd, late, post_pass, query);
+                    render(cmd, late, post_pass);
                 }
             );
         };
 
-        auto transparency_pass = [&](RenderGraph& graph, const std::string& prefix, uint32_t offset, bool late, uint32_t post_pass, uint32_t query, uint32_t timestamp)
+        auto cull_and_render_transparent = [&](
+                                               RenderGraph& graph,
+                                               const std::string& prefix,
+                                               uint32_t offset,
+                                               bool late,
+                                               uint32_t post_pass
+                                           )
         {
             {
                 graph.add_pass(
@@ -852,7 +866,7 @@ void VulkanEngine::draw()
                             pass.add_image_read("hiz", depth_pyramid.image);
                         }
                     },
-                    [&, late, post_pass, timestamp, prefix]()
+                    [&, late, post_pass, prefix]()
                     {
                         auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, prefix + "cull_meshes");
                         execute_compute_cull(cmd, render_scene.transparent_pass, forward_mesh_cull_data, late, post_pass);
@@ -893,7 +907,7 @@ void VulkanEngine::draw()
                                 pass.add_image_read("hiz", depth_pyramid.image);
                             }
                         },
-                        [&, offset, late, post_pass, timestamp, prefix]()
+                        [&, offset, late, post_pass, prefix]()
                         {
                             auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, prefix + "cull_meshlets");
                             execute_compute_cull(cmd, forward_cluster_cull_data, dispatch_buffer.buffer, offset, late, post_pass);
@@ -916,17 +930,17 @@ void VulkanEngine::draw()
                     pass.add_storage_buffer_read("sh");
                     pass.add_image_read("depth", depth_image.image);
                 },
-                [&, query, timestamp]()
+                [&]()
                 {
                     auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, "mlab");
-                    render_transparent(cmd, query);
+                    render_transparent(cmd);
                 }
             );
         };
 
         RenderGraph graph{};
         {
-            two_pass_occlusion_culling(graph, "opaque_early_", render_scene.opaque_pass, 0, false, 0, 0, 0, true);
+            cull_and_render(graph, "opaque_early_", render_scene.opaque_pass, 0, false, 0, true);
 
             if (!freeze_camera)
             {
@@ -954,11 +968,11 @@ void VulkanEngine::draw()
                 );
             }
 
-            two_pass_occlusion_culling(graph, "opaque_late_", render_scene.opaque_pass, 0, true, 0, 1, 4);
+            cull_and_render(graph, "opaque_late_", render_scene.opaque_pass, 0, true, 0);
 
             // alphaclip postpass only, this is using early pass hiz for culling
             if (cvar_system->get_int_cvar("alphaclip"))
-                two_pass_occlusion_culling(graph, "alphaclip_late_", render_scene.mask_pass, 0, true, 1, 2, 8);
+                cull_and_render(graph, "alphaclip_late_", render_scene.mask_pass, 0, true, 1);
 
             if (cvar_system->get_int_cvar("point_lights"))
             {
@@ -1043,9 +1057,8 @@ void VulkanEngine::draw()
                     [&]()
                     {
                         auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, "shadow_pass");
-                        uint32_t query_index = 4;
-                        for (size_t i = 0; i < cascade_data.size(); i++, query_index++)
-                            render_shadows(cmd, static_cast<uint32_t>(i), query_index);
+                        for (size_t i = 0; i < cascade_data.size(); i++)
+                            render_shadows(cmd, static_cast<uint32_t>(i));
                     }
                 );
             }
@@ -1090,7 +1103,7 @@ void VulkanEngine::draw()
                     }
                 );
 
-                transparency_pass(graph, "transparent_late_", 0, true, 2, 3, 16);
+                cull_and_render_transparent(graph, "transparent_late_", 0, true, 2);
             }
 
             if (cvar_system->get_int_cvar("transparent"))
@@ -3058,7 +3071,7 @@ void VulkanEngine::execute_shadow_cull(VkCommandBuffer cmd)
     vkCmdDispatch(cmd, groupcount_x, 1, 1);
 }
 
-void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass, uint32_t query)
+void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass)
 {
     // deferred
     VkClearColorValue clear_color_value{ { 0.f, 0.f, 0.f, 1.0f } };
@@ -3201,7 +3214,7 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass, ui
     vkCmdEndRendering(cmd);
 }
 
-void VulkanEngine::render_transparent(VkCommandBuffer cmd, uint32_t query)
+void VulkanEngine::render_transparent(VkCommandBuffer cmd)
 {
     VkRenderingAttachmentInfo depth_attachment{};
     depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
@@ -3293,7 +3306,7 @@ void VulkanEngine::render_transparent(VkCommandBuffer cmd, uint32_t query)
     vkCmdEndRendering(cmd);
 }
 
-void VulkanEngine::render_shadows(VkCommandBuffer cmd, uint32_t cascade_idx, uint32_t query)
+void VulkanEngine::render_shadows(VkCommandBuffer cmd, uint32_t cascade_idx)
 {
     auto pq = ScopedPipelineQuery(&query_manager, frame_number, cmd, get_current_frame().query_pool_pipelines, PipelineQueryType::Vertex);
     VkRenderingAttachmentInfo depth_attachment{};

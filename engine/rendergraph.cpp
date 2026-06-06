@@ -102,9 +102,7 @@ void RenderGraph::bake()
     build_barriers();
 }
 
-// We group up all images that need UNDEFINED -> GENERAL before running any passes
-// Write only images that discard between pass executions not currently supported as we don't have such cases.
-// For buffers we just emit gigabarriers.
+// TODO: write only images that discard between pass executions not currently supported as we don't have such cases
 void RenderGraph::build_barriers()
 {
     struct State
@@ -135,7 +133,8 @@ void RenderGraph::build_barriers()
             state.write |= flush.stages;
         }
 
-        for (uint32_t index = 0; index < states.size(); index++)
+        // go over all resources of the graph and marks images that need to go from UNDEFINED -> GENERAL
+        for (uint32_t index = 0; index < resources.size(); index++)
         {
             auto& state = states[index];
 

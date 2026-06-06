@@ -92,8 +92,10 @@ public:
     void print() const;
 
 private:
+    // TODO: write only images that discard between pass executions not currently supported as we don't have such cases
     void build_barriers();
 
+    // note: this is kinda redundant and never used for buffers
     struct TrackedResource
     {
         VkImage image = VK_NULL_HANDLE;

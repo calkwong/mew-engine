@@ -241,9 +241,9 @@ private:
     void execute_compute_cull(VkCommandBuffer cmd, RenderScene::MeshPass& pass, CullData& cull_data, bool late, uint32_t post_pass);
     void execute_compute_cull(VkCommandBuffer cmd, ClusterCullData& cull_data, VkBuffer dispatch_buffer, uint32_t offset, bool late, uint32_t post_pass);
     void execute_shadow_cull(VkCommandBuffer cmd);
-    void render(VkCommandBuffer cmd, bool late, uint32_t post_pass, uint32_t query);
-    void render_transparent(VkCommandBuffer cmd, uint32_t query);
-    void render_shadows(VkCommandBuffer cmd, uint32_t cascade_idx, uint32_t query);
+    void render(VkCommandBuffer cmd, bool late, uint32_t post_pass);
+    void render_transparent(VkCommandBuffer cmd);
+    void render_shadows(VkCommandBuffer cmd, uint32_t cascade_idx);
     void execute_hiz_spd(VkCommandBuffer cmd);
     void execute_hiz(VkCommandBuffer cmd);
     void execute_light_culling(VkCommandBuffer cmd);
