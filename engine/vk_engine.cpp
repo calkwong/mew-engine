@@ -63,7 +63,7 @@ VulkanEngine& VulkanEngine::get()
 constexpr bool USE_VALIDATION_LAYERS = true;
 // #endif
 
-// #define STRESS_TEST // uncomment if loading a proper scene
+#define STRESS_TEST // uncomment if loading a proper scene
 
 AutoCVar_Int CVAR_IMGUI{ "imgui", "Imgui", CVarFlags::EditCheckbox | CVarFlags::EditHide, 1 };
 AutoCVar_Int CVAR_DISABLE_CAMERA{ "disable_camera", "Disable camera", CVarFlags::EditCheckbox | CVarFlags::EditHide, 0 };
@@ -680,8 +680,11 @@ void VulkanEngine::draw()
 
         auto zero_buffers = [&]()
         {
-            vkCmdFillBuffer(cmd, dispatch_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
-            vkCmdFillBuffer(cmd, meshlet_dispatch_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
+            if (cvar_system->get_int_cvar("mesh_shaders"))
+            {
+                vkCmdFillBuffer(cmd, dispatch_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
+                vkCmdFillBuffer(cmd, meshlet_dispatch_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
+            }
             vkCmdFillBuffer(cmd, draw_indirect_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
             vkCmdFillBuffer(cmd, prefix_sum_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
         };
@@ -696,13 +699,19 @@ void VulkanEngine::draw()
                                    bool clear = false
                                )
         {
+            bool mesh_rendering = cvar_system->get_int_cvar("mesh_shaders");
+            bool visibility_rendering = cvar_system->get_int_cvar("vbuffer") && mesh_rendering;
+
             graph.add_pass(
                 prefix + "zero_buffers",
                 Pass::PassType::ComputePass,
                 [&](Pass& pass)
                 {
-                    pass.add_storage_buffer_write("dispatch");
-                    pass.add_storage_buffer_write("meshlet_dispatch");
+                    if (mesh_rendering)
+                    {
+                        pass.add_storage_buffer_write("dispatch");
+                        pass.add_storage_buffer_write("meshlet_dispatch");
+                    }
                     pass.add_storage_buffer_write("draw_indirect");
                     pass.add_storage_buffer_write("prefix_sum");
                 },
@@ -717,16 +726,19 @@ void VulkanEngine::draw()
                 Pass::PassType::ComputePass,
                 [&](Pass& pass)
                 {
-                    pass.add_storage_buffer_write("object");
-                    pass.add_storage_buffer_write("mesh");
-                    pass.add_storage_buffer_write("indices");
-                    pass.add_storage_buffer_write("draw_indirect");
+                    pass.add_storage_buffer_read("object");
+                    pass.add_storage_buffer_read("mesh");
+                    pass.add_storage_buffer_read("indices");
+                    if (!mesh_rendering)
+                    {
+                        pass.add_storage_buffer_write("draw_indirect");
+                    }
                     pass.add_storage_buffer_write("dispatch");
-                    pass.add_storage_buffer_write("vis");
+                    pass.add_storage_buffer_read("vis");
                     pass.add_storage_buffer_write("prefix_sum");
                     if (late)
                     {
-                        pass.add_image_read("depth", depth_image.image);
+                        pass.add_storage_buffer_write("vis");
                         pass.add_image_read("hiz", depth_pyramid.image);
                     }
                 },
@@ -744,9 +756,8 @@ void VulkanEngine::draw()
                     Pass::PassType::ComputePass,
                     [&](Pass& pass)
                     {
-                        pass.add_storage_buffer_read("dispatch");
                         pass.add_storage_buffer_write("dispatch");
-                        pass.add_storage_buffer_write("prefix_sum");
+                        pass.add_storage_buffer_read("prefix_sum");
                     },
                     [&]()
                     {
@@ -759,15 +770,15 @@ void VulkanEngine::draw()
                     Pass::PassType::ComputePass,
                     [&](Pass& pass)
                     {
-                        pass.add_storage_buffer_write("object");
-                        pass.add_storage_buffer_write("meshlet");
+                        pass.add_storage_buffer_read("object");
+                        pass.add_storage_buffer_read("meshlet");
                         pass.add_storage_buffer_write("cluster_indices");
                         pass.add_storage_buffer_write("meshlet_dispatch");
-                        pass.add_storage_buffer_write("cluster_vis");
-                        pass.add_storage_buffer_write("prefix_sum");
+                        pass.add_storage_buffer_read("cluster_vis");
+                        pass.add_storage_buffer_read("prefix_sum");
                         if (late)
                         {
-                            pass.add_image_read("depth", depth_image.image);
+                            pass.add_storage_buffer_write("cluster_vis");
                             pass.add_image_read("hiz", depth_pyramid.image);
                         }
                     },
@@ -784,14 +795,13 @@ void VulkanEngine::draw()
                 Pass::PassType::GraphicsPass,
                 [&, clear](Pass& pass)
                 {
-                    pass.add_storage_buffer_write("object");
-                    pass.add_storage_buffer_write("meshlet");
-                    pass.add_storage_buffer_write("meshlet_indices");
-                    pass.add_storage_buffer_write("cluster_indices");
-                    pass.add_storage_buffer_write("material");
-                    pass.add_storage_buffer_write("prefix_sum");
+                    pass.add_storage_buffer_read("object");
+                    pass.add_storage_buffer_read("meshlet");
+                    pass.add_storage_buffer_read("meshlet_indices");
+                    pass.add_storage_buffer_read("cluster_indices");
+                    pass.add_storage_buffer_read("material");
+                    pass.add_storage_buffer_read("prefix_sum");
                     pass.add_depth_stencil_output("depth", depth_image.image);
-                    bool visibility_rendering = cvar_system->get_int_cvar("vbuffer") && cvar_system->get_int_cvar("mesh_shaders");
                     if (visibility_rendering)
                     {
                         pass.add_color_output("vis_buffer", visibility_buffer.image);
