@@ -2311,6 +2311,11 @@ void VulkanEngine::init_resources()
 
 void VulkanEngine::init_renderables(int file_count, char** file_paths)
 {
+    render_scene.mask_pass.type = RenderScene::MeshPassType::Mask;
+    render_scene.opaque_pass.type = RenderScene::MeshPassType::Opaque;
+    render_scene.transparent_pass.type = RenderScene::MeshPassType::Transparent;
+    render_scene.transmission_pass.type = RenderScene::MeshPassType::Transparent;
+
     auto start = SDL_GetTicks();
 
     {
@@ -3023,7 +3028,6 @@ void VulkanEngine::execute_compact_dispatch(VkCommandBuffer cmd)
 
 void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, const RenderScene::MeshPass& pass, CullData& cull_data, bool late, uint32_t post_pass)
 {
-    fmt::println("{}", pass.type == RenderScene::MeshPassType::Opaque);
     ShaderPass current_pass = *shader_passes["mesh_cull"];
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
 
