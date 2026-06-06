@@ -17,7 +17,6 @@
 #include <stb_image.h>
 #include <vk_mem_alloc.h>
 #include <VkBootstrap.h>
-#include <fmt/format.h>
 #include <glm/fwd.hpp>
 #include <glm/geometric.hpp>
 #include <glm/matrix.hpp>
@@ -814,13 +813,11 @@ void VulkanEngine::draw()
                     {
                         for (uint32_t i = 0; i < gbuffers.size(); i++)
                         {
-                            pass.add_color_output(fmt::format("gbuffer{}", i), gbuffers[i].image);
-                        }
-                        if (!clear)
-                        {
-                            for (uint32_t i = 0; i < gbuffers.size(); i++)
+                            const std::string name = "gbuffer" + std::to_string(i);
+                            pass.add_color_output(name, gbuffers[i].image);
+                            if (!clear)
                             {
-                                pass.add_image_read(fmt::format("gbuffer{}", i), gbuffers[i].image);
+                                pass.add_image_read(name, gbuffers[i].image);
                             }
                         }
                     }
