@@ -5,7 +5,6 @@ struct PushConstants
 	float2 image_size;
 	uint texture_id;
 	uint image_id;
-	float roughness;
 };
 
 [[vk::push_constant]] PushConstants pc;

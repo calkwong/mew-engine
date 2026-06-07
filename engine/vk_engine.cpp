@@ -8,7 +8,6 @@
 #include "vk_loader.h"
 #include "pipelines.h"
 #include "vk_scene.h"
-#include "push_constants.h"
 #include "rendergraph.h"
 #include "swapchain.h"
 #include "descriptors.h"
@@ -432,7 +431,12 @@ void VulkanEngine::execute_baked_gi()
         [&]()
         {
             ShaderPass current_pass = *shader_passes["equirectangular_to_cubemap"];
-            IBLPushConstants pc{};
+            struct PushConstant
+            {
+                glm::vec2 image_size{};
+                uint32_t texture_id{};
+                uint32_t image_id{};
+            } pc;
             pc.image_size = glm::vec2(skybox_cubemap.extent.width, skybox_cubemap.extent.height);
             pc.texture_id = bindless.hdri_srv;
             pc.image_id = bindless.skybox_uav;
@@ -440,7 +444,7 @@ void VulkanEngine::execute_baked_gi()
             vkCmdBindPipeline(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
             VkPushDataInfoEXT push_data_info{};
             push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
-            push_data_info.data = { &pc, sizeof(IBLPushConstants) };
+            push_data_info.data = { &pc, sizeof(PushConstant) };
             vkCmdPushDataEXT(imm_command_buffer, &push_data_info);
             auto groupcount_x = get_groupcount(skybox_cubemap.extent.width, WARP_SIZE);
             auto groupcount_y = get_groupcount(skybox_cubemap.extent.height, WARP_SIZE);
@@ -473,14 +477,18 @@ void VulkanEngine::execute_baked_gi()
         [&]()
         {
             ShaderPass current_pass = *shader_passes["spherical_harmonics"];
-            SHPushConstants pc{};
+            struct PushConstant
+            {
+                VkDeviceAddress sh_buffer_address{};
+                uint32_t cubemap_id{};
+            } pc;
             pc.sh_buffer_address = bda_table.sh_buffer;
             pc.cubemap_id = scene_data.skybox_id;
 
             vkCmdBindPipeline(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
             VkPushDataInfoEXT push_data_info{};
             push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
-            push_data_info.data = { &pc, sizeof(SHPushConstants) };
+            push_data_info.data = { &pc, sizeof(PushConstant) };
             vkCmdPushDataEXT(imm_command_buffer, &push_data_info);
 
             vkCmdDispatch(imm_command_buffer, 1, 1, 1);
@@ -498,7 +506,12 @@ void VulkanEngine::execute_baked_gi()
         [&]()
         {
             ShaderPass current_pass = *shader_passes["irradiance"];
-            IBLPushConstants pc{};
+            struct PushConstant
+            {
+                glm::vec2 image_size{};
+                uint32_t texture_id{};
+                uint32_t image_id{};
+            } pc;
             pc.image_size = glm::vec2(irradiance_cubemap.extent.width, irradiance_cubemap.extent.height);
             pc.texture_id = scene_data.skybox_id;
             pc.image_id = bindless.irradiance_uav;
@@ -506,7 +519,7 @@ void VulkanEngine::execute_baked_gi()
             vkCmdBindPipeline(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
             VkPushDataInfoEXT push_data_info{};
             push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
-            push_data_info.data = { &pc, sizeof(IBLPushConstants) };
+            push_data_info.data = { &pc, sizeof(PushConstant) };
             vkCmdPushDataEXT(imm_command_buffer, &push_data_info);
             auto groupcount_x = get_groupcount(irradiance_cubemap.extent.width, WARP_SIZE);
             auto groupcount_y = get_groupcount(irradiance_cubemap.extent.height, WARP_SIZE);
@@ -527,7 +540,12 @@ void VulkanEngine::execute_baked_gi()
         {
             ShaderPass current_pass = *shader_passes["prefiltered"];
             vkCmdBindPipeline(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
-            IBLPushConstants pc{};
+            struct PushConstant
+            {
+                uint32_t texture_id{};
+                uint32_t image_id{};
+                float roughness{};
+            } pc;
             pc.texture_id = scene_data.skybox_id;
 
             auto mips = static_cast<uint32_t>(std::floor(std::log2(static_cast<float>(std::max(prefiltered_envmap.extent.width, prefiltered_envmap.extent.height))))) + 1;
@@ -538,7 +556,7 @@ void VulkanEngine::execute_baked_gi()
 
                 VkPushDataInfoEXT push_data_info{};
                 push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
-                push_data_info.data = { &pc, sizeof(IBLPushConstants) };
+                push_data_info.data = { &pc, sizeof(PushConstant) };
                 vkCmdPushDataEXT(imm_command_buffer, &push_data_info);
                 auto groupcount_x = get_groupcount(prefiltered_envmap.extent.width, WARP_SIZE);
                 auto groupcount_y = get_groupcount(prefiltered_envmap.extent.height, WARP_SIZE);
@@ -557,14 +575,18 @@ void VulkanEngine::execute_baked_gi()
         [&]()
         {
             ShaderPass current_pass = *shader_passes["brdf"];
-            IBLPushConstants pc{};
+            struct PushConstant
+            {
+                glm::vec2 image_size{};
+                uint32_t image_id{};
+            } pc;
             pc.image_size = glm::vec2(brdf_lut.extent.width, brdf_lut.extent.height);
             pc.image_id = bindless.brdf_uav;
 
             vkCmdBindPipeline(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
             VkPushDataInfoEXT push_data_info{};
             push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
-            push_data_info.data = { &pc, sizeof(IBLPushConstants) };
+            push_data_info.data = { &pc, sizeof(PushConstant) };
             vkCmdPushDataEXT(imm_command_buffer, &push_data_info);
             auto groupcount_x = get_groupcount(brdf_lut.extent.width, WARP_SIZE);
             auto groupcount_y = get_groupcount(brdf_lut.extent.height, WARP_SIZE);
@@ -618,8 +640,8 @@ void VulkanEngine::draw()
     {
         auto proj = freeze_camera ? last_proj : scene_data.proj;
 
-        ready_mesh_cull(render_scene.opaque_pass, forward_mesh_cull_data, proj);
-        ready_meshlet_cull(render_scene.opaque_pass, forward_cluster_cull_data, proj);
+        ready_cull_mesh(render_scene.opaque_pass, forward_mesh_cull_data, proj);
+        ready_cull_meshlet(render_scene.opaque_pass, forward_cluster_cull_data, proj);
     }
 
     uint32_t swapchain_image_idx{};
@@ -744,7 +766,7 @@ void VulkanEngine::draw()
                 [&, mesh_pass, late, post_pass, prefix]()
                 {
                     auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, prefix + "cull_meshes");
-                    execute_compute_cull(cmd, mesh_pass, forward_mesh_cull_data, late, post_pass);
+                    execute_cull_mesh(cmd, mesh_pass, forward_mesh_cull_data, late, post_pass);
                 }
             );
 
@@ -784,7 +806,7 @@ void VulkanEngine::draw()
                     [&, offset, late, post_pass, prefix]()
                     {
                         auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, prefix + "cull_meshlets");
-                        execute_compute_cull(cmd, forward_cluster_cull_data, dispatch_buffer.buffer, offset, late, post_pass);
+                        execute_cull_meshlet(cmd, forward_cluster_cull_data, dispatch_buffer.buffer, offset, late, post_pass);
                     }
                 );
             }
@@ -884,7 +906,7 @@ void VulkanEngine::draw()
                 [&, late, post_pass, prefix]()
                 {
                     auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, prefix + "cull_meshes");
-                    execute_compute_cull(cmd, render_scene.transparent_pass, forward_mesh_cull_data, late, post_pass);
+                    execute_cull_mesh(cmd, render_scene.transparent_pass, forward_mesh_cull_data, late, post_pass);
                 }
             );
 
@@ -924,7 +946,7 @@ void VulkanEngine::draw()
                     [&, offset, late, post_pass, prefix]()
                     {
                         auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, prefix + "cull_meshlets");
-                        execute_compute_cull(cmd, forward_cluster_cull_data, dispatch_buffer.buffer, offset, late, post_pass);
+                        execute_cull_meshlet(cmd, forward_cluster_cull_data, dispatch_buffer.buffer, offset, late, post_pass);
                     }
                 );
             }
@@ -1204,7 +1226,15 @@ void VulkanEngine::draw()
                         ShaderPass current_pass = *shader_passes["tonemap"];
                         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
 
-                        TonemapPushConstants pc{};
+                        struct PushConstant
+                        {
+                            VkDeviceAddress luminance_avg_buffer{};
+                            glm::vec2 screen_size{};
+                            uint32_t src_id{};
+                            uint32_t dst_id{};
+                            uint32_t autoexposure{};
+                            uint32_t tonemap_func{};
+                        } pc;
                         pc.luminance_avg_buffer = bda_table.luminance_avg_buffer;
                         pc.screen_size = glm::vec2(swapchain.extent.width, swapchain.extent.height);
                         pc.src_id = cvar_system->get_int_cvar("taa") ? bindless.accum_uav + (frame_number % 2) : bindless.draw_uav;
@@ -1214,7 +1244,7 @@ void VulkanEngine::draw()
 
                         VkPushDataInfoEXT push_data_info{};
                         push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
-                        push_data_info.data = { &pc, sizeof(TonemapPushConstants) };
+                        push_data_info.data = { &pc, sizeof(PushConstant) };
                         vkCmdPushDataEXT(cmd, &push_data_info);
                         auto groupcount_x = get_groupcount(swapchain.extent.width, WARP_SIZE);
                         auto groupcount_y = get_groupcount(swapchain.extent.height, WARP_SIZE);
@@ -2522,7 +2552,23 @@ void VulkanEngine::resolve_taa(VkCommandBuffer cmd)
     ShaderPass current_pass = *shader_passes["resolve_taa"];
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
 
-    TAAPushConstants pc{};
+    struct PushConstant
+    {
+        glm::vec4 jitter_offset{};
+        glm::vec2 screen_size{};
+        uint32_t current_id{};
+        uint32_t history_id{};
+        uint32_t resolve_id{};
+        uint32_t depth_id{};
+        uint32_t velocity_id{};
+        uint32_t variance_clipping{};
+        uint32_t history_filter{};
+        uint32_t local_filter{};
+        uint32_t ycocg{};
+        uint32_t valid_history{};
+        uint32_t dynamic{};
+    } pc;
+
     auto jitter_count = jitter_offset.size();
     auto current_jitter = jitter_offset[frame_number % jitter_count];
     auto previous_jitter = jitter_offset[(frame_number - 1) % jitter_count];
@@ -2543,7 +2589,7 @@ void VulkanEngine::resolve_taa(VkCommandBuffer cmd)
 
     VkPushDataInfoEXT push_data_info{};
     push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
-    push_data_info.data = { &pc, sizeof(TAAPushConstants) };
+    push_data_info.data = { &pc, sizeof(PushConstant) };
     vkCmdPushDataEXT(cmd, &push_data_info);
     auto groupcount_x = get_groupcount(swapchain.extent.width, WARP_SIZE);
     auto groupcount_y = get_groupcount(swapchain.extent.height, WARP_SIZE);
@@ -2915,7 +2961,7 @@ void VulkanEngine::upload_scene_data_to_buffers()
 }
 
 // indices address, count, late & post_pass set in executecomputecull
-void VulkanEngine::ready_mesh_cull(RenderScene::MeshPass& pass, CullData& cull_data, glm::mat4& proj)
+void VulkanEngine::ready_cull_mesh(RenderScene::MeshPass& pass, CullData& cull_data, glm::mat4& proj)
 {
     auto projT = glm::transpose(proj);
 
@@ -2964,7 +3010,7 @@ void VulkanEngine::ready_mesh_cull(RenderScene::MeshPass& pass, CullData& cull_d
 }
 
 // count, late & post_pass set in executecomputecull
-void VulkanEngine::ready_meshlet_cull(RenderScene::MeshPass& pass, ClusterCullData& cull_data, glm::mat4& proj)
+void VulkanEngine::ready_cull_meshlet(RenderScene::MeshPass& pass, ClusterCullData& cull_data, glm::mat4& proj)
 {
     auto projT = glm::transpose(proj);
 
@@ -3017,18 +3063,23 @@ void VulkanEngine::execute_compact_dispatch(VkCommandBuffer cmd)
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
 
-    CompactDispatchPushConstants pc{};
+    struct PushConstant
+    {
+        VkDeviceAddress prefix_sum_buffer{};
+        VkDeviceAddress dispatch_buffer{};
+    } pc;
+
     pc.prefix_sum_buffer = bda_table.prefix_sum_buffer;
     pc.dispatch_buffer = bda_table.dispatch_buffer;
 
     VkPushDataInfoEXT push_data_info{};
     push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
-    push_data_info.data = { &pc, sizeof(CompactDispatchPushConstants) };
+    push_data_info.data = { &pc, sizeof(PushConstant) };
     vkCmdPushDataEXT(cmd, &push_data_info);
     vkCmdDispatch(cmd, 1, 1, 1);
 }
 
-void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, const RenderScene::MeshPass& pass, CullData& cull_data, bool late, uint32_t post_pass)
+void VulkanEngine::execute_cull_mesh(VkCommandBuffer cmd, const RenderScene::MeshPass& pass, CullData& cull_data, bool late, uint32_t post_pass)
 {
     ShaderPass current_pass = *shader_passes["mesh_cull"];
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
@@ -3048,7 +3099,7 @@ void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, const RenderScene::
     vkCmdDispatch(cmd, groupcount_x, 1, 1);
 }
 
-void VulkanEngine::execute_compute_cull(VkCommandBuffer cmd, ClusterCullData& cull_data, VkBuffer dispatch_buffer, uint32_t offset, bool late, uint32_t post_pass)
+void VulkanEngine::execute_cull_meshlet(VkCommandBuffer cmd, ClusterCullData& cull_data, VkBuffer dispatch_buffer, uint32_t offset, bool late, uint32_t post_pass)
 {
     ShaderPass current_pass = *shader_passes["meshlet_cull"];
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
@@ -3073,7 +3124,16 @@ void VulkanEngine::execute_shadow_cull(VkCommandBuffer cmd)
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
 
-    ShadowCullPushConstants pc{};
+    struct PushConstant
+    {
+        VkDeviceAddress object_buffer_address{};
+        VkDeviceAddress mesh_buffer_address{};
+        VkDeviceAddress indices_buffer_address{};
+        VkDeviceAddress draw_buffer_address{};
+        uint32_t count{};
+        uint32_t lod_enabled{};
+    } pc;
+
     pc.object_buffer_address = bda_table.object_buffer;
     pc.mesh_buffer_address = bda_table.mesh_buffer;
     pc.indices_buffer_address = bda_table.indices_buffer;
@@ -3090,7 +3150,7 @@ void VulkanEngine::execute_shadow_cull(VkCommandBuffer cmd)
 
     VkPushDataInfoEXT push_data_info{};
     push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
-    push_data_info.data = { &pc, sizeof(ShadowCullPushConstants) };
+    push_data_info.data = { &pc, sizeof(PushConstant) };
     vkCmdPushDataEXT(cmd, &push_data_info);
     auto groupcount_x = get_groupcount(cull_count, CULL_WGSIZE);
     vkCmdDispatch(cmd, groupcount_x, 1, 1);
@@ -3173,7 +3233,18 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass)
     //  TODO: refactor to account for different geometry (double-sided or back face culled)
     // vkCmdSetDepthBias(cmd, -depth_bias, 0.0f, -slope_scaled_depth_bias);
 
-    GPUPushConstants pc{};
+    struct PushConstant
+    {
+        VkDeviceAddress object_buffer_address{};
+        VkDeviceAddress vertex_buffer_address{};
+        VkDeviceAddress meshlet_buffer_address{};
+        VkDeviceAddress meshlet_indices_buffer_address{};
+        VkDeviceAddress cluster_indices_address{};
+        VkDeviceAddress material_buffer_address{};
+        VkDeviceAddress prefix_sum_buffer{};
+        glm::uvec2 screen_size{};
+        glm::vec4 jitter_offset{};
+    } pc;
     pc.object_buffer_address = bda_table.object_buffer;
     pc.vertex_buffer_address = bda_table.vertex_buffer;
     pc.meshlet_buffer_address = bda_table.meshlet_buffer;
@@ -3195,7 +3266,7 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass)
 
         VkPushDataInfoEXT push_data_info{};
         push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
-        push_data_info.data = { &pc, sizeof(GPUPushConstants) };
+        push_data_info.data = { &pc, sizeof(PushConstant) };
         vkCmdPushDataEXT(cmd, &push_data_info);
 
         vkCmdBindIndexBuffer(cmd, index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
@@ -3229,7 +3300,7 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass)
 
         VkPushDataInfoEXT push_data_info{};
         push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
-        push_data_info.data = { &pc, sizeof(GPUPushConstants) };
+        push_data_info.data = { &pc, sizeof(PushConstant) };
         vkCmdPushDataEXT(cmd, &push_data_info);
 
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
@@ -3274,7 +3345,29 @@ void VulkanEngine::render_transparent(VkCommandBuffer cmd)
     scissor.extent.height = swapchain.extent.height;
     vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-    OITPushConstants pc{};
+    struct PushConstant
+    {
+        VkDeviceAddress object_buffer_address{};
+        VkDeviceAddress vertex_buffer_address{};
+        VkDeviceAddress meshlet_buffer_address{};
+        VkDeviceAddress meshlet_indices_buffer_address{};
+        VkDeviceAddress cluster_indices_address{};
+        VkDeviceAddress material_buffer_address{};
+        VkDeviceAddress prefix_sum_buffer{};
+        VkDeviceAddress sh_buffer{};
+        VkDeviceAddress light_buffer{};
+        VkDeviceAddress light_index_buffer{};
+        VkDeviceAddress light_grid_buffer{};
+        glm::vec2 cluster_size{};
+        glm::uvec2 screen_size{};
+        float max_prefiltered_lod{};
+        uint32_t framebuffer_id{};
+        uint32_t volume{};
+        uint32_t point_lights{};
+        uint32_t scale{};
+        uint32_t bias{};
+    } pc;
+
     pc.object_buffer_address = bda_table.object_buffer;
     pc.vertex_buffer_address = bda_table.vertex_buffer;
     pc.meshlet_buffer_address = bda_table.meshlet_buffer;
@@ -3306,7 +3399,7 @@ void VulkanEngine::render_transparent(VkCommandBuffer cmd)
 
         VkPushDataInfoEXT push_data_info{};
         push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
-        push_data_info.data = { &pc, sizeof(OITPushConstants) };
+        push_data_info.data = { &pc, sizeof(PushConstant) };
         vkCmdPushDataEXT(cmd, &push_data_info);
 
         vkCmdBindIndexBuffer(cmd, index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
@@ -3331,7 +3424,7 @@ void VulkanEngine::render_transparent(VkCommandBuffer cmd)
 
         VkPushDataInfoEXT push_data_info{};
         push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
-        push_data_info.data = { &pc, sizeof(OITPushConstants) };
+        push_data_info.data = { &pc, sizeof(PushConstant) };
         vkCmdPushDataEXT(cmd, &push_data_info);
 
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
@@ -3381,7 +3474,14 @@ void VulkanEngine::render_shadows(VkCommandBuffer cmd, uint32_t cascade_idx)
     auto slope_scaled_depth_bias = 0.f;
     vkCmdSetDepthBias(cmd, -depth_bias, 0.0f, -slope_scaled_depth_bias);
 
-    ShadowPushConstants pc{};
+    struct PushConstant
+    {
+        glm::mat4 viewproj{};
+        VkDeviceAddress material_buffer_address{};
+        VkDeviceAddress object_buffer_address{};
+        VkDeviceAddress vertex_buffer_address{};
+    } pc;
+
     pc.viewproj = cascade_data[cascade_idx].viewproj;
     pc.material_buffer_address = bda_table.material_buffer;
     pc.object_buffer_address = bda_table.object_buffer;
@@ -3392,7 +3492,7 @@ void VulkanEngine::render_shadows(VkCommandBuffer cmd, uint32_t cascade_idx)
 
         VkPushDataInfoEXT push_data_info{};
         push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
-        push_data_info.data = { &pc, sizeof(ShadowPushConstants) };
+        push_data_info.data = { &pc, sizeof(PushConstant) };
         vkCmdPushDataEXT(cmd, &push_data_info);
 
         vkCmdBindIndexBuffer(cmd, index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
@@ -3414,10 +3514,6 @@ void VulkanEngine::render_shadows(VkCommandBuffer cmd, uint32_t cascade_idx)
         {
             current_pass = *shader_passes["depth_alphaclip"];
             vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pass.pipeline);
-            VkPushDataInfoEXT push_data_info{};
-            push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
-            push_data_info.data = { &pc, sizeof(ShadowPushConstants) };
-            vkCmdPushDataEXT(cmd, &push_data_info);
 
             vkCmdDrawIndexedIndirectCount(
                 cmd,
@@ -3444,7 +3540,18 @@ void VulkanEngine::execute_hiz_spd(VkCommandBuffer cmd)
     auto groupcount_x = get_groupcount(width, 64);
     auto groupcount_y = get_groupcount(height, 64);
 
-    SpdPushConstants pc{};
+    struct PushConstant
+    {
+        VkDeviceAddress spd_counter_buffer{};
+        glm::vec2 rcp_resolution{};
+        uint32_t mips{};
+        uint32_t num_wgs{};
+        uint32_t src_id{}; // texture to sample
+        uint32_t dst_id{}; // image to write to, offset accordingly!
+        uint32_t sampler_id{};
+        // uint32_t wg_offset; // note: for subregion downsampling, not implemented for now
+    } pc;
+
     pc.spd_counter_buffer = bda_table.spd_counter_buffer;
     pc.rcp_resolution = glm::vec2(1.0) / glm::vec2(width, height);
     pc.mips = depth_pyramid_level_count;
@@ -3455,7 +3562,7 @@ void VulkanEngine::execute_hiz_spd(VkCommandBuffer cmd)
 
     VkPushDataInfoEXT push_data_info{};
     push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
-    push_data_info.data = { &pc, sizeof(SpdPushConstants) };
+    push_data_info.data = { &pc, sizeof(PushConstant) };
     vkCmdPushDataEXT(cmd, &push_data_info);
     vkCmdDispatch(cmd, groupcount_x, groupcount_y, 1);
 }
@@ -3465,7 +3572,13 @@ void VulkanEngine::execute_hiz(VkCommandBuffer cmd)
     ShaderPass current_pass = *shader_passes["hiz"];
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
 
-    DepthPyramidPushConstants depth_pc{};
+    struct PushConstant
+    {
+        std::array<int32_t, 2> image_size{};
+        uint32_t texture_id{};
+        uint32_t image_id{};
+        uint32_t lod{};
+    } pc;
 
     uint32_t mip_levels = depth_pyramid_level_count;
 
@@ -3473,14 +3586,14 @@ void VulkanEngine::execute_hiz(VkCommandBuffer cmd)
     {
         int32_t width = std::max(static_cast<int32_t>(depth_pyramid.extent.width) >> i, 1);
         int32_t height = std::max(static_cast<int32_t>(depth_pyramid.extent.height) >> i, 1);
-        depth_pc.image_size = { width, height };
-        depth_pc.texture_id = i == 0 ? bindless.depth_srv : bindless.depth_pyramid_srv;
-        depth_pc.image_id = bindless.depth_pyramid_uav + i;
-        depth_pc.lod = i == 0 ? 0 : i - 1;
+        pc.image_size = { width, height };
+        pc.texture_id = i == 0 ? bindless.depth_srv : bindless.depth_pyramid_srv;
+        pc.image_id = bindless.depth_pyramid_uav + i;
+        pc.lod = i == 0 ? 0 : i - 1;
 
         VkPushDataInfoEXT push_data_info{};
         push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
-        push_data_info.data = { &depth_pc, sizeof(DepthPyramidPushConstants) };
+        push_data_info.data = { &pc, sizeof(PushConstant) };
         vkCmdPushDataEXT(cmd, &push_data_info);
 
         auto groupcount_x = get_groupcount(width, WARP_SIZE);
@@ -3534,7 +3647,17 @@ void VulkanEngine::build_cluster_grid()
     ShaderPass current_pass = *shader_passes["cluster_grid"];
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
 
-    ClusterGridPushConstants pc{};
+    struct PushConstant
+    {
+        glm::mat4 inverse_proj{};
+        VkDeviceAddress light_cluster_buffer_address{};
+        glm::vec2 screen_size{};
+        glm::vec2 cluster_dim{};
+        float near{};
+        float far{};
+        uint32_t depth_slices{};
+    } pc;
+
     pc.inverse_proj = glm::inverse(main_camera.perspective);
     pc.light_cluster_buffer_address = bda_table.light_cluster_buffer;
     pc.screen_size = glm::vec2(swapchain.extent.width, swapchain.extent.height);
@@ -3547,7 +3670,7 @@ void VulkanEngine::build_cluster_grid()
 
     VkPushDataInfoEXT push_data_info{};
     push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
-    push_data_info.data = { &pc, sizeof(ClusterGridPushConstants) };
+    push_data_info.data = { &pc, sizeof(PushConstant) };
     vkCmdPushDataEXT(cmd, &push_data_info);
 
     vkCmdDispatch(cmd, 1, 1, CLUSTER_DEPTH_SLICES);
@@ -3572,7 +3695,16 @@ void VulkanEngine::execute_light_culling(VkCommandBuffer cmd)
     ShaderPass current_pass = *shader_passes["light_culling"];
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
 
-    LightCullingPushConstants pc{};
+    struct PushConstant
+    {
+        glm::mat4 view{};
+        glm::mat4 light_rot{};
+        VkDeviceAddress light_cluster_buffer_address{};
+        VkDeviceAddress light_buffer_address{};
+        VkDeviceAddress light_index_buffer_address{};
+        VkDeviceAddress light_grid_buffer_address{};
+        VkDeviceAddress light_count_buffer_address{};
+    } pc;
 
     pc.view = scene_data.view;
     pc.light_rot = scene_data.light_rot;
@@ -3585,7 +3717,7 @@ void VulkanEngine::execute_light_culling(VkCommandBuffer cmd)
 
     VkPushDataInfoEXT push_data_info{};
     push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
-    push_data_info.data = { &pc, sizeof(LightCullingPushConstants) };
+    push_data_info.data = { &pc, sizeof(PushConstant) };
     vkCmdPushDataEXT(cmd, &push_data_info);
 
     vkCmdDispatch(cmd, 1, 1, CLUSTER_DEPTH_SLICES / CLUSTER_Z);
@@ -3608,7 +3740,34 @@ void VulkanEngine::execute_shading(VkCommandBuffer cmd)
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
 
-    DeferredPushConstants pc{};
+    struct PushConstant
+    {
+        glm::vec4 cluster_size{}; // xyz are cluster data structure dimensions, w is a single cluster's dimension
+        glm::vec2 screen_size{};
+        VkDeviceAddress light_buffer_address{};
+        VkDeviceAddress light_index_buffer_address{};
+        VkDeviceAddress light_grid_buffer_address{};
+        VkDeviceAddress meshlet_indices_address{}; // TESTING FOR VIS BUFFER ONLY
+        VkDeviceAddress meshlet_buffer_address{}; // TESTING FOR VIS BUFFER ONLY
+        VkDeviceAddress vertex_buffer_address{}; // TESTING FOR VIS BUFFER ONLY
+        VkDeviceAddress object_buffer_address{}; // TESTING FOR VIS BUFFER ONLY
+        VkDeviceAddress material_buffer_address{}; // TESTING FOR VIS BUFFER ONLY
+        VkDeviceAddress index_buffer_address{};
+        VkDeviceAddress mesh_buffer_address{};
+        VkDeviceAddress sh_buffer_address{};
+        uint32_t draw_id;
+        uint32_t depth_id{};
+        uint32_t gbuffer_id{};
+        uint32_t shadow_id{};
+        uint32_t light_culling{}; // for toggling light culling between naive and proper implementation
+        float near{};
+        float scale{};
+        float bias{};
+        uint32_t shadows{};
+        uint32_t shadows_rt{};
+        float max_prefiltered_lod{};
+        uint32_t debug{};
+    } pc;
 
     auto cluster_x = ceil(static_cast<float>(swapchain.extent.width) / CLUSTER_X); // # cluster dim
     auto cluster_y = ceil(static_cast<float>(swapchain.extent.height) / CLUSTER_Y); // # cluster dim
@@ -3644,7 +3803,7 @@ void VulkanEngine::execute_shading(VkCommandBuffer cmd)
 
     VkPushDataInfoEXT push_data_info{};
     push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
-    push_data_info.data = { &pc, sizeof(DeferredPushConstants) };
+    push_data_info.data = { &pc, sizeof(PushConstant) };
     vkCmdPushDataEXT(cmd, &push_data_info);
 
     auto groupcount_x = get_groupcount(swapchain.extent.width, 8);

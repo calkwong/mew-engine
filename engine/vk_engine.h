@@ -53,6 +53,63 @@ struct EngineStats
     double gpu_time{};
 };
 
+struct CullData
+{
+    glm::mat4 view{};
+    glm::vec4 frustum_planes{};
+    VkDeviceAddress object_buffer_address{};
+    VkDeviceAddress mesh_buffer_address{};
+    VkDeviceAddress indices_buffer_address{};
+    VkDeviceAddress draw_indirect_address{};
+    VkDeviceAddress dispatch_buffer_address{};
+    VkDeviceAddress vis_buffer_address{};
+    VkDeviceAddress prefix_sum_buffer{};
+    uint32_t count{};
+    uint32_t late{};
+    uint32_t texture_id{};
+    uint32_t occlusion_enabled{};
+
+    float p00{};
+    float p11{};
+    float near{};
+    float far{};
+
+    glm::vec2 resolution{};
+    float texture_lod{};
+    float lod_distance_factor{};
+    uint32_t lod_enabled{};
+    uint32_t task_submit{};
+    uint32_t post_pass{};
+};
+
+struct ClusterCullData
+{
+    glm::mat4 view{};
+    glm::vec4 frustum_planes{};
+    VkDeviceAddress object_buffer_address{};
+    VkDeviceAddress meshlet_buffer_address{};
+    VkDeviceAddress cluster_indices_address{};
+    VkDeviceAddress meshlet_dispatch_address{};
+    VkDeviceAddress cluster_vis_address{};
+    VkDeviceAddress prefix_sum_buffer{};
+    uint32_t count{};
+    uint32_t late{};
+    uint32_t texture_id{};
+    uint32_t occlusion_enabled{};
+
+    float p00{};
+    float p11{};
+    float near{};
+    float far{};
+
+    glm::vec2 resolution{};
+    float texture_lod{};
+    float lod_distance_factor{};
+    uint32_t lod_enabled{};
+    uint32_t task_submit{};
+    uint32_t post_pass{};
+};
+
 struct SDL_Window;
 struct CullData;
 struct ClusterCullData;
@@ -235,11 +292,11 @@ private:
     void update_cascade();
     void draw_imgui(VkCommandBuffer cmd, VkImageView swapchain_view);
     void upload_scene_data_to_buffers();
-    void ready_mesh_cull(RenderScene::MeshPass& pass, CullData& cull_data, glm::mat4& proj);
-    void ready_meshlet_cull(RenderScene::MeshPass& pass, ClusterCullData& cull_data, glm::mat4& proj);
+    void ready_cull_mesh(RenderScene::MeshPass& pass, CullData& cull_data, glm::mat4& proj);
+    void ready_cull_meshlet(RenderScene::MeshPass& pass, ClusterCullData& cull_data, glm::mat4& proj);
     void execute_compact_dispatch(VkCommandBuffer cmd);
-    void execute_compute_cull(VkCommandBuffer cmd, const RenderScene::MeshPass& pass, CullData& cull_data, bool late, uint32_t post_pass);
-    void execute_compute_cull(VkCommandBuffer cmd, ClusterCullData& cull_data, VkBuffer dispatch_buffer, uint32_t offset, bool late, uint32_t post_pass);
+    void execute_cull_mesh(VkCommandBuffer cmd, const RenderScene::MeshPass& pass, CullData& cull_data, bool late, uint32_t post_pass);
+    void execute_cull_meshlet(VkCommandBuffer cmd, ClusterCullData& cull_data, VkBuffer dispatch_buffer, uint32_t offset, bool late, uint32_t post_pass);
     void execute_shadow_cull(VkCommandBuffer cmd);
     void render(VkCommandBuffer cmd, bool late, uint32_t post_pass);
     void render_transparent(VkCommandBuffer cmd);
