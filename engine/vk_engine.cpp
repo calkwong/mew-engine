@@ -1818,9 +1818,9 @@ void VulkanEngine::init_shaders()
     shader_cache.add_shader(device, "cluster_grid.slang");
     shader_cache.add_shader(device, "light_culling.slang");
     shader_cache.add_shader(device, "hiz.slang");
-    shader_cache.add_shader(device, "mesh_cull.slang");
-    shader_cache.add_shader(device, "meshlet_cull.slang");
-    shader_cache.add_shader(device, "shadow_cull.slang");
+    shader_cache.add_shader(device, "cull_mesh.slang");
+    shader_cache.add_shader(device, "cull_meshlet.slang");
+    shader_cache.add_shader(device, "cull_shadow.slang");
     shader_cache.add_shader(device, "resolve_taa.slang");
     shader_cache.add_shader(device, "equirectangular_to_cubemap.slang");
     shader_cache.add_shader(device, "spherical_harmonics.slang");
@@ -1852,8 +1852,8 @@ void VulkanEngine::init_pipelines()
     shader_passes["cluster_grid"] = create_compute_pipeline(device, shader_cache["cluster_grid.slang"], &desc_set_and_binding_mapping_info);
     shader_passes["light_culling"] = create_compute_pipeline(device, shader_cache["light_culling.slang"], &desc_set_and_binding_mapping_info);
     shader_passes["hiz"] = create_compute_pipeline(device, shader_cache["hiz.slang"], &desc_set_and_binding_mapping_info);
-    shader_passes["mesh_cull"] = create_compute_pipeline(device, shader_cache["mesh_cull.slang"], &desc_set_and_binding_mapping_info);
-    shader_passes["meshlet_cull"] = create_compute_pipeline(device, shader_cache["meshlet_cull.slang"], &desc_set_and_binding_mapping_info);
+    shader_passes["mesh_cull"] = create_compute_pipeline(device, shader_cache["cull_mesh.slang"], &desc_set_and_binding_mapping_info);
+    shader_passes["meshlet_cull"] = create_compute_pipeline(device, shader_cache["cull_meshlet.slang"], &desc_set_and_binding_mapping_info);
     shader_passes["equirectangular_to_cubemap"] = create_compute_pipeline(device, shader_cache["equirectangular_to_cubemap.slang"], &desc_set_and_binding_mapping_info);
     shader_passes["spherical_harmonics"] = create_compute_pipeline(device, shader_cache["spherical_harmonics.slang"], &desc_set_and_binding_mapping_info);
     shader_passes["irradiance"] = create_compute_pipeline(device, shader_cache["irradiance.slang"], &desc_set_and_binding_mapping_info);
@@ -1862,7 +1862,7 @@ void VulkanEngine::init_pipelines()
     shader_passes["luminance_histogram"] = create_compute_pipeline(device, shader_cache["luminance_histogram.slang"], &desc_set_and_binding_mapping_info);
     shader_passes["luminance_avg"] = create_compute_pipeline(device, shader_cache["luminance_avg.slang"], &desc_set_and_binding_mapping_info);
     shader_passes["tonemap"] = create_compute_pipeline(device, shader_cache["tonemap.slang"], &desc_set_and_binding_mapping_info);
-    shader_passes["shadow_cull"] = create_compute_pipeline(device, shader_cache["shadow_cull.slang"], &desc_set_and_binding_mapping_info);
+    shader_passes["shadow_cull"] = create_compute_pipeline(device, shader_cache["cull_shadow.slang"], &desc_set_and_binding_mapping_info);
     shader_passes["compact_dispatch"] = create_compute_pipeline(device, shader_cache["compact_dispatch.slang"], &desc_set_and_binding_mapping_info);
     shader_passes["resolve_taa"] = create_compute_pipeline(device, shader_cache["resolve_taa.slang"], &desc_set_and_binding_mapping_info);
     shader_passes["hiz_spd"] = create_compute_pipeline(device, shader_cache["hiz_spd.slang"], &desc_set_and_binding_mapping_info);
