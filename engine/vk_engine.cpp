@@ -1015,7 +1015,7 @@ void VulkanEngine::draw()
                 // TODO: combine this somewhere
                 // TODO: handle as Transfer instead of setting to Compute?
                 graph.add_pass(
-                    "zero light buffers",
+                    "zero_light_buffers",
                     Pass::PassType::ComputePass,
                     [&](Pass& pass)
                     {
@@ -1049,7 +1049,7 @@ void VulkanEngine::draw()
             if (cvar_system->get_int_cvar("shadows") && !cvar_system->get_int_cvar("shadows_rt"))
             {
                 graph.add_pass(
-                    "zero shadow buffers",
+                    "zero_shadow_buffers",
                     Pass::PassType::ComputePass,
                     [&](Pass& pass)
                     {
@@ -1064,7 +1064,7 @@ void VulkanEngine::draw()
                 );
 
                 graph.add_pass(
-                    "cull shadow casters",
+                    "cull_shadow",
                     Pass::PassType::ComputePass,
                     [&](Pass& pass)
                     {
@@ -1075,13 +1075,13 @@ void VulkanEngine::draw()
                     },
                     [&]()
                     {
-                        auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, "shadow_culling");
+                        auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, "cull_shadow");
                         execute_shadow_cull(cmd);
                     }
                 );
 
                 graph.add_pass(
-                    "render shadows",
+                    "render_shadows",
                     Pass::PassType::GraphicsPass,
                     [&](Pass& pass)
                     {
@@ -1092,7 +1092,7 @@ void VulkanEngine::draw()
                     },
                     [&]()
                     {
-                        auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, "shadow_pass");
+                        auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, "render_shadows");
                         for (size_t i = 0; i < cascade_data.size(); i++)
                             render_shadows(cmd, static_cast<uint32_t>(i));
                     }
@@ -1124,7 +1124,8 @@ void VulkanEngine::draw()
 
             if (cvar_system->get_int_cvar("transparent"))
             {
-                // TODO: make below conditional on whether KHR_materials_volume is used
+                // TODO: make draw_image_mipmap conditional on whether KHR_materials_volume is used
+                // TODO: consider doing this in compute and profile to see if its faster
                 graph.add_pass(
                     "draw_image_mipmap",
                     Pass::PassType::ComputePass,
@@ -1135,6 +1136,7 @@ void VulkanEngine::draw()
                     },
                     [&]()
                     {
+                        auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, "draw_image_mipmap");
                         vkutil::generate_mipmaps(cmd, draw_image.image, VkExtent2D{ swapchain.extent.width, swapchain.extent.height });
                     }
                 );
@@ -1145,7 +1147,7 @@ void VulkanEngine::draw()
             if (cvar_system->get_int_cvar("transparent"))
             {
                 graph.add_pass(
-                    "composite transparent",
+                    "composite_transparent",
                     Pass::PassType::ComputePass,
                     [&](Pass& pass)
                     {
@@ -1156,6 +1158,8 @@ void VulkanEngine::draw()
                     },
                     [&]()
                     {
+                        auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, "composite_transparent");
+
                         ShaderPass current_pass = *shader_passes["composite_transparent"];
                         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
 
@@ -1254,7 +1258,7 @@ void VulkanEngine::draw()
             }
 
             graph.add_pass(
-                "copy to swapchain",
+                "copy_to_swapchain",
                 Pass::PassType::ComputePass,
                 [&](Pass& pass)
                 {
@@ -1263,6 +1267,7 @@ void VulkanEngine::draw()
                 },
                 [&]()
                 {
+                    auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, "copy_to_swapchain");
                     vkutil::copy_image(cmd, draw_image.image, swapchain.images[swapchain_image_idx], swapchain.extent, swapchain.extent);
                 }
             );
