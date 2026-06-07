@@ -285,7 +285,7 @@ void ps_main(
         float3 l_specular = eval_specular_brdf(brdf_data, roughness, F) * light_color * brdf_data.NdotL;
         direct_lighting = l_diffuse * (1.0 - F) + l_specular;
 
-        // TODO: verify we are doing attenuation correctly
+        // note: likely to have correctness issues for transmission/volume model
         #if 1
         if (pc.point_lights == 1)
         {
@@ -308,11 +308,10 @@ void ps_main(
           		float3 light_color = point_light.color.xyz;
 
           		light_pos = mul(uniforms.light_rot, float4(light_pos, 1.0)).xyz;
-          		float3 distance = light_pos - in.world_pos;
-          		float3 point_to_light = normalize(distance);
+          		float3 point_to_light = light_pos - in.world_pos;
 
-                update_brdf_data(brdf_data, point_to_light);
-                float attenuation = get_square_falloff_attenuation(distance, light_radius);
+                update_brdf_data(brdf_data, normalize(point_to_light));
+                float attenuation = get_square_falloff_attenuation(point_to_light, light_radius);
 
                 float3 l_diffuse = eval_diffuse_brdf(brdf_data, albedo.xyz, roughness, metallic) * light_color * brdf_data.NdotL * attenuation;
 
@@ -326,6 +325,8 @@ void ps_main(
 
                 l_diffuse = lerp(l_diffuse, transmitted_light, transmission_factor);
                 float3 F;
+                // update attenuation to account for adjusted point_to_light
+                attenuation = get_square_falloff_attenuation(point_to_light, light_radius);
                 float3 l_specular = eval_specular_brdf(brdf_data, roughness, F) * light_color * brdf_data.NdotL * attenuation;
                 direct_lighting += l_diffuse * (1.0 - F) + l_specular;
             }
