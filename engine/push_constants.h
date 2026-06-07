@@ -73,10 +73,17 @@ struct OITPushConstants
     VkDeviceAddress material_buffer_address{};
     VkDeviceAddress prefix_sum_buffer{};
     VkDeviceAddress sh_buffer{};
+    VkDeviceAddress light_buffer{};
+    VkDeviceAddress light_index_buffer{};
+    VkDeviceAddress light_grid_buffer{};
+    glm::vec2 cluster_size{};
     glm::uvec2 screen_size{};
     float max_prefiltered_lod{};
     uint32_t framebuffer_id{};
     uint32_t volume{};
+    uint32_t point_lights{};
+    uint32_t scale{};
+	uint32_t bias{};
 };
 
 struct DeferredPushConstants

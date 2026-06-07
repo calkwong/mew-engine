@@ -2117,7 +2117,7 @@ void VulkanEngine::init_resources()
     std::vector<PointLight> light_data(MAX_POINT_LIGHTS);
 
     float light_area = 10.f; // in radius
-    float light_radius = 1.f;
+    float light_radius = 3.f;
 
     for (size_t i = 0; i < MAX_POINT_LIGHTS; i++)
     {
@@ -2512,6 +2512,7 @@ void VulkanEngine::update_scene()
     auto ms_per_orbit = 10000;
     float rot_angle = static_cast<float>(elapsed_ms % ms_per_orbit) / static_cast<float>(ms_per_orbit) * 360.0f;
     scene_data.light_rot = glm::rotate(glm::mat4(1.0f), glm::radians(rot_angle), glm::vec3(0, 1, 0));
+    scene_data.light_rot = glm::mat4(1.0f);
 }
 
 void VulkanEngine::resolve_taa(VkCommandBuffer cmd)
@@ -3280,10 +3281,20 @@ void VulkanEngine::render_transparent(VkCommandBuffer cmd)
     pc.material_buffer_address = bda_table.material_buffer;
     pc.prefix_sum_buffer = bda_table.prefix_sum_buffer;
     pc.sh_buffer = bda_table.sh_buffer;
+    pc.light_buffer = bda_table.light_buffer;
+    pc.light_index_buffer = bda_table.light_index_buffer;
+    pc.light_grid_buffer = bda_table.light_grid_buffer;
+    auto cluster_x = ceil(static_cast<float>(swapchain.extent.width) / CLUSTER_X); // # cluster dim
+    auto cluster_y = ceil(static_cast<float>(swapchain.extent.height) / CLUSTER_Y); // # cluster dim
+    pc.cluster_size = glm::vec2(cluster_x, cluster_y);
     pc.screen_size = glm::uvec2(swapchain.extent.width, swapchain.extent.height);
     pc.max_prefiltered_lod = static_cast<float>(std::floor(std::log2(static_cast<float>(std::max(prefiltered_envmap.extent.width, prefiltered_envmap.extent.height))))) + 1;
     pc.framebuffer_id = bindless.draw_srv;
     pc.volume = cvar_system->get_int_cvar("volume");
+    pc.point_lights = cvar_system->get_int_cvar("point_lights");
+    const float ratio = main_camera.far / main_camera.near;
+    pc.scale = static_cast<float>(CLUSTER_DEPTH_SLICES) / std::log(ratio);
+    pc.bias = static_cast<float>(CLUSTER_DEPTH_SLICES) * std::log(main_camera.near) / std::log(ratio);
 
     if (!cvar_system->get_int_cvar("mesh_shaders"))
     {

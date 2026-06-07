@@ -16,6 +16,7 @@ struct Interp
 {
     float4 position : SV_Position;
     float3 world_pos;
+    float3 view_pos;
     float3 normal;
     float2 uv;
     float4 tangent;
@@ -34,10 +35,17 @@ struct PushConstants
 	MaterialData* material_buffer;
 	PrefixSum* prefix_sum_buffer;
 	SH* sh_buffer;
+	PointLight* light_buffer;
+	uint* light_index_buffer;
+	LightGrid* light_grid_buffer;
+	float2 cluster_size;
 	uint2 screen_size;
 	float max_prefiltered_lod;
 	uint framebuffer_id;
 	uint volume;
+	uint point_lights;
+	uint scale;
+	uint bias;
 };
 
 [[vk::push_constant]] PushConstants pc;
@@ -55,9 +63,11 @@ Interp vs_main(
 
 	float3 pos = float3(v.px, v.py, v.pz);
 	float4 world_pos = float4(rotate_quat(pos, o.orientation) * o.scale + o.translation, 1.0);
+	float4 view_pos = mul(uniforms.view, world_pos);
     float4 clip_pos = mul(uniforms.view_proj, world_pos);
 	interp.position = clip_pos;
 	interp.world_pos = world_pos.xyz;
+	interp.view_pos = view_pos.xyz;
 
 	float3 normal;
 	float4 tangent;
@@ -132,9 +142,11 @@ void mesh_main(
 
 		float3 pos = float3(v.px, v.py, v.pz);
 		float4 world_pos = float4(rotate_quat(pos, o.orientation) * o.scale + o.translation, 1.0);
+		float4 view_pos = mul(uniforms.view, world_pos);
 	    float4 clip_pos = mul(uniforms.view_proj, world_pos);
 		verts[i].position = clip_pos;
 		verts[i].world_pos = world_pos.xyz;
+		verts[i].view_pos = view_pos.xyz;
 
 		float3 normal;
 		float4 tangent;
@@ -272,9 +284,59 @@ void ps_main(
         float3 F;
         float3 l_specular = eval_specular_brdf(brdf_data, roughness, F) * light_color * brdf_data.NdotL;
         direct_lighting = l_diffuse * (1.0 - F) + l_specular;
+
+        // TODO: verify we are doing attenuation correctly
+        #if 1
+        if (pc.point_lights == 1)
+        {
+            float view_z = in.view_pos.z; // TODO: can we do better than passing another matrix as interpolant?
+    		uint slice = get_cluster_z_slice(view_z, pc.scale, pc.bias);
+            float2 frag_coord = in.position.xy;
+    		uint cluster_index = get_cluster_index(float2(frag_coord.x, pc.screen_size.y - frag_coord.y), pc.cluster_size, slice);
+
+    		LightGrid grid = pc.light_grid_buffer[cluster_index];
+    		uint offset = grid.offset;
+    		uint count = grid.count;
+
+            for (int i = 0; i < count; i++)
+            {
+                uint index = pc.light_index_buffer[offset + i];
+
+          		PointLight point_light = pc.light_buffer[index];
+          		float3 light_pos = point_light.pos.xyz;
+          		float light_radius = point_light.pos.w;
+          		float3 light_color = point_light.color.xyz;
+
+          		light_pos = mul(uniforms.light_rot, float4(light_pos, 1.0)).xyz;
+          		float3 distance = light_pos - in.world_pos;
+          		float3 point_to_light = normalize(distance);
+
+                update_brdf_data(brdf_data, point_to_light);
+                float attenuation = get_square_falloff_attenuation(distance, light_radius);
+
+                float3 l_diffuse = eval_diffuse_brdf(brdf_data, albedo.xyz, roughness, metallic) * light_color * brdf_data.NdotL * attenuation;
+
+                // VERIFY: transmission ray unchanged
+                point_to_light -= transmission_ray;
+                L = normalize(point_to_light);
+
+                float3 transmitted_light = eval_punctual_radiance_transmission(brdf_data, L, albedo.xyz, roughness, ior) * light_color * attenuation;
+                if (pc.volume == 1)
+                    transmitted_light = apply_volume_attenuation(transmitted_light, length(transmission_ray), m.attenuation_color, m.attenuation_distance);
+
+                l_diffuse = lerp(l_diffuse, transmitted_light, transmission_factor);
+                float3 F;
+                float3 l_specular = eval_specular_brdf(brdf_data, roughness, F) * light_color * brdf_data.NdotL * attenuation;
+                direct_lighting += l_diffuse * (1.0 - F) + l_specular;
+            }
+        }
+        #endif
 	}
 	else
+	{
+	    // TODO: account for point lights
 	    direct_lighting = eval_brdf(brdf_data, albedo.xyz, roughness, metallic) * light_color * brdf_data.NdotL;
+	}
 
 	// TODO: double check reflect
 	float3 R = reflect(-V, N);
@@ -303,8 +365,6 @@ void ps_main(
 	    indirect_lighting = eval_indirect_multiscattering(brdf_data, irradiance, radiance, brdf_lut, albedo.xyz, perceptual_roughness, metallic);
 
 	float3 outgoing_radiance = direct_lighting + indirect_lighting;
-
-	// TEST: early return
 
 	float4 premultiplied_alpha = float4(outgoing_radiance * albedo.a, 1.0);
 	uint color = packUnorm4x8(premultiplied_alpha);
