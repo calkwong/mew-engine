@@ -2111,8 +2111,8 @@ void VulkanEngine::init_resources()
 
     // global light list
     std::mt19937 mt(42);
-    std::uniform_real_distribution<float> pos_dist(-1.0f, 1.0f);
-    std::uniform_real_distribution<float> color_dist(0.f, 1.0f);
+    std::uniform_real_distribution<float> pos(-1.0f, 1.0f);
+    std::uniform_real_distribution<float> color(0.f, 1.0f);
 
     std::vector<PointLight> light_data(MAX_POINT_LIGHTS);
 
@@ -2121,8 +2121,10 @@ void VulkanEngine::init_resources()
 
     for (size_t i = 0; i < MAX_POINT_LIGHTS; i++)
     {
-        light_data[i].pos = glm::vec4(pos_dist(mt) * light_area, std::abs(pos_dist(mt) * light_area), pos_dist(mt) * light_area, light_radius); // pos & radius
-        light_data[i].color = glm::vec4(color_dist(mt), color_dist(mt), color_dist(mt), 1.0);
+        light_data[i].pos = glm::vec4(pos(mt) * light_area, std::abs(pos(mt) * light_area), pos(mt) * light_area, light_radius); // pos & radius
+        // note: this should not scale linearly, but for small radius (<= 3) its fine
+        glm::vec3 adjusted_color = glm::vec3(color(mt), color(mt), color(mt)) * light_radius;
+        light_data[i].color = glm::vec4(adjusted_color, 1.0);
     }
 
     light_buffer = create_buffer_with_data(device, graphics_queue, imm_fence, imm_command_pool, imm_command_buffer, allocator, light_data.data(), MAX_POINT_LIGHTS * sizeof(PointLight));
