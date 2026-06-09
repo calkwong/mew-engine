@@ -1257,6 +1257,40 @@ void VulkanEngine::draw()
                 );
             }
 
+            // TODO: convert to 3D, create and write to noise texture, set up sampler
+            // graph.add_pass(
+            //     "perlin",
+            //     Pass::PassType::ComputePass,
+            //     [&](Pass& pass)
+            //     {
+            //         pass.add_image_write("draw", draw_image.image);
+            //     },
+            //     [&]()
+            //     {
+            //         auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, "perlin");
+
+            //         struct PushConstant
+            //         {
+            //             glm::uvec2 resolution{};
+            //             uint32_t render_target{};
+            //         } pc;
+
+            //         pc.resolution = glm::uvec2(swapchain.extent.width, swapchain.extent.height);
+            //         pc.render_target = bindless.draw_uav;
+
+            //         VkPushDataInfoEXT push_data_info{};
+            //         push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
+            //         push_data_info.data = { &pc, sizeof(PushConstant) };
+            //         vkCmdPushDataEXT(cmd, &push_data_info);
+
+            //         ShaderPass current_pass = *shader_passes["perlin"];
+            //         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
+            //         auto groupcount_x = get_groupcount(swapchain.extent.width, WARP_SIZE);
+            //         auto groupcount_y = get_groupcount(swapchain.extent.height, WARP_SIZE);
+            //         vkCmdDispatch(cmd, groupcount_x, groupcount_y, 1);
+            //     }
+            // );
+
             graph.add_pass(
                 "copy_to_swapchain",
                 Pass::PassType::ComputePass,
@@ -1874,6 +1908,7 @@ void VulkanEngine::init_shaders()
     shader_cache.add_shader(device, "rasterize_gbuffer.slang");
     shader_cache.add_shader(device, "mlab.slang");
     shader_cache.add_shader(device, "composite_transparent.slang");
+    shader_cache.add_shader(device, "perlin.slang");
     // shader_cache.add_shader(device, "rt.slang", sizeof(DeferredPushConstants));
 }
 
@@ -1904,6 +1939,7 @@ void VulkanEngine::init_pipelines()
     shader_passes["resolve_gbuffer"] = create_compute_pipeline(device, shader_cache["resolve_gbuffer.slang"], &desc_set_and_binding_mapping_info);
     shader_passes["resolve_vbuffer"] = create_compute_pipeline(device, shader_cache["resolve_vbuffer.slang"], &desc_set_and_binding_mapping_info);
     shader_passes["composite_transparent"] = create_compute_pipeline(device, shader_cache["composite_transparent.slang"], &desc_set_and_binding_mapping_info);
+    shader_passes["perlin"] = create_compute_pipeline(device, shader_cache["perlin.slang"], &desc_set_and_binding_mapping_info);
 
     // shader_passes["ray_tracing"] = create_compute_pipeline(device, shader_cache["rt.slang"], &desc_set_and_binding_mapping_info);
 
@@ -3250,6 +3286,7 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass)
         glm::uvec2 screen_size{};
         glm::vec4 jitter_offset{};
     } pc;
+
     pc.object_buffer_address = bda_table.object_buffer;
     pc.vertex_buffer_address = bda_table.vertex_buffer;
     pc.meshlet_buffer_address = bda_table.meshlet_buffer;
