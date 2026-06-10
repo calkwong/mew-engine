@@ -182,6 +182,8 @@ public:
     AllocatedImage brdf_lut{};
     AllocatedImage shadow_map{};
 
+    AllocatedImage perlin_noise{};
+
     AllocatedBuffer light_buffer{};
     AllocatedBuffer light_cluster_buffer{};
     AllocatedBuffer light_index_buffer{};
@@ -255,6 +257,7 @@ public:
         uint32_t irradiance_uav{};
         uint32_t prefiltered_uav{};
         uint32_t brdf_uav{};
+        uint32_t perlin_uav{};
 
         uint32_t draw_srv{};
         uint32_t gbuffer_srv{};
@@ -268,6 +271,7 @@ public:
         uint32_t irradiance_srv{};
         uint32_t prefiltered_srv{};
         uint32_t brdf_srv{};
+        uint32_t perlin_srv{};
 
         uint32_t oit{};
     };
@@ -282,7 +286,7 @@ private:
     void init_pipelines();
     void init_resources();
     void init_renderables(int file_count, char** file_paths);
-    void execute_baked_gi();
+    void execute_runtime_setup();
     void init_imgui();
     void build_cluster_grid();
 

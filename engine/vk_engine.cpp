@@ -67,6 +67,7 @@ AutoCVar_Int CVAR_IMGUI{ "imgui", "Imgui", CVarFlags::EditCheckbox | CVarFlags::
 AutoCVar_Int CVAR_DISABLE_CAMERA{ "disable_camera", "Disable camera", CVarFlags::EditCheckbox | CVarFlags::EditHide, 0 };
 AutoCVar_Int CVAR_HOT_RELOAD{ "hot_reload", "Hot reload shaders", CVarFlags::EditCheckbox | CVarFlags::EditHide, 0 };
 
+// AutoCVar_Int CVAR_NOISE_Z{ "noise_z", "Noise z", CVarFlags::EditSliderInt, 0, 0, 127, 1};
 AutoCVar_Int CVAR_VBUFFER{ "vbuffer", "Vbuffer path", CVarFlags::EditCheckbox, 1 };
 AutoCVar_Int CVAR_MESH_SHADERS{ "mesh_shaders", "Mesh shaders path", CVarFlags::EditCheckbox, 1 };
 AutoCVar_Int CVAR_ALPHACLIP{ "alphaclip", "Alphaclip", CVarFlags::EditCheckbox, 1 };
@@ -257,7 +258,7 @@ void VulkanEngine::init(int file_count, char** file_paths)
     // TODO: support draw distance change and rebuilding
     // note: camera must already be set prior to building cluster grid
     build_cluster_grid();
-    execute_baked_gi();
+    execute_runtime_setup();
 
     auto create_query_pool_info = [&](VkQueryType query_type, uint32_t query_count, VkQueryPipelineStatisticFlags pipeline_statistics)
     {
@@ -394,7 +395,7 @@ void VulkanEngine::cleanup()
     loaded_engine = nullptr;
 }
 
-void VulkanEngine::execute_baked_gi()
+void VulkanEngine::execute_runtime_setup()
 {
     VK_CHECK(vkResetFences(device, 1, &imm_fence));
     VK_CHECK(vkResetCommandPool(device, imm_command_pool, 0));
@@ -591,6 +592,38 @@ void VulkanEngine::execute_baked_gi()
             auto groupcount_x = get_groupcount(brdf_lut.extent.width, WARP_SIZE);
             auto groupcount_y = get_groupcount(brdf_lut.extent.height, WARP_SIZE);
             vkCmdDispatch(imm_command_buffer, groupcount_x, groupcount_y, 1);
+        }
+    );
+
+    graph.add_pass(
+        "perlin",
+        Pass::PassType::ComputePass,
+        [&](Pass& pass)
+        {
+            pass.add_image_write("perlin", perlin_noise.image);
+        },
+        [&]()
+        {
+            struct PushConstant
+            {
+                glm::uvec3 resolution{};
+                uint32_t noise_id{};
+            } pc;
+
+            pc.resolution = glm::uvec3(perlin_noise.extent.width, perlin_noise.extent.height, perlin_noise.extent.depth);
+            pc.noise_id = bindless.perlin_uav;
+
+            VkPushDataInfoEXT push_data_info{};
+            push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
+            push_data_info.data = { &pc, sizeof(PushConstant) };
+            vkCmdPushDataEXT(imm_command_buffer, &push_data_info);
+
+            ShaderPass current_pass = *shader_passes["perlin"];
+            vkCmdBindPipeline(imm_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
+            auto groupcount_x = get_groupcount(pc.resolution.x, WARP_SIZE);
+            auto groupcount_y = get_groupcount(pc.resolution.y, WARP_SIZE);
+            auto groupcount_z = get_groupcount(pc.resolution.z, 1);
+            vkCmdDispatch(imm_command_buffer, groupcount_x, groupcount_y, groupcount_z);
         }
     );
 
@@ -1257,40 +1290,6 @@ void VulkanEngine::draw()
                 );
             }
 
-            // TODO: convert to 3D, create and write to noise texture, set up sampler
-            // graph.add_pass(
-            //     "perlin",
-            //     Pass::PassType::ComputePass,
-            //     [&](Pass& pass)
-            //     {
-            //         pass.add_image_write("draw", draw_image.image);
-            //     },
-            //     [&]()
-            //     {
-            //         auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, "perlin");
-
-            //         struct PushConstant
-            //         {
-            //             glm::uvec2 resolution{};
-            //             uint32_t render_target{};
-            //         } pc;
-
-            //         pc.resolution = glm::uvec2(swapchain.extent.width, swapchain.extent.height);
-            //         pc.render_target = bindless.draw_uav;
-
-            //         VkPushDataInfoEXT push_data_info{};
-            //         push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
-            //         push_data_info.data = { &pc, sizeof(PushConstant) };
-            //         vkCmdPushDataEXT(cmd, &push_data_info);
-
-            //         ShaderPass current_pass = *shader_passes["perlin"];
-            //         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
-            //         auto groupcount_x = get_groupcount(swapchain.extent.width, WARP_SIZE);
-            //         auto groupcount_y = get_groupcount(swapchain.extent.height, WARP_SIZE);
-            //         vkCmdDispatch(cmd, groupcount_x, groupcount_y, 1);
-            //     }
-            // );
-
             graph.add_pass(
                 "copy_to_swapchain",
                 Pass::PassType::ComputePass,
@@ -1909,6 +1908,7 @@ void VulkanEngine::init_shaders()
     shader_cache.add_shader(device, "mlab.slang");
     shader_cache.add_shader(device, "composite_transparent.slang");
     shader_cache.add_shader(device, "perlin.slang");
+    // shader_cache.add_shader(device, "debug_perlin.slang");
     // shader_cache.add_shader(device, "rt.slang", sizeof(DeferredPushConstants));
 }
 
@@ -1940,6 +1940,7 @@ void VulkanEngine::init_pipelines()
     shader_passes["resolve_vbuffer"] = create_compute_pipeline(device, shader_cache["resolve_vbuffer.slang"], &desc_set_and_binding_mapping_info);
     shader_passes["composite_transparent"] = create_compute_pipeline(device, shader_cache["composite_transparent.slang"], &desc_set_and_binding_mapping_info);
     shader_passes["perlin"] = create_compute_pipeline(device, shader_cache["perlin.slang"], &desc_set_and_binding_mapping_info);
+    // shader_passes["debug_perlin"] = create_compute_pipeline(device, shader_cache["debug_perlin.slang"], &desc_set_and_binding_mapping_info);
 
     // shader_passes["ray_tracing"] = create_compute_pipeline(device, shader_cache["rt.slang"], &desc_set_and_binding_mapping_info);
 
@@ -2292,6 +2293,17 @@ void VulkanEngine::init_resources()
     scene_data.brdf_id = bindless.brdf_srv;
     bindless.brdf_uav = resource_heap_manager.add_uav(brdf_lut, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
 
+    perlin_noise = create_3d_image(
+        device,
+        allocator,
+        VkExtent3D{ 128, 128, 128 },
+        VK_FORMAT_R32_SFLOAT,
+        VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+        VK_IMAGE_ASPECT_COLOR_BIT
+    );
+    bindless.perlin_srv = resource_heap_manager.add_srv(perlin_noise, VK_IMAGE_VIEW_TYPE_3D, VK_IMAGE_ASPECT_COLOR_BIT);
+    bindless.perlin_uav = resource_heap_manager.add_uav(perlin_noise, VK_IMAGE_VIEW_TYPE_3D, VK_IMAGE_ASPECT_COLOR_BIT);
+
     main_deletion_queue.push_function(
         [&]()
         {
@@ -2310,6 +2322,8 @@ void VulkanEngine::init_resources()
             {
                 destroy_image(device, allocator, cascade.shadow_map);
             }
+
+            destroy_image(device, allocator, perlin_noise);
         }
     );
 
