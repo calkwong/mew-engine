@@ -2194,8 +2194,7 @@ void VulkanEngine::init_resources()
     for (size_t i = 0; i < MAX_POINT_LIGHTS; i++)
     {
         light_data[i].pos = glm::vec4(pos(mt) * light_area, std::abs(pos(mt) * light_area), pos(mt) * light_area, light_radius); // pos & radius
-        // note: this should not scale linearly, but for small radius (<= 3) its fine
-        glm::vec3 adjusted_color = glm::vec3(color(mt), color(mt), color(mt)) * light_radius;
+        glm::vec3 adjusted_color = glm::vec3(color(mt), color(mt), color(mt));
         light_data[i].color = glm::vec4(adjusted_color, 1.0);
     }
 
