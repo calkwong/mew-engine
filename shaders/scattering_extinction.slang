@@ -31,18 +31,22 @@ float linear_depth_to_raw_depth(float linear_depth, float near, float far)
     return (near * far) / (linear_depth * (near - far)) - far / (near - far);
 }
 
+// infinite far plane + reverse-z
+float linear_depth_to_raw_depth(float linear_depth, float near)
+{
+    return near / linear_depth;
+}
+
 float3 world_from_froxel(uint3 coord)
 {
     float2 uv = (float2(coord.xy) + float2(0.5)) / float2(pc.froxel_dimensions.xy);
     float froxel_z = float(pc.froxel_dimensions.z);
     float slice = float(coord.z);
 
-    // TODO: verify no mistakes were made in handling infinite far plane in cluster_grid.slang
-    // TODO: linear_depth_to_raw_depth might be incompatible with infinite far plane
-    //
     // from ID tech
     float linear_depth = pc.near * pow(pc.far / pc.near, (slice + 0.5) / froxel_z); // no negation as we want +ve linear depth
-    float depth = linear_depth_to_raw_depth(linear_depth, pc.far, pc.near); // reverse-z
+    // float depth = linear_depth_to_raw_depth(linear_depth, pc.far, pc.near); // reverse-z
+    float depth = linear_depth_to_raw_depth(linear_depth, pc.near); // infinite far plane + reverse z
 
     return reconstruct_world_pos(depth, pc.inverse_view_proj, uv);
 }
