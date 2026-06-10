@@ -1909,6 +1909,7 @@ void VulkanEngine::init_shaders()
     shader_cache.add_shader(device, "composite_transparent.slang");
     shader_cache.add_shader(device, "perlin.slang");
     // shader_cache.add_shader(device, "debug_perlin.slang");
+    shader_cache.add_shader(device, "scattering_extinction.slang");
     // shader_cache.add_shader(device, "rt.slang", sizeof(DeferredPushConstants));
 }
 
@@ -1941,6 +1942,7 @@ void VulkanEngine::init_pipelines()
     shader_passes["composite_transparent"] = create_compute_pipeline(device, shader_cache["composite_transparent.slang"], &desc_set_and_binding_mapping_info);
     shader_passes["perlin"] = create_compute_pipeline(device, shader_cache["perlin.slang"], &desc_set_and_binding_mapping_info);
     // shader_passes["debug_perlin"] = create_compute_pipeline(device, shader_cache["debug_perlin.slang"], &desc_set_and_binding_mapping_info);
+    shader_passes["scattering_extinction"] = create_compute_pipeline(device, shader_cache["scattering_extinction.slang"], &desc_set_and_binding_mapping_info);
 
     // shader_passes["ray_tracing"] = create_compute_pipeline(device, shader_cache["rt.slang"], &desc_set_and_binding_mapping_info);
 
