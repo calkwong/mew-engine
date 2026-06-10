@@ -36,16 +36,6 @@ struct PushConstants
 
 [[vk::push_constant]] PushConstants pc;
 
-float3 reconstruct_world_pos(float depth, float4x4 inverse_view_proj, float2 uv_pos)
-{
-	//float2 ndc = gl_FragCoord.xy / screen_size;
-	float2 ndc = uv_pos * 2.0 - 1.0;
-	ndc.y *= -1.0; // flip as window coords are top down
-	float4 world_pos = mul(inverse_view_proj, float4(ndc, depth, 1.0));
-
-	return world_pos.xyz / world_pos.w;
-}
-
 enum Debug
 {
     Placeholder,

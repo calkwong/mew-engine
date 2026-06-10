@@ -136,6 +136,14 @@ public float3 tangent_to_world_space(float3 sample, float3 T, float3 B, float3 N
     return normalize(T * sample.x + B * sample.y + N * sample.z);
 }
 
+public float3 reconstruct_world_pos(float depth, float4x4 inverse_view_proj, float2 uv_pos)
+{
+	float2 ndc = uv_pos * 2.0 - 1.0;
+	ndc.y *= -1.0; // flip as window coords are top down
+	float4 world_pos = mul(inverse_view_proj, float4(ndc, depth, 1.0));
+
+	return world_pos.xyz / world_pos.w;
+}
 
 // TODO: convert a sampled vector to world space
 // TODO: offset_ray, https://www.realtimerendering.com/raytracinggems/unofficial_RayTracingGems_v1.9.pdf Chapter 6

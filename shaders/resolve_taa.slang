@@ -105,15 +105,6 @@ float luminance(float3 c)
     return (pc.ycocg == 1) ? c.x : maybe_rgb_to_ycocg(c).x;
 }
 
-float3 reconstruct_world_pos(float depth, float4x4 inverse_view_proj, float2 uv_pos)
-{
-	float2 ndc = uv_pos * 2.0 - 1.0;
-	ndc.y *= -1.0; // flip as window coords are top down
-	float4 world_pos = mul(inverse_view_proj, float4(ndc, depth, 1.0));
-
-	return world_pos.xyz / world_pos.w;
-}
-
 // 9 tap exploiting bilinear filtering: https://gist.github.com/TheRealMJP/c83b8c0f46b63f3a88a5986f4fa982b1
 // for more details: http://float3.ca/bicubic-filtering-in-fewer-taps/
 float3 sample_texture_catmull_rom(float2 uv, uint texture_index, float2 resolution)
