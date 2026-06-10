@@ -590,3 +590,30 @@ void immediate_submit(VkDevice device, VkQueue queue, VkFence fence, VkCommandPo
 
     VK_CHECK(vkWaitForFences(device, 1, &fence, true, 9999999999));
 }
+
+AllocatedImage create_3d_image(VkDevice device, VmaAllocator allocator, VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspect, VmaAllocationCreateFlags flags /*= 0 */)
+{
+    AllocatedImage new_image{};
+    new_image.extent = extent;
+    new_image.format = format;
+
+    VkImageCreateInfo img_info{};
+    img_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    img_info.imageType = VK_IMAGE_TYPE_3D;
+    img_info.format = format;
+    img_info.extent = extent;
+    img_info.mipLevels = 1;
+    img_info.arrayLayers = 1;
+    img_info.samples = VK_SAMPLE_COUNT_1_BIT;
+    img_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+    img_info.usage = usage;
+
+    VmaAllocationCreateInfo alloc_info{};
+    alloc_info.flags = flags;
+    alloc_info.usage = VMA_MEMORY_USAGE_AUTO;
+    alloc_info.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+
+    VK_CHECK(vmaCreateImage(allocator, &img_info, &alloc_info, &new_image.image, &new_image.allocation, nullptr));
+
+    return new_image;
+}
