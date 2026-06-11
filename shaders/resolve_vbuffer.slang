@@ -33,6 +33,10 @@ struct PushConstants
 	uint shadows_rt;
 	float max_prefiltered_lod;
 	uint debug;
+	uint volumetrics;
+	uint volumetrics_tex;
+	float volumetrics_scale;
+	float volumetrics_bias;
 };
 
 [[vk::push_constant]] PushConstants pc;
@@ -275,6 +279,17 @@ void main(
 		ndc.y *= -1.0;
 		float3 sample_dir = mul(uniforms.inverse_view_proj, float4(ndc, 0.0, 1.0)).xyz;
 		color = get_sampled_image<TextureCube>(uniforms.skybox_id).SampleLevel(cube_samp, sample_dir, 0.0).xyz;
+	}
+
+	// TODO: verify if fog is added to skybox
+	if (pc.volumetrics != 0)
+	{
+        float view_z = linearize_depth(pc.near, depth);
+    	uint slice = get_cluster_z_slice(view_z, pc.volumetrics_scale, pc.volumetrics_bias);
+        uint3 sample_uvw = uint3(global_id.x / 160, global_id.y / 90, slice);
+        RWTexture3D volumetrics_tex = get_storage_image<RWTexture3D>(pc.volumetrics_tex);
+        float4 scattering_transmittance = volumetrics_tex.Load(sample_uvw);
+        color.rgb = color.rgb * scattering_transmittance.a + scattering_transmittance.rgb;
 	}
 
 	out_color = float4(color, 1.0);

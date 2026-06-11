@@ -131,7 +131,7 @@ void key_callback(SDL_Window* window, SDL_Event& e)
             toggle_cvar("hiz_spd");
 
         if (e.key.repeat == 0 && e.key.key == SDLK_F)
-            toggle_cvar("shadows_rt");
+            toggle_cvar("volumetric_fog");
 
         if (e.key.repeat == 0 && e.key.key == SDLK_X)
             toggle_cvar("rt");

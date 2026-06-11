@@ -183,6 +183,8 @@ public:
     AllocatedImage shadow_map{};
 
     AllocatedImage perlin_noise{};
+    AllocatedImage scattering_extinction_tex{};
+    AllocatedImage light_scattering_tex{};
 
     AllocatedBuffer light_buffer{};
     AllocatedBuffer light_cluster_buffer{};
@@ -258,6 +260,8 @@ public:
         uint32_t prefiltered_uav{};
         uint32_t brdf_uav{};
         uint32_t perlin_uav{};
+        uint32_t scattering_extinction_uav{};
+        uint32_t light_scattering_uav{};
 
         uint32_t draw_srv{};
         uint32_t gbuffer_srv{};
@@ -272,6 +276,8 @@ public:
         uint32_t prefiltered_srv{};
         uint32_t brdf_srv{};
         uint32_t perlin_srv{};
+        uint32_t scattering_extinction_srv{};
+        uint32_t light_scattering_srv{};
 
         uint32_t oit{};
     };
