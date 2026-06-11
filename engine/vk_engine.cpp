@@ -67,7 +67,7 @@ AutoCVar_Int CVAR_IMGUI{ "imgui", "Imgui", CVarFlags::EditCheckbox | CVarFlags::
 AutoCVar_Int CVAR_DISABLE_CAMERA{ "disable_camera", "Disable camera", CVarFlags::EditCheckbox | CVarFlags::EditHide, 0 };
 AutoCVar_Int CVAR_HOT_RELOAD{ "hot_reload", "Hot reload shaders", CVarFlags::EditCheckbox | CVarFlags::EditHide, 0 };
 
-AutoCVar_Int CVAR_Z_SLICE{ "z_slice", "Noise z", CVarFlags::EditSliderInt, 0, 0, 127, 1};
+AutoCVar_Int CVAR_Z_SLICE{ "z_slice", "Noise z", CVarFlags::EditSliderInt, 0, 0, 127, 1 };
 AutoCVar_Int CVAR_VBUFFER{ "vbuffer", "Vbuffer path", CVarFlags::EditCheckbox, 1 };
 AutoCVar_Int CVAR_MESH_SHADERS{ "mesh_shaders", "Mesh shaders path", CVarFlags::EditCheckbox, 1 };
 AutoCVar_Int CVAR_ALPHACLIP{ "alphaclip", "Alphaclip", CVarFlags::EditCheckbox, 1 };
@@ -1201,6 +1201,9 @@ void VulkanEngine::draw()
                     pass.add_image_write("light_scattering", light_scattering_tex.image);
                     for (size_t i = 0; i < cascade_data.size(); i++)
                         pass.add_image_read("shadowmap_" + std::to_string(i), cascade_data[i].shadow_map.image);
+                    pass.add_storage_buffer_read("light");
+                    pass.add_storage_buffer_read("light_index");
+                    pass.add_storage_buffer_read("light_grid");
                 },
                 [&]()
                 {
@@ -1208,22 +1211,38 @@ void VulkanEngine::draw()
 
                     struct PushConstants
                     {
-                        glm::mat4 inverse_view_proj;
-                        glm::uvec3 froxel_dimensions;
-                        float near;
-                        float far;
-                        uint32_t scattering_extinction_tex;
-                        uint32_t light_scattering_tex;
-                        uint32_t shadowmap_id;
+                        glm::mat4 inverse_view_proj{};
+                        VkDeviceAddress light_buffer{};
+                        VkDeviceAddress light_index_buffer{};
+                        VkDeviceAddress light_grid_buffer{};
+                        float near{};
+                        float far{};
+                        glm::uvec3 froxel_dimensions{};
+                        uint32_t scattering_extinction_tex{};
+                        uint32_t light_scattering_tex{};
+                        uint32_t shadowmap_id{};
+                        float light_cluster_scale{};
+                        float light_cluster_bias{};
+                        glm::vec2 cluster_dim{};
                     } pc;
 
                     pc.inverse_view_proj = scene_data.inverse_viewproj;
-                    pc.froxel_dimensions = glm::uvec3(160, 90, 128);
+                    pc.light_buffer = bda_table.light_buffer;
+                    pc.light_index_buffer = bda_table.light_index_buffer;
+                    pc.light_grid_buffer = bda_table.light_grid_buffer;
                     pc.near = main_camera.near;
                     pc.far = main_camera.far;
+                    pc.froxel_dimensions = glm::uvec3(160, 90, 128);
                     pc.scattering_extinction_tex = bindless.scattering_extinction_srv;
                     pc.light_scattering_tex = bindless.light_scattering_uav;
                     pc.shadowmap_id = bindless.shadowmap_srv;
+
+                    const float ratio = main_camera.far / main_camera.near;
+                    pc.light_cluster_scale = static_cast<float>(CLUSTER_DEPTH_SLICES) / std::log(ratio);
+                    pc.light_cluster_bias = static_cast<float>(CLUSTER_DEPTH_SLICES) * std::log(main_camera.near) / std::log(ratio);
+                    auto cluster_x = ceil(static_cast<float>(160) / CLUSTER_X); // # cluster dim
+                    auto cluster_y = ceil(static_cast<float>(90) / CLUSTER_Y); // # cluster dim
+                    pc.cluster_dim = glm::vec2(cluster_x, cluster_y);
 
                     VkPushDataInfoEXT push_data_info{};
                     push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
@@ -1241,7 +1260,7 @@ void VulkanEngine::draw()
                 }
             );
 
-            #if 1
+#if 1
             graph.add_pass(
                 "light_integration",
                 Pass::PassType::ComputePass,
@@ -1284,7 +1303,7 @@ void VulkanEngine::draw()
                     vkCmdDispatch(cmd, groupcount_x, groupcount_y, 1);
                 }
             );
-            #endif
+#endif
 
             graph.add_pass(
                 "lighting_pass",
@@ -1462,8 +1481,8 @@ void VulkanEngine::draw()
                     } pc;
 
                     pc.swapchain_resolution = glm::uvec2(swapchain.extent.width, swapchain.extent.height);
-                    // pc.debug_texture_id = bindless.scattering_extinction_uav;
-                    pc.debug_texture_id = bindless.light_scattering_uav;
+                    pc.debug_texture_id = bindless.scattering_extinction_uav;
+                    // pc.debug_texture_id = bindless.light_scattering_uav;
                     // pc.debug_texture_id = bindless.perlin_uav;
                     pc.draw_id = bindless.draw_uav;
                     pc.slice = cvar_system->get_int_cvar("z_slice");
@@ -2801,8 +2820,8 @@ void VulkanEngine::update_scene()
     last_view = freeze_camera ? last_view : scene_data.view;
     last_proj = freeze_camera ? last_proj : scene_data.proj;
 
-    scene_data.sunlight_dir = glm::vec4(7.75, 12.5, 12.5, 1.);
-    // scene_data.sunlight_dir = glm::vec4(0.001, 12.0, 0.0, 1.);
+    // scene_data.sunlight_dir = glm::vec4(7.75, 12.5, 12.5, 1.);
+    scene_data.sunlight_dir = glm::vec4(0.001, 12.0, 0.0, 1.);
     scene_data.sunlight_color = glm::vec4(1.0, 1.0, 1.0, 1.0);
 
     if (cvar_system->get_int_cvar("shadows") && !cvar_system->get_int_cvar("shadows_rt"))
@@ -4052,6 +4071,7 @@ void VulkanEngine::execute_shading(VkCommandBuffer cmd)
 
     auto cluster_x = ceil(static_cast<float>(swapchain.extent.width) / CLUSTER_X); // # cluster dim
     auto cluster_y = ceil(static_cast<float>(swapchain.extent.height) / CLUSTER_Y); // # cluster dim
+    // TODO: BA channels potentially unused, if so remove
     pc.cluster_size = glm::vec4(cluster_x, cluster_y, CLUSTER_DEPTH_SLICES, 0.0);
     pc.screen_size = glm::vec2(swapchain.extent.width, swapchain.extent.height);
 
