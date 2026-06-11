@@ -35,6 +35,7 @@ public static const uint DEPTH_REDUCTION_SAMPLER = 3;
 public static const uint NEAREST_CLAMP_BORDER_SAMPLER = 4;
 public static const uint NEAREST_SAMPLER = 5; // clamp to edge
 public static const uint LINEAR_CLAMP_SAMPLER = 6; // clamp to edge
+public static const uint NEAREST_REPEAT_SAMPLER = 7; // nearest repeat
 
 // https://shader-slang.org/slang/user-guide/convenience-features.html#descriptorhandle-for-bindless-descriptor-access
 [vk::binding(0, 1)]

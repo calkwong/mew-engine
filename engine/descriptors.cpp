@@ -19,6 +19,7 @@ void SamplerHeapManager::write_sampler_heap(VkDevice device, void* p_heap)
     // 4: nearest clamp to border
     // 5: nearest clamp to edge
     // 6: linear clamp to edge
+    // 7: nearest repeat
 
     get_sampler_descriptor(device, VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_LINEAR, VK_SAMPLER_ADDRESS_MODE_REPEAT, static_cast<uint8_t*>(p_heap) + 0 * sampler_descriptor_size);
     get_sampler_descriptor(device, VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_LINEAR, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, static_cast<uint8_t*>(p_heap) + 1 * sampler_descriptor_size);
@@ -27,6 +28,7 @@ void SamplerHeapManager::write_sampler_heap(VkDevice device, void* p_heap)
     get_sampler_descriptor(device, VK_FILTER_NEAREST, VK_SAMPLER_MIPMAP_MODE_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER, static_cast<uint8_t*>(p_heap) + 4 * sampler_descriptor_size);
     get_sampler_descriptor(device, VK_FILTER_NEAREST, VK_SAMPLER_MIPMAP_MODE_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, static_cast<uint8_t*>(p_heap) + 5 * sampler_descriptor_size);
     get_sampler_descriptor(device, VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_LINEAR, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, static_cast<uint8_t*>(p_heap) + 6 * sampler_descriptor_size);
+    get_sampler_descriptor(device, VK_FILTER_NEAREST, VK_SAMPLER_MIPMAP_MODE_NEAREST, VK_SAMPLER_ADDRESS_MODE_REPEAT, static_cast<uint8_t*>(p_heap) + 7 * sampler_descriptor_size);
 }
 
 void SamplerHeapManager::get_sampler_descriptor(

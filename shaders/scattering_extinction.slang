@@ -63,14 +63,16 @@ void main(
     uint3 global_id: SV_DispatchThreadID
 )
 {
-    // TODO: use NEAREST_REPEAT_SAMPLER
-    SamplerState samp = get_sampler<SamplerState>(NEAREST_SAMPLER);
+    uint3 froxel_coord = global_id;
+    if (froxel_coord.x >= pc.froxel_dimensions.x || froxel_coord.y >= pc.froxel_dimensions.y || froxel_coord.z >= pc.froxel_dimensions.z)
+        return;
+
+    SamplerState samp = get_sampler<SamplerState>(NEAREST_REPEAT_SAMPLER);
     Texture3D<float> noise_tex = get_sampled_image<Texture3D<float>>(pc.noise_tex);
     RWTexture3D scattering_extinction_tex = get_storage_image<RWTexture3D>(pc.scattering_extinction_tex);
 
     float4 scattering_extinction = float4(0.0);
 
-    uint3 froxel_coord = global_id;
     float3 world_pos = world_from_froxel(froxel_coord);
 
     // large (small) pos_mult -> smaller (larger), more detailed (smooth) fog?
@@ -88,5 +90,5 @@ void main(
     float height_fog = pc.height_fog_density_modifier * exp(-pc.height_fog_falloff * max(world_pos.y, 0.0)) * fog_noise;
     scattering_extinction += scattering_extinction_from_color_density(float3(0.5), height_fog);
 
-    scattering_extinction_tex.Store(global_id, scattering_extinction);
+    scattering_extinction_tex.Store(froxel_coord, scattering_extinction);
 }
