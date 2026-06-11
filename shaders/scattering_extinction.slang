@@ -1,6 +1,8 @@
 import bindings;
 import util;
 
+// this shader could be combined with light_scattering
+
 struct PushConstants
 {
     float4x4 inverse_view_proj;
@@ -20,11 +22,6 @@ struct PushConstants
 
 [[vk::push_constant]]
 PushConstants pc;
-
-// TODO: going with 160x90x128 FROXEL dimensions for now, experiment with different groupsizes
-#define FROXEL_X 32
-#define FROXEL_Y 32
-#define FROXEL_Z 1
 
 float linear_depth_to_raw_depth(float linear_depth, float near, float far)
 {
@@ -58,7 +55,7 @@ float4 scattering_extinction_from_color_density(float3 color, float density)
 }
 
 [shader("compute")]
-[numthreads(FROXEL_X, FROXEL_Y, FROXEL_Z)]
+[numthreads(8, 8, 1)]
 void main(
     uint3 global_id: SV_DispatchThreadID
 )
