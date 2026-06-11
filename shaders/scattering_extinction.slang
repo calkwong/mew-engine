@@ -11,8 +11,8 @@ struct PushConstants
     float far;
     uint noise_tex;
     uint scattering_extinction_tex;
-    uint volumetric_noise_pos_mult; // [0, 1]
-    uint volumetric_noise_speed_mult; // [0, 1]
+    float volumetric_noise_pos_mult; // [0, 1]
+    float volumetric_noise_speed_mult; // [0, 1]
     uint current_frame;
     float fog_density_modifier; // [0, 1]
     float height_fog_density_modifier; // [0, 10]
@@ -23,10 +23,10 @@ struct PushConstants
 [[vk::push_constant]]
 PushConstants pc;
 
-float linear_depth_to_raw_depth(float linear_depth, float near, float far)
-{
-    return (near * far) / (linear_depth * (near - far)) - far / (near - far);
-}
+// float linear_depth_to_raw_depth(float linear_depth, float near, float far)
+// {
+//     return (near * far) / (linear_depth * (near - far)) - far / (near - far);
+// }
 
 // infinite far plane + reverse-z
 float linear_depth_to_raw_depth(float linear_depth, float near)
