@@ -74,6 +74,7 @@ AutoCVar_Float CVAR_VOLUMETRIC_HEIGHT_FOG_DENSITY{ "volumetric.height_fog_densit
 AutoCVar_Float CVAR_VOLUMETRIC_SCATTERING_FACTOR{ "volumetric.scattering_factor", "Volumetric scattering factor", CVarFlags::EditDragFloat, 0.4, 0.0, 1.0, 0.05 };
 AutoCVar_Float CVAR_VOLUMETRIC_HEIGHT_FOG_FALLOFF{ "volumetric.height_fog_falloff", "Volumetric height fog falloff", CVarFlags::EditDragFloat, 0.1, 0.0, 10.0, 0.5 };
 AutoCVar_Float CVAR_VOLUMETRIC_PHASE_ANISOTROPY{ "volumetric.phase_anisotropy", "Volumetric phase anisotropy", CVarFlags::EditDragFloat, 0.2, 0.0, 1.0, 0.05 };
+AutoCVar_Int CVAR_VOLUMETRIC_SPATIAL_FILTERING{ "volumetric.spatial_filtering", "Volumetric spatial filtering", CVarFlags::EditCheckbox, 0 };
 
 AutoCVar_Int CVAR_Z_SLICE{ "z_slice", "Noise z", CVarFlags::EditSliderInt, 0, 0, 127, 1 };
 AutoCVar_Int CVAR_VBUFFER{ "vbuffer", "Vbuffer path", CVarFlags::EditCheckbox, 1 };
@@ -1270,12 +1271,55 @@ void VulkanEngine::draw()
                 }
             );
 
+            if (cvar_system->get_int_cvar("volumetric.spatial_filtering"))
+            {
+                graph.add_pass(
+                    "fog_spatial_filtering",
+                    Pass::PassType::ComputePass,
+                    [&](Pass& pass)
+                    {
+                        pass.add_image_read("light_scattering", light_scattering_tex.image);
+                        pass.add_image_write("scattering_extinction", scattering_extinction_tex.image);
+                    },
+                    [&]()
+                    {
+                        auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, "fog_spatial_filtering");
+
+                        struct PushConstants
+                        {
+                            glm::uvec3 froxel_dims{};
+                            uint32_t light_scattering_tex{};
+                            uint32_t scattering_extinction_tex{};
+                        } pc;
+
+                        pc.froxel_dims = glm::uvec3(160, 90, 128);
+                        pc.light_scattering_tex = bindless.light_scattering_srv;
+                        pc.scattering_extinction_tex = bindless.scattering_extinction_uav;
+
+                        VkPushDataInfoEXT push_data_info{};
+                        push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
+                        push_data_info.data = { &pc, sizeof(PushConstants) };
+                        vkCmdPushDataEXT(cmd, &push_data_info);
+
+                        ShaderPass current_pass = *shader_passes["fog_spatial_filtering"];
+                        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
+                        auto groupcount_x = get_groupcount(160, 8);
+                        auto groupcount_y = get_groupcount(90, 8);
+                        auto groupcount_z = get_groupcount(128, 1);
+                        vkCmdDispatch(cmd, groupcount_x, groupcount_y, groupcount_z);
+                    }
+                );
+            }
+
             graph.add_pass(
                 "light_integration",
                 Pass::PassType::ComputePass,
                 [&](Pass& pass)
                 {
-                    pass.add_image_read("light_scattering", light_scattering_tex.image);
+                    if (cvar_system->get_int_cvar("volumetric.spatial_filtering"))
+                        pass.add_image_read("scattering_extinction", scattering_extinction_tex.image);
+                    else
+                        pass.add_image_read("light_scattering", light_scattering_tex.image);
                     pass.add_image_write("integrated_light_scattering", integrated_light_scattering_tex.image);
                 },
                 [&]()
@@ -1296,7 +1340,7 @@ void VulkanEngine::draw()
                     pc.froxel_dimensions = glm::uvec3(160, 90, 128);
                     pc.near = main_camera.near;
                     pc.far = main_camera.far;
-                    pc.light_scattering_tex = bindless.light_scattering_srv;
+                    pc.light_scattering_tex = cvar_system->get_int_cvar("volumetric.spatial_filtering") ? bindless.scattering_extinction_srv : bindless.light_scattering_srv;
                     pc.integrated_light_scattering_tex = bindless.integrated_light_scattering_uav;
 
                     VkPushDataInfoEXT push_data_info{};
@@ -1474,7 +1518,8 @@ void VulkanEngine::draw()
                 );
             }
 
-#if 1
+#if 0
+            // TODO: sampling seems broken compared to loading, could be a Slang texture3D issue, investigate!
             graph.add_pass(
                 "debug_3d",
                 Pass::PassType::ComputePass,
@@ -1496,7 +1541,8 @@ void VulkanEngine::draw()
                     // pc.debug_texture_id = bindless.scattering_extinction_uav;
                     // pc.debug_texture_id = bindless.light_scattering_uav;
                     // pc.debug_texture_id = bindless.perlin_srv;
-                    pc.debug_texture_id = bindless.integrated_light_scattering_uav;
+                    // pc.debug_texture_id = bindless.integrated_light_scattering_uav;
+                    pc.debug_texture_id = cvar_system->get_int_cvar("volumetric.spatial_filtering") ? bindless.scattering_extinction_uav : bindless.light_scattering_uav;
                     pc.draw_id = bindless.draw_uav;
                     pc.slice = cvar_system->get_int_cvar("z_slice");
 
@@ -2137,6 +2183,7 @@ void VulkanEngine::init_shaders()
     shader_cache.add_shader(device, "scattering_extinction.slang");
     shader_cache.add_shader(device, "light_scattering.slang");
     shader_cache.add_shader(device, "light_integration.slang");
+    shader_cache.add_shader(device, "fog_spatial_filtering.slang");
     // shader_cache.add_shader(device, "rt.slang", sizeof(DeferredPushConstants));
 }
 
@@ -2172,6 +2219,7 @@ void VulkanEngine::init_pipelines()
     shader_passes["scattering_extinction"] = create_compute_pipeline(device, shader_cache["scattering_extinction.slang"], &desc_set_and_binding_mapping_info);
     shader_passes["light_scattering"] = create_compute_pipeline(device, shader_cache["light_scattering.slang"], &desc_set_and_binding_mapping_info);
     shader_passes["light_integration"] = create_compute_pipeline(device, shader_cache["light_integration.slang"], &desc_set_and_binding_mapping_info);
+    shader_passes["fog_spatial_filtering"] = create_compute_pipeline(device, shader_cache["fog_spatial_filtering.slang"], &desc_set_and_binding_mapping_info);
 
     // shader_passes["ray_tracing"] = create_compute_pipeline(device, shader_cache["rt.slang"], &desc_set_and_binding_mapping_info);
 
