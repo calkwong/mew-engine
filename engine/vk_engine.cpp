@@ -67,6 +67,14 @@ AutoCVar_Int CVAR_IMGUI{ "imgui", "Imgui", CVarFlags::EditCheckbox | CVarFlags::
 AutoCVar_Int CVAR_DISABLE_CAMERA{ "disable_camera", "Disable camera", CVarFlags::EditCheckbox | CVarFlags::EditHide, 0 };
 AutoCVar_Int CVAR_HOT_RELOAD{ "hot_reload", "Hot reload shaders", CVarFlags::EditCheckbox | CVarFlags::EditHide, 0 };
 
+AutoCVar_Float CVAR_VOLUMETRIC_NOISE_POS{ "volumetric.noise_pos_mult", "Volumetric noise pos mult", CVarFlags::EditDragFloat, 0.5, 0.0, 1.0, 0.05 };
+AutoCVar_Float CVAR_VOLUMETRIC_NOISE_SPEED{ "volumetric.noise_speed_mult", "Volumetric noise speed mult", CVarFlags::EditDragFloat, 0.5, 0.0, 1.0, 0.05 };
+AutoCVar_Float CVAR_VOLUMETRIC_FOG_DENSITY{ "volumetric.fog_density", "Volumetric fog density", CVarFlags::EditDragFloat, 0.5, 0.0, 1.0, 0.05 };
+AutoCVar_Float CVAR_VOLUMETRIC_HEIGHT_FOG_DENSITY{ "volumetric.height_fog_density", "Volumetric height fog density", CVarFlags::EditDragFloat, 1.0, 0.0, 10.0, 0.5 };
+AutoCVar_Float CVAR_VOLUMETRIC_SCATTERING_FACTOR{ "volumetric.scattering_factor", "Volumetric scattering factor", CVarFlags::EditDragFloat, 0.1, 0.0, 1.0, 0.05 };
+AutoCVar_Float CVAR_VOLUMETRIC_HEIGHT_FOG_FALLOFF{ "volumetric.height_fog_falloff", "Volumetric height fog falloff", CVarFlags::EditDragFloat, 1.0, 0.0, 10.0, 0.5 };
+AutoCVar_Float CVAR_VOLUMETRIC_PHASE_ANISOTROPY{ "volumetric.phase_anisotropy", "Volumetric phase anisotropy", CVarFlags::EditDragFloat, 0.2, 0.0, 1.0, 0.05 };
+
 AutoCVar_Int CVAR_Z_SLICE{ "z_slice", "Noise z", CVarFlags::EditSliderInt, 0, 0, 127, 1 };
 AutoCVar_Int CVAR_VBUFFER{ "vbuffer", "Vbuffer path", CVarFlags::EditCheckbox, 1 };
 AutoCVar_Int CVAR_MESH_SHADERS{ "mesh_shaders", "Mesh shaders path", CVarFlags::EditCheckbox, 1 };
@@ -1168,13 +1176,13 @@ void VulkanEngine::draw()
                     pc.far = main_camera.far;
                     pc.noise_tex = bindless.perlin_srv;
                     pc.scattering_extinction_tex = bindless.scattering_extinction_uav;
-                    pc.volumetric_noise_pos_mult = 0.5;
-                    pc.volumetric_noise_speed_mult = 0.5;
+                    pc.volumetric_noise_pos_mult = cvar_system->get_float_cvar("volumetric.noise_pos_mult");
+                    pc.volumetric_noise_speed_mult = cvar_system->get_float_cvar("volumetric.noise_speed_mult");
                     pc.current_frame = frame_number;
-                    pc.fog_density_modifier = 0.5;
-                    pc.height_fog_density_modifier = 5.0;
-                    pc.scattering_factor = 0.5;
-                    pc.height_fog_falloff = 0.1;
+                    pc.fog_density_modifier = cvar_system->get_float_cvar("volumetric.fog_density");
+                    pc.height_fog_density_modifier = cvar_system->get_float_cvar("volumetric.height_fog_density");
+                    pc.scattering_factor = cvar_system->get_float_cvar("volumetric.scattering_factor");
+                    pc.height_fog_falloff = cvar_system->get_float_cvar("volumetric.height_fog_falloff");
 
                     VkPushDataInfoEXT push_data_info{};
                     push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
@@ -1224,6 +1232,7 @@ void VulkanEngine::draw()
                         float light_cluster_scale{};
                         float light_cluster_bias{};
                         glm::vec2 cluster_dim{};
+                        float phase_anisotropy{};
                     } pc;
 
                     pc.inverse_view_proj = scene_data.inverse_viewproj;
@@ -1243,6 +1252,7 @@ void VulkanEngine::draw()
                     auto cluster_x = ceil(static_cast<float>(160) / CLUSTER_X); // # cluster dim
                     auto cluster_y = ceil(static_cast<float>(90) / CLUSTER_Y); // # cluster dim
                     pc.cluster_dim = glm::vec2(cluster_x, cluster_y);
+                    pc.phase_anisotropy = cvar_system->get_float_cvar("volumetric.phase_anisotropy");
 
                     VkPushDataInfoEXT push_data_info{};
                     push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
@@ -1481,8 +1491,8 @@ void VulkanEngine::draw()
                     } pc;
 
                     pc.swapchain_resolution = glm::uvec2(swapchain.extent.width, swapchain.extent.height);
-                    pc.debug_texture_id = bindless.scattering_extinction_uav;
-                    // pc.debug_texture_id = bindless.light_scattering_uav;
+                    // pc.debug_texture_id = bindless.scattering_extinction_uav;
+                    pc.debug_texture_id = bindless.light_scattering_uav;
                     // pc.debug_texture_id = bindless.perlin_uav;
                     pc.draw_id = bindless.draw_uav;
                     pc.slice = cvar_system->get_int_cvar("z_slice");
@@ -2821,6 +2831,7 @@ void VulkanEngine::update_scene()
     last_proj = freeze_camera ? last_proj : scene_data.proj;
 
     // scene_data.sunlight_dir = glm::vec4(7.75, 12.5, 12.5, 1.);
+    // scene_data.sunlight_dir = glm::vec4(0.0, 0.0, -12.5, 1.);
     scene_data.sunlight_dir = glm::vec4(0.001, 12.0, 0.0, 1.);
     scene_data.sunlight_color = glm::vec4(1.0, 1.0, 1.0, 1.0);
 

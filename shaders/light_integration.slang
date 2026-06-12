@@ -1,5 +1,4 @@
 import bindings;
-import util;
 
 struct PushConstants
 {
@@ -44,10 +43,7 @@ void main(
         float z_step = next_z - current_z; // removed abs
         current_z = next_z;
 
-        // float3 sample_uvw = float3(froxel_coord) * rcp_froxel_dimensions;
-
         // from Physically Based Sky, Atmosphere and Cloud Rendering by Hillaire
-        // float4 scattering_extinction = scattering_extinction_tex.SampleLevel(samp, sample_uvw, 0.0);
         float4 scattering_extinction = light_scattering_tex.Load(froxel_coord);
         float3 scattering = scattering_extinction.rgb;
         float extinction = scattering_extinction.a;

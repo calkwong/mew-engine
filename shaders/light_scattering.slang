@@ -1,5 +1,6 @@
 import bindings;
 import util;
+import volumetrics;
 import shadows;
 import types;
 import pbr;
@@ -22,30 +23,11 @@ struct PushConstants
     float light_cluster_bias;
 
     float2 cluster_dim;
+    float phase_anisotropy;
 };
 
 [[vk::push_constant]]
 PushConstants pc;
-
-// infinite far plane + reverse-z
-float linear_depth_to_raw_depth(float linear_depth, float near)
-{
-    return near / linear_depth;
-}
-
-float3 world_from_froxel(uint3 coord)
-{
-    float2 uv = (float2(coord.xy) + float2(0.5)) / float2(pc.froxel_dimensions.xy);
-    float froxel_z = float(pc.froxel_dimensions.z);
-    float slice = float(coord.z);
-
-    // from ID tech
-    float linear_depth = pc.near * pow(pc.far / pc.near, (slice + 0.5) / froxel_z); // no negation as we want +ve linear depth
-    // float depth = linear_depth_to_raw_depth(linear_depth, pc.far, pc.near); // reverse-z
-    float depth = linear_depth_to_raw_depth(linear_depth, pc.near); // infinite far plane + reverse z
-
-    return reconstruct_world_pos(depth, pc.inverse_view_proj, uv);
-}
 
 [shader("compute")]
 [numthreads(8, 8, 1)]
@@ -61,7 +43,7 @@ void main(
     Texture3D scattering_extinction_tex = get_sampled_image<Texture3D>(pc.scattering_extinction_tex);
     RWTexture3D light_scattering_tex = get_storage_image<RWTexture3D>(pc.light_scattering_tex);
 
-    float3 world_pos = world_from_froxel(froxel_coord);
+    float3 world_pos = world_from_froxel(froxel_coord, pc.froxel_dimensions, pc.inverse_view_proj, pc.near, pc.far);
     float3 rcp_froxel_dimensions = 1.0 / float3(pc.froxel_dimensions);
     float3 fog_data_uvw = float3(froxel_coord) * rcp_froxel_dimensions;
 
@@ -70,17 +52,21 @@ void main(
 
     float3 lighting = float3(0.0);
 
-    // TODO: apply phase function, ambient, figure out if we apply beer's law here
+    // TODO: ambient, figure out if we apply beer's law here
     if (extinction > 0.01)
     {
+        float3 V = normalize(uniforms.camera_pos.xyz - world_pos);
+        float phase = phase_shlick(pc.phase_anisotropy, dot(normalize(uniforms.sunlight_dir.xyz), V));
+
         uint cascade_index = 0;
         float shadow = calculate_shadow(world_pos, cascade_index, pc.shadowmap_id);
-        // float shadow = 1.0;
-        float3 sunlight = shadow * uniforms.sunlight_color.xyz;
+        float3 sunlight = shadow * float3(10.0) * phase;
+        // float3 sunlight = shadow * uniforms.sunlight_color.xyz * phase;
         // sunlight *= exp(-extinction); // this is a simplification, we should march along sun direction
 
         // interate over local lights in light cluster
         float view_z = mul(uniforms.view, float4(world_pos, 1.0)).z;
+        // TODO: get_cluster_z_slice only works for clustered light froxels, need to make it more generic and work for volumetrics
         uint light_slice = get_cluster_z_slice(view_z, pc.light_cluster_scale, pc.light_cluster_bias);
         uint cluster_index = get_cluster_index(float2(froxel_coord.x, pc.froxel_dimensions.y - froxel_coord.y), pc.cluster_dim.xy, light_slice);
 
@@ -106,11 +92,12 @@ void main(
 
             // light_color *= exp(-extinction * length(distance));
 
-            point_lights += light_color * attenuation;
+            float phase = phase_shlick(pc.phase_anisotropy, dot(normalize(distance), V));
+            point_lights += light_color * attenuation * phase;
         }
 #endif
 
-        lighting += (sunlight + point_lights);
+        lighting += sunlight + point_lights;
     }
 
     float3 scattering = scattering_extinction.rgb * lighting;

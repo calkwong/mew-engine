@@ -85,6 +85,7 @@ public float linearize_depth(float near, float depth)
 // equation (3): https://www.aortiz.me/2018/12/21/CG.html#part-2
 // slide 5: https://advances.realtimerendering.com/s2016/Siggraph2016_idTech6.pdf
 // view_z must be positive!
+// TODO: get_cluster_z_slice only works for clustered light froxels, need to make it more generic and work for volumetrics
 public uint get_cluster_z_slice(float view_z, float scale, float bias)
 {
     uint slice = uint(floor(log(view_z) * scale - bias));

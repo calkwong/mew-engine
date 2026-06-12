@@ -1,5 +1,5 @@
 import bindings;
-import util;
+import volumetrics;
 
 // this shader could be combined with light_scattering
 
@@ -23,31 +23,6 @@ struct PushConstants
 [[vk::push_constant]]
 PushConstants pc;
 
-// float linear_depth_to_raw_depth(float linear_depth, float near, float far)
-// {
-//     return (near * far) / (linear_depth * (near - far)) - far / (near - far);
-// }
-
-// infinite far plane + reverse-z
-float linear_depth_to_raw_depth(float linear_depth, float near)
-{
-    return near / linear_depth;
-}
-
-float3 world_from_froxel(uint3 coord)
-{
-    float2 uv = (float2(coord.xy) + float2(0.5)) / float2(pc.froxel_dimensions.xy);
-    float froxel_z = float(pc.froxel_dimensions.z);
-    float slice = float(coord.z);
-
-    // from ID tech
-    float linear_depth = pc.near * pow(pc.far / pc.near, (slice + 0.5) / froxel_z); // no negation as we want +ve linear depth
-    // float depth = linear_depth_to_raw_depth(linear_depth, pc.far, pc.near); // reverse-z
-    float depth = linear_depth_to_raw_depth(linear_depth, pc.near); // infinite far plane + reverse z
-
-    return reconstruct_world_pos(depth, pc.inverse_view_proj, uv);
-}
-
 float4 scattering_extinction_from_color_density(float3 color, float density)
 {
     float extinction = density * pc.scattering_factor;
@@ -70,7 +45,7 @@ void main(
 
     float4 scattering_extinction = float4(0.0);
 
-    float3 world_pos = world_from_froxel(froxel_coord);
+    float3 world_pos = world_from_froxel(froxel_coord, pc.froxel_dimensions, pc.inverse_view_proj, pc.near, pc.far);
 
     // large (small) pos_mult -> smaller (larger), more detailed (smooth) fog?
     // float3(1.0, 0.1, 2.0) behaves like wind dir
