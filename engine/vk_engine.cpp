@@ -68,11 +68,11 @@ AutoCVar_Int CVAR_DISABLE_CAMERA{ "disable_camera", "Disable camera", CVarFlags:
 AutoCVar_Int CVAR_HOT_RELOAD{ "hot_reload", "Hot reload shaders", CVarFlags::EditCheckbox | CVarFlags::EditHide, 0 };
 
 AutoCVar_Float CVAR_VOLUMETRIC_NOISE_POS{ "volumetric.noise_pos_mult", "Volumetric noise pos mult", CVarFlags::EditDragFloat, 0.5, 0.0, 1.0, 0.05 };
-AutoCVar_Float CVAR_VOLUMETRIC_NOISE_SPEED{ "volumetric.noise_speed_mult", "Volumetric noise speed mult", CVarFlags::EditDragFloat, 0.5, 0.0, 1.0, 0.05 };
-AutoCVar_Float CVAR_VOLUMETRIC_FOG_DENSITY{ "volumetric.fog_density", "Volumetric fog density", CVarFlags::EditDragFloat, 0.5, 0.0, 1.0, 0.05 };
-AutoCVar_Float CVAR_VOLUMETRIC_HEIGHT_FOG_DENSITY{ "volumetric.height_fog_density", "Volumetric height fog density", CVarFlags::EditDragFloat, 1.0, 0.0, 10.0, 0.5 };
-AutoCVar_Float CVAR_VOLUMETRIC_SCATTERING_FACTOR{ "volumetric.scattering_factor", "Volumetric scattering factor", CVarFlags::EditDragFloat, 0.1, 0.0, 1.0, 0.05 };
-AutoCVar_Float CVAR_VOLUMETRIC_HEIGHT_FOG_FALLOFF{ "volumetric.height_fog_falloff", "Volumetric height fog falloff", CVarFlags::EditDragFloat, 1.0, 0.0, 10.0, 0.5 };
+AutoCVar_Float CVAR_VOLUMETRIC_NOISE_SPEED{ "volumetric.noise_speed_mult", "Volumetric noise speed mult", CVarFlags::EditDragFloat, 0.001, 0.0, 1.0, 0.05 };
+AutoCVar_Float CVAR_VOLUMETRIC_FOG_DENSITY{ "volumetric.fog_density", "Volumetric fog density", CVarFlags::EditDragFloat, 0.0, 0.0, 1.0, 0.05 };
+AutoCVar_Float CVAR_VOLUMETRIC_HEIGHT_FOG_DENSITY{ "volumetric.height_fog_density", "Volumetric height fog density", CVarFlags::EditDragFloat, 0.8, 0.0, 10.0, 0.5 };
+AutoCVar_Float CVAR_VOLUMETRIC_SCATTERING_FACTOR{ "volumetric.scattering_factor", "Volumetric scattering factor", CVarFlags::EditDragFloat, 0.4, 0.0, 1.0, 0.05 };
+AutoCVar_Float CVAR_VOLUMETRIC_HEIGHT_FOG_FALLOFF{ "volumetric.height_fog_falloff", "Volumetric height fog falloff", CVarFlags::EditDragFloat, 0.1, 0.0, 10.0, 0.5 };
 AutoCVar_Float CVAR_VOLUMETRIC_PHASE_ANISOTROPY{ "volumetric.phase_anisotropy", "Volumetric phase anisotropy", CVarFlags::EditDragFloat, 0.2, 0.0, 1.0, 0.05 };
 
 AutoCVar_Int CVAR_Z_SLICE{ "z_slice", "Noise z", CVarFlags::EditSliderInt, 0, 0, 127, 1 };
@@ -1270,13 +1270,13 @@ void VulkanEngine::draw()
                 }
             );
 
-#if 1
             graph.add_pass(
                 "light_integration",
                 Pass::PassType::ComputePass,
                 [&](Pass& pass)
                 {
-
+                    pass.add_image_read("light_scattering", light_scattering_tex.image);
+                    pass.add_image_write("integrated_light_scattering", integrated_light_scattering_tex.image);
                 },
                 [&]()
                 {
@@ -1284,20 +1284,20 @@ void VulkanEngine::draw()
 
                     struct PushConstants
                     {
-                        glm::mat4 inverse_view_proj;
-                        glm::uvec3 froxel_dimensions;
-                        float near;
-                        float far;
-                        // uint32_t scattering_extinction_tex;
-                        uint32_t light_scattering_tex;
+                        glm::mat4 inverse_view_proj{};
+                        glm::uvec3 froxel_dimensions{};
+                        float near{};
+                        float far{};
+                        uint32_t light_scattering_tex{};
+                        uint32_t integrated_light_scattering_tex{};
                     } pc;
 
                     pc.inverse_view_proj = scene_data.inverse_viewproj;
                     pc.froxel_dimensions = glm::uvec3(160, 90, 128);
                     pc.near = main_camera.near;
                     pc.far = main_camera.far;
-                    // pc.scattering_extinction_tex = bindless.scattering_extinction_srv;
-                    pc.light_scattering_tex = bindless.light_scattering_uav;
+                    pc.light_scattering_tex = bindless.light_scattering_srv;
+                    pc.integrated_light_scattering_tex = bindless.integrated_light_scattering_uav;
 
                     VkPushDataInfoEXT push_data_info{};
                     push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
@@ -1307,13 +1307,13 @@ void VulkanEngine::draw()
 
                     ShaderPass current_pass = *shader_passes["light_integration"];
                     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
+                    // TODO: remove hardcoded froxel dim
                     auto groupcount_x = get_groupcount(160, 8);
                     auto groupcount_y = get_groupcount(90, 8);
 
                     vkCmdDispatch(cmd, groupcount_x, groupcount_y, 1);
                 }
             );
-#endif
 
             graph.add_pass(
                 "lighting_pass",
@@ -1330,6 +1330,7 @@ void VulkanEngine::draw()
                     pass.add_storage_buffer_read("mesh");
                     pass.add_storage_buffer_read("sh");
                     pass.add_image_write("draw", draw_image.image);
+                    pass.add_image_read("integrated_light_scattering", integrated_light_scattering_tex.image);
                 },
                 [&]()
                 {
@@ -1473,6 +1474,7 @@ void VulkanEngine::draw()
                 );
             }
 
+#if 1
             graph.add_pass(
                 "debug_3d",
                 Pass::PassType::ComputePass,
@@ -1492,8 +1494,9 @@ void VulkanEngine::draw()
 
                     pc.swapchain_resolution = glm::uvec2(swapchain.extent.width, swapchain.extent.height);
                     // pc.debug_texture_id = bindless.scattering_extinction_uav;
-                    pc.debug_texture_id = bindless.light_scattering_uav;
-                    // pc.debug_texture_id = bindless.perlin_uav;
+                    // pc.debug_texture_id = bindless.light_scattering_uav;
+                    // pc.debug_texture_id = bindless.perlin_srv;
+                    pc.debug_texture_id = bindless.integrated_light_scattering_uav;
                     pc.draw_id = bindless.draw_uav;
                     pc.slice = cvar_system->get_int_cvar("z_slice");
 
@@ -1510,6 +1513,7 @@ void VulkanEngine::draw()
                     vkCmdDispatch(cmd, groupcount_x, groupcount_y, 1);
                 }
             );
+#endif
 
             graph.add_pass(
                 "copy_to_swapchain",
@@ -2552,6 +2556,17 @@ void VulkanEngine::init_resources()
     bindless.light_scattering_srv = resource_heap_manager.add_srv(light_scattering_tex, VK_IMAGE_VIEW_TYPE_3D, VK_IMAGE_ASPECT_COLOR_BIT);
     bindless.light_scattering_uav = resource_heap_manager.add_uav(light_scattering_tex, VK_IMAGE_VIEW_TYPE_3D, VK_IMAGE_ASPECT_COLOR_BIT);
 
+    integrated_light_scattering_tex = create_3d_image(
+        device,
+        allocator,
+        VkExtent3D{ 160, 90, 128 },
+        VK_FORMAT_R16G16B16A16_SFLOAT,
+        VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+        VK_IMAGE_ASPECT_COLOR_BIT
+    );
+    bindless.integrated_light_scattering_srv = resource_heap_manager.add_srv(integrated_light_scattering_tex, VK_IMAGE_VIEW_TYPE_3D, VK_IMAGE_ASPECT_COLOR_BIT);
+    bindless.integrated_light_scattering_uav = resource_heap_manager.add_uav(integrated_light_scattering_tex, VK_IMAGE_VIEW_TYPE_3D, VK_IMAGE_ASPECT_COLOR_BIT);
+
     main_deletion_queue.push_function(
         [&]()
         {
@@ -2574,6 +2589,7 @@ void VulkanEngine::init_resources()
             destroy_image(device, allocator, perlin_noise);
             destroy_image(device, allocator, scattering_extinction_tex);
             destroy_image(device, allocator, light_scattering_tex);
+            destroy_image(device, allocator, integrated_light_scattering_tex);
         }
     );
 
@@ -4113,7 +4129,7 @@ void VulkanEngine::execute_shading(VkCommandBuffer cmd)
     pc.max_prefiltered_lod = static_cast<float>(std::floor(std::log2(static_cast<float>(std::max(prefiltered_envmap.extent.width, prefiltered_envmap.extent.height))))) + 1;
     pc.debug = cvar_system->get_int_cvar("debug.textures");
     pc.volumetrics = cvar_system->get_int_cvar("volumetric_fog");
-    pc.volumetrics_tex = bindless.light_scattering_uav;
+    pc.volumetrics_tex = bindless.integrated_light_scattering_srv;
     auto volumetrics_slices = 128.0f;
     pc.volumetrics_scale = volumetrics_slices / std::log(ratio);
     pc.volumetrics_bias = volumetrics_slices * std::log(main_camera.near) / std::log(ratio);

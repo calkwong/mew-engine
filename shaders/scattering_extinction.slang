@@ -39,7 +39,8 @@ void main(
     if (froxel_coord.x >= pc.froxel_dimensions.x || froxel_coord.y >= pc.froxel_dimensions.y || froxel_coord.z >= pc.froxel_dimensions.z)
         return;
 
-    SamplerState samp = get_sampler<SamplerState>(NEAREST_REPEAT_SAMPLER);
+    SamplerState samp = get_sampler<SamplerState>(LINEAR_SAMPLER);
+    // SamplerState samp = get_sampler<SamplerState>(NEAREST_REPEAT_SAMPLER);
     Texture3D<float> noise_tex = get_sampled_image<Texture3D<float>>(pc.noise_tex);
     RWTexture3D scattering_extinction_tex = get_storage_image<RWTexture3D>(pc.scattering_extinction_tex);
 

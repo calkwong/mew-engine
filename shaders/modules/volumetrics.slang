@@ -11,7 +11,7 @@ public uint3 depth_to_froxel(float depth, float near, float volumetrics_scale, f
     slice = clamp(slice, 0, froxel_dims.z - 1);
 
     float2 ratio = float2(froxel_dims.xy) / screen_dim;
-    uint2 froxel_index = uint2(floor(ratio * frag_coord)); // implicit floor?
+    uint2 froxel_index = uint2(floor(ratio * frag_coord));
     froxel_index.x = clamp(froxel_index.x, 0, froxel_dims.x - 1);
     froxel_index.y = clamp(froxel_index.y, 0, froxel_dims.y - 1);
 

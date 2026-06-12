@@ -39,7 +39,7 @@ void main(
     if (froxel_coord.x >= pc.froxel_dimensions.x || froxel_coord.y >= pc.froxel_dimensions.y || froxel_coord.z >= pc.froxel_dimensions.z)
         return;
 
-    SamplerState samp = get_sampler<SamplerState>(NEAREST_SAMPLER);
+    SamplerState samp = get_sampler<SamplerState>(LINEAR_CLAMP_SAMPLER);
     Texture3D scattering_extinction_tex = get_sampled_image<Texture3D>(pc.scattering_extinction_tex);
     RWTexture3D light_scattering_tex = get_storage_image<RWTexture3D>(pc.light_scattering_tex);
 
@@ -53,7 +53,7 @@ void main(
     float3 lighting = float3(0.0);
 
     // TODO: ambient, figure out if we apply beer's law here
-    if (extinction > 0.01)
+    // if (extinction > 0.01)
     {
         float3 V = normalize(uniforms.camera_pos.xyz - world_pos);
         float phase = phase_shlick(pc.phase_anisotropy, dot(normalize(uniforms.sunlight_dir.xyz), V));
@@ -66,7 +66,6 @@ void main(
 
         // interate over local lights in light cluster
         float view_z = mul(uniforms.view, float4(world_pos, 1.0)).z;
-        // TODO: get_cluster_z_slice only works for clustered light froxels, need to make it more generic and work for volumetrics
         uint light_slice = get_cluster_z_slice(view_z, pc.light_cluster_scale, pc.light_cluster_bias);
         uint cluster_index = get_cluster_index(float2(froxel_coord.x, pc.froxel_dimensions.y - froxel_coord.y), pc.cluster_dim.xy, light_slice);
 

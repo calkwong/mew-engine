@@ -6,8 +6,8 @@ struct PushConstants
     uint3 froxel_dimensions;
     float near;
     float far;
-    // uint scattering_extinction_tex;
     uint light_scattering_tex;
+    uint integrated_light_scattering_tex;
 };
 
 [[vk::push_constant]]
@@ -23,9 +23,9 @@ void main(
     if (froxel_coord.x >= pc.froxel_dimensions.x || froxel_coord.y >= pc.froxel_dimensions.y)
         return;
 
-    SamplerState samp = get_sampler<SamplerState>(NEAREST_SAMPLER);
-    // Texture3D scattering_extinction_tex = get_sampled_image<Texture3D>(pc.scattering_extinction_tex);
-    RWTexture3D light_scattering_tex = get_storage_image<RWTexture3D>(pc.light_scattering_tex);
+    SamplerState samp = get_sampler<SamplerState>(LINEAR_CLAMP_SAMPLER);
+    Texture3D light_scattering_tex = get_sampled_image<Texture3D>(pc.light_scattering_tex);
+    RWTexture3D integrated_light_scattering_tex = get_storage_image<RWTexture3D>(pc.integrated_light_scattering_tex);
 
     float3 integrated_scattering = float3(0.0);
     float integrated_transmission = 1.0;
@@ -44,7 +44,7 @@ void main(
         current_z = next_z;
 
         // from Physically Based Sky, Atmosphere and Cloud Rendering by Hillaire
-        float4 scattering_extinction = light_scattering_tex.Load(froxel_coord);
+        float4 scattering_extinction = light_scattering_tex.SampleLevel(samp, (float3(froxel_coord) + float3(0.5)) / float3(pc.froxel_dimensions), 0.0);
         float3 scattering = scattering_extinction.rgb;
         float extinction = scattering_extinction.a;
         float clamped_extinction = max(extinction, 0.00001);
@@ -55,6 +55,6 @@ void main(
         integrated_scattering += scattering * integrated_transmission;
         integrated_transmission *= transmittance;
 
-        light_scattering_tex.Store(uint3(froxel_coord), float4(integrated_scattering, integrated_transmission));
+        integrated_light_scattering_tex.Store(uint3(froxel_coord), float4(integrated_scattering, integrated_transmission));
     }
 }
