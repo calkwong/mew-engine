@@ -5,6 +5,7 @@ import pbr;
 import sh;
 import util;
 import shadows;
+import volumetrics;
 
 struct PushConstants
 {
@@ -281,12 +282,10 @@ void main(
 		color = get_sampled_image<TextureCube>(uniforms.skybox_id).SampleLevel(cube_samp, sample_dir, 0.0).xyz;
 	}
 
-	// TODO: verify if fog is added to skybox
 	if (pc.volumetrics != 0)
 	{
-        float view_z = linearize_depth(pc.near, depth);
-    	uint slice = get_cluster_z_slice(view_z, pc.volumetrics_scale, pc.volumetrics_bias);
-        uint3 sample_uvw = uint3(global_id.x / 160, global_id.y / 90, slice);
+	    // TODO: remove hardcoded froxel dim
+        uint3 sample_uvw = depth_to_froxel(depth, pc.near, pc.volumetrics_scale, pc.volumetrics_bias, frag_coord, pc.screen_size, uint3(160, 90, 128));
         RWTexture3D volumetrics_tex = get_storage_image<RWTexture3D>(pc.volumetrics_tex);
         float4 scattering_transmittance = volumetrics_tex.Load(sample_uvw);
         color.rgb = color.rgb * scattering_transmittance.a + scattering_transmittance.rgb;
