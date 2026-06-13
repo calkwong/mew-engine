@@ -4,6 +4,7 @@
 #include <vk_mem_alloc.h>
 
 #include <algorithm>
+#include <cassert>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -15,7 +16,7 @@ void destroy_buffer(VmaAllocator allocator, const AllocatedBuffer& buffer)
     vmaDestroyBuffer(allocator, buffer.buffer, buffer.allocation);
 }
 
-AllocatedBuffer create_buffer(VmaAllocator allocator, size_t alloc_size, VmaAllocationCreateFlags flags, VkBufferUsageFlags usage, VkDeviceSize alignment/* = 0 */)
+AllocatedBuffer create_buffer(VmaAllocator allocator, size_t alloc_size, VmaAllocationCreateFlags flags, VkBufferUsageFlags usage, VkDeviceSize alignment /* = 0 */)
 {
     VkBufferCreateInfo buffer_info{};
     buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -161,7 +162,8 @@ AllocatedImage create_image_with_view(
     return new_image;
 }
 
-// currently used for HDR, png and jpg, NOT ktx2
+// This function is expected to be used with stb library only. For n_channels == 2, it actually loads grey + alpha and not RG channels.
+// TODO: manual unpack for n_channels == 2. For now if we only want RG components, we load as RGBA anyway which is not ideal.
 AllocatedImage upload_image(
     VkDevice device,
     VkQueue queue,
@@ -170,6 +172,7 @@ AllocatedImage upload_image(
     VkCommandBuffer cmd,
     VmaAllocator allocator,
     const void* data,
+    uint32_t n_channels,
     VkExtent3D extent,
     VkFormat format,
     VkImageUsageFlags usage,
@@ -178,9 +181,27 @@ AllocatedImage upload_image(
     bool mipmapped
 )
 {
-    size_t data_size = extent.depth * extent.width * extent.height * 4; // 4 is # of channels
-    if (format == VK_FORMAT_R32G32B32A32_SFLOAT) // TODO: hdr only?
-        data_size *= sizeof(float);
+    size_t data_size = extent.depth * extent.width * extent.height * n_channels;
+
+    switch (format)
+    {
+    case VK_FORMAT_R32G32B32A32_SFLOAT:
+        data_size *= sizeof(uint32_t);
+        break;
+    case VK_FORMAT_R16G16B16A16_SFLOAT:
+    case VK_FORMAT_R16G16_SFLOAT:
+    case VK_FORMAT_R16G16_UNORM:
+        data_size *= sizeof(uint16_t);
+        break;
+    case VK_FORMAT_R8G8B8A8_UNORM:
+    case VK_FORMAT_R8G8B8A8_SRGB:
+    case VK_FORMAT_R8G8_UNORM:
+        data_size *= sizeof(uint8_t);
+        break;
+    default:
+        assert(0);
+    }
+
     AllocatedBuffer create_buffer_with_data = create_buffer(
         allocator,
         data_size,

@@ -186,6 +186,7 @@ public:
     std::array<AllocatedImage, 2> scattering_extinction_tex{};
     AllocatedImage light_scattering_tex{};
     AllocatedImage integrated_light_scattering_tex{};
+    AllocatedImage blue_noise_tex{};
 
     AllocatedBuffer light_buffer{};
     AllocatedBuffer light_cluster_buffer{};
@@ -281,6 +282,7 @@ public:
         uint32_t scattering_extinction_srv{};
         uint32_t light_scattering_srv{};
         uint32_t integrated_light_scattering_srv{};
+        uint32_t blue_noise_srv{};
 
         uint32_t oit{};
     };

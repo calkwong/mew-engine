@@ -1606,7 +1606,8 @@ void VulkanEngine::draw()
                     // pc.debug_texture_id = bindless.light_scattering_uav;
                     // pc.debug_texture_id = bindless.perlin_srv;
                     // pc.debug_texture_id = bindless.integrated_light_scattering_uav;
-                    pc.debug_texture_id = cvar_system->get_int_cvar("volumetric.spatial_filtering") ? bindless.scattering_extinction_uav : bindless.light_scattering_uav;
+                    // pc.debug_texture_id = cvar_system->get_int_cvar("volumetric.spatial_filtering") ? bindless.scattering_extinction_uav : bindless.light_scattering_uav;
+                    pc.debug_texture_id = bindless.blue_noise_srv;
                     pc.draw_id = bindless.draw_uav;
                     pc.slice = cvar_system->get_int_cvar("z_slice");
 
@@ -2570,6 +2571,7 @@ void VulkanEngine::init_resources()
         imm_command_buffer,
         allocator,
         (void*)data,
+        4,
         extent,
         VK_FORMAT_R32G32B32A32_SFLOAT,
         VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
@@ -2686,6 +2688,32 @@ void VulkanEngine::init_resources()
     bindless.integrated_light_scattering_srv = resource_heap_manager.add_srv(integrated_light_scattering_tex, VK_IMAGE_VIEW_TYPE_3D, VK_IMAGE_ASPECT_COLOR_BIT);
     bindless.integrated_light_scattering_uav = resource_heap_manager.add_uav(integrated_light_scattering_tex, VK_IMAGE_VIEW_TYPE_3D, VK_IMAGE_ASPECT_COLOR_BIT);
 
+    {
+        // noise from: https://github.com/electronicarts/fastnoise
+        const char* blue_noise_path = { "assets/vector2_uniform_binomial3x3_Gauss10_product_31.png" };
+        int width{};
+        int height{};
+        int channels{};
+        int desired_channels = 4;
+        stbi_uc* data = stbi_load(blue_noise_path, &width, &height, &channels, desired_channels);
+        auto extent = VkExtent3D(static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1);
+        blue_noise_tex = upload_image(
+            device,
+            graphics_queue,
+            imm_fence,
+            imm_command_pool,
+            imm_command_buffer,
+            allocator,
+            data,
+            static_cast<uint32_t>(desired_channels),
+            extent,
+            VK_FORMAT_R8G8B8A8_UNORM,
+            VK_IMAGE_USAGE_SAMPLED_BIT,
+            VK_IMAGE_ASPECT_COLOR_BIT
+        );
+    }
+    bindless.blue_noise_srv = resource_heap_manager.add_srv(blue_noise_tex, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+
     main_deletion_queue.push_function(
         [&]()
         {
@@ -2710,6 +2738,7 @@ void VulkanEngine::init_resources()
             destroy_image(device, allocator, scattering_extinction_tex[1]);
             destroy_image(device, allocator, light_scattering_tex);
             destroy_image(device, allocator, integrated_light_scattering_tex);
+            destroy_image(device, allocator, blue_noise_tex);
         }
     );
 

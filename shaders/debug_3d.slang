@@ -20,12 +20,19 @@ void main(
     uint3 global_id: SV_DispatchThreadID
 )
 {
-    RWTexture3D debug_tex = get_storage_image<RWTexture3D>(pc.debug_texture_id);
     RWTexture2D out_tex = get_storage_image<RWTexture2D>(pc.draw_id);
+    // RWTexture3D debug_tex = get_storage_image<RWTexture3D>(pc.debug_texture_id);
 
     uint layers;
-    uint3 debug_resolution;
-    debug_tex.GetDimensions(0, debug_resolution.x, debug_resolution.y, debug_resolution.z, layers);
+
+    // uint3 debug_resolution;
+    // debug_tex.GetDimensions(0, debug_resolution.x, debug_resolution.y, debug_resolution.z, layers);
+
+    Texture2D debug_tex = get_sampled_image<Texture2D>(pc.debug_texture_id);
+    SamplerState samp = get_sampler<SamplerState>(NEAREST_REPEAT_SAMPLER);
+
+    uint2 debug_resolution;
+    debug_tex.GetDimensions(0, debug_resolution.x, debug_resolution.y, layers);
 
     uint x = global_id.x;
     uint y = global_id.y;
@@ -33,8 +40,10 @@ void main(
     if (x >= debug_resolution.x || y >= debug_resolution.y)
         return;
 
-    float4 output = debug_tex.Load(uint3(x, y, pc.slice));
-    out_tex.Store(uint2(x, y), output);
+    // float4 output = debug_tex.Load(uint3(x, y, pc.slice));
+    // float4 output = debug_tex.Load(uint2(x, y));
+    float2 output = debug_tex.SampleLevel(samp, (float2(x, y) + float2(0.5)) / float2(debug_resolution), 0.0).rg;
+    out_tex.Store(uint2(x, y), float4(output.xy, 0.0, 1.0));
 
     // float output = debug_tex.Load(uint3(x, y, pc.slice)).g;
     // out_tex.Store(uint2(x, y), float4(float3(output), 1));

@@ -39,7 +39,7 @@ void destroy_buffer(VmaAllocator allocator, const AllocatedBuffer& buffer);
 AllocatedImage create_image(VkDevice device, VmaAllocator allocator, VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspect, VmaAllocationCreateFlags flags = 0, bool mipmapped = false);
 AllocatedImage create_image_with_view(VkDevice device, VmaAllocator allocator, VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspect, VmaAllocationCreateFlags flags = 0, bool mipmapped = false);
 AllocatedImage create_3d_image(VkDevice device, VmaAllocator allocator, VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspect, VmaAllocationCreateFlags flags = 0);
-AllocatedImage upload_image(VkDevice device, VkQueue queue, VkFence fence, VkCommandPool command_pool, VkCommandBuffer cmd, VmaAllocator allocator, const void* data, VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspect, VmaAllocationCreateFlags flags = 0, bool mipmapped = false);
+AllocatedImage upload_image(VkDevice device, VkQueue queue, VkFence fence, VkCommandPool command_pool, VkCommandBuffer cmd, VmaAllocator allocator, const void* data, uint32_t n_channels, VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspect, VmaAllocationCreateFlags flags = 0, bool mipmapped = false);
 AllocatedImage create_cubemap(VkDevice device, VmaAllocator allocator, VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspect, VmaAllocationCreateFlags flags = 0, bool mipmapped = false);
 void destroy_image(VkDevice device, VmaAllocator allocator, const AllocatedImage& image);
 
