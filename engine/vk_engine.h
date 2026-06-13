@@ -265,6 +265,7 @@ public:
         uint32_t scattering_extinction_uav{};
         uint32_t light_scattering_uav{};
         uint32_t integrated_light_scattering_uav{};
+        uint32_t blue_noise_uav{};
 
         uint32_t draw_srv{};
         uint32_t gbuffer_srv{};
@@ -282,7 +283,6 @@ public:
         uint32_t scattering_extinction_srv{};
         uint32_t light_scattering_srv{};
         uint32_t integrated_light_scattering_srv{};
-        uint32_t blue_noise_srv{};
 
         uint32_t oit{};
     };

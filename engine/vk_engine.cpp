@@ -1148,8 +1148,9 @@ void VulkanEngine::draw()
                 Pass::PassType::ComputePass,
                 [&](Pass& pass)
                 {
-                    pass.add_image_read("perlin", perlin_noise.image);
+                    pass.add_image_read("perlin_noise", perlin_noise.image);
                     pass.add_image_write("scattering_extinction", scattering_extinction_tex[frame_number % 2].image); // always use current
+                    pass.add_image_read("blue_noise", blue_noise_tex.image);
                 },
                 [&]()
                 {
@@ -1157,30 +1158,34 @@ void VulkanEngine::draw()
 
                     struct PushConstants
                     {
-                        glm::mat4 inverse_view_proj;
-                        glm::uvec3 froxel_dimensions;
-                        float near;
-                        float far;
-                        uint32_t noise_tex;
-                        uint32_t scattering_extinction_tex;
-                        float volumetric_noise_pos_mult; // [0, 1]
-                        float volumetric_noise_speed_mult; // [0, 1]
-                        uint32_t current_frame;
-                        float fog_density_modifier; // [0, 1]
-                        float height_fog_density_modifier; // [0, 10]
-                        float scattering_factor; // [0, 1]
-                        float height_fog_falloff; // [0, 10]
+                        glm::mat4 inverse_view_proj{};
+                        glm::uvec3 froxel_dimensions{};
+                        uint32_t current_frame{};
+                        glm::vec2 halton{};
+                        float near{};
+                        float far{};
+                        uint32_t perlin_noise_tex{};
+                        uint32_t blue_noise_tex{};
+                        uint32_t scattering_extinction_tex{};
+                        float volumetric_noise_pos_mult{};
+                        float volumetric_noise_speed_mult{};
+                        float fog_density_modifier{};
+                        float height_fog_density_modifier{};
+                        float scattering_factor{};
+                        float height_fog_falloff{};
                     } pc;
 
                     pc.inverse_view_proj = scene_data.inverse_viewproj;
                     pc.froxel_dimensions = glm::uvec3(160, 90, 128);
+                    pc.current_frame = frame_number;
+                    pc.halton = jitter_offset[frame_number % jitter_offset.size()];
                     pc.near = main_camera.near;
                     pc.far = main_camera.far;
-                    pc.noise_tex = bindless.perlin_srv;
+                    pc.perlin_noise_tex = bindless.perlin_srv;
+                    pc.blue_noise_tex = bindless.blue_noise_uav;
                     pc.scattering_extinction_tex = bindless.scattering_extinction_uav + (frame_number % 2);
                     pc.volumetric_noise_pos_mult = cvar_system->get_float_cvar("volumetric.noise_pos_mult");
                     pc.volumetric_noise_speed_mult = cvar_system->get_float_cvar("volumetric.noise_speed_mult");
-                    pc.current_frame = frame_number;
                     pc.fog_density_modifier = cvar_system->get_float_cvar("volumetric.fog_density");
                     pc.height_fog_density_modifier = cvar_system->get_float_cvar("volumetric.height_fog_density");
                     pc.scattering_factor = cvar_system->get_float_cvar("volumetric.scattering_factor");
@@ -1214,6 +1219,7 @@ void VulkanEngine::draw()
                     pass.add_storage_buffer_read("light");
                     pass.add_storage_buffer_read("light_index");
                     pass.add_storage_buffer_read("light_grid");
+                    pass.add_image_read("blue_noise", blue_noise_tex.image);
                 },
                 [&]()
                 {
@@ -1234,7 +1240,10 @@ void VulkanEngine::draw()
                         float light_cluster_scale{};
                         float light_cluster_bias{};
                         glm::vec2 cluster_dim{};
+                        glm::vec2 halton{};
                         float phase_anisotropy{};
+                        uint32_t blue_noise_tex{};
+                        uint32_t current_frame{};
                     } pc;
 
                     pc.inverse_view_proj = scene_data.inverse_viewproj;
@@ -1254,7 +1263,10 @@ void VulkanEngine::draw()
                     auto cluster_x = ceil(static_cast<float>(160) / CLUSTER_X); // # cluster dim
                     auto cluster_y = ceil(static_cast<float>(90) / CLUSTER_Y); // # cluster dim
                     pc.cluster_dim = glm::vec2(cluster_x, cluster_y);
+                    pc.halton = jitter_offset[frame_number % jitter_offset.size()];
                     pc.phase_anisotropy = cvar_system->get_float_cvar("volumetric.phase_anisotropy");
+                    pc.blue_noise_tex = bindless.blue_noise_uav;
+                    pc.current_frame = frame_number;
 
                     VkPushDataInfoEXT push_data_info{};
                     push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
@@ -1321,6 +1333,7 @@ void VulkanEngine::draw()
                             pass.add_image_read("previous_scattering_extinction", scattering_extinction_tex[(frame_number + 1) % 2].image);
                             pass.add_image_read("scattering_extinction", scattering_extinction_tex[frame_number % 2].image);
                             pass.add_image_write("scattering_extinction", scattering_extinction_tex[frame_number % 2].image);
+                            pass.add_image_read("blue_noise", blue_noise_tex.image);
                         },
                         [&]()
                         {
@@ -1340,6 +1353,9 @@ void VulkanEngine::draw()
                                 float volumetrics_scale{};
                                 float volumetrics_bias{};
                                 float reprojection_factor{};
+                                glm::vec2 halton{};
+                                uint32_t blue_noise_tex{};
+                                uint32_t current_frame{};
                             } pc;
 
                             pc.inverse_view_proj = scene_data.inverse_viewproj;
@@ -1358,6 +1374,9 @@ void VulkanEngine::draw()
                             pc.volumetrics_scale = volumetrics_slices / std::log(ratio);
                             pc.volumetrics_bias = volumetrics_slices * std::log(main_camera.near) / std::log(ratio);
                             pc.reprojection_factor = 0.9;
+                            pc.halton = jitter_offset[frame_number % jitter_offset.size()];
+                            pc.blue_noise_tex = bindless.blue_noise_uav;
+                            pc.current_frame = frame_number;
 
                             VkPushDataInfoEXT push_data_info{};
                             push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
@@ -1607,7 +1626,7 @@ void VulkanEngine::draw()
                     // pc.debug_texture_id = bindless.perlin_srv;
                     // pc.debug_texture_id = bindless.integrated_light_scattering_uav;
                     // pc.debug_texture_id = cvar_system->get_int_cvar("volumetric.spatial_filtering") ? bindless.scattering_extinction_uav : bindless.light_scattering_uav;
-                    pc.debug_texture_id = bindless.blue_noise_srv;
+                    pc.debug_texture_id = bindless.blue_noise_uav;
                     pc.draw_id = bindless.draw_uav;
                     pc.slice = cvar_system->get_int_cvar("z_slice");
 
@@ -2708,11 +2727,11 @@ void VulkanEngine::init_resources()
             static_cast<uint32_t>(desired_channels),
             extent,
             VK_FORMAT_R8G8B8A8_UNORM,
-            VK_IMAGE_USAGE_SAMPLED_BIT,
+            VK_IMAGE_USAGE_STORAGE_BIT,
             VK_IMAGE_ASPECT_COLOR_BIT
         );
     }
-    bindless.blue_noise_srv = resource_heap_manager.add_srv(blue_noise_tex, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+    bindless.blue_noise_uav = resource_heap_manager.add_uav(blue_noise_tex, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
 
     main_deletion_queue.push_function(
         [&]()

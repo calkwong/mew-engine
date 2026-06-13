@@ -5,16 +5,23 @@ struct PushConstants
 {
     float4x4 inverse_view_proj;
     float4x4 previous_view_proj;
+
     uint3 froxel_dims;
     uint first_frame;
+
     float near;
     float far;
     uint previous_scattering_extinction_tex;
-    uint scattering_extinction_tex;
+    uint scattering_extinction_tex; //unused
+
     uint rw_scattering_extinction_tex;
     float volumetrics_scale;
     float volumetrics_bias;
     float reprojection_factor;
+
+    float2 halton;
+    uint blue_noise_tex;
+    uint current_frame;
 };
 
 [[vk::push_constant]]
@@ -34,13 +41,13 @@ void main(
     // TODO: use correct sampler
     SamplerState samp = get_sampler<SamplerState>(NEAREST_SAMPLER);
     Texture3D previous_scattering_extinction_tex = get_sampled_image<Texture3D>(pc.previous_scattering_extinction_tex);
-    // Texture3D scattering_extinction_tex = get_sampled_image<Texture3D>(pc.scattering_extinction_tex);
     RWTexture3D rw_scattering_extinction_tex = get_storage_image<RWTexture3D>(pc.rw_scattering_extinction_tex);
 
-    // float4 scattering_extinction = scattering_extinction_tex.SampleLevel(samp, (float3(froxel_coord) + float3(0.5)) / float3(pc.froxel_dims), 0.0);
     float4 scattering_extinction = rw_scattering_extinction_tex.Load(froxel_coord);
 
-    float3 world_pos_no_jitter = world_from_froxel(froxel_coord, pc.froxel_dims, pc.inverse_view_proj, pc.near, pc.far);
+    float3 world_pos_no_jitter = world_from_froxel_no_jitter(froxel_coord, pc.froxel_dims, pc.inverse_view_proj, pc.near, pc.far);
+    // float temporal_reprojection_jitter_scale = 0.5;
+    // float3 world_pos_no_jitter = world_from_froxel(froxel_coord, pc.froxel_dims, pc.inverse_view_proj, pc.near, pc.far, pc.halton, temporal_reprojection_jitter_scale, pc.blue_noise_tex, pc.current_frame);
     float4 screen_space_center_last = mul(pc.previous_view_proj, float4(world_pos_no_jitter, 1.0));
     float3 ndc = screen_space_center_last.xyz / screen_space_center_last.w;
 
@@ -56,6 +63,7 @@ void main(
 
     if (all(history_uvw >= 0.0) && all(history_uvw <= 1.0))
     {
+        // bug: previous light scattering? or filtered (so we are correct here)?
         float4 history = previous_scattering_extinction_tex.SampleLevel(samp, history_uvw, 0.0);
         history = max(history, scattering_extinction);
 

@@ -23,7 +23,11 @@ struct PushConstants
     float light_cluster_bias;
 
     float2 cluster_dim;
+    float2 halton;
+
     float phase_anisotropy;
+    uint blue_noise_tex;
+    uint current_frame;
 };
 
 [[vk::push_constant]]
@@ -43,7 +47,8 @@ void main(
     Texture3D scattering_extinction_tex = get_sampled_image<Texture3D>(pc.scattering_extinction_tex);
     RWTexture3D light_scattering_tex = get_storage_image<RWTexture3D>(pc.light_scattering_tex);
 
-    float3 world_pos = world_from_froxel(froxel_coord, pc.froxel_dimensions, pc.inverse_view_proj, pc.near, pc.far);
+    float temporal_reprojection_jitter_scale = 0.5; // TODO: make this a cvar
+    float3 world_pos = world_from_froxel(froxel_coord, pc.froxel_dimensions, pc.inverse_view_proj, pc.near, pc.far, pc.halton, temporal_reprojection_jitter_scale, pc.blue_noise_tex, pc.current_frame);
     float3 rcp_froxel_dimensions = 1.0 / float3(pc.froxel_dimensions);
     float3 fog_data_uvw = float3(froxel_coord) * rcp_froxel_dimensions;
 

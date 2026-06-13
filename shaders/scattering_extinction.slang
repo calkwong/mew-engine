@@ -7,13 +7,17 @@ struct PushConstants
 {
     float4x4 inverse_view_proj;
     uint3 froxel_dimensions;
+    uint current_frame;
+
+    float2 halton;
     float near;
     float far;
-    uint noise_tex;
+
+    uint perlin_noise_tex;
+    uint blue_noise_tex;
     uint scattering_extinction_tex;
     float volumetric_noise_pos_mult; // [0, 1]
     float volumetric_noise_speed_mult; // [0, 1]
-    uint current_frame;
     float fog_density_modifier; // [0, 1]
     float height_fog_density_modifier; // [0, 10]
     float scattering_factor; // [0, 1]
@@ -40,13 +44,13 @@ void main(
         return;
 
     SamplerState samp = get_sampler<SamplerState>(LINEAR_SAMPLER);
-    // SamplerState samp = get_sampler<SamplerState>(NEAREST_REPEAT_SAMPLER);
-    Texture3D<float> noise_tex = get_sampled_image<Texture3D<float>>(pc.noise_tex);
+    Texture3D<float> noise_tex = get_sampled_image<Texture3D<float>>(pc.perlin_noise_tex);
     RWTexture3D scattering_extinction_tex = get_storage_image<RWTexture3D>(pc.scattering_extinction_tex);
 
     float4 scattering_extinction = float4(0.0);
 
-    float3 world_pos = world_from_froxel(froxel_coord, pc.froxel_dimensions, pc.inverse_view_proj, pc.near, pc.far);
+    float temporal_reprojection_jitter_scale = 0.5; // TODO: make this a cvar
+    float3 world_pos = world_from_froxel(froxel_coord, pc.froxel_dimensions, pc.inverse_view_proj, pc.near, pc.far, pc.halton, temporal_reprojection_jitter_scale, pc.blue_noise_tex, pc.current_frame);
 
     // large (small) pos_mult -> smaller (larger), more detailed (smooth) fog?
     // float3(1.0, 0.1, 2.0) behaves like wind dir
