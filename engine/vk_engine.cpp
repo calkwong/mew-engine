@@ -74,7 +74,8 @@ AutoCVar_Float CVAR_VOLUMETRIC_HEIGHT_FOG_DENSITY{ "volumetric.height_fog_densit
 AutoCVar_Float CVAR_VOLUMETRIC_SCATTERING_FACTOR{ "volumetric.scattering_factor", "Volumetric scattering factor", CVarFlags::EditDragFloat, 0.4, 0.0, 1.0, 0.05 };
 AutoCVar_Float CVAR_VOLUMETRIC_HEIGHT_FOG_FALLOFF{ "volumetric.height_fog_falloff", "Volumetric height fog falloff", CVarFlags::EditDragFloat, 0.1, 0.0, 10.0, 0.5 };
 AutoCVar_Float CVAR_VOLUMETRIC_PHASE_ANISOTROPY{ "volumetric.phase_anisotropy", "Volumetric phase anisotropy", CVarFlags::EditDragFloat, 0.2, 0.0, 1.0, 0.05 };
-AutoCVar_Int CVAR_VOLUMETRIC_SPATIAL_FILTERING{ "volumetric.spatial_filtering", "Volumetric spatial filtering", CVarFlags::EditCheckbox, 0 };
+AutoCVar_Int CVAR_VOLUMETRIC_SPATIAL_FILTERING{ "volumetric.spatial_filtering", "Volumetric spatial filtering", CVarFlags::EditCheckbox, 1 };
+AutoCVar_Int CVAR_VOLUMETRIC_TEMPORAL_FILTERING{ "volumetric.temporal_filtering", "Volumetric temporal filtering", CVarFlags::EditCheckbox, 0 };
 
 AutoCVar_Int CVAR_Z_SLICE{ "z_slice", "Noise z", CVarFlags::EditSliderInt, 0, 0, 127, 1 };
 AutoCVar_Int CVAR_VBUFFER{ "vbuffer", "Vbuffer path", CVarFlags::EditCheckbox, 1 };
@@ -1148,7 +1149,7 @@ void VulkanEngine::draw()
                 [&](Pass& pass)
                 {
                     pass.add_image_read("perlin", perlin_noise.image);
-                    pass.add_image_write("scattering_extinction", scattering_extinction_tex.image);
+                    pass.add_image_write("scattering_extinction", scattering_extinction_tex[frame_number % 2].image); // always use current
                 },
                 [&]()
                 {
@@ -1176,7 +1177,7 @@ void VulkanEngine::draw()
                     pc.near = main_camera.near;
                     pc.far = main_camera.far;
                     pc.noise_tex = bindless.perlin_srv;
-                    pc.scattering_extinction_tex = bindless.scattering_extinction_uav;
+                    pc.scattering_extinction_tex = bindless.scattering_extinction_uav + (frame_number % 2);
                     pc.volumetric_noise_pos_mult = cvar_system->get_float_cvar("volumetric.noise_pos_mult");
                     pc.volumetric_noise_speed_mult = cvar_system->get_float_cvar("volumetric.noise_speed_mult");
                     pc.current_frame = frame_number;
@@ -1206,7 +1207,7 @@ void VulkanEngine::draw()
                 Pass::PassType::ComputePass,
                 [&](Pass& pass)
                 {
-                    pass.add_image_read("scattering_extinction", scattering_extinction_tex.image);
+                    pass.add_image_read("scattering_extinction", scattering_extinction_tex[frame_number % 2].image); // always use current
                     pass.add_image_write("light_scattering", light_scattering_tex.image);
                     for (size_t i = 0; i < cascade_data.size(); i++)
                         pass.add_image_read("shadowmap_" + std::to_string(i), cascade_data[i].shadow_map.image);
@@ -1243,7 +1244,7 @@ void VulkanEngine::draw()
                     pc.near = main_camera.near;
                     pc.far = main_camera.far;
                     pc.froxel_dimensions = glm::uvec3(160, 90, 128);
-                    pc.scattering_extinction_tex = bindless.scattering_extinction_srv;
+                    pc.scattering_extinction_tex = bindless.scattering_extinction_srv + (frame_number % 2);
                     pc.light_scattering_tex = bindless.light_scattering_uav;
                     pc.shadowmap_id = bindless.shadowmap_srv;
 
@@ -1279,7 +1280,7 @@ void VulkanEngine::draw()
                     [&](Pass& pass)
                     {
                         pass.add_image_read("light_scattering", light_scattering_tex.image);
-                        pass.add_image_write("scattering_extinction", scattering_extinction_tex.image);
+                        pass.add_image_write("scattering_extinction", scattering_extinction_tex[frame_number % 2].image); // always use current
                     },
                     [&]()
                     {
@@ -1294,7 +1295,7 @@ void VulkanEngine::draw()
 
                         pc.froxel_dims = glm::uvec3(160, 90, 128);
                         pc.light_scattering_tex = bindless.light_scattering_srv;
-                        pc.scattering_extinction_tex = bindless.scattering_extinction_uav;
+                        pc.scattering_extinction_tex = bindless.scattering_extinction_uav + (frame_number % 2);
 
                         VkPushDataInfoEXT push_data_info{};
                         push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
@@ -1309,6 +1310,69 @@ void VulkanEngine::draw()
                         vkCmdDispatch(cmd, groupcount_x, groupcount_y, groupcount_z);
                     }
                 );
+
+                if (cvar_system->get_int_cvar("volumetric.temporal_filtering"))
+                {
+                    graph.add_pass(
+                        "fog_temporal_filtering",
+                        Pass::PassType::ComputePass,
+                        [&](Pass& pass)
+                        {
+                            pass.add_image_read("previous_scattering_extinction", scattering_extinction_tex[(frame_number + 1) % 2].image);
+                            pass.add_image_read("scattering_extinction", scattering_extinction_tex[frame_number % 2].image);
+                            pass.add_image_write("scattering_extinction", scattering_extinction_tex[frame_number % 2].image);
+                        },
+                        [&]()
+                        {
+                            auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, "fog_temporal_filtering");
+
+                            struct PushConstants
+                            {
+                                glm::mat4 inverse_view_proj{};
+                                glm::mat4 previous_view_proj{};
+                                glm::vec3 froxel_dims{};
+                                uint32_t first_frame{};
+                                float near{};
+                                float far{};
+                                uint32_t previous_scattering_extinction_tex{};
+                                uint32_t scattering_extinction_tex{};
+                                uint32_t rw_scattering_extinction_tex{};
+                                float volumetrics_scale{};
+                                float volumetrics_bias{};
+                                float reprojection_factor{};
+                            } pc;
+
+                            pc.inverse_view_proj = scene_data.inverse_viewproj;
+                            pc.previous_view_proj = scene_data.previous_viewproj;
+                            pc.froxel_dims = glm::uvec3(160, 90, 128);
+                            pc.first_frame = first_frame ? 1 : 0;
+                            // TODO: temporary hack - this needs to be set elsewhere properly, does not play well with TAA at the moment
+                            first_frame = false;
+                            pc.near = main_camera.near;
+                            pc.far = main_camera.far;
+                            pc.previous_scattering_extinction_tex = bindless.scattering_extinction_srv + ((frame_number + 1) % 2);
+                            pc.scattering_extinction_tex = bindless.scattering_extinction_srv + (frame_number % 2);
+                            pc.rw_scattering_extinction_tex = bindless.scattering_extinction_uav + (frame_number % 2);
+                            const float ratio = main_camera.far / main_camera.near;
+                            auto volumetrics_slices = 128.0f;
+                            pc.volumetrics_scale = volumetrics_slices / std::log(ratio);
+                            pc.volumetrics_bias = volumetrics_slices * std::log(main_camera.near) / std::log(ratio);
+                            pc.reprojection_factor = 0.9;
+
+                            VkPushDataInfoEXT push_data_info{};
+                            push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
+                            push_data_info.data = { &pc, sizeof(PushConstants) };
+                            vkCmdPushDataEXT(cmd, &push_data_info);
+
+                            ShaderPass current_pass = *shader_passes["fog_temporal_filtering"];
+                            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
+                            auto groupcount_x = get_groupcount(160, 8);
+                            auto groupcount_y = get_groupcount(90, 8);
+                            auto groupcount_z = get_groupcount(128, 1);
+                            vkCmdDispatch(cmd, groupcount_x, groupcount_y, groupcount_z);
+                        }
+                    );
+                }
             }
 
             graph.add_pass(
@@ -1317,7 +1381,7 @@ void VulkanEngine::draw()
                 [&](Pass& pass)
                 {
                     if (cvar_system->get_int_cvar("volumetric.spatial_filtering"))
-                        pass.add_image_read("scattering_extinction", scattering_extinction_tex.image);
+                        pass.add_image_read("scattering_extinction", scattering_extinction_tex[frame_number % 2].image);
                     else
                         pass.add_image_read("light_scattering", light_scattering_tex.image);
                     pass.add_image_write("integrated_light_scattering", integrated_light_scattering_tex.image);
@@ -1340,7 +1404,7 @@ void VulkanEngine::draw()
                     pc.froxel_dimensions = glm::uvec3(160, 90, 128);
                     pc.near = main_camera.near;
                     pc.far = main_camera.far;
-                    pc.light_scattering_tex = cvar_system->get_int_cvar("volumetric.spatial_filtering") ? bindless.scattering_extinction_srv : bindless.light_scattering_srv;
+                    pc.light_scattering_tex = cvar_system->get_int_cvar("volumetric.spatial_filtering") ? bindless.scattering_extinction_srv + (frame_number % 2) : bindless.light_scattering_srv;
                     pc.integrated_light_scattering_tex = bindless.integrated_light_scattering_uav;
 
                     VkPushDataInfoEXT push_data_info{};
@@ -2184,6 +2248,7 @@ void VulkanEngine::init_shaders()
     shader_cache.add_shader(device, "light_scattering.slang");
     shader_cache.add_shader(device, "light_integration.slang");
     shader_cache.add_shader(device, "fog_spatial_filtering.slang");
+    shader_cache.add_shader(device, "fog_temporal_filtering.slang");
     // shader_cache.add_shader(device, "rt.slang", sizeof(DeferredPushConstants));
 }
 
@@ -2220,6 +2285,7 @@ void VulkanEngine::init_pipelines()
     shader_passes["light_scattering"] = create_compute_pipeline(device, shader_cache["light_scattering.slang"], &desc_set_and_binding_mapping_info);
     shader_passes["light_integration"] = create_compute_pipeline(device, shader_cache["light_integration.slang"], &desc_set_and_binding_mapping_info);
     shader_passes["fog_spatial_filtering"] = create_compute_pipeline(device, shader_cache["fog_spatial_filtering.slang"], &desc_set_and_binding_mapping_info);
+    shader_passes["fog_temporal_filtering"] = create_compute_pipeline(device, shader_cache["fog_temporal_filtering.slang"], &desc_set_and_binding_mapping_info);
 
     // shader_passes["ray_tracing"] = create_compute_pipeline(device, shader_cache["rt.slang"], &desc_set_and_binding_mapping_info);
 
@@ -2582,16 +2648,21 @@ void VulkanEngine::init_resources()
     bindless.perlin_srv = resource_heap_manager.add_srv(perlin_noise, VK_IMAGE_VIEW_TYPE_3D, VK_IMAGE_ASPECT_COLOR_BIT);
     bindless.perlin_uav = resource_heap_manager.add_uav(perlin_noise, VK_IMAGE_VIEW_TYPE_3D, VK_IMAGE_ASPECT_COLOR_BIT);
 
-    scattering_extinction_tex = create_3d_image(
-        device,
-        allocator,
-        VkExtent3D{ 160, 90, 128 },
-        VK_FORMAT_R16G16B16A16_SFLOAT,
-        VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-        VK_IMAGE_ASPECT_COLOR_BIT
-    );
-    bindless.scattering_extinction_srv = resource_heap_manager.add_srv(scattering_extinction_tex, VK_IMAGE_VIEW_TYPE_3D, VK_IMAGE_ASPECT_COLOR_BIT);
-    bindless.scattering_extinction_uav = resource_heap_manager.add_uav(scattering_extinction_tex, VK_IMAGE_VIEW_TYPE_3D, VK_IMAGE_ASPECT_COLOR_BIT);
+    for (auto& tex : scattering_extinction_tex)
+    {
+        tex = create_3d_image(
+            device,
+            allocator,
+            VkExtent3D{ 160, 90, 128 },
+            VK_FORMAT_R16G16B16A16_SFLOAT,
+            VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+            VK_IMAGE_ASPECT_COLOR_BIT
+        );
+    }
+    bindless.scattering_extinction_srv = resource_heap_manager.add_srv(scattering_extinction_tex[0], VK_IMAGE_VIEW_TYPE_3D, VK_IMAGE_ASPECT_COLOR_BIT);
+    resource_heap_manager.add_srv(scattering_extinction_tex[1], VK_IMAGE_VIEW_TYPE_3D, VK_IMAGE_ASPECT_COLOR_BIT);
+    bindless.scattering_extinction_uav = resource_heap_manager.add_uav(scattering_extinction_tex[0], VK_IMAGE_VIEW_TYPE_3D, VK_IMAGE_ASPECT_COLOR_BIT);
+    resource_heap_manager.add_uav(scattering_extinction_tex[1], VK_IMAGE_VIEW_TYPE_3D, VK_IMAGE_ASPECT_COLOR_BIT);
 
     light_scattering_tex = create_3d_image(
         device,
@@ -2635,7 +2706,8 @@ void VulkanEngine::init_resources()
             }
 
             destroy_image(device, allocator, perlin_noise);
-            destroy_image(device, allocator, scattering_extinction_tex);
+            destroy_image(device, allocator, scattering_extinction_tex[0]);
+            destroy_image(device, allocator, scattering_extinction_tex[1]);
             destroy_image(device, allocator, light_scattering_tex);
             destroy_image(device, allocator, integrated_light_scattering_tex);
         }

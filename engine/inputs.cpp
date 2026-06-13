@@ -116,7 +116,8 @@ void key_callback(SDL_Window* window, SDL_Event& e)
             toggle_cvar("imgui");
 
         if (e.key.repeat == 0 && e.key.key == SDLK_Z)
-            toggle_cvar("taa.variance_clip");
+            toggle_cvar("volumetric.temporal_filtering");
+            // toggle_cvar("taa.variance_clip");
 
         if (e.key.repeat == 0 && e.key.key == SDLK_J)
             toggle_cvar("taa.catmull_rom");

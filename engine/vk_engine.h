@@ -183,7 +183,7 @@ public:
     AllocatedImage shadow_map{};
 
     AllocatedImage perlin_noise{};
-    AllocatedImage scattering_extinction_tex{};
+    std::array<AllocatedImage, 2> scattering_extinction_tex{};
     AllocatedImage light_scattering_tex{};
     AllocatedImage integrated_light_scattering_tex{};
 

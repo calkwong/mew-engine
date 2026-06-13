@@ -27,7 +27,7 @@ void main(
 {
     uint3 froxel_coord = global_id;
 
-    if (froxel_coord.x >= pc.froxel_dims.x || froxel_coord.y >= pc.froxel_dims.y || froxel_coord.z >= pc.froxel_dims.z)
+    if (any(froxel_coord >= pc.froxel_dims))
         return;
 
     // TODO: use proper sampler
