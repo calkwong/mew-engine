@@ -1176,7 +1176,7 @@ void VulkanEngine::draw()
                     } pc;
 
                     pc.inverse_view_proj = scene_data.inverse_viewproj;
-                    pc.froxel_dimensions = glm::uvec3(160, 90, 128);
+                    pc.froxel_dimensions = glm::uvec3(VOLUMETRIC_FROXEL_X, VOLUMETRIC_FROXEL_Y, VOLUMETRIC_FROXEL_Z);
                     pc.current_frame = frame_number;
                     pc.halton = jitter_offset[frame_number % jitter_offset.size()];
                     pc.near = main_camera.near;
@@ -1199,9 +1199,9 @@ void VulkanEngine::draw()
 
                     ShaderPass current_pass = *shader_passes["scattering_extinction"];
                     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
-                    auto groupcount_x = get_groupcount(160, 8);
-                    auto groupcount_y = get_groupcount(90, 8);
-                    auto groupcount_z = get_groupcount(128, 1);
+                    auto groupcount_x = get_groupcount(VOLUMETRIC_FROXEL_X, 8);
+                    auto groupcount_y = get_groupcount(VOLUMETRIC_FROXEL_Y, 8);
+                    auto groupcount_z = get_groupcount(VOLUMETRIC_FROXEL_Z, 1);
 
                     vkCmdDispatch(cmd, groupcount_x, groupcount_y, groupcount_z);
                 }
@@ -1252,7 +1252,7 @@ void VulkanEngine::draw()
                     pc.light_grid_buffer = bda_table.light_grid_buffer;
                     pc.near = main_camera.near;
                     pc.far = main_camera.far;
-                    pc.froxel_dimensions = glm::uvec3(160, 90, 128);
+                    pc.froxel_dimensions = glm::uvec3(VOLUMETRIC_FROXEL_X, VOLUMETRIC_FROXEL_Y, VOLUMETRIC_FROXEL_Z);
                     pc.scattering_extinction_tex = bindless.scattering_extinction_srv + (frame_number % 2);
                     pc.light_scattering_tex = bindless.light_scattering_uav;
                     pc.shadowmap_id = bindless.shadowmap_srv;
@@ -1260,8 +1260,8 @@ void VulkanEngine::draw()
                     const float ratio = main_camera.far / main_camera.near;
                     pc.light_cluster_scale = static_cast<float>(CLUSTER_DEPTH_SLICES) / std::log(ratio);
                     pc.light_cluster_bias = static_cast<float>(CLUSTER_DEPTH_SLICES) * std::log(main_camera.near) / std::log(ratio);
-                    auto cluster_x = ceil(static_cast<float>(160) / CLUSTER_X); // # cluster dim
-                    auto cluster_y = ceil(static_cast<float>(90) / CLUSTER_Y); // # cluster dim
+                    auto cluster_x = ceil(static_cast<float>(VOLUMETRIC_FROXEL_X) / CLUSTER_X); // # cluster dim
+                    auto cluster_y = ceil(static_cast<float>(VOLUMETRIC_FROXEL_Y) / CLUSTER_Y); // # cluster dim
                     pc.cluster_dim = glm::vec2(cluster_x, cluster_y);
                     pc.halton = jitter_offset[frame_number % jitter_offset.size()];
                     pc.phase_anisotropy = cvar_system->get_float_cvar("volumetric.phase_anisotropy");
@@ -1276,9 +1276,9 @@ void VulkanEngine::draw()
 
                     ShaderPass current_pass = *shader_passes["light_scattering"];
                     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
-                    auto groupcount_x = get_groupcount(160, 8);
-                    auto groupcount_y = get_groupcount(90, 8);
-                    auto groupcount_z = get_groupcount(128, 1);
+                    auto groupcount_x = get_groupcount(VOLUMETRIC_FROXEL_X, 8);
+                    auto groupcount_y = get_groupcount(VOLUMETRIC_FROXEL_Y, 8);
+                    auto groupcount_z = get_groupcount(VOLUMETRIC_FROXEL_Z, 1);
 
                     vkCmdDispatch(cmd, groupcount_x, groupcount_y, groupcount_z);
                 }
@@ -1305,7 +1305,7 @@ void VulkanEngine::draw()
                             uint32_t scattering_extinction_tex{};
                         } pc;
 
-                        pc.froxel_dims = glm::uvec3(160, 90, 128);
+                        pc.froxel_dims = glm::uvec3(VOLUMETRIC_FROXEL_X, VOLUMETRIC_FROXEL_Y, VOLUMETRIC_FROXEL_Z);
                         pc.light_scattering_tex = bindless.light_scattering_srv;
                         pc.scattering_extinction_tex = bindless.scattering_extinction_uav + (frame_number % 2);
 
@@ -1316,9 +1316,9 @@ void VulkanEngine::draw()
 
                         ShaderPass current_pass = *shader_passes["fog_spatial_filtering"];
                         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
-                        auto groupcount_x = get_groupcount(160, 8);
-                        auto groupcount_y = get_groupcount(90, 8);
-                        auto groupcount_z = get_groupcount(128, 1);
+                        auto groupcount_x = get_groupcount(VOLUMETRIC_FROXEL_X, 8);
+                        auto groupcount_y = get_groupcount(VOLUMETRIC_FROXEL_Y, 8);
+                        auto groupcount_z = get_groupcount(VOLUMETRIC_FROXEL_Z, 1);
                         vkCmdDispatch(cmd, groupcount_x, groupcount_y, groupcount_z);
                     }
                 );
@@ -1360,7 +1360,7 @@ void VulkanEngine::draw()
 
                             pc.inverse_view_proj = scene_data.inverse_viewproj;
                             pc.previous_view_proj = scene_data.previous_viewproj;
-                            pc.froxel_dims = glm::uvec3(160, 90, 128);
+                            pc.froxel_dims = glm::uvec3(VOLUMETRIC_FROXEL_X, VOLUMETRIC_FROXEL_Y, VOLUMETRIC_FROXEL_Z);
                             pc.first_frame = first_frame ? 1 : 0;
                             // TODO: temporary hack - this needs to be set elsewhere properly, does not play well with TAA at the moment
                             first_frame = false;
@@ -1370,7 +1370,7 @@ void VulkanEngine::draw()
                             pc.scattering_extinction_tex = bindless.scattering_extinction_srv + (frame_number % 2);
                             pc.rw_scattering_extinction_tex = bindless.scattering_extinction_uav + (frame_number % 2);
                             const float ratio = main_camera.far / main_camera.near;
-                            auto volumetrics_slices = 128.0f;
+                            float volumetrics_slices = static_cast<float>(VOLUMETRIC_FROXEL_Z);
                             pc.volumetrics_scale = volumetrics_slices / std::log(ratio);
                             pc.volumetrics_bias = volumetrics_slices * std::log(main_camera.near) / std::log(ratio);
                             pc.reprojection_factor = 0.9;
@@ -1385,9 +1385,9 @@ void VulkanEngine::draw()
 
                             ShaderPass current_pass = *shader_passes["fog_temporal_filtering"];
                             vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
-                            auto groupcount_x = get_groupcount(160, 8);
-                            auto groupcount_y = get_groupcount(90, 8);
-                            auto groupcount_z = get_groupcount(128, 1);
+                            auto groupcount_x = get_groupcount(VOLUMETRIC_FROXEL_X, 8);
+                            auto groupcount_y = get_groupcount(VOLUMETRIC_FROXEL_Y, 8);
+                            auto groupcount_z = get_groupcount(VOLUMETRIC_FROXEL_Z, 1);
                             vkCmdDispatch(cmd, groupcount_x, groupcount_y, groupcount_z);
                         }
                     );
@@ -1420,7 +1420,7 @@ void VulkanEngine::draw()
                     } pc;
 
                     pc.inverse_view_proj = scene_data.inverse_viewproj;
-                    pc.froxel_dimensions = glm::uvec3(160, 90, 128);
+                    pc.froxel_dimensions = glm::uvec3(VOLUMETRIC_FROXEL_X, VOLUMETRIC_FROXEL_Y, VOLUMETRIC_FROXEL_Z);
                     pc.near = main_camera.near;
                     pc.far = main_camera.far;
                     pc.light_scattering_tex = cvar_system->get_int_cvar("volumetric.spatial_filtering") ? bindless.scattering_extinction_srv + (frame_number % 2) : bindless.light_scattering_srv;
@@ -1435,8 +1435,8 @@ void VulkanEngine::draw()
                     ShaderPass current_pass = *shader_passes["light_integration"];
                     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
                     // TODO: remove hardcoded froxel dim
-                    auto groupcount_x = get_groupcount(160, 8);
-                    auto groupcount_y = get_groupcount(90, 8);
+                    auto groupcount_x = get_groupcount(VOLUMETRIC_FROXEL_X, 8);
+                    auto groupcount_y = get_groupcount(VOLUMETRIC_FROXEL_Y, 8);
 
                     vkCmdDispatch(cmd, groupcount_x, groupcount_y, 1);
                 }
@@ -2674,7 +2674,7 @@ void VulkanEngine::init_resources()
         tex = create_3d_image(
             device,
             allocator,
-            VkExtent3D{ 160, 90, 128 },
+            VkExtent3D{ VOLUMETRIC_FROXEL_X, VOLUMETRIC_FROXEL_Y, VOLUMETRIC_FROXEL_Z },
             VK_FORMAT_R16G16B16A16_SFLOAT,
             VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
             VK_IMAGE_ASPECT_COLOR_BIT
@@ -2688,7 +2688,7 @@ void VulkanEngine::init_resources()
     light_scattering_tex = create_3d_image(
         device,
         allocator,
-        VkExtent3D{ 160, 90, 128 },
+        VkExtent3D{ VOLUMETRIC_FROXEL_X, VOLUMETRIC_FROXEL_Y, VOLUMETRIC_FROXEL_Z },
         VK_FORMAT_R16G16B16A16_SFLOAT,
         VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
         VK_IMAGE_ASPECT_COLOR_BIT
@@ -2699,7 +2699,7 @@ void VulkanEngine::init_resources()
     integrated_light_scattering_tex = create_3d_image(
         device,
         allocator,
-        VkExtent3D{ 160, 90, 128 },
+        VkExtent3D{ VOLUMETRIC_FROXEL_X, VOLUMETRIC_FROXEL_Y, VOLUMETRIC_FROXEL_Z },
         VK_FORMAT_R16G16B16A16_SFLOAT,
         VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
         VK_IMAGE_ASPECT_COLOR_BIT
@@ -4298,7 +4298,7 @@ void VulkanEngine::execute_shading(VkCommandBuffer cmd)
     pc.debug = cvar_system->get_int_cvar("debug.textures");
     pc.volumetrics = cvar_system->get_int_cvar("volumetric_fog");
     pc.volumetrics_tex = bindless.integrated_light_scattering_srv;
-    auto volumetrics_slices = 128.0f;
+    float volumetrics_slices = static_cast<float>(VOLUMETRIC_FROXEL_Z);
     pc.volumetrics_scale = volumetrics_slices / std::log(ratio);
     pc.volumetrics_bias = volumetrics_slices * std::log(main_camera.near) / std::log(ratio);
 
