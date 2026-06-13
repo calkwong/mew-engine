@@ -93,6 +93,8 @@ public:
 
 private:
     // TODO: write only images that discard between pass executions not currently supported as we don't have such cases
+    // TODO: this is currently doing UNDEFINED -> GENERAL every frame, and this is UB when it comes to temporal images which
+    // we have (TAA & volumetric pass), so it needs to be fixed
     void build_barriers();
 
     // note: this is kinda redundant and never used for buffers
