@@ -39,7 +39,7 @@ void main(
         return;
 
     // TODO: use correct sampler
-    SamplerState samp = get_sampler<SamplerState>(NEAREST_SAMPLER);
+    SamplerState samp = get_sampler<SamplerState>(LINEAR_CLAMP_SAMPLER);
     Texture3D previous_scattering_extinction_tex = get_sampled_image<Texture3D>(pc.previous_scattering_extinction_tex);
     RWTexture3D rw_scattering_extinction_tex = get_storage_image<RWTexture3D>(pc.rw_scattering_extinction_tex);
 

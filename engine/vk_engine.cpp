@@ -1182,7 +1182,7 @@ void VulkanEngine::draw()
                     pc.near = main_camera.near;
                     pc.far = main_camera.far;
                     pc.perlin_noise_tex = bindless.perlin_srv;
-                    pc.blue_noise_tex = bindless.blue_noise_uav;
+                    pc.blue_noise_tex = bindless.blue_noise_srv;
                     pc.scattering_extinction_tex = bindless.scattering_extinction_uav + (frame_number % 2);
                     pc.volumetric_noise_pos_mult = cvar_system->get_float_cvar("volumetric.noise_pos_mult");
                     pc.volumetric_noise_speed_mult = cvar_system->get_float_cvar("volumetric.noise_speed_mult");
@@ -1265,7 +1265,7 @@ void VulkanEngine::draw()
                     pc.cluster_dim = glm::vec2(cluster_x, cluster_y);
                     pc.halton = jitter_offset[frame_number % jitter_offset.size()];
                     pc.phase_anisotropy = cvar_system->get_float_cvar("volumetric.phase_anisotropy");
-                    pc.blue_noise_tex = bindless.blue_noise_uav;
+                    pc.blue_noise_tex = bindless.blue_noise_srv;
                     pc.current_frame = frame_number;
 
                     VkPushDataInfoEXT push_data_info{};
@@ -1330,7 +1330,8 @@ void VulkanEngine::draw()
                         Pass::PassType::ComputePass,
                         [&](Pass& pass)
                         {
-                            pass.add_image_read("previous_scattering_extinction", scattering_extinction_tex[(frame_number + 1) % 2].image);
+                            // TODO: this is a hack to prevent UB behaviour from UNDEFINED -> GENERAL for previous_scattering_extinction
+                            // pass.add_image_read("previous_scattering_extinction", scattering_extinction_tex[(frame_number + 1) % 2].image);
                             pass.add_image_read("scattering_extinction", scattering_extinction_tex[frame_number % 2].image);
                             pass.add_image_write("scattering_extinction", scattering_extinction_tex[frame_number % 2].image);
                             pass.add_image_read("blue_noise", blue_noise_tex.image);
@@ -1375,7 +1376,7 @@ void VulkanEngine::draw()
                             pc.volumetrics_bias = volumetrics_slices * std::log(main_camera.near) / std::log(ratio);
                             pc.reprojection_factor = 0.9;
                             pc.halton = jitter_offset[frame_number % jitter_offset.size()];
-                            pc.blue_noise_tex = bindless.blue_noise_uav;
+                            pc.blue_noise_tex = bindless.blue_noise_srv;
                             pc.current_frame = frame_number;
 
                             VkPushDataInfoEXT push_data_info{};
@@ -2727,11 +2728,11 @@ void VulkanEngine::init_resources()
             static_cast<uint32_t>(desired_channels),
             extent,
             VK_FORMAT_R8G8B8A8_UNORM,
-            VK_IMAGE_USAGE_STORAGE_BIT,
+            VK_IMAGE_USAGE_SAMPLED_BIT,
             VK_IMAGE_ASPECT_COLOR_BIT
         );
     }
-    bindless.blue_noise_uav = resource_heap_manager.add_uav(blue_noise_tex, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
+    bindless.blue_noise_srv = resource_heap_manager.add_srv(blue_noise_tex, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT);
 
     main_deletion_queue.push_function(
         [&]()
