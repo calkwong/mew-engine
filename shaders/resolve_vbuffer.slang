@@ -38,6 +38,7 @@ struct PushConstants
 	uint volumetrics_tex;
 	float volumetrics_scale;
 	float volumetrics_bias;
+	uint3 volumetrics_froxel_dim;
 };
 
 [[vk::push_constant]] PushConstants pc;
@@ -288,7 +289,7 @@ void main(
         uint3 sample_uvw = depth_to_froxel(depth, pc.near, pc.volumetrics_scale, pc.volumetrics_bias, frag_coord, pc.screen_size, uint3(160, 90, 128));
         // RWTexture3D volumetrics_tex = get_storage_image<RWTexture3D>(pc.volumetrics_tex);
         // float4 scattering_transmittance = volumetrics_tex.Load(sample_uvw);
-        float3 uvw = (float3(sample_uvw) + float3(0.5)) / float3(160, 90, 128);
+        float3 uvw = (float3(sample_uvw) + float3(0.5)) / float3(pc.volumetrics_froxel_dim);
         Texture3D volumetrics_tex = get_sampled_image<Texture3D>(pc.volumetrics_tex);
         float4 scattering_transmittance = volumetrics_tex.SampleLevel(linear_clamp_samp, uvw, 0.0);
         color.rgb = color.rgb * scattering_transmittance.a + scattering_transmittance.rgb;

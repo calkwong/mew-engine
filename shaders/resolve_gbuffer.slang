@@ -32,6 +32,7 @@ struct PushConstants
 	uint shadows_rt;
 	float max_prefiltered_lod;
 	uint debug;
+	uint3 volumetrics_froxel_dim;
 };
 
 [[vk::push_constant]] PushConstants pc;

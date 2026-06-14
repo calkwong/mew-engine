@@ -4263,6 +4263,7 @@ void VulkanEngine::execute_shading(VkCommandBuffer cmd)
         uint32_t volumetrics_tex{};
         float volumetrics_scale{};
         float volumetrics_bias{};
+        glm::uvec3 volumetrics_froxel_dim{};
     } pc;
 
     auto cluster_x = ceil(static_cast<float>(swapchain.extent.width) / CLUSTER_X); // # cluster dim
@@ -4302,6 +4303,7 @@ void VulkanEngine::execute_shading(VkCommandBuffer cmd)
     float volumetrics_slices = static_cast<float>(VOLUMETRIC_FROXEL_Z);
     pc.volumetrics_scale = volumetrics_slices / std::log(ratio);
     pc.volumetrics_bias = volumetrics_slices * std::log(main_camera.near) / std::log(ratio);
+    pc.volumetrics_froxel_dim = glm::uvec3(VOLUMETRIC_FROXEL_X, VOLUMETRIC_FROXEL_Y, VOLUMETRIC_FROXEL_Z);
 
     VkPushDataInfoEXT push_data_info{};
     push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
