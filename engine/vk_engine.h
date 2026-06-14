@@ -163,6 +163,7 @@ public:
     SceneData scene_data{};
     std::array<CascadeData, 4> cascade_data{};
     std::array<glm::vec2, 8> jitter_offset{};
+    std::array<glm::vec2, 8> fog_jitter_offset{};
     EngineStats stats{};
 
     ShaderCache shader_cache{};

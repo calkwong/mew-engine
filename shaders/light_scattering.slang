@@ -28,6 +28,7 @@ struct PushConstants
     float phase_anisotropy;
     uint blue_noise_tex;
     uint current_frame;
+    uint point_lights;
 };
 
 [[vk::push_constant]]
@@ -69,37 +70,39 @@ void main(
         // float3 sunlight = shadow * uniforms.sunlight_color.xyz * phase;
         // sunlight *= exp(-extinction); // this is a simplification, we should march along sun direction
 
-        // interate over local lights in light cluster
-        float view_z = mul(uniforms.view, float4(world_pos, 1.0)).z;
-        uint light_slice = get_cluster_z_slice(view_z, pc.light_cluster_scale, pc.light_cluster_bias);
-        uint cluster_index = get_cluster_index(float2(froxel_coord.x, pc.froxel_dimensions.y - froxel_coord.y), pc.cluster_dim.xy, light_slice);
-
-        LightGrid grid = pc.light_grid_buffer[cluster_index];
-        uint offset = grid.offset;
-        uint local_light_count = grid.count;
         float3 point_lights = float3(0.0);
 
-#if 1
-        for (int i = 0; i < local_light_count; i++)
+        // interate over local lights in light cluster
+        if (pc.point_lights == 1)
         {
-            uint index = pc.light_index_buffer[offset + i];
+            float view_z = mul(uniforms.view, float4(world_pos, 1.0)).z;
+            uint light_slice = get_cluster_z_slice(view_z, pc.light_cluster_scale, pc.light_cluster_bias);
+            uint cluster_index = get_cluster_index(float2(froxel_coord.x, pc.froxel_dimensions.y - froxel_coord.y), pc.cluster_dim.xy, light_slice);
 
-            PointLight point_light = pc.light_buffer[index];
-            float3 light_pos = point_light.pos.xyz;
-            float light_radius = point_light.pos.w; // unused, taking into account falloff attenuation?
-            float3 light_color = point_light.color.xyz;
+            LightGrid grid = pc.light_grid_buffer[cluster_index];
+            uint offset = grid.offset;
+            uint local_light_count = grid.count;
 
-            light_pos = mul(uniforms.light_rot, float4(light_pos, 1.0)).xyz;
-            float3 distance = light_pos - world_pos;
+            for (int i = 0; i < local_light_count; i++)
+            {
+                uint index = pc.light_index_buffer[offset + i];
 
-            float attenuation = get_square_falloff_attenuation(distance, light_radius);
+                PointLight point_light = pc.light_buffer[index];
+                float3 light_pos = point_light.pos.xyz;
+                float light_radius = point_light.pos.w; // unused, taking into account falloff attenuation?
+                float3 light_color = point_light.color.xyz;
 
-            // light_color *= exp(-extinction * length(distance));
+                light_pos = mul(uniforms.light_rot, float4(light_pos, 1.0)).xyz;
+                float3 distance = light_pos - world_pos;
 
-            float phase = phase_shlick(pc.phase_anisotropy, dot(normalize(distance), V));
-            point_lights += light_color * attenuation * phase;
+                float attenuation = get_square_falloff_attenuation(distance, light_radius);
+
+                // light_color *= exp(-extinction * length(distance));
+
+                float phase = phase_shlick(pc.phase_anisotropy, dot(normalize(distance), V));
+                point_lights += light_color * attenuation * phase;
+            }
         }
-#endif
 
         lighting += sunlight + point_lights;
     }

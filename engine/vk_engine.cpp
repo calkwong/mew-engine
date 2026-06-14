@@ -307,6 +307,8 @@ void VulkanEngine::init(int file_count, char** file_paths)
     {
         float halton_x = 2.0f * Halton(i + 1, 2) - 1.0f;
         float halton_y = 2.0f * Halton(i + 1, 3) - 1.0f;
+        fog_jitter_offset[i] = glm::vec2(halton_x, halton_y);
+
         float x = halton_x / static_cast<float>(swapchain.extent.width);
         float y = halton_y / static_cast<float>(swapchain.extent.height);
         jitter_offset[i] = glm::vec2(x, y);
@@ -1178,7 +1180,7 @@ void VulkanEngine::draw()
                     pc.inverse_view_proj = scene_data.inverse_viewproj;
                     pc.froxel_dimensions = glm::uvec3(VOLUMETRIC_FROXEL_X, VOLUMETRIC_FROXEL_Y, VOLUMETRIC_FROXEL_Z);
                     pc.current_frame = frame_number;
-                    pc.halton = jitter_offset[frame_number % jitter_offset.size()];
+                    pc.halton = fog_jitter_offset[frame_number % fog_jitter_offset.size()];
                     pc.near = main_camera.near;
                     pc.far = main_camera.far;
                     pc.perlin_noise_tex = bindless.perlin_srv;
@@ -1244,6 +1246,7 @@ void VulkanEngine::draw()
                         float phase_anisotropy{};
                         uint32_t blue_noise_tex{};
                         uint32_t current_frame{};
+                        uint32_t point_lights{};
                     } pc;
 
                     pc.inverse_view_proj = scene_data.inverse_viewproj;
@@ -1263,10 +1266,11 @@ void VulkanEngine::draw()
                     auto cluster_x = ceil(static_cast<float>(VOLUMETRIC_FROXEL_X) / CLUSTER_X); // # cluster dim
                     auto cluster_y = ceil(static_cast<float>(VOLUMETRIC_FROXEL_Y) / CLUSTER_Y); // # cluster dim
                     pc.cluster_dim = glm::vec2(cluster_x, cluster_y);
-                    pc.halton = jitter_offset[frame_number % jitter_offset.size()];
+                    pc.halton = fog_jitter_offset[frame_number % fog_jitter_offset.size()];
                     pc.phase_anisotropy = cvar_system->get_float_cvar("volumetric.phase_anisotropy");
                     pc.blue_noise_tex = bindless.blue_noise_srv;
                     pc.current_frame = frame_number;
+                    pc.point_lights = cvar_system->get_int_cvar("point_lights");
 
                     VkPushDataInfoEXT push_data_info{};
                     push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
@@ -1375,7 +1379,7 @@ void VulkanEngine::draw()
                             pc.volumetrics_scale = volumetrics_slices / std::log(ratio);
                             pc.volumetrics_bias = volumetrics_slices * std::log(main_camera.near) / std::log(ratio);
                             pc.reprojection_factor = 0.9;
-                            pc.halton = jitter_offset[frame_number % jitter_offset.size()];
+                            pc.halton = fog_jitter_offset[frame_number % fog_jitter_offset.size()];
                             pc.blue_noise_tex = bindless.blue_noise_srv;
                             pc.current_frame = frame_number;
 
@@ -3019,7 +3023,8 @@ void VulkanEngine::update_scene()
 
     // scene_data.sunlight_dir = glm::vec4(7.75, 12.5, 12.5, 1.);
     // scene_data.sunlight_dir = glm::vec4(0.0, 0.0, -12.5, 1.);
-    scene_data.sunlight_dir = glm::vec4(0.001, 12.0, 0.0, 1.);
+    scene_data.sunlight_dir = glm::vec4(0.001, 12.0, 3.0, 1.);
+    // scene_data.sunlight_dir = glm::vec4(0.001, 12.0, 0.0, 1.);
     scene_data.sunlight_color = glm::vec4(1.0, 1.0, 1.0, 1.0);
 
     if (cvar_system->get_int_cvar("shadows") && !cvar_system->get_int_cvar("shadows_rt"))
