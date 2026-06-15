@@ -296,7 +296,7 @@ void main(
         // blue noise dithering
         Texture3D<float4> volumetrics_tex = get_sampled_image<Texture3D<float4>>(pc.volumetrics_tex);
         RWTexture2D blue_noise_tex = get_storage_image<RWTexture2D>(pc.blue_noise_tex);
-        const float noise_offset_scale = 0.5; // TODO: make cvar?
+        const float noise_offset_scale = 1.0; // TODO: make cvar?
         uint2 blue_noise_dim;
         blue_noise_tex.GetDimensions(blue_noise_dim.x, blue_noise_dim.y);
         float3 noise = blue_noise_tex.Load(global_id.xy % blue_noise_dim).rgb;

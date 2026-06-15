@@ -1145,191 +1145,191 @@ void VulkanEngine::draw()
                             render_shadows(cmd, static_cast<uint32_t>(i));
                     }
                 );
-            }
 
-            graph.add_pass(
-                "scattering_extinction",
-                Pass::PassType::ComputePass,
-                [&](Pass& pass)
-                {
-                    pass.add_image_read("perlin_noise", perlin_noise.image);
-                    pass.add_image_write("scattering_extinction", scattering_extinction_tex[frame_number % 2].image); // always use current
-                    pass.add_image_read("blue_noise", blue_noise_tex.image);
-                },
-                [&]()
-                {
-                    auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, "scattering_extinction");
-
-                    struct PushConstants
-                    {
-                        glm::mat4 inverse_view_proj{};
-                        glm::uvec3 froxel_dimensions{};
-                        uint32_t current_frame{};
-                        glm::vec2 halton{};
-                        float near{};
-                        float far{};
-                        uint32_t perlin_noise_tex{};
-                        uint32_t blue_noise_tex{};
-                        uint32_t scattering_extinction_tex{};
-                        float volumetric_noise_pos_mult{};
-                        float volumetric_noise_speed_mult{};
-                        float fog_density_modifier{};
-                        float height_fog_density_modifier{};
-                        float scattering_factor{};
-                        float height_fog_falloff{};
-                    } pc;
-
-                    pc.inverse_view_proj = scene_data.inverse_viewproj;
-                    pc.froxel_dimensions = glm::uvec3(VOLUMETRIC_FROXEL_X, VOLUMETRIC_FROXEL_Y, VOLUMETRIC_FROXEL_Z);
-                    pc.current_frame = frame_number;
-                    pc.halton = fog_jitter_offset[frame_number % fog_jitter_offset.size()];
-                    pc.near = main_camera.near;
-                    pc.far = cvar_system->get_float_cvar("volumetric.far_plane");
-                    pc.perlin_noise_tex = bindless.perlin_srv;
-                    pc.blue_noise_tex = bindless.blue_noise_uav;
-                    pc.scattering_extinction_tex = bindless.scattering_extinction_uav + (frame_number % 2);
-                    pc.volumetric_noise_pos_mult = cvar_system->get_float_cvar("volumetric.noise_pos_mult");
-                    pc.volumetric_noise_speed_mult = cvar_system->get_float_cvar("volumetric.noise_speed_mult");
-                    pc.fog_density_modifier = cvar_system->get_float_cvar("volumetric.fog_density");
-                    pc.height_fog_density_modifier = cvar_system->get_float_cvar("volumetric.height_fog_density");
-                    pc.scattering_factor = cvar_system->get_float_cvar("volumetric.scattering_factor");
-                    pc.height_fog_falloff = cvar_system->get_float_cvar("volumetric.height_fog_falloff");
-
-                    VkPushDataInfoEXT push_data_info{};
-                    push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
-                    push_data_info.data = { &pc, sizeof(PushConstants) };
-
-                    vkCmdPushDataEXT(cmd, &push_data_info);
-
-                    ShaderPass current_pass = *shader_passes["scattering_extinction"];
-                    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
-                    auto groupcount_x = get_groupcount(VOLUMETRIC_FROXEL_X, 8);
-                    auto groupcount_y = get_groupcount(VOLUMETRIC_FROXEL_Y, 8);
-                    auto groupcount_z = get_groupcount(VOLUMETRIC_FROXEL_Z, 1);
-
-                    vkCmdDispatch(cmd, groupcount_x, groupcount_y, groupcount_z);
-                }
-            );
-
-            graph.add_pass(
-                "light_scattering",
-                Pass::PassType::ComputePass,
-                [&](Pass& pass)
-                {
-                    pass.add_image_read("scattering_extinction", scattering_extinction_tex[frame_number % 2].image); // always use current
-                    pass.add_image_write("light_scattering", light_scattering_tex.image);
-                    for (size_t i = 0; i < cascade_data.size(); i++)
-                        pass.add_image_read("shadowmap_" + std::to_string(i), cascade_data[i].shadow_map.image);
-                    pass.add_storage_buffer_read("light");
-                    pass.add_storage_buffer_read("light_index");
-                    pass.add_storage_buffer_read("light_grid");
-                    pass.add_image_read("blue_noise", blue_noise_tex.image);
-                },
-                [&]()
-                {
-                    auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, "light_scattering");
-
-                    struct PushConstants
-                    {
-                        glm::mat4 inverse_view_proj{};
-                        VkDeviceAddress light_buffer{};
-                        VkDeviceAddress light_index_buffer{};
-                        VkDeviceAddress light_grid_buffer{};
-                        float near{};
-                        float far{};
-                        glm::uvec3 froxel_dimensions{};
-                        uint32_t scattering_extinction_tex{};
-                        uint32_t light_scattering_tex{};
-                        uint32_t shadowmap_id{};
-                        float light_cluster_scale{};
-                        float light_cluster_bias{};
-                        glm::vec2 cluster_dim{};
-                        glm::vec2 halton{};
-                        float phase_anisotropy{};
-                        uint32_t blue_noise_tex{};
-                        uint32_t current_frame{};
-                        uint32_t point_lights{};
-                    } pc;
-
-                    pc.inverse_view_proj = scene_data.inverse_viewproj;
-                    pc.light_buffer = bda_table.light_buffer;
-                    pc.light_index_buffer = bda_table.light_index_buffer;
-                    pc.light_grid_buffer = bda_table.light_grid_buffer;
-                    pc.near = main_camera.near;
-                    pc.far = cvar_system->get_float_cvar("volumetric.far_plane");
-                    pc.froxel_dimensions = glm::uvec3(VOLUMETRIC_FROXEL_X, VOLUMETRIC_FROXEL_Y, VOLUMETRIC_FROXEL_Z);
-                    pc.scattering_extinction_tex = bindless.scattering_extinction_srv + (frame_number % 2);
-                    pc.light_scattering_tex = bindless.light_scattering_uav;
-                    pc.shadowmap_id = bindless.shadowmap_srv;
-
-                    const float ratio = main_camera.far / main_camera.near;
-                    pc.light_cluster_scale = static_cast<float>(CLUSTER_DEPTH_SLICES) / std::log(ratio);
-                    pc.light_cluster_bias = static_cast<float>(CLUSTER_DEPTH_SLICES) * std::log(main_camera.near) / std::log(ratio);
-                    auto cluster_x = ceil(static_cast<float>(VOLUMETRIC_FROXEL_X) / CLUSTER_X); // # cluster dim
-                    auto cluster_y = ceil(static_cast<float>(VOLUMETRIC_FROXEL_Y) / CLUSTER_Y); // # cluster dim
-                    pc.cluster_dim = glm::vec2(cluster_x, cluster_y);
-                    pc.halton = fog_jitter_offset[frame_number % fog_jitter_offset.size()];
-                    pc.phase_anisotropy = cvar_system->get_float_cvar("volumetric.phase_anisotropy");
-                    pc.blue_noise_tex = bindless.blue_noise_uav;
-                    pc.current_frame = frame_number;
-                    pc.point_lights = cvar_system->get_int_cvar("point_lights");
-
-                    VkPushDataInfoEXT push_data_info{};
-                    push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
-                    push_data_info.data = { &pc, sizeof(PushConstants) };
-
-                    vkCmdPushDataEXT(cmd, &push_data_info);
-
-                    ShaderPass current_pass = *shader_passes["light_scattering"];
-                    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
-                    auto groupcount_x = get_groupcount(VOLUMETRIC_FROXEL_X, 8);
-                    auto groupcount_y = get_groupcount(VOLUMETRIC_FROXEL_Y, 8);
-                    auto groupcount_z = get_groupcount(VOLUMETRIC_FROXEL_Z, 1);
-
-                    vkCmdDispatch(cmd, groupcount_x, groupcount_y, groupcount_z);
-                }
-            );
-
-            if (cvar_system->get_int_cvar("volumetric.spatial_filtering"))
-            {
                 graph.add_pass(
-                    "fog_spatial_filtering",
+                    "scattering_extinction",
                     Pass::PassType::ComputePass,
                     [&](Pass& pass)
                     {
-                        pass.add_image_read("light_scattering", light_scattering_tex.image);
+                        pass.add_image_read("perlin_noise", perlin_noise.image);
                         pass.add_image_write("scattering_extinction", scattering_extinction_tex[frame_number % 2].image); // always use current
+                        pass.add_image_read("blue_noise", blue_noise_tex.image);
                     },
                     [&]()
                     {
-                        auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, "fog_spatial_filtering");
+                        auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, "scattering_extinction");
 
                         struct PushConstants
                         {
-                            glm::uvec3 froxel_dims{};
-                            uint32_t light_scattering_tex{};
+                            glm::mat4 inverse_view_proj{};
+                            glm::uvec3 froxel_dimensions{};
+                            uint32_t current_frame{};
+                            glm::vec2 halton{};
+                            float near{};
+                            float far{};
+                            uint32_t perlin_noise_tex{};
+                            uint32_t blue_noise_tex{};
                             uint32_t scattering_extinction_tex{};
+                            float volumetric_noise_pos_mult{};
+                            float volumetric_noise_speed_mult{};
+                            float fog_density_modifier{};
+                            float height_fog_density_modifier{};
+                            float scattering_factor{};
+                            float height_fog_falloff{};
                         } pc;
 
-                        pc.froxel_dims = glm::uvec3(VOLUMETRIC_FROXEL_X, VOLUMETRIC_FROXEL_Y, VOLUMETRIC_FROXEL_Z);
-                        pc.light_scattering_tex = bindless.light_scattering_srv;
+                        pc.inverse_view_proj = scene_data.inverse_viewproj;
+                        pc.froxel_dimensions = glm::uvec3(VOLUMETRIC_FROXEL_X, VOLUMETRIC_FROXEL_Y, VOLUMETRIC_FROXEL_Z);
+                        pc.current_frame = frame_number;
+                        pc.halton = fog_jitter_offset[frame_number % fog_jitter_offset.size()];
+                        pc.near = main_camera.near;
+                        pc.far = cvar_system->get_float_cvar("volumetric.far_plane");
+                        pc.perlin_noise_tex = bindless.perlin_srv;
+                        pc.blue_noise_tex = bindless.blue_noise_uav;
                         pc.scattering_extinction_tex = bindless.scattering_extinction_uav + (frame_number % 2);
+                        pc.volumetric_noise_pos_mult = cvar_system->get_float_cvar("volumetric.noise_pos_mult");
+                        pc.volumetric_noise_speed_mult = cvar_system->get_float_cvar("volumetric.noise_speed_mult");
+                        pc.fog_density_modifier = cvar_system->get_float_cvar("volumetric.fog_density");
+                        pc.height_fog_density_modifier = cvar_system->get_float_cvar("volumetric.height_fog_density");
+                        pc.scattering_factor = cvar_system->get_float_cvar("volumetric.scattering_factor");
+                        pc.height_fog_falloff = cvar_system->get_float_cvar("volumetric.height_fog_falloff");
 
                         VkPushDataInfoEXT push_data_info{};
                         push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
                         push_data_info.data = { &pc, sizeof(PushConstants) };
+
                         vkCmdPushDataEXT(cmd, &push_data_info);
 
-                        ShaderPass current_pass = *shader_passes["fog_spatial_filtering"];
+                        ShaderPass current_pass = *shader_passes["scattering_extinction"];
                         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
                         auto groupcount_x = get_groupcount(VOLUMETRIC_FROXEL_X, 8);
                         auto groupcount_y = get_groupcount(VOLUMETRIC_FROXEL_Y, 8);
                         auto groupcount_z = get_groupcount(VOLUMETRIC_FROXEL_Z, 1);
+
                         vkCmdDispatch(cmd, groupcount_x, groupcount_y, groupcount_z);
                     }
                 );
 
-                /* if (cvar_system->get_int_cvar("volumetric.temporal_filtering"))
+                graph.add_pass(
+                    "light_scattering",
+                    Pass::PassType::ComputePass,
+                    [&](Pass& pass)
+                    {
+                        pass.add_image_read("scattering_extinction", scattering_extinction_tex[frame_number % 2].image); // always use current
+                        pass.add_image_write("light_scattering", light_scattering_tex.image);
+                        for (size_t i = 0; i < cascade_data.size(); i++)
+                            pass.add_image_read("shadowmap_" + std::to_string(i), cascade_data[i].shadow_map.image);
+                        pass.add_storage_buffer_read("light");
+                        pass.add_storage_buffer_read("light_index");
+                        pass.add_storage_buffer_read("light_grid");
+                        pass.add_image_read("blue_noise", blue_noise_tex.image);
+                    },
+                    [&]()
+                    {
+                        auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, "light_scattering");
+
+                        struct PushConstants
+                        {
+                            glm::mat4 inverse_view_proj{};
+                            VkDeviceAddress light_buffer{};
+                            VkDeviceAddress light_index_buffer{};
+                            VkDeviceAddress light_grid_buffer{};
+                            float near{};
+                            float far{};
+                            glm::uvec3 froxel_dimensions{};
+                            uint32_t scattering_extinction_tex{};
+                            uint32_t light_scattering_tex{};
+                            uint32_t shadowmap_id{};
+                            float light_cluster_scale{};
+                            float light_cluster_bias{};
+                            glm::vec2 cluster_dim{};
+                            glm::vec2 halton{};
+                            float phase_anisotropy{};
+                            uint32_t blue_noise_tex{};
+                            uint32_t current_frame{};
+                            uint32_t point_lights{};
+                        } pc;
+
+                        pc.inverse_view_proj = scene_data.inverse_viewproj;
+                        pc.light_buffer = bda_table.light_buffer;
+                        pc.light_index_buffer = bda_table.light_index_buffer;
+                        pc.light_grid_buffer = bda_table.light_grid_buffer;
+                        pc.near = main_camera.near;
+                        pc.far = cvar_system->get_float_cvar("volumetric.far_plane");
+                        pc.froxel_dimensions = glm::uvec3(VOLUMETRIC_FROXEL_X, VOLUMETRIC_FROXEL_Y, VOLUMETRIC_FROXEL_Z);
+                        pc.scattering_extinction_tex = bindless.scattering_extinction_srv + (frame_number % 2);
+                        pc.light_scattering_tex = bindless.light_scattering_uav;
+                        pc.shadowmap_id = bindless.shadowmap_srv;
+
+                        const float ratio = main_camera.far / main_camera.near;
+                        pc.light_cluster_scale = static_cast<float>(CLUSTER_DEPTH_SLICES) / std::log(ratio);
+                        pc.light_cluster_bias = static_cast<float>(CLUSTER_DEPTH_SLICES) * std::log(main_camera.near) / std::log(ratio);
+                        auto cluster_x = ceil(static_cast<float>(VOLUMETRIC_FROXEL_X) / CLUSTER_X); // # cluster dim
+                        auto cluster_y = ceil(static_cast<float>(VOLUMETRIC_FROXEL_Y) / CLUSTER_Y); // # cluster dim
+                        pc.cluster_dim = glm::vec2(cluster_x, cluster_y);
+                        pc.halton = fog_jitter_offset[frame_number % fog_jitter_offset.size()];
+                        pc.phase_anisotropy = cvar_system->get_float_cvar("volumetric.phase_anisotropy");
+                        pc.blue_noise_tex = bindless.blue_noise_uav;
+                        pc.current_frame = frame_number;
+                        pc.point_lights = cvar_system->get_int_cvar("point_lights");
+
+                        VkPushDataInfoEXT push_data_info{};
+                        push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
+                        push_data_info.data = { &pc, sizeof(PushConstants) };
+
+                        vkCmdPushDataEXT(cmd, &push_data_info);
+
+                        ShaderPass current_pass = *shader_passes["light_scattering"];
+                        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
+                        auto groupcount_x = get_groupcount(VOLUMETRIC_FROXEL_X, 8);
+                        auto groupcount_y = get_groupcount(VOLUMETRIC_FROXEL_Y, 8);
+                        auto groupcount_z = get_groupcount(VOLUMETRIC_FROXEL_Z, 1);
+
+                        vkCmdDispatch(cmd, groupcount_x, groupcount_y, groupcount_z);
+                    }
+                );
+
+                if (cvar_system->get_int_cvar("volumetric.spatial_filtering"))
+                {
+                    graph.add_pass(
+                        "fog_spatial_filtering",
+                        Pass::PassType::ComputePass,
+                        [&](Pass& pass)
+                        {
+                            pass.add_image_read("light_scattering", light_scattering_tex.image);
+                            pass.add_image_write("scattering_extinction", scattering_extinction_tex[frame_number % 2].image); // always use current
+                        },
+                        [&]()
+                        {
+                            auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, "fog_spatial_filtering");
+
+                            struct PushConstants
+                            {
+                                glm::uvec3 froxel_dims{};
+                                uint32_t light_scattering_tex{};
+                                uint32_t scattering_extinction_tex{};
+                            } pc;
+
+                            pc.froxel_dims = glm::uvec3(VOLUMETRIC_FROXEL_X, VOLUMETRIC_FROXEL_Y, VOLUMETRIC_FROXEL_Z);
+                            pc.light_scattering_tex = bindless.light_scattering_srv;
+                            pc.scattering_extinction_tex = bindless.scattering_extinction_uav + (frame_number % 2);
+
+                            VkPushDataInfoEXT push_data_info{};
+                            push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
+                            push_data_info.data = { &pc, sizeof(PushConstants) };
+                            vkCmdPushDataEXT(cmd, &push_data_info);
+
+                            ShaderPass current_pass = *shader_passes["fog_spatial_filtering"];
+                            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
+                            auto groupcount_x = get_groupcount(VOLUMETRIC_FROXEL_X, 8);
+                            auto groupcount_y = get_groupcount(VOLUMETRIC_FROXEL_Y, 8);
+                            auto groupcount_z = get_groupcount(VOLUMETRIC_FROXEL_Z, 1);
+                            vkCmdDispatch(cmd, groupcount_x, groupcount_y, groupcount_z);
+                        }
+                    );
+
+                    /*
+                if (cvar_system->get_int_cvar("volumetric.temporal_filtering"))
                 {
                     graph.add_pass(
                         "fog_temporal_filtering",
@@ -1398,7 +1398,9 @@ void VulkanEngine::draw()
                             vkCmdDispatch(cmd, groupcount_x, groupcount_y, groupcount_z);
                         }
                     );
-                } */
+                }
+                */
+                }
             }
 
             graph.add_pass(
@@ -4303,7 +4305,7 @@ void VulkanEngine::execute_shading(VkCommandBuffer cmd)
     pc.shadows_rt = cvar_system->get_int_cvar("shadows_rt");
     pc.max_prefiltered_lod = static_cast<float>(std::floor(std::log2(static_cast<float>(std::max(prefiltered_envmap.extent.width, prefiltered_envmap.extent.height))))) + 1;
     pc.debug = cvar_system->get_int_cvar("debug.textures");
-    pc.volumetrics = cvar_system->get_int_cvar("volumetric_fog");
+    pc.volumetrics = cvar_system->get_int_cvar("volumetric_fog") && pc.shadows && !pc.shadows_rt;
     pc.volumetrics_tex = bindless.integrated_light_scattering_srv;
     float volumetrics_slices = static_cast<float>(VOLUMETRIC_FROXEL_Z);
     const float fog_frustum_ratio = cvar_system->get_float_cvar("volumetric.far_plane") / main_camera.near;
