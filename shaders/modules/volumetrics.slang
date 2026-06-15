@@ -11,10 +11,8 @@ public uint3 depth_to_froxel(float depth, float near, float volumetrics_scale, f
     uint slice = uint(floor(log(linear_depth) * volumetrics_scale - volumetrics_bias));
     slice = clamp(slice, 0, froxel_dims.z - 1);
 
-    float2 ratio = float2(froxel_dims.xy) / screen_dim;
-    uint2 froxel_index = uint2(floor(ratio * frag_coord));
-    froxel_index.x = clamp(froxel_index.x, 0, froxel_dims.x - 1);
-    froxel_index.y = clamp(froxel_index.y, 0, froxel_dims.y - 1);
+    float2 pixels_per_froxel = screen_dim / float2(froxel_dims.xy);
+    uint2 froxel_index = uint2(floor(frag_coord / pixels_per_froxel));
 
     return uint3(froxel_index.x, froxel_index.y, slice);
 }
@@ -60,14 +58,14 @@ internal float generate_noise(float2 uv, float frame, float noise_scale, uint bl
 
 public float3 world_from_froxel(uint3 coord, uint3 froxel_dim, float4x4 inverse_view_proj, float near, float far, float2 halton, float temporal_reprojection_jitter_scale, uint blue_noise_texture_id, uint frame)
 {
-    float2 uv = (float2(coord.xy) + float2(0.5) + halton * temporal_reprojection_jitter_scale) / float2(froxel_dim.xy);
-    // float2 uv = (float2(coord.xy) + float2(0.5)) / float2(froxel_dim.xy);
+    // float2 uv = (float2(coord.xy) + float2(0.5) + halton * temporal_reprojection_jitter_scale) / float2(froxel_dim.xy);
+    float2 uv = (float2(coord.xy) + float2(0.5)) / float2(froxel_dim.xy);
     float froxel_z = float(froxel_dim.z);
     float slice = float(coord.z);
 
-    // float jitter = 0.0;
-    float noise_scale = 1.0; // TODO: make this a cvar
-    float jitter = generate_noise(float2(coord.xy) / float2(froxel_dim.xy), frame, noise_scale, blue_noise_texture_id);
+    float jitter = 0.0;
+    // float noise_scale = 1.0; // TODO: make this a cvar
+    // float jitter = generate_noise(float2(coord.xy) / float2(froxel_dim.xy), frame, noise_scale, blue_noise_texture_id);
 
     // from ID tech
     float linear_depth = near * pow(far / near, (slice + 0.5 + jitter) / froxel_z); // no negation as we want +ve linear depth

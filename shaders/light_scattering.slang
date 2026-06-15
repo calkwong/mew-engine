@@ -41,7 +41,7 @@ void main(
 )
 {
     uint3 froxel_coord = global_id;
-    if (froxel_coord.x >= pc.froxel_dimensions.x || froxel_coord.y >= pc.froxel_dimensions.y || froxel_coord.z >= pc.froxel_dimensions.z)
+    if (any(froxel_coord >= pc.froxel_dimensions))
         return;
 
     SamplerState samp = get_sampler<SamplerState>(LINEAR_CLAMP_SAMPLER);
@@ -59,16 +59,26 @@ void main(
     float3 lighting = float3(0.0);
 
     // TODO: ambient, figure out if we apply beer's law here
-    // if (extinction > 0.01)
     {
         float3 V = normalize(uniforms.camera_pos.xyz - world_pos);
-        float phase = phase_shlick(pc.phase_anisotropy, dot(normalize(uniforms.sunlight_dir.xyz), V));
+        float3 L = normalize(uniforms.sunlight_dir.xyz);
+        float VdotL = dot(V, L);
+        float phase = phase_shlick(pc.phase_anisotropy, VdotL);
 
         uint cascade_index = 0;
         float shadow = calculate_shadow(world_pos, cascade_index, pc.shadowmap_id);
         float3 sunlight = shadow * float3(10.0) * phase;
         // float3 sunlight = shadow * uniforms.sunlight_color.xyz * phase;
-        // sunlight *= exp(-extinction); // this is a simplification, we should march along sun direction
+
+        // this is a hack - to properly implement we need to implement density here rather than in an earlier pass and
+        // looking up a texture3D, which is way too expensive as we need to convert from world pos to froxel uv for each step
+        // float accum_density = 0.0;
+        // float step_size = 5.0;
+        // for (int i = 0; i < 5; i++)
+        // {
+        //     accum_density += extinction * step_size;
+        // }
+        // sunlight *= exp(-accum_density);
 
         float3 point_lights = float3(0.0);
 
@@ -93,13 +103,15 @@ void main(
                 float3 light_color = point_light.color.xyz;
 
                 light_pos = mul(uniforms.light_rot, float4(light_pos, 1.0)).xyz;
-                float3 distance = light_pos - world_pos;
+                L = light_pos - world_pos;
 
-                float attenuation = get_square_falloff_attenuation(distance, light_radius);
+                float attenuation = get_square_falloff_attenuation(L, light_radius);
 
-                // light_color *= exp(-extinction * length(distance));
+                light_color *= exp(-extinction * length(L));
 
-                float phase = phase_shlick(pc.phase_anisotropy, dot(normalize(distance), V));
+                L = normalize(L);
+                VdotL = dot(L, V);
+                float phase = phase_shlick(pc.phase_anisotropy, VdotL);
                 point_lights += light_color * attenuation * phase;
             }
         }

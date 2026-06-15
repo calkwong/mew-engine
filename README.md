@@ -1,6 +1,8 @@
 # mewengine
 A fully bindless, GPU driven Vulkan renderer to experiment with modern rendering techniques. This was initially started for learning Vulkan.
 
+![image](https://github.com/calkwong/mew-engine/blob/master/media/combined.png)
+
 # Features
 * Descriptor heap
 * Bindless textures and samplers, BDA for buffers
@@ -13,3 +15,4 @@ A fully bindless, GPU driven Vulkan renderer to experiment with modern rendering
 * Multi layer alpha blending (OIT)
 * Cascaded shadow maps
 * glTF + KTX2 support
+* Basic volumetric fog
