@@ -39,6 +39,7 @@ struct PushConstants
 	float volumetrics_scale;
 	float volumetrics_bias;
 	uint3 volumetrics_froxel_dim;
+	uint blue_noise_tex;
 };
 
 [[vk::push_constant]] PushConstants pc;
@@ -283,12 +284,25 @@ void main(
 		color = get_sampled_image<TextureCube>(uniforms.skybox_id).SampleLevel(cube_samp, sample_dir, 0.0).xyz;
 	}
 
+	uint hash_id;
 	if (pc.volumetrics != 0)
 	{
-        uint3 sample_uvw = depth_to_froxel(depth, pc.near, pc.volumetrics_scale, pc.volumetrics_bias, frag_coord, pc.screen_size, pc.volumetrics_froxel_dim);
-        // TODO: dithering
-        float3 uvw = float3(sample_uvw) / float3(pc.volumetrics_froxel_dim);
+        float linear_depth = pc.near / depth;
+        uint slice = uint(floor(log(linear_depth) * pc.volumetrics_scale - pc.volumetrics_bias));
+        slice = clamp(slice, 0, pc.volumetrics_froxel_dim.z - 1);
+        hash_id = slice;
+        float3 uvw = float3(in_uv, float(slice) / pc.volumetrics_froxel_dim.z);
+
+        // blue noise dithering
         Texture3D<float4> volumetrics_tex = get_sampled_image<Texture3D<float4>>(pc.volumetrics_tex);
+        RWTexture2D blue_noise_tex = get_storage_image<RWTexture2D>(pc.blue_noise_tex);
+        const float noise_offset_scale = 0.5; // TODO: make cvar?
+        uint2 blue_noise_dim;
+        blue_noise_tex.GetDimensions(blue_noise_dim.x, blue_noise_dim.y);
+        float3 noise = blue_noise_tex.Load(global_id.xy % blue_noise_dim).rgb;
+        float3 offset = noise_offset_scale * noise;
+
+        uvw += offset / float3(pc.volumetrics_froxel_dim);
         float4 scattering_transmittance = volumetrics_tex.SampleLevel(linear_clamp_samp, uvw, 0.0);
         color.rgb = color.rgb * scattering_transmittance.a + scattering_transmittance.rgb;
 	}
@@ -371,6 +385,8 @@ void main(
 		    out_color = float4(0,0,0,1);
 	}
 
+	uint mhash = hash(hash_id);
+    // out_color.xyz = float3(float(mhash & 255), float((mhash >> 8) & 255), float((mhash >> 16) & 255)) / 255.0;
 	RWTexture2D tex = get_storage_image<RWTexture2D>(pc.draw_id);
 	tex.Store(int2(frag_coord), out_color);
 }

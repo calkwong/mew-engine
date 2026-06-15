@@ -5,18 +5,6 @@ import util;
 
 internal static const float PI = 3.14159265359;
 
-public uint3 depth_to_froxel(float depth, float near, float volumetrics_scale, float volumetrics_bias, float2 frag_coord, float2 screen_dim, uint3 froxel_dims)
-{
-    float linear_depth = near / depth; // infinite plane + reverse z
-    uint slice = uint(floor(log(linear_depth) * volumetrics_scale - volumetrics_bias));
-    slice = clamp(slice, 0, froxel_dims.z - 1);
-
-    float2 pixels_per_froxel = screen_dim / float2(froxel_dims.xy);
-    uint2 froxel_index = uint2(floor(frag_coord / pixels_per_froxel));
-
-    return uint3(froxel_index.x, froxel_index.y, slice);
-}
-
 public float phase_shlick(float g, float cos_theta)
 {
     float numerator = 1.0 - g * g;
@@ -43,11 +31,10 @@ internal float triangular_noise(float noise0, float noise1)
 }
 
 // Animated blue noise using golden ratio
-internal float generate_noise(float2 uv, float frame, float noise_scale, uint blue_noise_texture_id)
+internal float generate_noise(int2 frag_coord, float frame, float noise_scale, uint blue_noise_texture_id)
 {
-    Texture2D blue_noise_tex = get_sampled_image<Texture2D>(blue_noise_texture_id);
-    SamplerState linear_samp = get_sampler<SamplerState>(LINEAR_SAMPLER);
-    float2 blue_noise = blue_noise_tex.SampleLevel(linear_samp, uv, 0.0).rg;
+    RWTexture2D blue_noise_tex = get_storage_image<RWTexture2D>(blue_noise_texture_id);
+    float2 blue_noise = blue_noise_tex.Load(frag_coord).rg;
 
     const float k_golden_ratio_conjugate = 0.61803398875;
     float blue_noise0 = frac(blue_noise.r + float(frame % 256) * k_golden_ratio_conjugate);
@@ -64,8 +51,8 @@ public float3 world_from_froxel(uint3 coord, uint3 froxel_dim, float4x4 inverse_
     float slice = float(coord.z);
 
     float jitter = 0.0;
-    // float noise_scale = 1.0; // TODO: make this a cvar
-    // float jitter = generate_noise(float2(coord.xy) / float2(froxel_dim.xy), frame, noise_scale, blue_noise_texture_id);
+    // float noise_scale = 0.2; // TODO: make this a cvar
+    // float jitter = generate_noise(int2(coord.xy), frame, noise_scale, blue_noise_texture_id);
 
     // from ID tech
     float linear_depth = near * pow(far / near, (slice + 0.5 + jitter) / froxel_z); // no negation as we want +ve linear depth

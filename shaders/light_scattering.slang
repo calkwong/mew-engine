@@ -72,13 +72,13 @@ void main(
 
         // this is a hack - to properly implement we need to implement density here rather than in an earlier pass and
         // looking up a texture3D, which is way too expensive as we need to convert from world pos to froxel uv for each step
-        // float accum_density = 0.0;
-        // float step_size = 5.0;
-        // for (int i = 0; i < 5; i++)
-        // {
-        //     accum_density += extinction * step_size;
-        // }
-        // sunlight *= exp(-accum_density);
+        float accum_density = 0.0;
+        float step_size = 5.0;
+        for (int i = 0; i < 5; i++)
+        {
+            accum_density += extinction * step_size;
+        }
+        sunlight *= exp(-accum_density);
 
         float3 point_lights = float3(0.0);
 
