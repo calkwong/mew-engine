@@ -21,7 +21,8 @@ void main(
 )
 {
     RWTexture2D out_tex = get_storage_image<RWTexture2D>(pc.draw_id);
-    RWTexture3D debug_tex = get_storage_image<RWTexture3D>(pc.debug_texture_id);
+    Texture3D<float4> debug_tex = get_sampled_image<Texture3D<float4>>(pc.debug_texture_id);
+    SamplerState samp = get_sampler<SamplerState>(LINEAR_CLAMP_SAMPLER);
 
     uint layers;
 
@@ -31,13 +32,13 @@ void main(
     uint x = global_id.x;
     uint y = global_id.y;
 
-    const uint tile_size = 5;
+    const float2 tile_size = float2(pc.swapchain_resolution) / float2(debug_resolution.xy);
 
-    if (any(uint2(x, y) >= debug_resolution.xy * tile_size))
+    if (any(uint2(x, y) >= pc.swapchain_resolution))
         return;
 
-    uint2 uv = uint2(float2(x, y) / float(tile_size));
+    uint2 uv = uint2(float2(x, y) / tile_size);
 
-    float4 output = debug_tex.Load(uint3(uv, pc.slice));
+    float4 output = debug_tex.SampleLevel(samp, float3(uv, pc.slice) / float3(debug_resolution), 0.0);
     out_tex.Store(uint2(x, y), float4(output.xyz, 1));
 }

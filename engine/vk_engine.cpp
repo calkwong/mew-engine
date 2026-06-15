@@ -67,8 +67,8 @@ AutoCVar_Int CVAR_IMGUI{ "imgui", "Imgui", CVarFlags::EditCheckbox | CVarFlags::
 AutoCVar_Int CVAR_DISABLE_CAMERA{ "disable_camera", "Disable camera", CVarFlags::EditCheckbox | CVarFlags::EditHide, 0 };
 AutoCVar_Int CVAR_HOT_RELOAD{ "hot_reload", "Hot reload shaders", CVarFlags::EditCheckbox | CVarFlags::EditHide, 0 };
 
-AutoCVar_Float CVAR_VOLUMETRIC_NOISE_POS{ "volumetric.noise_pos_mult", "Volumetric noise pos mult", CVarFlags::EditDragFloat, 0.5, 0.0, 1.0, 0.05 };
-AutoCVar_Float CVAR_VOLUMETRIC_NOISE_SPEED{ "volumetric.noise_speed_mult", "Volumetric noise speed mult", CVarFlags::EditDragFloat, 0.001, 0.0, 1.0, 0.05 };
+AutoCVar_Float CVAR_VOLUMETRIC_NOISE_POS{ "volumetric.noise_pos_mult", "Volumetric noise pos mult", CVarFlags::EditDragFloat, 0.0, 0.0, 1.0, 0.05 };
+AutoCVar_Float CVAR_VOLUMETRIC_NOISE_SPEED{ "volumetric.noise_speed_mult", "Volumetric noise speed mult", CVarFlags::EditDragFloat, 0.0, 0.0, 1.0, 0.05 };
 AutoCVar_Float CVAR_VOLUMETRIC_FOG_DENSITY{ "volumetric.fog_density", "Volumetric fog density", CVarFlags::EditDragFloat, 0.0, 0.0, 1.0, 0.05 };
 AutoCVar_Float CVAR_VOLUMETRIC_HEIGHT_FOG_DENSITY{ "volumetric.height_fog_density", "Volumetric height fog density", CVarFlags::EditDragFloat, 0.8, 0.0, 10.0, 0.5 };
 AutoCVar_Float CVAR_VOLUMETRIC_SCATTERING_FACTOR{ "volumetric.scattering_factor", "Volumetric scattering factor", CVarFlags::EditDragFloat, 0.4, 0.0, 1.0, 0.05 };
@@ -77,8 +77,9 @@ AutoCVar_Float CVAR_VOLUMETRIC_PHASE_ANISOTROPY{ "volumetric.phase_anisotropy", 
 AutoCVar_Int CVAR_VOLUMETRIC_SPATIAL_FILTERING{ "volumetric.spatial_filtering", "Volumetric spatial filtering", CVarFlags::EditCheckbox, 1 };
 AutoCVar_Int CVAR_VOLUMETRIC_TEMPORAL_FILTERING{ "volumetric.temporal_filtering", "Volumetric temporal filtering", CVarFlags::EditCheckbox, 0 };
 AutoCVar_Float CVAR_VOLUMETRIC_FAR_PLANE{ "volumetric.far_plane", "Volumetric far plane", CVarFlags::EditDragFloat, 60.0, 50.0, 150.0, 10.0 };
+AutoCVar_Int CVAR_DEBUG_3D{ "debug.3d", "Debug 3d texture", CVarFlags::EditCheckbox, 0 };
 
-AutoCVar_Int CVAR_Z_SLICE{ "z_slice", "Noise z", CVarFlags::EditSliderInt, 0, 0, 127, 1 };
+AutoCVar_Int CVAR_Z_SLICE{ "z_slice", "Noise z", CVarFlags::EditSliderInt, 127, 0, 127, 1 };
 AutoCVar_Int CVAR_VBUFFER{ "vbuffer", "Vbuffer path", CVarFlags::EditCheckbox, 1 };
 AutoCVar_Int CVAR_MESH_SHADERS{ "mesh_shaders", "Mesh shaders path", CVarFlags::EditCheckbox, 1 };
 AutoCVar_Int CVAR_ALPHACLIP{ "alphaclip", "Alphaclip", CVarFlags::EditCheckbox, 1 };
@@ -1183,7 +1184,7 @@ void VulkanEngine::draw()
                     pc.current_frame = frame_number;
                     pc.halton = fog_jitter_offset[frame_number % fog_jitter_offset.size()];
                     pc.near = main_camera.near;
-                    pc.far = main_camera.far;
+                    pc.far = cvar_system->get_float_cvar("volumetric.far_plane");
                     pc.perlin_noise_tex = bindless.perlin_srv;
                     pc.blue_noise_tex = bindless.blue_noise_srv;
                     pc.scattering_extinction_tex = bindless.scattering_extinction_uav + (frame_number % 2);
@@ -1255,7 +1256,7 @@ void VulkanEngine::draw()
                     pc.light_index_buffer = bda_table.light_index_buffer;
                     pc.light_grid_buffer = bda_table.light_grid_buffer;
                     pc.near = main_camera.near;
-                    pc.far = main_camera.far;
+                    pc.far = cvar_system->get_float_cvar("volumetric.far_plane");
                     pc.froxel_dimensions = glm::uvec3(VOLUMETRIC_FROXEL_X, VOLUMETRIC_FROXEL_Y, VOLUMETRIC_FROXEL_Z);
                     pc.scattering_extinction_tex = bindless.scattering_extinction_srv + (frame_number % 2);
                     pc.light_scattering_tex = bindless.light_scattering_uav;
@@ -1328,7 +1329,7 @@ void VulkanEngine::draw()
                     }
                 );
 
-                if (cvar_system->get_int_cvar("volumetric.temporal_filtering"))
+                /* if (cvar_system->get_int_cvar("volumetric.temporal_filtering"))
                 {
                     graph.add_pass(
                         "fog_temporal_filtering",
@@ -1397,7 +1398,7 @@ void VulkanEngine::draw()
                             vkCmdDispatch(cmd, groupcount_x, groupcount_y, groupcount_z);
                         }
                     );
-                }
+                } */
             }
 
             graph.add_pass(
@@ -1428,7 +1429,7 @@ void VulkanEngine::draw()
                     pc.inverse_view_proj = scene_data.inverse_viewproj;
                     pc.froxel_dimensions = glm::uvec3(VOLUMETRIC_FROXEL_X, VOLUMETRIC_FROXEL_Y, VOLUMETRIC_FROXEL_Z);
                     pc.near = main_camera.near;
-                    pc.far = main_camera.far;
+                    pc.far = cvar_system->get_float_cvar("volumetric.far_plane");
                     pc.light_scattering_tex = cvar_system->get_int_cvar("volumetric.spatial_filtering") ? bindless.scattering_extinction_srv + (frame_number % 2) : bindless.light_scattering_srv;
                     pc.integrated_light_scattering_tex = bindless.integrated_light_scattering_uav;
 
@@ -1607,45 +1608,44 @@ void VulkanEngine::draw()
                 );
             }
 
-#if 0
-            // TODO: sampling seems broken compared to loading, could be a Slang texture3D issue, investigate!
-            graph.add_pass(
-                "debug_3d",
-                Pass::PassType::ComputePass,
-                [&](Pass& pass)
-                {
-                    pass.add_image_write("draw", draw_image.image);
-                },
-                [&]()
-                {
-                    struct PushConstants
+            if (cvar_system->get_int_cvar("debug.3d"))
+            {
+                graph.add_pass(
+                    "debug_3d",
+                    Pass::PassType::ComputePass,
+                    [&](Pass& pass)
                     {
-                        glm::uvec2 swapchain_resolution{};
-                        uint32_t debug_texture_id{};
-                        uint32_t draw_id{};
-                        uint32_t slice{};
-                    } pc;
+                        pass.add_image_write("draw", draw_image.image);
+                    },
+                    [&]()
+                    {
+                        struct PushConstants
+                        {
+                            glm::uvec2 swapchain_resolution{};
+                            uint32_t debug_texture_id{};
+                            uint32_t draw_id{};
+                            uint32_t slice{};
+                        } pc;
 
-                    pc.swapchain_resolution = glm::uvec2(swapchain.extent.width, swapchain.extent.height);
-                    // pc.debug_texture_id = bindless.light_scattering_uav;
-                    pc.debug_texture_id = bindless.integrated_light_scattering_uav;
-                    pc.draw_id = bindless.draw_uav;
-                    pc.slice = cvar_system->get_int_cvar("z_slice");
+                        pc.swapchain_resolution = glm::uvec2(swapchain.extent.width, swapchain.extent.height);
+                        pc.debug_texture_id = bindless.integrated_light_scattering_srv;
+                        pc.draw_id = bindless.draw_uav;
+                        pc.slice = cvar_system->get_int_cvar("z_slice");
 
-                    VkPushDataInfoEXT push_data_info{};
-                    push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
-                    push_data_info.data = { &pc, sizeof(PushConstants) };
-                    vkCmdPushDataEXT(cmd, &push_data_info);
+                        VkPushDataInfoEXT push_data_info{};
+                        push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
+                        push_data_info.data = { &pc, sizeof(PushConstants) };
+                        vkCmdPushDataEXT(cmd, &push_data_info);
 
-                    ShaderPass current_pass = *shader_passes["debug_3d"];
-                    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
+                        ShaderPass current_pass = *shader_passes["debug_3d"];
+                        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
 
-                    auto groupcount_x = get_groupcount(swapchain.extent.width, WARP_SIZE);
-                    auto groupcount_y = get_groupcount(swapchain.extent.height, WARP_SIZE);
-                    vkCmdDispatch(cmd, groupcount_x, groupcount_y, 1);
-                }
-            );
-#endif
+                        auto groupcount_x = get_groupcount(swapchain.extent.width, WARP_SIZE);
+                        auto groupcount_y = get_groupcount(swapchain.extent.height, WARP_SIZE);
+                        vkCmdDispatch(cmd, groupcount_x, groupcount_y, 1);
+                    }
+                );
+            }
 
             graph.add_pass(
                 "copy_to_swapchain",
@@ -4295,9 +4295,9 @@ void VulkanEngine::execute_shading(VkCommandBuffer cmd)
     pc.light_culling = cvar_system->get_int_cvar("point_lights");
     pc.near = main_camera.near;
 
-    const float ratio = main_camera.far / main_camera.near;
-    pc.scale = static_cast<float>(CLUSTER_DEPTH_SLICES) / std::log(ratio);
-    pc.bias = static_cast<float>(CLUSTER_DEPTH_SLICES) * std::log(main_camera.near) / std::log(ratio);
+    const float light_frustum_ratio = main_camera.far / main_camera.near;
+    pc.scale = static_cast<float>(CLUSTER_DEPTH_SLICES) / std::log(light_frustum_ratio);
+    pc.bias = static_cast<float>(CLUSTER_DEPTH_SLICES) * std::log(main_camera.near) / std::log(light_frustum_ratio);
     pc.shadows = cvar_system->get_int_cvar("shadows");
     pc.shadows_rt = cvar_system->get_int_cvar("shadows_rt");
     pc.max_prefiltered_lod = static_cast<float>(std::floor(std::log2(static_cast<float>(std::max(prefiltered_envmap.extent.width, prefiltered_envmap.extent.height))))) + 1;
@@ -4305,8 +4305,9 @@ void VulkanEngine::execute_shading(VkCommandBuffer cmd)
     pc.volumetrics = cvar_system->get_int_cvar("volumetric_fog");
     pc.volumetrics_tex = bindless.integrated_light_scattering_srv;
     float volumetrics_slices = static_cast<float>(VOLUMETRIC_FROXEL_Z);
-    pc.volumetrics_scale = volumetrics_slices / std::log(ratio);
-    pc.volumetrics_bias = volumetrics_slices * std::log(main_camera.near) / std::log(ratio);
+    const float fog_frustum_ratio = cvar_system->get_float_cvar("volumetric.far_plane") / main_camera.near;
+    pc.volumetrics_scale = volumetrics_slices / std::log(fog_frustum_ratio);
+    pc.volumetrics_bias = volumetrics_slices * std::log(main_camera.near) / std::log(fog_frustum_ratio);
     pc.volumetrics_froxel_dim = glm::uvec3(VOLUMETRIC_FROXEL_X, VOLUMETRIC_FROXEL_Y, VOLUMETRIC_FROXEL_Z);
 
     VkPushDataInfoEXT push_data_info{};
