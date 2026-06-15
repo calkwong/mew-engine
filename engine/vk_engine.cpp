@@ -2274,7 +2274,7 @@ void VulkanEngine::init_shaders()
     shader_cache.add_shader(device, "light_scattering.slang");
     shader_cache.add_shader(device, "light_integration.slang");
     shader_cache.add_shader(device, "fog_spatial_filtering.slang");
-    shader_cache.add_shader(device, "fog_temporal_filtering.slang");
+    // shader_cache.add_shader(device, "fog_temporal_filtering.slang");
     // shader_cache.add_shader(device, "rt.slang", sizeof(DeferredPushConstants));
 }
 
@@ -2311,9 +2311,9 @@ void VulkanEngine::init_pipelines()
     shader_passes["light_scattering"] = create_compute_pipeline(device, shader_cache["light_scattering.slang"], &desc_set_and_binding_mapping_info);
     shader_passes["light_integration"] = create_compute_pipeline(device, shader_cache["light_integration.slang"], &desc_set_and_binding_mapping_info);
     shader_passes["fog_spatial_filtering"] = create_compute_pipeline(device, shader_cache["fog_spatial_filtering.slang"], &desc_set_and_binding_mapping_info);
-    shader_passes["fog_temporal_filtering"] = create_compute_pipeline(device, shader_cache["fog_temporal_filtering.slang"], &desc_set_and_binding_mapping_info);
-
+    // shader_passes["fog_temporal_filtering"] = create_compute_pipeline(device, shader_cache["fog_temporal_filtering.slang"], &desc_set_and_binding_mapping_info);
     // shader_passes["ray_tracing"] = create_compute_pipeline(device, shader_cache["rt.slang"], &desc_set_and_binding_mapping_info);
+
 
     shader_passes["gbuffer_vert"] = create_graphics_pipeline(
         device,
