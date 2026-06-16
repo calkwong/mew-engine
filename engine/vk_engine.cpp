@@ -1401,55 +1401,55 @@ void VulkanEngine::draw()
                 }
                 */
                 }
-            }
 
-            graph.add_pass(
-                "light_integration",
-                Pass::PassType::ComputePass,
-                [&](Pass& pass)
-                {
-                    if (cvar_system->get_int_cvar("volumetric.spatial_filtering"))
-                        pass.add_image_read("scattering_extinction", scattering_extinction_tex[frame_number % 2].image);
-                    else
-                        pass.add_image_read("light_scattering", light_scattering_tex.image);
-                    pass.add_image_write("integrated_light_scattering", integrated_light_scattering_tex.image);
-                },
-                [&]()
-                {
-                    auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, "light_integration");
-
-                    struct PushConstants
+                graph.add_pass(
+                    "light_integration",
+                    Pass::PassType::ComputePass,
+                    [&](Pass& pass)
                     {
-                        glm::mat4 inverse_view_proj{};
-                        glm::uvec3 froxel_dimensions{};
-                        float near{};
-                        float far{};
-                        uint32_t light_scattering_tex{};
-                        uint32_t integrated_light_scattering_tex{};
-                    } pc;
+                        if (cvar_system->get_int_cvar("volumetric.spatial_filtering"))
+                            pass.add_image_read("scattering_extinction", scattering_extinction_tex[frame_number % 2].image);
+                        else
+                            pass.add_image_read("light_scattering", light_scattering_tex.image);
+                        pass.add_image_write("integrated_light_scattering", integrated_light_scattering_tex.image);
+                    },
+                    [&]()
+                    {
+                        auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, "light_integration");
 
-                    pc.inverse_view_proj = scene_data.inverse_viewproj;
-                    pc.froxel_dimensions = glm::uvec3(VOLUMETRIC_FROXEL_X, VOLUMETRIC_FROXEL_Y, VOLUMETRIC_FROXEL_Z);
-                    pc.near = main_camera.near;
-                    pc.far = cvar_system->get_float_cvar("volumetric.far_plane");
-                    pc.light_scattering_tex = cvar_system->get_int_cvar("volumetric.spatial_filtering") ? bindless.scattering_extinction_srv + (frame_number % 2) : bindless.light_scattering_srv;
-                    pc.integrated_light_scattering_tex = bindless.integrated_light_scattering_uav;
+                        struct PushConstants
+                        {
+                            glm::mat4 inverse_view_proj{};
+                            glm::uvec3 froxel_dimensions{};
+                            float near{};
+                            float far{};
+                            uint32_t light_scattering_tex{};
+                            uint32_t integrated_light_scattering_tex{};
+                        } pc;
 
-                    VkPushDataInfoEXT push_data_info{};
-                    push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
-                    push_data_info.data = { &pc, sizeof(PushConstants) };
+                        pc.inverse_view_proj = scene_data.inverse_viewproj;
+                        pc.froxel_dimensions = glm::uvec3(VOLUMETRIC_FROXEL_X, VOLUMETRIC_FROXEL_Y, VOLUMETRIC_FROXEL_Z);
+                        pc.near = main_camera.near;
+                        pc.far = cvar_system->get_float_cvar("volumetric.far_plane");
+                        pc.light_scattering_tex = cvar_system->get_int_cvar("volumetric.spatial_filtering") ? bindless.scattering_extinction_srv + (frame_number % 2) : bindless.light_scattering_srv;
+                        pc.integrated_light_scattering_tex = bindless.integrated_light_scattering_uav;
 
-                    vkCmdPushDataEXT(cmd, &push_data_info);
+                        VkPushDataInfoEXT push_data_info{};
+                        push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
+                        push_data_info.data = { &pc, sizeof(PushConstants) };
 
-                    ShaderPass current_pass = *shader_passes["light_integration"];
-                    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
-                    // TODO: remove hardcoded froxel dim
-                    auto groupcount_x = get_groupcount(VOLUMETRIC_FROXEL_X, 8);
-                    auto groupcount_y = get_groupcount(VOLUMETRIC_FROXEL_Y, 8);
+                        vkCmdPushDataEXT(cmd, &push_data_info);
 
-                    vkCmdDispatch(cmd, groupcount_x, groupcount_y, 1);
-                }
-            );
+                        ShaderPass current_pass = *shader_passes["light_integration"];
+                        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
+                        // TODO: remove hardcoded froxel dim
+                        auto groupcount_x = get_groupcount(VOLUMETRIC_FROXEL_X, 8);
+                        auto groupcount_y = get_groupcount(VOLUMETRIC_FROXEL_Y, 8);
+
+                        vkCmdDispatch(cmd, groupcount_x, groupcount_y, 1);
+                    }
+                );
+            }
 
             graph.add_pass(
                 "lighting_pass",
@@ -2313,7 +2313,6 @@ void VulkanEngine::init_pipelines()
     shader_passes["fog_spatial_filtering"] = create_compute_pipeline(device, shader_cache["fog_spatial_filtering.slang"], &desc_set_and_binding_mapping_info);
     // shader_passes["fog_temporal_filtering"] = create_compute_pipeline(device, shader_cache["fog_temporal_filtering.slang"], &desc_set_and_binding_mapping_info);
     // shader_passes["ray_tracing"] = create_compute_pipeline(device, shader_cache["rt.slang"], &desc_set_and_binding_mapping_info);
-
 
     shader_passes["gbuffer_vert"] = create_graphics_pipeline(
         device,
