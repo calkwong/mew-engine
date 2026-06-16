@@ -140,6 +140,9 @@ void key_callback(SDL_Window* window, SDL_Event& e)
         if (e.key.repeat == 0 && e.key.key == SDLK_Q)
             toggle_cvar("debug.3d");
 
+        if (e.key.repeat == 0 && e.key.key == SDLK_P)
+            toggle_cvar("point_lights");
+
         if (e.key.repeat == 0 && e.key.key == SDLK_Y)
             CVarSystem::get()->set_int_cvar("hot_reload", 1);
     }

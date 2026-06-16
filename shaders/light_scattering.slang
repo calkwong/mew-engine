@@ -67,8 +67,9 @@ void main(
 
         uint cascade_index = 0;
         float shadow = calculate_shadow(world_pos, cascade_index, pc.shadowmap_id);
-        float3 sunlight = shadow * float3(10.0) * phase;
-        // float3 sunlight = shadow * uniforms.sunlight_color.xyz * phase;
+        float3 sunlight = shadow * uniforms.sunlight_color.xyz * phase;
+        float sunlight_intensity = 10.0; // for debugging
+        sunlight *= sunlight_intensity;
 
         // this is a hack - to properly implement we need to implement density here rather than in an earlier pass and
         // looking up a texture3D, which is way too expensive as we need to convert from world pos to froxel uv for each step
@@ -86,7 +87,7 @@ void main(
         if (pc.point_lights == 1)
         {
             float view_z = mul(uniforms.view, float4(world_pos, 1.0)).z;
-            uint light_slice = get_cluster_z_slice(view_z, pc.light_cluster_scale, pc.light_cluster_bias);
+            uint light_slice = get_cluster_z_slice(-view_z, pc.light_cluster_scale, pc.light_cluster_bias);
             uint cluster_index = get_cluster_index(float2(froxel_coord.x, pc.froxel_dimensions.y - froxel_coord.y), pc.cluster_dim.xy, light_slice);
 
             LightGrid grid = pc.light_grid_buffer[cluster_index];
@@ -101,6 +102,8 @@ void main(
                 float3 light_pos = point_light.pos.xyz;
                 float light_radius = point_light.pos.w; // unused, taking into account falloff attenuation?
                 float3 light_color = point_light.color.xyz;
+                // float intensity = 10.0; // for debugging
+                // light_color *= intensity;
 
                 light_pos = mul(uniforms.light_rot, float4(light_pos, 1.0)).xyz;
                 L = light_pos - world_pos;

@@ -48,16 +48,23 @@ void main(
         float extinction = scattering_extinction.a;
         float clamped_extinction = max(extinction, 0.00001);
 
+#if 1
         density_accum += extinction * d;
         float transmittance = exp(-density_accum);
 
-        // float transmittance = exp(-extinction * d);
         scattering = (scattering - (scattering * transmittance)) / clamped_extinction;
 
         integrated_scattering += scattering * integrated_transmission;
         integrated_transmission *= transmittance;
 
-        // integrated_light_scattering_tex.Store(uint3(froxel_coord), float4(integrated_scattering, integrated_transmission));
         integrated_light_scattering_tex.Store(uint3(froxel_coord), float4(integrated_scattering, transmittance));
+#else
+        float transmittance = exp(-extinction * d);
+
+        integrated_scattering += scattering * integrated_transmission;
+        integrated_transmission *= transmittance;
+
+        integrated_light_scattering_tex.Store(uint3(froxel_coord), float4(integrated_scattering, integrated_transmission));
+#endif
     }
 }

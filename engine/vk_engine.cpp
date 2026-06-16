@@ -76,7 +76,7 @@ AutoCVar_Float CVAR_VOLUMETRIC_HEIGHT_FOG_FALLOFF{ "volumetric.height_fog_fallof
 AutoCVar_Float CVAR_VOLUMETRIC_PHASE_ANISOTROPY{ "volumetric.phase_anisotropy", "Volumetric phase anisotropy", CVarFlags::EditDragFloat, 0.2, 0.0, 1.0, 0.05 };
 AutoCVar_Int CVAR_VOLUMETRIC_SPATIAL_FILTERING{ "volumetric.spatial_filtering", "Volumetric spatial filtering", CVarFlags::EditCheckbox, 1 };
 AutoCVar_Int CVAR_VOLUMETRIC_TEMPORAL_FILTERING{ "volumetric.temporal_filtering", "Volumetric temporal filtering", CVarFlags::EditCheckbox, 0 };
-AutoCVar_Float CVAR_VOLUMETRIC_FAR_PLANE{ "volumetric.far_plane", "Volumetric far plane", CVarFlags::EditDragFloat, 60.0, 50.0, 150.0, 10.0 };
+AutoCVar_Float CVAR_VOLUMETRIC_FAR_PLANE{ "volumetric.far_plane", "Volumetric far plane", CVarFlags::EditDragFloat, 60.0, 50.0, 500.0, 10.0 };
 AutoCVar_Int CVAR_DEBUG_3D{ "debug.3d", "Debug 3d texture", CVarFlags::EditCheckbox, 0 };
 
 AutoCVar_Int CVAR_Z_SLICE{ "z_slice", "Noise z", CVarFlags::EditSliderInt, 127, 0, 127, 1 };
@@ -1631,6 +1631,7 @@ void VulkanEngine::draw()
 
                         pc.swapchain_resolution = glm::uvec2(swapchain.extent.width, swapchain.extent.height);
                         pc.debug_texture_id = bindless.integrated_light_scattering_srv;
+                        // pc.debug_texture_id = bindless.light_scattering_srv;
                         pc.draw_id = bindless.draw_uav;
                         pc.slice = cvar_system->get_int_cvar("z_slice");
 
@@ -2559,7 +2560,7 @@ void VulkanEngine::init_resources()
     std::vector<PointLight> light_data(MAX_POINT_LIGHTS);
 
     float light_area = 10.f; // in radius
-    float light_radius = 3.f;
+    float light_radius = 1.f;
 
     for (size_t i = 0; i < MAX_POINT_LIGHTS; i++)
     {
