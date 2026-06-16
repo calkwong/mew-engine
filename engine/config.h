@@ -15,7 +15,7 @@
 #define CULL_WGSIZE 256
 
 // queries
-#define QUERY_COUNT 50
+#define QUERY_COUNT 100
 
 // clustered shading
 #define CLUSTER_DEPTH_SLICES 24
