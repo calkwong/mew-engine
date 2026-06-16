@@ -289,7 +289,7 @@ void ps_main(
         #if 1
         if (pc.point_lights == 1)
         {
-            float view_z = in.view_pos.z; // TODO: can we do better than passing another matrix as interpolant?
+            float view_z = -in.view_pos.z; // TODO: can we do better than passing another matrix as interpolant?
     		uint slice = get_cluster_z_slice(view_z, pc.scale, pc.bias);
             float2 frag_coord = in.position.xy;
     		uint cluster_index = get_cluster_index(float2(frag_coord.x, pc.screen_size.y - frag_coord.y), pc.cluster_size, slice);
