@@ -20,6 +20,14 @@ add_subdirectory(engine)
 # TODO: consider Slang reflection API for proper module support
 
 find_program(SLANG_COMPILER slangc HINTS /usr/bin /usr/local/bin $ENV{VULKAN_SDK}/Bin/ $ENV{VULKAN_SDK}/Bin32/)
+# find_program(SLANG_COMPILER slangc HINTS /opt/slang/bin)
+
+if(SLANG_COMPILER)
+    execute_process(
+        COMMAND ${SLANG_COMPILER} -v
+        COMMAND_ECHO STDOUT
+    )
+endif()
 
 file(GLOB SLANG_SOURCE_FILES
     "${PROJECT_SOURCE_DIR}/shaders/*.slang"
