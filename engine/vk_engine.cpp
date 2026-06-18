@@ -314,6 +314,8 @@ void VulkanEngine::init(int file_count, char** file_paths)
         float x = halton_x / static_cast<float>(swapchain.extent.width);
         float y = halton_y / static_cast<float>(swapchain.extent.height);
         jitter_offset[i] = glm::vec2(x, y);
+        // fmt::println("fog jitter offset: {} {}", halton_x, halton_y);
+        // fmt::println("taa jitter offset: {} {}", x, y);
     }
 }
 
@@ -1292,7 +1294,7 @@ void VulkanEngine::draw()
                 if (cvar_system->get_int_cvar("volumetric.spatial_filtering"))
                 {
                     graph.add_pass(
-                        "fog_spatial_filtering",
+                        "fog_spatial_filtering_horizontal",
                         Pass::PassType::ComputePass,
                         [&](Pass& pass)
                         {
@@ -1301,18 +1303,20 @@ void VulkanEngine::draw()
                         },
                         [&]()
                         {
-                            auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, "fog_spatial_filtering");
+                            auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, "fog_spatial_filtering_horizontal");
 
                             struct PushConstants
                             {
                                 glm::uvec3 froxel_dims{};
-                                uint32_t light_scattering_tex{};
-                                uint32_t scattering_extinction_tex{};
+                                uint32_t input_tex{};
+                                uint32_t output_tex{};
+                                uint32_t horizontal{};
                             } pc;
 
                             pc.froxel_dims = glm::uvec3(VOLUMETRIC_FROXEL_X, VOLUMETRIC_FROXEL_Y, VOLUMETRIC_FROXEL_Z);
-                            pc.light_scattering_tex = bindless.light_scattering_srv;
-                            pc.scattering_extinction_tex = bindless.scattering_extinction_uav + (frame_number % 2);
+                            pc.input_tex = bindless.light_scattering_srv;
+                            pc.output_tex = bindless.scattering_extinction_uav + (frame_number % 2);
+                            pc.horizontal = 1;
 
                             VkPushDataInfoEXT push_data_info{};
                             push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
@@ -1328,7 +1332,46 @@ void VulkanEngine::draw()
                         }
                     );
 
+                    graph.add_pass(
+                        "fog_spatial_filtering_vertical",
+                        Pass::PassType::ComputePass,
+                        [&](Pass& pass)
+                        {
+                            pass.add_image_read("scattering_extinction", scattering_extinction_tex[frame_number % 2].image); // always use current
+                            pass.add_image_write("light_scattering", light_scattering_tex.image);
+                        },
+                        [&]()
+                        {
+                            auto ts = ScopedTimestamp(&timestamp_manager, frame_number, cmd, get_current_frame().query_pool_timestamps, "fog_spatial_filtering_vertical");
 
+                            struct PushConstants
+                            {
+                                glm::uvec3 froxel_dims{};
+                                uint32_t input_tex{};
+                                uint32_t output_tex{};
+                                uint32_t horizontal{};
+                            } pc;
+
+                            pc.froxel_dims = glm::uvec3(VOLUMETRIC_FROXEL_X, VOLUMETRIC_FROXEL_Y, VOLUMETRIC_FROXEL_Z);
+                            pc.input_tex = bindless.scattering_extinction_srv + (frame_number % 2);
+                            pc.output_tex = bindless.light_scattering_uav;
+                            pc.horizontal = 0;
+
+                            VkPushDataInfoEXT push_data_info{};
+                            push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
+                            push_data_info.data = { &pc, sizeof(PushConstants) };
+                            vkCmdPushDataEXT(cmd, &push_data_info);
+
+                            ShaderPass current_pass = *shader_passes["fog_spatial_filtering"];
+                            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
+                            auto groupcount_x = get_groupcount(VOLUMETRIC_FROXEL_X, 8);
+                            auto groupcount_y = get_groupcount(VOLUMETRIC_FROXEL_Y, 8);
+                            auto groupcount_z = get_groupcount(VOLUMETRIC_FROXEL_Z, 1);
+                            vkCmdDispatch(cmd, groupcount_x, groupcount_y, groupcount_z);
+                        }
+                    );
+
+                    /*
                     if (cvar_system->get_int_cvar("volumetric.temporal_filtering"))
                     {
                         graph.add_pass(
@@ -1381,7 +1424,7 @@ void VulkanEngine::draw()
                                 pc.volumetrics_scale = volumetrics_slices / std::log(ratio);
                                 pc.volumetrics_bias = volumetrics_slices * std::log(main_camera.near) / std::log(ratio);
                                 pc.reprojection_factor = 0.05;
-                                pc.halton = fog_jitter_offset[frame_number % fog_jitter_offset.size()];
+                                pc.halton = fog_jitter_offset[frame_number % fog_jitter_offset.size()] / glm::vec2(VOLUMETRIC_FROXEL_X, VOLUMETRIC_FROXEL_Y);
                                 pc.blue_noise_tex = bindless.blue_noise_uav;
                                 pc.current_frame = frame_number;
 
@@ -1399,7 +1442,7 @@ void VulkanEngine::draw()
                             }
                         );
                     }
-
+                    */
                 }
 
                 graph.add_pass(
@@ -1407,10 +1450,7 @@ void VulkanEngine::draw()
                     Pass::PassType::ComputePass,
                     [&](Pass& pass)
                     {
-                        if (cvar_system->get_int_cvar("volumetric.spatial_filtering") && !cvar_system->get_int_cvar("volumetric.temporal_filtering"))
-                            pass.add_image_read("scattering_extinction", scattering_extinction_tex[frame_number % 2].image);
-                        else
-                            pass.add_image_read("light_scattering", light_scattering_tex.image);
+                        pass.add_image_read("light_scattering", light_scattering_tex.image);
                         pass.add_image_write("integrated_light_scattering", integrated_light_scattering_tex.image);
                     },
                     [&]()
@@ -1431,10 +1471,7 @@ void VulkanEngine::draw()
                         pc.froxel_dimensions = glm::uvec3(VOLUMETRIC_FROXEL_X, VOLUMETRIC_FROXEL_Y, VOLUMETRIC_FROXEL_Z);
                         pc.near = main_camera.near;
                         pc.far = cvar_system->get_float_cvar("volumetric.far_plane");
-                        pc.light_scattering_tex =
-                            cvar_system->get_int_cvar("volumetric.spatial_filtering") && !cvar_system->get_int_cvar("volumetric.temporal_filtering")
-                            ? bindless.scattering_extinction_srv + (frame_number % 2)
-                            : bindless.light_scattering_srv;
+                        pc.light_scattering_tex = bindless.light_scattering_srv;
                         pc.integrated_light_scattering_tex = bindless.integrated_light_scattering_uav;
 
                         VkPushDataInfoEXT push_data_info{};
@@ -2570,6 +2607,7 @@ void VulkanEngine::init_resources()
     for (size_t i = 0; i < MAX_POINT_LIGHTS; i++)
     {
         light_data[i].pos = glm::vec4(pos(mt) * light_area, std::abs(pos(mt) * light_area), pos(mt) * light_area, light_radius); // pos & radius
+        // light_data[i].pos = glm::vec4(0, 3, 0, light_radius); // pos & radius
         glm::vec3 adjusted_color = glm::vec3(color(mt), color(mt), color(mt));
         light_data[i].color = glm::vec4(adjusted_color, 1.0);
     }
@@ -4258,7 +4296,8 @@ void VulkanEngine::execute_shading(VkCommandBuffer cmd)
         VkDeviceAddress index_buffer_address{};
         VkDeviceAddress mesh_buffer_address{};
         VkDeviceAddress sh_buffer_address{};
-        uint32_t draw_id{};;
+        uint32_t draw_id{};
+        ;
         uint32_t depth_id{};
         uint32_t gbuffer_id{};
         uint32_t shadow_id{};

@@ -68,6 +68,7 @@ void main(
     slice = clamp(slice, 0, max_slice);
     float w = float(slice) / float(max_slice);
 
+    ndc.xy += pc.halton;
     float2 history_uv = ndc.xy * float2(0.5, -0.5) + float2(0.5);
     float3 history_uvw = float3(history_uv, w);
 
