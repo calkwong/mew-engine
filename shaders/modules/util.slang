@@ -95,9 +95,9 @@ public uint get_cluster_z_slice(float view_z, float scale, float bias)
 
 #define CLUSTER_X 16
 #define CLUSTER_Y 8
-public uint get_cluster_index(float2 frag_coord, float2 cluster_dim, uint slice)
+public uint get_cluster_index(float2 frag_coord, float2 pixels_per_cluster, uint slice)
 {
-    uint2 clusters = uint2(floor(frag_coord / cluster_dim));
+    uint2 clusters = uint2(floor(frag_coord / pixels_per_cluster));
 
     return clusters.x + CLUSTER_X * clusters.y + slice * CLUSTER_X * CLUSTER_Y;
 }

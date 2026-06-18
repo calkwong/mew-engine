@@ -9,7 +9,7 @@ import volumetrics;
 
 struct PushConstants
 {
-	float4 cluster_size; // xy is cluster dim, z is # of cluster slices
+	float2 pixels_per_cluster;
 	float2 screen_size;
 	PointLight* light_buffer;
 	uint* light_index_buffer;
@@ -36,10 +36,10 @@ struct PushConstants
 	uint debug;
 	uint volumetrics;
 	uint volumetrics_tex;
-	float volumetrics_scale;
-	float volumetrics_bias;
 	uint3 volumetrics_froxel_dim;
 	uint blue_noise_tex;
+	float volumetrics_scale;
+	float volumetrics_bias;
 };
 
 [[vk::push_constant]] PushConstants pc;
@@ -243,7 +243,7 @@ void main(
 	{
 		float view_z = linearize_depth(pc.near, depth); // alternative: calculate via matrix multiply, likely more expensive?
 		uint slice = get_cluster_z_slice(view_z, pc.scale, pc.bias);
-		uint cluster_index = get_cluster_index(float2(frag_coord.x, pc.screen_size.y - frag_coord.y), pc.cluster_size.xy, slice);
+		uint cluster_index = get_cluster_index(float2(frag_coord.x, pc.screen_size.y - frag_coord.y), pc.pixels_per_cluster.xy, slice);
 
 		LightGrid grid = pc.light_grid_buffer[cluster_index];
 		uint offset = grid.offset;

@@ -1242,7 +1242,7 @@ void VulkanEngine::draw()
                             uint32_t shadowmap_id{};
                             float light_cluster_scale{};
                             float light_cluster_bias{};
-                            glm::vec2 cluster_dim{};
+                            glm::vec2 pixels_per_cluster{};
                             glm::vec2 halton{};
                             float phase_anisotropy{};
                             uint32_t blue_noise_tex{};
@@ -1264,9 +1264,9 @@ void VulkanEngine::draw()
                         const float ratio = main_camera.far / main_camera.near;
                         pc.light_cluster_scale = static_cast<float>(CLUSTER_DEPTH_SLICES) / std::log(ratio);
                         pc.light_cluster_bias = static_cast<float>(CLUSTER_DEPTH_SLICES) * std::log(main_camera.near) / std::log(ratio);
-                        auto cluster_x = ceil(static_cast<float>(VOLUMETRIC_FROXEL_X) / CLUSTER_X); // # cluster dim
-                        auto cluster_y = ceil(static_cast<float>(VOLUMETRIC_FROXEL_Y) / CLUSTER_Y); // # cluster dim
-                        pc.cluster_dim = glm::vec2(cluster_x, cluster_y);
+                        auto cluster_x = ceil(static_cast<float>(VOLUMETRIC_FROXEL_X) / CLUSTER_X);
+                        auto cluster_y = ceil(static_cast<float>(VOLUMETRIC_FROXEL_Y) / CLUSTER_Y);
+                        pc.pixels_per_cluster = glm::vec2(cluster_x, cluster_y);
                         pc.halton = fog_jitter_offset[frame_number % fog_jitter_offset.size()];
                         pc.phase_anisotropy = cvar_system->get_float_cvar("volumetric.phase_anisotropy");
                         pc.blue_noise_tex = bindless.blue_noise_uav;
@@ -3861,7 +3861,7 @@ void VulkanEngine::render_transparent(VkCommandBuffer cmd)
         VkDeviceAddress light_buffer{};
         VkDeviceAddress light_index_buffer{};
         VkDeviceAddress light_grid_buffer{};
-        glm::vec2 cluster_size{};
+        glm::vec2 pixels_per_cluster{};
         glm::uvec2 screen_size{};
         float max_prefiltered_lod{};
         uint32_t framebuffer_id{};
@@ -3882,9 +3882,9 @@ void VulkanEngine::render_transparent(VkCommandBuffer cmd)
     pc.light_buffer = bda_table.light_buffer;
     pc.light_index_buffer = bda_table.light_index_buffer;
     pc.light_grid_buffer = bda_table.light_grid_buffer;
-    auto cluster_x = ceil(static_cast<float>(swapchain.extent.width) / CLUSTER_X); // # cluster dim
-    auto cluster_y = ceil(static_cast<float>(swapchain.extent.height) / CLUSTER_Y); // # cluster dim
-    pc.cluster_size = glm::vec2(cluster_x, cluster_y);
+    auto cluster_x = ceil(static_cast<float>(swapchain.extent.width) / CLUSTER_X);
+    auto cluster_y = ceil(static_cast<float>(swapchain.extent.height) / CLUSTER_Y);
+    pc.pixels_per_cluster = glm::vec2(cluster_x, cluster_y);
     pc.screen_size = glm::uvec2(swapchain.extent.width, swapchain.extent.height);
     pc.max_prefiltered_lod = static_cast<float>(std::floor(std::log2(static_cast<float>(std::max(prefiltered_envmap.extent.width, prefiltered_envmap.extent.height))))) + 1;
     pc.framebuffer_id = bindless.draw_srv;
@@ -4245,7 +4245,7 @@ void VulkanEngine::execute_shading(VkCommandBuffer cmd)
 
     struct PushConstant
     {
-        glm::vec4 cluster_size{}; // xyz are cluster data structure dimensions, w is a single cluster's dimension
+        glm::vec2 pixels_per_cluster{};
         glm::vec2 screen_size{};
         VkDeviceAddress light_buffer_address{};
         VkDeviceAddress light_index_buffer_address{};
@@ -4258,7 +4258,7 @@ void VulkanEngine::execute_shading(VkCommandBuffer cmd)
         VkDeviceAddress index_buffer_address{};
         VkDeviceAddress mesh_buffer_address{};
         VkDeviceAddress sh_buffer_address{};
-        uint32_t draw_id;
+        uint32_t draw_id{};;
         uint32_t depth_id{};
         uint32_t gbuffer_id{};
         uint32_t shadow_id{};
@@ -4272,16 +4272,15 @@ void VulkanEngine::execute_shading(VkCommandBuffer cmd)
         uint32_t debug{};
         uint32_t volumetrics{};
         uint32_t volumetrics_tex{};
-        float volumetrics_scale{};
-        float volumetrics_bias{};
         glm::uvec3 volumetrics_froxel_dim{};
         uint32_t blue_noise_tex{};
+        float volumetrics_scale{};
+        float volumetrics_bias{};
     } pc;
 
     auto cluster_x = ceil(static_cast<float>(swapchain.extent.width) / CLUSTER_X); // # cluster dim
     auto cluster_y = ceil(static_cast<float>(swapchain.extent.height) / CLUSTER_Y); // # cluster dim
-    // TODO: BA channels potentially unused, if so remove
-    pc.cluster_size = glm::vec4(cluster_x, cluster_y, CLUSTER_DEPTH_SLICES, 0.0);
+    pc.pixels_per_cluster = glm::vec2(cluster_x, cluster_y);
     pc.screen_size = glm::vec2(swapchain.extent.width, swapchain.extent.height);
 
     pc.light_buffer_address = bda_table.light_buffer;
@@ -4312,12 +4311,12 @@ void VulkanEngine::execute_shading(VkCommandBuffer cmd)
     pc.debug = cvar_system->get_int_cvar("debug.textures");
     pc.volumetrics = cvar_system->get_int_cvar("volumetric_fog") && pc.shadows && !pc.shadows_rt;
     pc.volumetrics_tex = bindless.integrated_light_scattering_srv;
+    pc.volumetrics_froxel_dim = glm::uvec3(VOLUMETRIC_FROXEL_X, VOLUMETRIC_FROXEL_Y, VOLUMETRIC_FROXEL_Z);
+    pc.blue_noise_tex = bindless.blue_noise_uav;
     float volumetrics_slices = static_cast<float>(VOLUMETRIC_FROXEL_Z);
     const float fog_frustum_ratio = cvar_system->get_float_cvar("volumetric.far_plane") / main_camera.near;
     pc.volumetrics_scale = volumetrics_slices / std::log(fog_frustum_ratio);
     pc.volumetrics_bias = volumetrics_slices * std::log(main_camera.near) / std::log(fog_frustum_ratio);
-    pc.volumetrics_froxel_dim = glm::uvec3(VOLUMETRIC_FROXEL_X, VOLUMETRIC_FROXEL_Y, VOLUMETRIC_FROXEL_Z);
-    pc.blue_noise_tex = bindless.blue_noise_uav;
 
     VkPushDataInfoEXT push_data_info{};
     push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;

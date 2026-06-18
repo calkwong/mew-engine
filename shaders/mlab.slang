@@ -38,7 +38,7 @@ struct PushConstants
 	PointLight* light_buffer;
 	uint* light_index_buffer;
 	LightGrid* light_grid_buffer;
-	float2 cluster_size;
+	float2 pixels_per_cluster;
 	uint2 screen_size;
 	float max_prefiltered_lod;
 	uint framebuffer_id;
@@ -292,7 +292,7 @@ void ps_main(
             float view_z = -in.view_pos.z; // TODO: can we do better than passing another matrix as interpolant?
     		uint slice = get_cluster_z_slice(view_z, pc.scale, pc.bias);
             float2 frag_coord = in.position.xy;
-    		uint cluster_index = get_cluster_index(float2(frag_coord.x, pc.screen_size.y - frag_coord.y), pc.cluster_size, slice);
+    		uint cluster_index = get_cluster_index(float2(frag_coord.x, pc.screen_size.y - frag_coord.y), pc.pixels_per_cluster, slice);
 
     		LightGrid grid = pc.light_grid_buffer[cluster_index];
     		uint offset = grid.offset;

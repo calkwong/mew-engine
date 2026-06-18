@@ -22,7 +22,7 @@ struct PushConstants
     float light_cluster_scale;
     float light_cluster_bias;
 
-    float2 cluster_dim;
+    float2 pixels_per_cluster;
     float2 halton;
 
     float phase_anisotropy;
@@ -88,7 +88,7 @@ void main(
         {
             float view_z = mul(uniforms.view, float4(world_pos, 1.0)).z;
             uint light_slice = get_cluster_z_slice(-view_z, pc.light_cluster_scale, pc.light_cluster_bias);
-            uint cluster_index = get_cluster_index(float2(froxel_coord.x, pc.froxel_dimensions.y - froxel_coord.y), pc.cluster_dim.xy, light_slice);
+            uint cluster_index = get_cluster_index(float2(froxel_coord.x, pc.froxel_dimensions.y - froxel_coord.y), pc.pixels_per_cluster.xy, light_slice);
 
             LightGrid grid = pc.light_grid_buffer[cluster_index];
             uint offset = grid.offset;
