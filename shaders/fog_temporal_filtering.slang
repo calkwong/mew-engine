@@ -42,7 +42,7 @@ void main(
         return;
 
     // TODO: use correct sampler
-    SamplerState samp = get_sampler<SamplerState>(NEAREST_SAMPLER);
+    SamplerState samp = get_sampler<SamplerState>(LINEAR_CLAMP_SAMPLER);
     Texture3D<float4> previous_scattering_extinction_tex = get_sampled_image<Texture3D<float4>>(pc.previous_scattering_extinction_tex);
     Texture3D<float4> current_scattering_extinction_tex = get_sampled_image<Texture3D<float4>>(pc.scattering_extinction_tex);
     RWTexture3D<float4> light_scattering_tex = get_storage_image<RWTexture3D<float4>>(pc.light_scattering_tex);
@@ -50,7 +50,6 @@ void main(
     float3 uvw = (float3(froxel_coord) + float3(0.5)) / float3(pc.froxel_dims);
 
     float4 scattering_extinction = current_scattering_extinction_tex.SampleLevel(samp, uvw, 0.0);
-    // float4 scattering_extinction = current_scattering_extinction_tex.Load(int4(froxel_coord, 0));
     if (pc.first_frame == 1)
     {
         light_scattering_tex.Store(froxel_coord, scattering_extinction);

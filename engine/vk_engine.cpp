@@ -1328,7 +1328,7 @@ void VulkanEngine::draw()
                         }
                     );
 
-                    /*
+
                     if (cvar_system->get_int_cvar("volumetric.temporal_filtering"))
                     {
                         graph.add_pass(
@@ -1350,7 +1350,7 @@ void VulkanEngine::draw()
                                 {
                                     glm::mat4 inverse_view_proj{};
                                     glm::mat4 previous_view_proj{};
-                                    glm::vec3 froxel_dims{};
+                                    glm::uvec3 froxel_dims{};
                                     uint32_t first_frame{};
                                     float near{};
                                     float far{};
@@ -1399,7 +1399,7 @@ void VulkanEngine::draw()
                             }
                         );
                     }
-                    */
+
                 }
 
                 graph.add_pass(
