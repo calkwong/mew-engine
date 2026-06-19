@@ -1,5 +1,5 @@
-// currently broken - running as passthrough shader with nearest sampling does not seem to work correctly, while Load as an srv works as expected
-// strictly assumes spatial filtering pass runs before it
+// currently unused and may be incompatible with current build
+// will refactor if temporal filter is its own pass
 
 import bindings;
 import volumetrics;
@@ -14,10 +14,9 @@ struct PushConstants
 
     float near;
     float far;
-    uint previous_scattering_extinction_tex;
-    uint scattering_extinction_tex;
-
-    uint light_scattering_tex;
+    uint history_tex;
+    uint input_tex;
+    uint output_tex;
     float volumetrics_scale;
     float volumetrics_bias;
     float reprojection_factor;
@@ -43,16 +42,16 @@ void main(
 
     // TODO: use correct sampler
     SamplerState samp = get_sampler<SamplerState>(LINEAR_CLAMP_SAMPLER);
-    Texture3D<float4> previous_scattering_extinction_tex = get_sampled_image<Texture3D<float4>>(pc.previous_scattering_extinction_tex);
-    Texture3D<float4> current_scattering_extinction_tex = get_sampled_image<Texture3D<float4>>(pc.scattering_extinction_tex);
-    RWTexture3D<float4> light_scattering_tex = get_storage_image<RWTexture3D<float4>>(pc.light_scattering_tex);
+    Texture3D<float4> history_tex = get_sampled_image<Texture3D<float4>>(pc.history_tex);
+    Texture3D<float4> current_tex = get_sampled_image<Texture3D<float4>>(pc.input_tex);
+    RWTexture3D<float4> output_tex = get_storage_image<RWTexture3D<float4>>(pc.output_tex);
 
     float3 uvw = (float3(froxel_coord) + float3(0.5)) / float3(pc.froxel_dims);
 
-    float4 scattering_extinction = current_scattering_extinction_tex.SampleLevel(samp, uvw, 0.0);
+    float4 scattering_extinction = current_tex.SampleLevel(samp, uvw, 0.0);
     if (pc.first_frame == 1)
     {
-        light_scattering_tex.Store(froxel_coord, scattering_extinction);
+        output_tex.Store(froxel_coord, scattering_extinction);
         return;
     }
 
@@ -74,11 +73,11 @@ void main(
 
     if (all(history_uvw >= 0.0) && all(history_uvw <= 1.0))
     {
-        float4 history = previous_scattering_extinction_tex.SampleLevel(samp, history_uvw, 0.0);
+        float4 history = history_tex.SampleLevel(samp, history_uvw, 0.0);
         history = max(history, scattering_extinction);
         scattering_extinction.rgb = lerp(history.rgb, scattering_extinction.rgb, pc.reprojection_factor);
         scattering_extinction.a = lerp(history.a, scattering_extinction.a, pc.reprojection_factor);
     }
 
-    light_scattering_tex.Store(froxel_coord, scattering_extinction);
+    output_tex.Store(froxel_coord, scattering_extinction);
 }

@@ -29,6 +29,12 @@ struct PushConstants
     uint blue_noise_tex;
     uint current_frame;
     uint point_lights;
+
+    uint previous_light_scattering_tex;
+    float volumetrics_scale;
+    float volumetrics_bias;
+    uint first_frame;
+    uint temporal_filter;
 };
 
 [[vk::push_constant]]
@@ -46,6 +52,7 @@ void main(
 
     SamplerState samp = get_sampler<SamplerState>(LINEAR_CLAMP_SAMPLER);
     Texture3D scattering_extinction_tex = get_sampled_image<Texture3D>(pc.scattering_extinction_tex);
+    Texture3D previous_light_scattering_tex = get_sampled_image<Texture3D>(pc.previous_light_scattering_tex);
     RWTexture3D light_scattering_tex = get_storage_image<RWTexture3D>(pc.light_scattering_tex);
 
     float temporal_reprojection_jitter_scale = 0.5; // TODO: make this a cvar
@@ -58,7 +65,7 @@ void main(
 
     float3 lighting = float3(0.0);
 
-    // TODO: ambient, figure out if we apply beer's law here
+    // TODO: ambient
     {
         float3 V = normalize(uniforms.camera_pos.xyz - world_pos);
         float3 L = normalize(uniforms.sunlight_dir.xyz);
@@ -102,7 +109,7 @@ void main(
                 float3 light_pos = point_light.pos.xyz;
                 float light_radius = point_light.pos.w; // unused, taking into account falloff attenuation?
                 float3 light_color = point_light.color.xyz;
-                // float intensity = 10.0; // for debugging
+                // float intensity = 1.0; // for debugging
                 // light_color *= intensity;
 
                 light_pos = mul(uniforms.light_rot, float4(light_pos, 1.0)).xyz;
@@ -123,5 +130,36 @@ void main(
     }
 
     float3 scattering = scattering_extinction.rgb * lighting;
+
+    if (pc.first_frame == 1)
+    {
+        light_scattering_tex.Store(froxel_coord, float4(scattering, extinction));
+        return;
+    }
+
+    if (pc.temporal_filter == 1)
+    {
+        float4 history_clip = mul(uniforms.prev_view_proj, float4(world_pos, 1.0));
+        float3 history_ndc = history_clip.xyz / history_clip.w;
+        float history_linear_depth = pc.near / history_ndc.z;
+        uint history_slice = uint(floor(log(history_linear_depth) * pc.volumetrics_scale - pc.volumetrics_bias));
+        // uint max_slice = pc.froxel_dimensions.z - 1;
+        uint max_slice = pc.froxel_dimensions.z;
+        history_slice = clamp(history_slice, 0, max_slice);
+        float w = float(history_slice) / float(max_slice);
+
+        float3 history_uvw = float3(history_ndc.xy * float2(0.5, -0.5) + float2(0.5), w);
+
+        if (all(history_uvw >= 0.0) && all(history_uvw <= 1.0))
+        {
+            float4 history = previous_light_scattering_tex.SampleLevel(samp, history_uvw, 0.0);
+
+            // history = max(history, float4(scattering, extinction));
+            const float reprojection_factor = 0.05;
+            scattering = lerp(history.rgb, scattering, reprojection_factor);
+            extinction = lerp(history.a, extinction, reprojection_factor);
+        }
+    }
+
     light_scattering_tex.Store(froxel_coord, float4(scattering, extinction));
 }

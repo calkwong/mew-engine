@@ -20,7 +20,7 @@ add_subdirectory(engine)
 # TODO: consider Slang reflection API for proper module support
 
 find_program(SLANG_COMPILER slangc HINTS /usr/bin /usr/local/bin $ENV{VULKAN_SDK}/Bin/ $ENV{VULKAN_SDK}/Bin32/)
-# find_program(SLANG_COMPILER slangc HINTS /opt/slang/bin)
+# find_program(SLANG_COMPILER slangc HINTS /opt/slang/bin NO_DEFAULT_PATH)
 
 if(SLANG_COMPILER)
     execute_process(

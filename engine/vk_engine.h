@@ -184,8 +184,8 @@ public:
     AllocatedImage shadow_map{};
 
     AllocatedImage perlin_noise{};
-    std::array<AllocatedImage, 2> scattering_extinction_tex{};
-    AllocatedImage light_scattering_tex{};
+    AllocatedImage scattering_extinction_tex{};
+    std::array<AllocatedImage, 2> light_scattering_tex{};
     AllocatedImage integrated_light_scattering_tex{};
     AllocatedImage blue_noise_tex{};
 
@@ -289,6 +289,7 @@ public:
     };
 
     Bindless bindless{};
+
 private:
     void init_vulkan();
     void init_commands();
