@@ -77,7 +77,6 @@ AutoCVar_Float CVAR_VOLUMETRIC_PHASE_ANISOTROPY{ "volumetric.phase_anisotropy", 
 AutoCVar_Int CVAR_VOLUMETRIC_SPATIAL_FILTERING{ "volumetric.spatial_filtering", "Volumetric spatial filtering", CVarFlags::EditCheckbox, 1 };
 AutoCVar_Int CVAR_VOLUMETRIC_TEMPORAL_FILTERING{ "volumetric.temporal_filtering", "Volumetric temporal filtering", CVarFlags::EditCheckbox, 0 };
 AutoCVar_Float CVAR_VOLUMETRIC_FAR_PLANE{ "volumetric.far_plane", "Volumetric far plane", CVarFlags::EditDragFloat, 60.0, 50.0, 500.0, 10.0 };
-AutoCVar_Int CVAR_DEBUG_3D{ "debug.3d", "Debug 3d texture", CVarFlags::EditCheckbox, 0 };
 
 AutoCVar_Int CVAR_Z_SLICE{ "z_slice", "Noise z", CVarFlags::EditSliderInt, 127, 0, 127, 1 };
 AutoCVar_Int CVAR_VBUFFER{ "vbuffer", "Vbuffer path", CVarFlags::EditCheckbox, 1 };
@@ -1596,47 +1595,6 @@ void VulkanEngine::draw()
                 );
             }
 
-            if (cvar_system->get_int_cvar("debug.3d"))
-            {
-                graph.add_pass(
-                    "debug_3d",
-                    Pass::PassType::ComputePass,
-                    [&](Pass& pass)
-                    {
-                        pass.add_image_write("draw", draw_image.image);
-                    },
-                    [&]()
-                    {
-                        struct PushConstants
-                        {
-                            glm::uvec2 swapchain_resolution{};
-                            uint32_t debug_texture_id{};
-                            uint32_t draw_id{};
-                            uint32_t slice{};
-                        } pc;
-
-                        pc.swapchain_resolution = glm::uvec2(swapchain.extent.width, swapchain.extent.height);
-                        // pc.debug_texture_id = bindless.integrated_light_scattering_srv;
-                        pc.debug_texture_id = bindless.light_scattering_srv + (frame_number % 2);
-                        // pc.debug_texture_id = bindless.scattering_extinction_srv;
-                        pc.draw_id = bindless.draw_uav;
-                        pc.slice = cvar_system->get_int_cvar("z_slice");
-
-                        VkPushDataInfoEXT push_data_info{};
-                        push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
-                        push_data_info.data = { &pc, sizeof(PushConstants) };
-                        vkCmdPushDataEXT(cmd, &push_data_info);
-
-                        ShaderPass current_pass = *shader_passes["debug_3d"];
-                        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
-
-                        auto groupcount_x = get_groupcount(swapchain.extent.width, WARP_SIZE);
-                        auto groupcount_y = get_groupcount(swapchain.extent.height, WARP_SIZE);
-                        vkCmdDispatch(cmd, groupcount_x, groupcount_y, 1);
-                    }
-                );
-            }
-
             graph.add_pass(
                 "copy_to_swapchain",
                 Pass::PassType::ComputePass,
@@ -2258,11 +2216,11 @@ void VulkanEngine::init_shaders()
     shader_cache.add_shader(device, "mlab.slang");
     shader_cache.add_shader(device, "composite_transparent.slang");
     shader_cache.add_shader(device, "perlin.slang");
-    shader_cache.add_shader(device, "debug_3d.slang");
     shader_cache.add_shader(device, "scattering_extinction.slang");
     shader_cache.add_shader(device, "light_scattering.slang");
     shader_cache.add_shader(device, "light_integration.slang");
     shader_cache.add_shader(device, "fog_spatial_filtering.slang");
+    // shader_cache.add_shader(device, "fog_temporal_filtering.slang");
     // shader_cache.add_shader(device, "rt.slang", sizeof(DeferredPushConstants));
 }
 
@@ -2294,11 +2252,11 @@ void VulkanEngine::init_pipelines()
     shader_passes["resolve_vbuffer"] = create_compute_pipeline(device, shader_cache["resolve_vbuffer.slang"], &desc_set_and_binding_mapping_info);
     shader_passes["composite_transparent"] = create_compute_pipeline(device, shader_cache["composite_transparent.slang"], &desc_set_and_binding_mapping_info);
     shader_passes["perlin"] = create_compute_pipeline(device, shader_cache["perlin.slang"], &desc_set_and_binding_mapping_info);
-    shader_passes["debug_3d"] = create_compute_pipeline(device, shader_cache["debug_3d.slang"], &desc_set_and_binding_mapping_info);
     shader_passes["scattering_extinction"] = create_compute_pipeline(device, shader_cache["scattering_extinction.slang"], &desc_set_and_binding_mapping_info);
     shader_passes["light_scattering"] = create_compute_pipeline(device, shader_cache["light_scattering.slang"], &desc_set_and_binding_mapping_info);
     shader_passes["light_integration"] = create_compute_pipeline(device, shader_cache["light_integration.slang"], &desc_set_and_binding_mapping_info);
     shader_passes["fog_spatial_filtering"] = create_compute_pipeline(device, shader_cache["fog_spatial_filtering.slang"], &desc_set_and_binding_mapping_info);
+    // shader_passes["fog_temporal_filtering"] = create_compute_pipeline(device, shader_cache["fog_temporal_filtering.slang"], &desc_set_and_binding_mapping_info);
     // shader_passes["ray_tracing"] = create_compute_pipeline(device, shader_cache["rt.slang"], &desc_set_and_binding_mapping_info);
 
     shader_passes["gbuffer_vert"] = create_graphics_pipeline(
