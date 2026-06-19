@@ -34,7 +34,7 @@ float4 scattering_extinction_from_color_density(float3 color, float density)
 }
 
 [shader("compute")]
-[numthreads(8, 8, 1)]
+[numthreads(8, 8, 8)]
 void main(
     uint3 global_id: SV_DispatchThreadID
 )

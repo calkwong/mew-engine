@@ -21,7 +21,7 @@ float gaussian(float radius, float sigma)
 }
 
 [shader("compute")]
-[numthreads(8, 8, 1)]
+[numthreads(8, 8, 8)]
 void main(
     uint3 global_id: SV_DispatchThreadID
 )

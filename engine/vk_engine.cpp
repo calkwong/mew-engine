@@ -1208,7 +1208,7 @@ void VulkanEngine::draw()
                         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
                         auto groupcount_x = get_groupcount(VOLUMETRIC_FROXEL_X, 8);
                         auto groupcount_y = get_groupcount(VOLUMETRIC_FROXEL_Y, 8);
-                        auto groupcount_z = get_groupcount(VOLUMETRIC_FROXEL_Z, 1);
+                        auto groupcount_z = get_groupcount(VOLUMETRIC_FROXEL_Z, 8);
 
                         vkCmdDispatch(cmd, groupcount_x, groupcount_y, groupcount_z);
                     }
@@ -1305,7 +1305,7 @@ void VulkanEngine::draw()
                         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
                         auto groupcount_x = get_groupcount(VOLUMETRIC_FROXEL_X, 8);
                         auto groupcount_y = get_groupcount(VOLUMETRIC_FROXEL_Y, 8);
-                        auto groupcount_z = get_groupcount(VOLUMETRIC_FROXEL_Z, 1);
+                        auto groupcount_z = get_groupcount(VOLUMETRIC_FROXEL_Z, 8);
 
                         vkCmdDispatch(cmd, groupcount_x, groupcount_y, groupcount_z);
                     }
@@ -1347,7 +1347,7 @@ void VulkanEngine::draw()
                             vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
                             auto groupcount_x = get_groupcount(VOLUMETRIC_FROXEL_X, 8);
                             auto groupcount_y = get_groupcount(VOLUMETRIC_FROXEL_Y, 8);
-                            auto groupcount_z = get_groupcount(VOLUMETRIC_FROXEL_Z, 1);
+                            auto groupcount_z = get_groupcount(VOLUMETRIC_FROXEL_Z, 8);
                             vkCmdDispatch(cmd, groupcount_x, groupcount_y, groupcount_z);
                         }
                     );
@@ -1386,7 +1386,7 @@ void VulkanEngine::draw()
                             vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
                             auto groupcount_x = get_groupcount(VOLUMETRIC_FROXEL_X, 8);
                             auto groupcount_y = get_groupcount(VOLUMETRIC_FROXEL_Y, 8);
-                            auto groupcount_z = get_groupcount(VOLUMETRIC_FROXEL_Z, 1);
+                            auto groupcount_z = get_groupcount(VOLUMETRIC_FROXEL_Z, 8);
                             vkCmdDispatch(cmd, groupcount_x, groupcount_y, groupcount_z);
                         }
                     );
@@ -1429,7 +1429,6 @@ void VulkanEngine::draw()
 
                         ShaderPass current_pass = *shader_passes["light_integration"];
                         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, current_pass.pipeline);
-                        // TODO: remove hardcoded froxel dim
                         auto groupcount_x = get_groupcount(VOLUMETRIC_FROXEL_X, 8);
                         auto groupcount_y = get_groupcount(VOLUMETRIC_FROXEL_Y, 8);
 
