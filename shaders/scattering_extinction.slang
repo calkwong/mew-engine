@@ -1,7 +1,7 @@
+// note: this needs a rewrite so it is easier to reason about how we create fog
+
 import bindings;
 import volumetrics;
-
-// this shader could be combined with light_scattering
 
 struct PushConstants
 {
@@ -33,6 +33,12 @@ float4 scattering_extinction_from_color_density(float3 color, float density)
     return float4(color * extinction, extinction);
 }
 
+float sd_box(float3 p, float3 b)
+{
+    float3 q = abs(p) - b;
+    return length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0);
+}
+
 [shader("compute")]
 [numthreads(8, 8, 8)]
 void main(
@@ -49,8 +55,7 @@ void main(
 
     float4 scattering_extinction = float4(0.0);
 
-    float temporal_reprojection_jitter_scale = 0.5; // TODO: make this a cvar
-    float3 world_pos = world_from_froxel(froxel_coord, pc.froxel_dimensions, pc.inverse_view_proj, pc.near, pc.far, pc.halton, temporal_reprojection_jitter_scale, pc.blue_noise_tex, pc.current_frame);
+    float3 world_pos = jittered_world_from_froxel(froxel_coord, pc.froxel_dimensions, pc.inverse_view_proj, pc.near, pc.far, pc.current_frame);
 
     // large (small) pos_mult -> smaller (larger), more detailed (smooth) fog?
     // float3(1.0, 0.1, 2.0) behaves like wind dir
@@ -66,6 +71,9 @@ void main(
     // add height fog: fog decreases exponentially with elevation
     float height_fog = pc.height_fog_density_modifier * exp(-pc.height_fog_falloff * max(world_pos.y, 0.0)) * fog_noise;
     scattering_extinction += scattering_extinction_from_color_density(float3(0.5), height_fog);
+
+    float cube_fog = 1.0 - smoothstep(0.0, 0.25, sd_box(float3(world_pos - float3(3.0, 1.0, 1.75)), float3(0.75)));
+    scattering_extinction.a += cube_fog;
 
     scattering_extinction_tex.Store(froxel_coord, scattering_extinction);
 }

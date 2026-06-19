@@ -68,7 +68,7 @@ AutoCVar_Int CVAR_DISABLE_CAMERA{ "disable_camera", "Disable camera", CVarFlags:
 AutoCVar_Int CVAR_HOT_RELOAD{ "hot_reload", "Hot reload shaders", CVarFlags::EditCheckbox | CVarFlags::EditHide, 0 };
 
 AutoCVar_Int CVAR_AZIMUTH{ "sun.azimuth", "Azimuth", CVarFlags::EditSliderInt, 0, 0, 360, 1 };
-AutoCVar_Int CVAR_ELEVATION{ "sun.elevation", "Elevation", CVarFlags::EditSliderInt, 90, 0, 90, 1 };
+AutoCVar_Int CVAR_ELEVATION{ "sun.elevation", "Elevation", CVarFlags::EditSliderInt, 80, 0, 90, 1 };
 
 AutoCVar_Float CVAR_VOLUMETRIC_NOISE_POS{ "volumetric.noise_pos_mult", "Volumetric noise pos mult", CVarFlags::EditDragFloat, 0.0, 0.0, 1.0, 0.05 };
 AutoCVar_Float CVAR_VOLUMETRIC_NOISE_SPEED{ "volumetric.noise_speed_mult", "Volumetric noise speed mult", CVarFlags::EditDragFloat, 0.0, 0.0, 1.0, 0.05 };
@@ -77,8 +77,8 @@ AutoCVar_Float CVAR_VOLUMETRIC_HEIGHT_FOG_DENSITY{ "volumetric.height_fog_densit
 AutoCVar_Float CVAR_VOLUMETRIC_SCATTERING_FACTOR{ "volumetric.scattering_factor", "Volumetric scattering factor", CVarFlags::EditDragFloat, 0.4, 0.0, 1.0, 0.05 };
 AutoCVar_Float CVAR_VOLUMETRIC_HEIGHT_FOG_FALLOFF{ "volumetric.height_fog_falloff", "Volumetric height fog falloff", CVarFlags::EditDragFloat, 0.1, 0.0, 10.0, 0.5 };
 AutoCVar_Float CVAR_VOLUMETRIC_PHASE_ANISOTROPY{ "volumetric.phase_anisotropy", "Volumetric phase anisotropy", CVarFlags::EditDragFloat, 0.2, 0.0, 1.0, 0.05 };
-AutoCVar_Int CVAR_VOLUMETRIC_SPATIAL_FILTERING{ "volumetric.spatial_filtering", "Volumetric spatial filtering", CVarFlags::EditCheckbox, 1 };
-AutoCVar_Int CVAR_VOLUMETRIC_TEMPORAL_FILTERING{ "volumetric.temporal_filtering", "Volumetric temporal filtering", CVarFlags::EditCheckbox, 0 };
+AutoCVar_Int CVAR_VOLUMETRIC_SPATIAL_FILTERING{ "volumetric.spatial_filtering", "Volumetric spatial filtering", CVarFlags::EditCheckbox, 0 };
+AutoCVar_Int CVAR_VOLUMETRIC_TEMPORAL_FILTERING{ "volumetric.temporal_filtering", "Volumetric temporal filtering", CVarFlags::EditCheckbox, 1 };
 AutoCVar_Float CVAR_VOLUMETRIC_FAR_PLANE{ "volumetric.far_plane", "Volumetric far plane", CVarFlags::EditDragFloat, 60.0, 50.0, 500.0, 10.0 };
 
 AutoCVar_Int CVAR_Z_SLICE{ "z_slice", "Noise z", CVarFlags::EditSliderInt, 127, 0, 127, 1 };
@@ -86,7 +86,7 @@ AutoCVar_Int CVAR_VBUFFER{ "vbuffer", "Vbuffer path", CVarFlags::EditCheckbox, 1
 AutoCVar_Int CVAR_MESH_SHADERS{ "mesh_shaders", "Mesh shaders path", CVarFlags::EditCheckbox, 1 };
 AutoCVar_Int CVAR_ALPHACLIP{ "alphaclip", "Alphaclip", CVarFlags::EditCheckbox, 1 };
 AutoCVar_Int CVAR_TRANSPARENT{ "transparent", "Transparent", CVarFlags::EditCheckbox, 0 };
-AutoCVar_Int CVAR_POINT_LIGHTS{ "point_lights", "Point lights", CVarFlags::EditCheckbox, 1 };
+AutoCVar_Int CVAR_POINT_LIGHTS{ "point_lights", "Point lights", CVarFlags::EditCheckbox, 0 };
 AutoCVar_Int CVAR_OCCLUSION_CULLING{ "occlusion_culling", "Occlusion culling", CVarFlags::EditCheckbox, 1 };
 AutoCVar_Int CVAR_LOD{ "lod", "LODs", CVarFlags::EditCheckbox, 1 };
 AutoCVar_Int CVAR_SHADOWS{ "shadows", "Shadows", CVarFlags::EditCheckbox, 1 };

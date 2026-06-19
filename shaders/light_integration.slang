@@ -24,25 +24,24 @@ void main(
     if (any(froxel_coord >= pc.froxel_dimensions))
         return;
 
-    SamplerState linear_clamp_samp = get_sampler<SamplerState>(LINEAR_CLAMP_SAMPLER);
     Texture3D light_scattering_tex = get_sampled_image<Texture3D>(pc.light_scattering_tex);
     RWTexture3D integrated_light_scattering_tex = get_storage_image<RWTexture3D>(pc.integrated_light_scattering_tex);
 
     float3 integrated_scattering = float3(0.0);
     float integrated_transmission = 1.0;
 
-    float3 prev_pos = uniforms.camera_pos.xyz;
-    uint froxel_z = pc.froxel_dimensions.z;
-    for (uint z = 0; z < froxel_z; z++)
+    uint num_slices = pc.froxel_dimensions.z;
+    for (uint slice = 0; slice < num_slices; slice++)
     {
-        froxel_coord.z = z;
+        froxel_coord.z = slice;
 
-        float3 curr_pos = world_from_froxel_no_jitter(froxel_coord, pc.froxel_dimensions, pc.inverse_view_proj, pc.near, pc.far);
-        float d = distance(curr_pos, prev_pos);
-        prev_pos = curr_pos;
+        // TODO: this can be optimized so we don't recalculate the nearer froxel
+        float view_z0 = view_z_from_slice(slice, num_slices, pc.near, pc.far);
+        float view_z1 = view_z_from_slice(slice + 1, num_slices, pc.near, pc.far);
+        float d = view_z1 - view_z0;
 
         // from Physically Based Sky, Atmosphere and Cloud Rendering by Hillaire
-        float4 scattering_extinction = light_scattering_tex.SampleLevel(linear_clamp_samp, (float3(froxel_coord) + float3(0.5)) / float3(pc.froxel_dimensions), 0.0);
+        float4 scattering_extinction = light_scattering_tex.Load(int4(froxel_coord, 0));
         float3 scattering = scattering_extinction.rgb;
         float extinction = scattering_extinction.a;
         float clamped_extinction = max(extinction, 0.00001);

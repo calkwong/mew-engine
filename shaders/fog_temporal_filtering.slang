@@ -55,8 +55,7 @@ void main(
         return;
     }
 
-    float temporal_reprojection_jitter_scale = 0.5;
-    float3 world_pos_no_jitter = world_from_froxel(froxel_coord, pc.froxel_dims, pc.inverse_view_proj, pc.near, pc.far, pc.halton, temporal_reprojection_jitter_scale, pc.blue_noise_tex, pc.current_frame);
+    float3 world_pos_no_jitter = jittered_world_from_froxel(froxel_coord, pc.froxel_dims, pc.inverse_view_proj, pc.near, pc.far, pc.current_frame);
     float4 screen_space_center_last = mul(pc.previous_view_proj, float4(world_pos_no_jitter, 1.0));
     float3 ndc = screen_space_center_last.xyz / screen_space_center_last.w;
 
