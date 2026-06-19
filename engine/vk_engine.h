@@ -120,7 +120,8 @@ class VulkanEngine
 public:
     uint32_t frame_number{ 0 };
     bool freeze_camera{ false };
-    bool first_frame{ true };
+    bool taa_first_frame{ true };
+    bool fog_first_frame{ true };
     glm::mat4 last_view{};
     glm::mat4 last_proj{};
 

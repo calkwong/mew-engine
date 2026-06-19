@@ -1288,11 +1288,10 @@ void VulkanEngine::draw()
                         float volumetrics_slices = static_cast<float>(VOLUMETRIC_FROXEL_Z);
                         pc.volumetrics_scale = volumetrics_slices / std::log(volumetric_ratio);
                         pc.volumetrics_bias = volumetrics_slices * std::log(main_camera.near) / std::log(volumetric_ratio);
-                        pc.first_frame = first_frame;
-                        // TODO: fix this hack
+                        pc.first_frame = fog_first_frame;
                         if (cvar_system->get_int_cvar("volumetric.temporal_filtering"))
                         {
-                            first_frame = false;
+                            fog_first_frame = false;
                         }
                         pc.temporal_filter = cvar_system->get_int_cvar("volumetric.temporal_filtering");
 
@@ -3033,9 +3032,9 @@ void VulkanEngine::resolve_taa(VkCommandBuffer cmd)
     pc.history_filter = cvar_system->get_int_cvar("taa.catmull_rom");
     pc.local_filter = cvar_system->get_int_cvar("taa.mitchell");
     pc.ycocg = cvar_system->get_int_cvar("taa.ycocg");
-    pc.valid_history = first_frame ? 0 : 1;
+    pc.valid_history = taa_first_frame ? 0 : 1;
+    taa_first_frame = false;
     pc.dynamic = cvar_system->get_int_cvar("taa.dynamic");
-    first_frame = false; // set this elsewhere?
 
     VkPushDataInfoEXT push_data_info{};
     push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
