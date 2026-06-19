@@ -267,10 +267,12 @@ void ResourceHeapManager::update_buffer(uint32_t handle, AllocatedBuffer& buffer
     info.size = size;
 }
 
+// TODO: needs refactoring when implementing spvDescriptorHeapEXT, otherwise things will break
 uint32_t ResourceHeapManager::set_texture_offset()
 {
-    texture_offset = srv_infos.size();
-    return texture_offset;
+    if (!texture_offset_set)
+        texture_offset = srv_infos.size();
+    return srv_infos.size();
 }
 
 void ResourceHeapManager::build_desc_set_bindings(std::vector<VkDescriptorSetAndBindingMappingEXT>& mappings)
