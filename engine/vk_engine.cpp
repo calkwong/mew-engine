@@ -67,6 +67,9 @@ AutoCVar_Int CVAR_IMGUI{ "imgui", "Imgui", CVarFlags::EditCheckbox | CVarFlags::
 AutoCVar_Int CVAR_DISABLE_CAMERA{ "disable_camera", "Disable camera", CVarFlags::EditCheckbox | CVarFlags::EditHide, 0 };
 AutoCVar_Int CVAR_HOT_RELOAD{ "hot_reload", "Hot reload shaders", CVarFlags::EditCheckbox | CVarFlags::EditHide, 0 };
 
+AutoCVar_Int CVAR_AZIMUTH{ "sun.azimuth", "Azimuth", CVarFlags::EditSliderInt, 0, 0, 360, 1 };
+AutoCVar_Int CVAR_ELEVATION{ "sun.elevation", "Elevation", CVarFlags::EditSliderInt, 90, 0, 90, 1 };
+
 AutoCVar_Float CVAR_VOLUMETRIC_NOISE_POS{ "volumetric.noise_pos_mult", "Volumetric noise pos mult", CVarFlags::EditDragFloat, 0.0, 0.0, 1.0, 0.05 };
 AutoCVar_Float CVAR_VOLUMETRIC_NOISE_SPEED{ "volumetric.noise_speed_mult", "Volumetric noise speed mult", CVarFlags::EditDragFloat, 0.0, 0.0, 1.0, 0.05 };
 AutoCVar_Float CVAR_VOLUMETRIC_FOG_DENSITY{ "volumetric.fog_density", "Volumetric fog density", CVarFlags::EditDragFloat, 0.0, 0.0, 1.0, 0.05 };
@@ -2952,6 +2955,9 @@ void VulkanEngine::update_scene()
     scene_data.view = main_camera.get_view_matrix();
     scene_data.proj = main_camera.perspective;
 
+    float az = glm::radians(static_cast<float>(cvar_system->get_int_cvar("sun.azimuth")));
+    float el = glm::radians(static_cast<float>(cvar_system->get_int_cvar("sun.elevation")));
+
     if (cvar_system->get_int_cvar("taa"))
     {
         auto idx = frame_number % 8;
@@ -2965,11 +2971,13 @@ void VulkanEngine::update_scene()
     last_view = freeze_camera ? last_view : scene_data.view;
     last_proj = freeze_camera ? last_proj : scene_data.proj;
 
-    // scene_data.sunlight_dir = glm::vec4(7.75, 12.5, 12.5, 1.);
-    // scene_data.sunlight_dir = glm::vec4(0.0, 0.0, -12.5, 1.);
-    scene_data.sunlight_dir = glm::vec4(0.001, 12.0, 3.0, 1.);
-    // scene_data.sunlight_dir = glm::vec4(0.001, 12.0, 0.0, 1.);
     scene_data.sunlight_color = glm::vec4(1.0, 1.0, 1.0, 1.0);
+    glm::vec3 sunlight_dir{};
+    sunlight_dir.x = glm::cos(el) * glm::sin(az);
+    sunlight_dir.y = glm::sin(el);
+    sunlight_dir.z = -glm::cos(el) * glm::cos(az);
+    sunlight_dir = glm::normalize(glm::vec3(sunlight_dir));
+    scene_data.sunlight_dir = glm::vec4(sunlight_dir, 1.0);
 
     if (cvar_system->get_int_cvar("shadows") && !cvar_system->get_int_cvar("shadows_rt"))
     {
