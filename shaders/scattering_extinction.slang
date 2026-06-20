@@ -46,11 +46,11 @@ void main(
 )
 {
     uint3 froxel_coord = global_id;
-    if (froxel_coord.x >= pc.froxel_dimensions.x || froxel_coord.y >= pc.froxel_dimensions.y || froxel_coord.z >= pc.froxel_dimensions.z)
+    if (any(froxel_coord >= pc.froxel_dimensions))
         return;
 
-    SamplerState samp = get_sampler<SamplerState>(LINEAR_SAMPLER);
-    Texture3D<float> noise_tex = get_sampled_image<Texture3D<float>>(pc.perlin_noise_tex);
+    // SamplerState samp = get_sampler<SamplerState>(LINEAR_SAMPLER);
+    // Texture3D<float> noise_tex = get_sampled_image<Texture3D<float>>(pc.perlin_noise_tex);
     RWTexture3D scattering_extinction_tex = get_storage_image<RWTexture3D>(pc.scattering_extinction_tex);
 
     float4 scattering_extinction = float4(0.0);
@@ -60,20 +60,31 @@ void main(
     // large (small) pos_mult -> smaller (larger), more detailed (smooth) fog?
     // float3(1.0, 0.1, 2.0) behaves like wind dir
     // note: w points into screen and is negative
-    float3 sample_uvw = world_pos * pc.volumetric_noise_pos_mult + float3(1.0, 0.1, 2.0) * pc.current_frame * pc.volumetric_noise_speed_mult;
-    float fog_noise = noise_tex.SampleLevel(samp, sample_uvw, 0.0).r;
-    fog_noise = saturate(fog_noise * fog_noise); // why?
+    // note: this eq seems slightly broken for some combinations
+    // float3 sample_uvw = world_pos * pc.volumetric_noise_pos_mult + float3(1.0, 0.1, 2.0) * pc.current_frame * pc.volumetric_noise_speed_mult;
+    // float fog_noise = noise_tex.SampleLevel(samp, sample_uvw, 0.0).r;
+    // fog_noise = saturate(fog_noise * fog_noise); // why?
 
-    // add constant fog
-    float fog_density = pc.fog_density_modifier * fog_noise;
-    scattering_extinction += scattering_extinction_from_color_density(float3(0.5), fog_density);
+    // add depth fog
+    float dist_meters = length(world_pos - uniforms.camera_pos.xyz) * 0.01;
+    float depth_density = 1.0 - exp(-dist_meters * pc.fog_density_modifier);
+    scattering_extinction += scattering_extinction_from_color_density(float3(0.5), depth_density);
 
-    // add height fog: fog decreases exponentially with elevation
-    float height_fog = pc.height_fog_density_modifier * exp(-pc.height_fog_falloff * max(world_pos.y, 0.0)) * fog_noise;
-    scattering_extinction += scattering_extinction_from_color_density(float3(0.5), height_fog);
+    // add height fog
+    const float base_height_start = 0.0;
+    float height_delta_meters = max((world_pos.y - base_height_start) * 0.01, 0.0);
+    float height_density = exp(-height_delta_meters * pc.height_fog_density_modifier * pc.height_fog_falloff);
+    height_density = height_density != 1.0 ? height_density : 0.0;
+    if (height_density != 1.0)
+        scattering_extinction += scattering_extinction_from_color_density(float3(1.0), height_density);
 
     float cube_fog = 1.0 - smoothstep(0.0, 0.25, sd_box(float3(world_pos - float3(3.0, 1.0, 1.75)), float3(0.75)));
-    scattering_extinction.a += cube_fog;
+    if (cube_fog != 0.0)
+    {
+        // TODO: volume scattering factor?
+        scattering_extinction.rgb += float3(1., 0., 0.) * cube_fog; // tinted red
+        scattering_extinction.a += cube_fog;
+    }
 
     scattering_extinction_tex.Store(froxel_coord, scattering_extinction);
 }

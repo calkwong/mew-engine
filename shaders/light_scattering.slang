@@ -97,7 +97,7 @@ void main(
                 float3 light_pos = point_light.pos.xyz;
                 float light_radius = point_light.pos.w;
                 float3 light_color = point_light.color.xyz;
-                // float intensity = 1.0; // for debugging
+                // float intensity = 15.0; // for debugging
                 // light_color *= intensity;
 
                 light_pos = mul(uniforms.light_rot, float4(light_pos, 1.0)).xyz;
