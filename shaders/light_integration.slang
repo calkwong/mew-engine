@@ -3,7 +3,6 @@ import volumetrics;
 
 struct PushConstants
 {
-    float4x4 inverse_view_proj;
     uint3 froxel_dimensions;
     float near;
     float far;

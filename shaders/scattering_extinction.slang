@@ -1,5 +1,3 @@
-// note: this needs a rewrite so it is easier to reason about how we create fog
-
 import bindings;
 import volumetrics;
 
@@ -8,20 +6,16 @@ struct PushConstants
     float4x4 inverse_view_proj;
     uint3 froxel_dimensions;
     uint current_frame;
-
-    float2 halton;
     float near;
     float far;
-
     uint perlin_noise_tex;
-    uint blue_noise_tex;
     uint scattering_extinction_tex;
-    float volumetric_noise_pos_mult; // [0, 1]
-    float volumetric_noise_speed_mult; // [0, 1]
-    float fog_density_modifier; // [0, 1]
-    float height_fog_density_modifier; // [0, 10]
-    float scattering_factor; // [0, 1]
-    float height_fog_falloff; // [0, 10]
+    float volumetric_noise_pos_mult;
+    float volumetric_noise_speed_mult;
+    float fog_density_modifier;
+    float height_fog_density_modifier;
+    float scattering_factor;
+    float height_fog_falloff;
 };
 
 [[vk::push_constant]]
@@ -85,6 +79,8 @@ void main(
         scattering_extinction.rgb += float3(1., 0., 0.) * cube_fog; // tinted red
         scattering_extinction.a += cube_fog;
     }
+
+    // TODO: weighted phaseG and emission?
 
     scattering_extinction_tex.Store(froxel_coord, scattering_extinction);
 }

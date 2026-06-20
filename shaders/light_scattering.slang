@@ -23,13 +23,9 @@ struct PushConstants
     float light_cluster_bias;
 
     float2 pixels_per_cluster;
-    float2 halton;
-
     float phase_anisotropy;
-    uint blue_noise_tex;
     uint current_frame;
     uint point_lights;
-
     uint previous_light_scattering_tex;
     float volumetrics_scale;
     float volumetrics_bias;

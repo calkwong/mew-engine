@@ -311,13 +311,10 @@ void VulkanEngine::init(int file_count, char** file_paths)
     {
         float halton_x = 2.0f * Halton(i + 1, 2) - 1.0f;
         float halton_y = 2.0f * Halton(i + 1, 3) - 1.0f;
-        fog_jitter_offset[i] = glm::vec2(halton_x, halton_y);
 
         float x = halton_x / static_cast<float>(swapchain.extent.width);
         float y = halton_y / static_cast<float>(swapchain.extent.height);
         jitter_offset[i] = glm::vec2(x, y);
-        // fmt::println("fog jitter offset: {} {}", halton_x, halton_y);
-        // fmt::println("taa jitter offset: {} {}", x, y);
     }
 }
 
@@ -1168,11 +1165,9 @@ void VulkanEngine::draw()
                             glm::mat4 inverse_view_proj{};
                             glm::uvec3 froxel_dimensions{};
                             uint32_t current_frame{};
-                            glm::vec2 halton{};
                             float near{};
                             float far{};
                             uint32_t perlin_noise_tex{};
-                            uint32_t blue_noise_tex{};
                             uint32_t scattering_extinction_tex{};
                             float volumetric_noise_pos_mult{};
                             float volumetric_noise_speed_mult{};
@@ -1185,11 +1180,9 @@ void VulkanEngine::draw()
                         pc.inverse_view_proj = scene_data.inverse_viewproj;
                         pc.froxel_dimensions = glm::uvec3(VOLUMETRIC_FROXEL_X, VOLUMETRIC_FROXEL_Y, VOLUMETRIC_FROXEL_Z);
                         pc.current_frame = frame_number;
-                        pc.halton = fog_jitter_offset[frame_number % fog_jitter_offset.size()];
                         pc.near = main_camera.near;
                         pc.far = cvar_system->get_float_cvar("volumetric.far_plane");
                         pc.perlin_noise_tex = bindless.perlin_srv;
-                        pc.blue_noise_tex = bindless.blue_noise_uav;
                         pc.scattering_extinction_tex = bindless.scattering_extinction_uav;
                         pc.volumetric_noise_pos_mult = cvar_system->get_float_cvar("volumetric.noise_pos_mult");
                         pc.volumetric_noise_speed_mult = cvar_system->get_float_cvar("volumetric.noise_speed_mult");
@@ -1247,12 +1240,9 @@ void VulkanEngine::draw()
                             float light_cluster_scale{};
                             float light_cluster_bias{};
                             glm::vec2 pixels_per_cluster{};
-                            glm::vec2 halton{};
                             float phase_anisotropy{};
-                            uint32_t blue_noise_tex{};
                             uint32_t current_frame{};
                             uint32_t point_lights{};
-
                             uint32_t previous_light_scattering_tex{};
                             float volumetrics_scale{};
                             float volumetrics_bias{};
@@ -1277,9 +1267,7 @@ void VulkanEngine::draw()
                         auto cluster_x = ceil(static_cast<float>(VOLUMETRIC_FROXEL_X) / CLUSTER_X);
                         auto cluster_y = ceil(static_cast<float>(VOLUMETRIC_FROXEL_Y) / CLUSTER_Y);
                         pc.pixels_per_cluster = glm::vec2(cluster_x, cluster_y);
-                        pc.halton = fog_jitter_offset[frame_number % fog_jitter_offset.size()];
                         pc.phase_anisotropy = cvar_system->get_float_cvar("volumetric.phase_anisotropy");
-                        pc.blue_noise_tex = bindless.blue_noise_uav;
                         pc.current_frame = frame_number;
                         pc.point_lights = cvar_system->get_int_cvar("point_lights");
 
@@ -1408,7 +1396,6 @@ void VulkanEngine::draw()
 
                         struct PushConstants
                         {
-                            glm::mat4 inverse_view_proj{};
                             glm::uvec3 froxel_dimensions{};
                             float near{};
                             float far{};
@@ -1416,7 +1403,6 @@ void VulkanEngine::draw()
                             uint32_t integrated_light_scattering_tex{};
                         } pc;
 
-                        pc.inverse_view_proj = scene_data.inverse_viewproj;
                         pc.froxel_dimensions = glm::uvec3(VOLUMETRIC_FROXEL_X, VOLUMETRIC_FROXEL_Y, VOLUMETRIC_FROXEL_Z);
                         pc.near = main_camera.near;
                         pc.far = cvar_system->get_float_cvar("volumetric.far_plane");
