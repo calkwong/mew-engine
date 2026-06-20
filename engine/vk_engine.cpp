@@ -70,14 +70,14 @@ AutoCVar_Int CVAR_HOT_RELOAD{ "hot_reload", "Hot reload shaders", CVarFlags::Edi
 AutoCVar_Int CVAR_AZIMUTH{ "sun.azimuth", "Azimuth", CVarFlags::EditSliderInt, 0, 0, 360, 1 };
 AutoCVar_Int CVAR_ELEVATION{ "sun.elevation", "Elevation", CVarFlags::EditSliderInt, 80, 0, 90, 1 };
 
-AutoCVar_Float CVAR_VOLUMETRIC_NOISE_POS{ "volumetric.noise_pos_mult", "Volumetric noise pos mult", CVarFlags::EditDragFloat, 0.0, 0.0, 1.0, 0.05 };
-AutoCVar_Float CVAR_VOLUMETRIC_NOISE_SPEED{ "volumetric.noise_speed_mult", "Volumetric noise speed mult", CVarFlags::EditDragFloat, 0.0, 0.0, 1.0, 0.05 };
+AutoCVar_Float CVAR_VOLUMETRIC_NOISE_POS{ "volumetric.noise_pos_mult", "Volumetric noise pos mult", CVarFlags::EditDragFloat | CVarFlags::EditHide, 0.0, 0.0, 1.0, 0.05 };
+AutoCVar_Float CVAR_VOLUMETRIC_NOISE_SPEED{ "volumetric.noise_speed_mult", "Volumetric noise speed mult", CVarFlags::EditDragFloat | CVarFlags::EditHide, 0.0, 0.0, 1.0, 0.05 };
 AutoCVar_Float CVAR_VOLUMETRIC_FOG_DENSITY{ "volumetric.fog_density", "Volumetric fog density", CVarFlags::EditDragFloat, 0.0, 0.0, 1.0, 0.05 };
 AutoCVar_Float CVAR_VOLUMETRIC_HEIGHT_FOG_DENSITY{ "volumetric.height_fog_density", "Volumetric height fog density", CVarFlags::EditDragFloat, 10.0, 0.0, 10.0, 0.5 };
 AutoCVar_Float CVAR_VOLUMETRIC_SCATTERING_FACTOR{ "volumetric.scattering_factor", "Volumetric scattering factor", CVarFlags::EditDragFloat, 0.1, 0.0, 1.0, 0.05 };
 AutoCVar_Float CVAR_VOLUMETRIC_HEIGHT_FOG_FALLOFF{ "volumetric.height_fog_falloff", "Volumetric height fog falloff", CVarFlags::EditDragFloat, 0.6, 0.0, 10.0, 0.5 };
 AutoCVar_Float CVAR_VOLUMETRIC_PHASE_ANISOTROPY{ "volumetric.phase_anisotropy", "Volumetric phase anisotropy", CVarFlags::EditDragFloat, 0.2, 0.0, 1.0, 0.05 };
-AutoCVar_Int CVAR_VOLUMETRIC_SPATIAL_FILTERING{ "volumetric.spatial_filtering", "Volumetric spatial filtering", CVarFlags::EditCheckbox, 0 };
+AutoCVar_Int CVAR_VOLUMETRIC_SPATIAL_FILTERING{ "volumetric.spatial_filtering", "Volumetric spatial filtering", CVarFlags::EditCheckbox | CVarFlags::EditHide, 0 };
 AutoCVar_Int CVAR_VOLUMETRIC_TEMPORAL_FILTERING{ "volumetric.temporal_filtering", "Volumetric temporal filtering", CVarFlags::EditCheckbox, 1 };
 AutoCVar_Float CVAR_VOLUMETRIC_FAR_PLANE{ "volumetric.far_plane", "Volumetric far plane", CVarFlags::EditDragFloat, 60.0, 50.0, 500.0, 10.0 };
 
@@ -1311,6 +1311,7 @@ void VulkanEngine::draw()
                     }
                 );
 
+                /*
                 if (cvar_system->get_int_cvar("volumetric.spatial_filtering"))
                 {
                     graph.add_pass(
@@ -1391,6 +1392,7 @@ void VulkanEngine::draw()
                         }
                     );
                 }
+                */
 
                 graph.add_pass(
                     "light_integration",
@@ -2220,7 +2222,7 @@ void VulkanEngine::init_shaders()
     shader_cache.add_shader(device, "scattering_extinction.slang");
     shader_cache.add_shader(device, "light_scattering.slang");
     shader_cache.add_shader(device, "light_integration.slang");
-    shader_cache.add_shader(device, "fog_spatial_filtering.slang");
+    // shader_cache.add_shader(device, "fog_spatial_filtering.slang");
     // shader_cache.add_shader(device, "fog_temporal_filtering.slang");
     // shader_cache.add_shader(device, "rt.slang", sizeof(DeferredPushConstants));
 }
@@ -2256,7 +2258,7 @@ void VulkanEngine::init_pipelines()
     shader_passes["scattering_extinction"] = create_compute_pipeline(device, shader_cache["scattering_extinction.slang"], &desc_set_and_binding_mapping_info);
     shader_passes["light_scattering"] = create_compute_pipeline(device, shader_cache["light_scattering.slang"], &desc_set_and_binding_mapping_info);
     shader_passes["light_integration"] = create_compute_pipeline(device, shader_cache["light_integration.slang"], &desc_set_and_binding_mapping_info);
-    shader_passes["fog_spatial_filtering"] = create_compute_pipeline(device, shader_cache["fog_spatial_filtering.slang"], &desc_set_and_binding_mapping_info);
+    // shader_passes["fog_spatial_filtering"] = create_compute_pipeline(device, shader_cache["fog_spatial_filtering.slang"], &desc_set_and_binding_mapping_info);
     // shader_passes["fog_temporal_filtering"] = create_compute_pipeline(device, shader_cache["fog_temporal_filtering.slang"], &desc_set_and_binding_mapping_info);
     // shader_passes["ray_tracing"] = create_compute_pipeline(device, shader_cache["rt.slang"], &desc_set_and_binding_mapping_info);
 
