@@ -2153,7 +2153,7 @@ void VulkanEngine::init_descriptors()
 
     sampler_heap_buffer = create_buffer(
         allocator,
-        7 * desc_heap_properties.samplerDescriptorSize + desc_heap_properties.minSamplerHeapReservedRange,
+        10 * desc_heap_properties.samplerDescriptorSize + desc_heap_properties.minSamplerHeapReservedRange,
         VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
         VK_BUFFER_USAGE_DESCRIPTOR_HEAP_BIT_EXT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
     );
