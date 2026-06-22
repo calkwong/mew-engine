@@ -4545,6 +4545,36 @@ void VulkanEngine::register_bda_table()
     bda_table.spd_counter_buffer = get_buffer_address(device, spd_counter_buffer.buffer);
 }
 
+template<typename T>
+void VulkanEngine::push_constants(VkCommandBuffer cmd, T& data, VkPipelineLayout pipeline_layout)
+{
+    if (desc_heap_supported)
+    {
+        VkPushDataInfoEXT push_data_info{};
+        push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
+        push_data_info.data = { &data, sizeof(T) };
+        vkCmdPushDataEXT(cmd, &push_data_info);
+    }
+    else
+    {
+        VkShaderStageFlags stage_flags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_COMPUTE_BIT;
+
+        if (sizeof(T) == 256)
+        {
+            vkCmdPushConstants(cmd, pipeline_layout, stage_flags, 0, sizeof(T), &data);
+            return;
+        }
+
+        struct PC
+        {
+            T pc = data;
+            std::array<std::byte, 256 - sizeof(T)> padding{};
+        } pc;
+
+        vkCmdPushConstants(cmd, pipeline_layout, stage_flags, 0, sizeof(PC), &pc);
+    }
+}
+
 int main(int argc, char** argv)
 {
     VulkanEngine engine{};
