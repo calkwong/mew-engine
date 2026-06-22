@@ -31,6 +31,7 @@ struct PushConstants
     float volumetrics_bias;
     uint first_frame;
     uint temporal_filter;
+    uint frame_index;
 };
 
 [[vk::push_constant]]
@@ -61,14 +62,14 @@ void main(
     float3 lighting = float3(0.0);
 
     {
-        float3 V = normalize(uniforms.camera_pos.xyz - world_pos);
-        float3 L = normalize(uniforms.sunlight_dir.xyz);
+        float3 V = normalize(uniforms[pc.frame_index].camera_pos.xyz - world_pos);
+        float3 L = normalize(uniforms[pc.frame_index].sunlight_dir.xyz);
         float VdotL = dot(V, L);
         float phase = phase_schlick(pc.phase_anisotropy, VdotL);
 
         uint cascade_index = 0;
-        float shadow = calculate_shadow(world_pos, cascade_index, pc.shadowmap_id);
-        float3 sunlight = shadow * uniforms.sunlight_color.xyz * phase;
+        float shadow = calculate_shadow(world_pos, cascade_index, pc.shadowmap_id, pc.frame_index);
+        float3 sunlight = shadow * uniforms[pc.frame_index].sunlight_color.xyz * phase;
         float sunlight_intensity = 3.0; // for debugging
         sunlight *= sunlight_intensity;
 
@@ -77,7 +78,7 @@ void main(
         float3 point_lights = float3(0.0);
         if (pc.point_lights == 1)
         {
-            float view_z = mul(uniforms.view, float4(world_pos, 1.0)).z;
+            float view_z = mul(uniforms[pc.frame_index].view, float4(world_pos, 1.0)).z;
             uint light_slice = get_cluster_z_slice(-view_z, pc.light_cluster_scale, pc.light_cluster_bias);
             uint cluster_index = get_cluster_index(float2(froxel_coord.x, pc.froxel_dimensions.y - froxel_coord.y), pc.pixels_per_cluster.xy, light_slice);
 
@@ -96,7 +97,7 @@ void main(
                 // float intensity = 15.0; // for debugging
                 // light_color *= intensity;
 
-                light_pos = mul(uniforms.light_rot, float4(light_pos, 1.0)).xyz;
+                light_pos = mul(uniforms[pc.frame_index].light_rot, float4(light_pos, 1.0)).xyz;
                 L = light_pos - world_pos;
 
                 float attenuation = get_square_falloff_attenuation(L, light_radius);
@@ -126,7 +127,7 @@ void main(
     if (pc.temporal_filter == 1)
     {
         float3 world_pos_no_jitter = world_from_froxel(froxel_coord, pc.froxel_dimensions, pc.inverse_view_proj, pc.near, pc.far);
-        float4 history_clip = mul(uniforms.prev_view_proj, float4(world_pos_no_jitter, 1.0));
+        float4 history_clip = mul(uniforms[pc.frame_index].prev_view_proj, float4(world_pos_no_jitter, 1.0));
         float3 history_ndc = history_clip.xyz / history_clip.w;
         float history_view_z = pc.near / history_ndc.z;
         uint history_slice = uint(floor(log(history_view_z) * pc.volumetrics_scale - pc.volumetrics_bias));

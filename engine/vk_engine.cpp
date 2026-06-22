@@ -671,18 +671,6 @@ void VulkanEngine::draw()
     auto* scene_uniform_data = static_cast<SceneData*>(get_current_frame().scene_buffer.info.pMappedData);
     *scene_uniform_data = scene_data;
 
-    // TODO: potential hazard, we should probably allocate FIF bindings for UBO and offset accordingly
-    // TODO: use proper bufferdescriptorsize
-    void* descriptor = static_cast<uint8_t*>(resource_heap_buffer.info.pMappedData) + 0 * desc_heap_properties.imageDescriptorSize;
-    write_buffer_descriptor(
-        device,
-        descriptor,
-        get_buffer_address(device, get_current_frame().scene_buffer.buffer),
-        get_current_frame().scene_buffer.size,
-        VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-        desc_heap_properties.imageDescriptorSize
-    );
-
     CullData forward_mesh_cull_data{};
     ClusterCullData forward_cluster_cull_data{};
 
@@ -1175,6 +1163,7 @@ void VulkanEngine::draw()
                             float height_fog_density_modifier{};
                             float scattering_factor{};
                             float height_fog_falloff{};
+                            uint32_t frame_index{};
                         } pc;
 
                         pc.inverse_view_proj = scene_data.inverse_viewproj;
@@ -1190,6 +1179,7 @@ void VulkanEngine::draw()
                         pc.height_fog_density_modifier = cvar_system->get_float_cvar("volumetric.height_fog_density");
                         pc.scattering_factor = cvar_system->get_float_cvar("volumetric.scattering_factor");
                         pc.height_fog_falloff = cvar_system->get_float_cvar("volumetric.height_fog_falloff");
+                        pc.frame_index = frame_number % MAX_FRAMES_IN_FLIGHT;
 
                         VkPushDataInfoEXT push_data_info{};
                         push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
@@ -1248,6 +1238,7 @@ void VulkanEngine::draw()
                             float volumetrics_bias{};
                             uint32_t first_frame{};
                             uint32_t temporal_filter{};
+                            uint32_t frame_index{};
                         } pc;
 
                         pc.inverse_view_proj = scene_data.inverse_viewproj;
@@ -1282,6 +1273,7 @@ void VulkanEngine::draw()
                             fog_first_frame = false;
                         }
                         pc.temporal_filter = cvar_system->get_int_cvar("volumetric.temporal_filtering");
+                        pc.frame_index = frame_number % MAX_FRAMES_IN_FLIGHT;
 
                         VkPushDataInfoEXT push_data_info{};
                         push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
@@ -2386,8 +2378,8 @@ void VulkanEngine::init_resources()
             VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
             VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
         );
+        resource_heap_manager.add_buffer(frame.scene_buffer, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
     }
-    resource_heap_manager.add_buffer(frames[0].scene_buffer, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
 
     auto image_extent = VkExtent3D{ swapchain.extent.width, swapchain.extent.height, 1 };
 
@@ -3007,6 +2999,7 @@ void VulkanEngine::resolve_taa(VkCommandBuffer cmd)
         uint32_t ycocg{};
         uint32_t valid_history{};
         uint32_t dynamic{};
+        uint32_t frame_index{};
     } pc;
 
     auto jitter_count = jitter_offset.size();
@@ -3026,6 +3019,7 @@ void VulkanEngine::resolve_taa(VkCommandBuffer cmd)
     pc.valid_history = taa_first_frame ? 0 : 1;
     taa_first_frame = false;
     pc.dynamic = cvar_system->get_int_cvar("taa.dynamic");
+    pc.frame_index = frame_number % MAX_FRAMES_IN_FLIGHT;
 
     VkPushDataInfoEXT push_data_info{};
     push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
@@ -3570,6 +3564,7 @@ void VulkanEngine::execute_shadow_cull(VkCommandBuffer cmd)
         VkDeviceAddress mesh_buffer_address{};
         VkDeviceAddress indices_buffer_address{};
         VkDeviceAddress draw_buffer_address{};
+        uint32_t frame_index{};
         uint32_t count{};
         uint32_t lod_enabled{};
     } pc;
@@ -3578,6 +3573,7 @@ void VulkanEngine::execute_shadow_cull(VkCommandBuffer cmd)
     pc.mesh_buffer_address = bda_table.mesh_buffer;
     pc.indices_buffer_address = bda_table.indices_buffer;
     pc.draw_buffer_address = bda_table.draw_indirect_buffer;
+    pc.frame_index = frame_number % MAX_FRAMES_IN_FLIGHT;
 
     std::vector<RenderScene::MeshPass*> passes = { &render_scene.opaque_pass, &render_scene.mask_pass };
     uint32_t cull_count{};
@@ -3684,6 +3680,7 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass)
         VkDeviceAddress prefix_sum_buffer{};
         glm::uvec2 screen_size{};
         glm::vec4 jitter_offset{};
+        uint32_t frame_index{};
     } pc;
 
     pc.object_buffer_address = bda_table.object_buffer;
@@ -3698,6 +3695,7 @@ void VulkanEngine::render(VkCommandBuffer cmd, bool late, uint32_t post_pass)
     auto previous_jitter = jitter_offset[(frame_number - 1) % jitter_count];
     pc.screen_size = glm::uvec2(swapchain.extent.width, swapchain.extent.height);
     pc.jitter_offset = glm::vec4(current_jitter, previous_jitter);
+    pc.frame_index = frame_number % MAX_FRAMES_IN_FLIGHT;
 
     if (!cvar_system->get_int_cvar("mesh_shaders"))
     {
@@ -3807,6 +3805,7 @@ void VulkanEngine::render_transparent(VkCommandBuffer cmd)
         uint32_t point_lights{};
         uint32_t scale{};
         uint32_t bias{};
+        uint32_t frame_index{};
     } pc;
 
     pc.object_buffer_address = bda_table.object_buffer;
@@ -3831,6 +3830,7 @@ void VulkanEngine::render_transparent(VkCommandBuffer cmd)
     const float ratio = main_camera.far / main_camera.near;
     pc.scale = static_cast<float>(CLUSTER_DEPTH_SLICES) / std::log(ratio);
     pc.bias = static_cast<float>(CLUSTER_DEPTH_SLICES) * std::log(main_camera.near) / std::log(ratio);
+    pc.frame_index = frame_number % MAX_FRAMES_IN_FLIGHT;
 
     if (!cvar_system->get_int_cvar("mesh_shaders"))
     {
@@ -4197,7 +4197,6 @@ void VulkanEngine::execute_shading(VkCommandBuffer cmd)
         VkDeviceAddress mesh_buffer_address{};
         VkDeviceAddress sh_buffer_address{};
         uint32_t draw_id{};
-        ;
         uint32_t depth_id{};
         uint32_t gbuffer_id{};
         uint32_t shadow_id{};
@@ -4215,6 +4214,7 @@ void VulkanEngine::execute_shading(VkCommandBuffer cmd)
         uint32_t blue_noise_tex{};
         float volumetrics_scale{};
         float volumetrics_bias{};
+        uint32_t frame_index{};
     } pc;
 
     auto cluster_x = ceil(static_cast<float>(swapchain.extent.width) / CLUSTER_X); // # cluster dim
@@ -4256,6 +4256,7 @@ void VulkanEngine::execute_shading(VkCommandBuffer cmd)
     const float fog_frustum_ratio = cvar_system->get_float_cvar("volumetric.far_plane") / main_camera.near;
     pc.volumetrics_scale = volumetrics_slices / std::log(fog_frustum_ratio);
     pc.volumetrics_bias = volumetrics_slices * std::log(main_camera.near) / std::log(fog_frustum_ratio);
+    pc.frame_index = frame_number % MAX_FRAMES_IN_FLIGHT;
 
     VkPushDataInfoEXT push_data_info{};
     push_data_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;

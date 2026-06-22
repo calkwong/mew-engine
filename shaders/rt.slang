@@ -101,9 +101,9 @@ void main(
 	float3 wp1 = rotate_quat(float3(v1.px, v1.py, v1.pz), obj.orientation) * obj.scale + obj.translation;
 	float3 wp2 = rotate_quat(float3(v2.px, v2.py, v2.pz), obj.orientation) * obj.scale + obj.translation;
 
-	float4 p0 = mul(uniforms.view_proj, float4(wp0, 1.0));
-	float4 p1 = mul(uniforms.view_proj, float4(wp1, 1.0));
-	float4 p2 = mul(uniforms.view_proj, float4(wp2, 1.0));
+	float4 p0 = mul(uniforms[0].view_proj, float4(wp0, 1.0));
+	float4 p1 = mul(uniforms[0].view_proj, float4(wp1, 1.0));
+	float4 p2 = mul(uniforms[0].view_proj, float4(wp2, 1.0));
 
     // we want y up here, not y with top left origin
 	float2 pNdc = in_uv * 2.0 - 1.0;
@@ -125,7 +125,7 @@ void main(
 	unpack_tbn(v1.normal, uint(v1.tangent), np1, tp1);
 	unpack_tbn(v2.normal, uint(v2.tangent), np2, tp2);
 
-	float3 V = normalize(uniforms.camera_pos.xyz - world_pos);
+	float3 V = normalize(uniforms[0].camera_pos.xyz - world_pos);
 
 	// alternative: store triangle face bit in visibility buffer
 	float3 e1 = wp1 - wp0;
@@ -188,7 +188,7 @@ void main(
 
 	// float3 Fr = float3(0.0);
 
-	// float3 L = normalize(uniforms.sunlight_dir.xyz);
+	// float3 L = normalize(uniforms[pc.frame_index].sunlight_dir.xyz);
 	// float3 H = normalize(L + V);
 
 	// float NdotL = max(dot(N, L), 0.0);
@@ -211,7 +211,7 @@ void main(
 	// float G = V_SmithGGXCorrelated(NdotV, NdotL, roughness);
 	// Fr = D * G * F;
 
-	// float3 light_color = uniforms.sunlight_color.xyz;
+	// float3 light_color = uniforms[pc.frame_index].sunlight_color.xyz;
 	// color = (Fd + Fr) * light_color * NdotL;
 
 #else

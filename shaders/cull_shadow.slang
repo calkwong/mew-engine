@@ -21,6 +21,7 @@ struct PushConstants
 	MeshData* mesh_buffer;
 	uint* mesh_indices_buffer;
 	ShadowDrawCommands* draw_buffer;
+	uint frame_index;
 	uint count;
 	uint lod_enabled;
 };
@@ -29,8 +30,8 @@ struct PushConstants
 
 bool partially_inside_cascade(float3 center_world, float radius, uint cascade_index)
 {
-	float3 center_view = mul(uniforms.shadow_views[cascade_index], float4(center_world, 1.0)).xyz; // light space
-	float cascade_radius = uniforms.shadow_widths[cascade_index];
+	float3 center_view = mul(uniforms[pc.frame_index].shadow_views[cascade_index], float4(center_world, 1.0)).xyz; // light space
+	float cascade_radius = uniforms[pc.frame_index].shadow_widths[cascade_index];
 
 	bool visible = true;
 
@@ -45,8 +46,8 @@ bool partially_inside_cascade(float3 center_world, float radius, uint cascade_in
 // TODO: is this even worth it? unsure if implementation is robust, requires more testing. disabled for now.
 bool completely_inside_cascade(float3 center_world, float radius, uint cascade_index)
 {
-    float3 center_view = mul(uniforms.shadow_views[cascade_index], float4(center_world, 1.0)).xyz;
-    float cascade_radius = uniforms.shadow_widths[cascade_index];
+    float3 center_view = mul(uniforms[pc.frame_index].shadow_views[cascade_index], float4(center_world, 1.0)).xyz;
+    float cascade_radius = uniforms[pc.frame_index].shadow_widths[cascade_index];
 
 	bool visible = true;
 
@@ -91,7 +92,7 @@ void main(
 
 	uint cascade_index = t_id.y;
 
-    float cascade_radius = uniforms.shadow_widths[cascade_index];
+    float cascade_radius = uniforms[pc.frame_index].shadow_widths[cascade_index];
 
     float3 mpos = mesh.center;
     float3 center = rotate_quat(mpos, obj.orientation) * obj.scale + obj.translation; // world space

@@ -46,6 +46,7 @@ struct PushConstants
 	uint point_lights;
 	uint scale;
 	uint bias;
+	uint frame_index;
 };
 
 [[vk::push_constant]] PushConstants pc;
@@ -63,8 +64,8 @@ Interp vs_main(
 
 	float3 pos = float3(v.px, v.py, v.pz);
 	float4 world_pos = float4(rotate_quat(pos, o.orientation) * o.scale + o.translation, 1.0);
-	float4 view_pos = mul(uniforms.view, world_pos);
-    float4 clip_pos = mul(uniforms.view_proj, world_pos);
+	float4 view_pos = mul(uniforms[pc.frame_index].view, world_pos);
+    float4 clip_pos = mul(uniforms[pc.frame_index].view_proj, world_pos);
 	interp.position = clip_pos;
 	interp.world_pos = world_pos.xyz;
 	interp.view_pos = view_pos.xyz;
@@ -142,8 +143,8 @@ void mesh_main(
 
 		float3 pos = float3(v.px, v.py, v.pz);
 		float4 world_pos = float4(rotate_quat(pos, o.orientation) * o.scale + o.translation, 1.0);
-		float4 view_pos = mul(uniforms.view, world_pos);
-	    float4 clip_pos = mul(uniforms.view_proj, world_pos);
+		float4 view_pos = mul(uniforms[pc.frame_index].view, world_pos);
+	    float4 clip_pos = mul(uniforms[pc.frame_index].view_proj, world_pos);
 		verts[i].position = clip_pos;
 		verts[i].world_pos = world_pos.xyz;
 		verts[i].view_pos = view_pos.xyz;
@@ -240,11 +241,11 @@ void ps_main(
 
 	float3 Fr = float3(0.0);
 
-	float3 L = normalize(uniforms.sunlight_dir.xyz);
-	float3 V = normalize(uniforms.camera_pos.xyz - in.world_pos);
+	float3 L = normalize(uniforms[pc.frame_index].sunlight_dir.xyz);
+	float3 V = normalize(uniforms[pc.frame_index].camera_pos.xyz - in.world_pos);
 	float3 H = normalize(L + V);
 
-	float3 light_color = uniforms.sunlight_color.xyz;
+	float3 light_color = uniforms[pc.frame_index].sunlight_color.xyz;
 
 	BRDFData brdf_data = prepare_brdf_data(N, L, V, albedo.xyz, roughness, metallic);
 	float3 direct_lighting;
@@ -307,7 +308,7 @@ void ps_main(
           		float light_radius = point_light.pos.w;
           		float3 light_color = point_light.color.xyz;
 
-          		light_pos = mul(uniforms.light_rot, float4(light_pos, 1.0)).xyz;
+          		light_pos = mul(uniforms[pc.frame_index].light_rot, float4(light_pos, 1.0)).xyz;
           		float3 point_to_light = light_pos - in.world_pos;
 
                 update_brdf_data(brdf_data, normalize(point_to_light));
@@ -347,15 +348,15 @@ void ps_main(
 	SamplerState linear_clamp_samp = get_sampler<SamplerState>(LINEAR_CLAMP_SAMPLER);
 
 	float3 irradiance = evaluate_sh(pc.sh_buffer->r_coefficients, pc.sh_buffer->g_coefficients, pc.sh_buffer->b_coefficients, N);
-	float3 radiance = get_sampled_image<TextureCube>(uniforms.prefiltered_id).SampleLevel(cube_samp, R, prefiltered_mip).xyz;
-	float2 brdf_lut = get_sampled_image<Texture2D>(uniforms.brdf_id).SampleLevel(linear_clamp_samp, float2(brdf_data.NdotV, perceptual_roughness), 0.0).rg;
+	float3 radiance = get_sampled_image<TextureCube>(uniforms[pc.frame_index].prefiltered_id).SampleLevel(cube_samp, R, prefiltered_mip).xyz;
+	float2 brdf_lut = get_sampled_image<Texture2D>(uniforms[pc.frame_index].brdf_id).SampleLevel(linear_clamp_samp, float2(brdf_data.NdotV, perceptual_roughness), 0.0).rg;
 
 	float3 indirect_lighting;
 	if (material_transmission)
 	{
     	float3 f_diffuse = irradiance * albedo.xyz;
         float max_extent = float(max(pc.screen_size.x, pc.screen_size.y));
-        float3 f_specular_transmission = eval_ibl_volume_refraction(brdf_data, albedo.xyz, perceptual_roughness, in.world_pos, uniforms.view_proj, pc.framebuffer_id, max_extent, thickness, m.attenuation_color, m.attenuation_distance, ior, scale);
+        float3 f_specular_transmission = eval_ibl_volume_refraction(brdf_data, albedo.xyz, perceptual_roughness, in.world_pos, uniforms[pc.frame_index].view_proj, pc.framebuffer_id, max_extent, thickness, m.attenuation_color, m.attenuation_distance, ior, scale);
         f_diffuse = lerp(f_diffuse, f_specular_transmission, transmission_factor);
 
         // for simplicity, use single scattering for transmission path

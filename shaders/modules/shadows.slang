@@ -6,8 +6,7 @@ import types;
 internal static const int CASCADE_COUNT = 4;
 internal static const float EPSILON = 0.01; // avoids self intersection
 
-internal float2 intersection_uv(uint mesh_id, uint prim_index, float2 barycentrics, MeshData* mesh_buffer, uint* index_buffer, Vertex* vertex_buffer
-)
+internal float2 intersection_uv(uint mesh_id, uint prim_index, float2 barycentrics, MeshData* mesh_buffer, uint* index_buffer, Vertex* vertex_buffer)
 {
     uint vertex_offset = mesh_buffer[mesh_id].vertex_offset;
     uint index_offset = mesh_buffer[mesh_id].lods[0].first_index;
@@ -33,10 +32,10 @@ internal float2 intersection_uv(uint mesh_id, uint prim_index, float2 barycentri
 // - soft shadows
 // - trace at lower resolution
 // - use offset_ray from ray tracing gems
-public bool in_shadow(float3 pos, ObjectData* object_buffer, MeshData* mesh_buffer, MaterialData* material_buffer, uint* index_buffer, Vertex* vertex_buffer)
+public bool in_shadow(float3 pos, ObjectData* object_buffer, MeshData* mesh_buffer, MaterialData* material_buffer, uint* index_buffer, Vertex* vertex_buffer, uint frame_index)
 {
     RayDesc shadow_ray_desc;
-    shadow_ray_desc.Direction = normalize(uniforms.sunlight_dir.xyz);
+    shadow_ray_desc.Direction = normalize(uniforms[frame_index].sunlight_dir.xyz);
     shadow_ray_desc.Origin = pos;
     shadow_ray_desc.TMin = EPSILON;
     shadow_ray_desc.TMax = 1e4;
@@ -72,13 +71,13 @@ public bool in_shadow(float3 pos, ObjectData* object_buffer, MeshData* mesh_buff
     return hit;
 }
 
-public float calculate_shadow(float3 world_pos, inout uint cascade_index, uint shadowmap_id)
+public float calculate_shadow(float3 world_pos, inout uint cascade_index, uint shadowmap_id, uint frame_index)
 {
     float3 ndc;
 
     for (int i = 0; i < CASCADE_COUNT; i++)
     {
-        ndc = mul(uniforms.shadow_transforms[i], float4(world_pos, 1.0)).xyz;
+        ndc = mul(uniforms[frame_index].shadow_transforms[i], float4(world_pos, 1.0)).xyz;
         // z plane check is dependent on cascade selection strategy and potentially if we're doing pancaking?
         if (abs(ndc.x) < 1.0 && abs(ndc.y) < 1.0 && ndc.z > 0.0 && ndc.z < 1.0)
         {

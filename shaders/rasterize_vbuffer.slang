@@ -43,6 +43,7 @@ struct PushConstants
     PrefixSum* prefix_sum_buffer;
     uint2 screen_size;
     float4 jitter_offset;
+    uint frame_index;
 };
 
 [[vk::push_constant]] PushConstants pc;
@@ -115,7 +116,7 @@ void mesh_main(
         verts[i].uv = float2(v.uv_x, v.uv_y);
         verts[i].material_id = o.material_id; // only used for alpha clipping
 
-        float4 clip_pos = mul(uniforms.view_proj, world_pos);
+        float4 clip_pos = mul(uniforms[pc.frame_index].view_proj, world_pos);
 
         // TODO: only account for screen size if doing small primitive culling
 #ifdef TRIANGLE_CULLING

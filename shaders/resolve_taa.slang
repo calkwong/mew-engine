@@ -25,6 +25,7 @@ struct PushConstants
 	uint ycocg;
 	uint valid_history; // valid when first_frame==false
 	uint dynamic_blend;
+	uint frame_index;
 };
 
 [[vk::push_constant]] PushConstants pc;
@@ -250,9 +251,9 @@ void main(
 	float current_depth = get_sampled_image<Texture2D>(pc.depth_id).SampleLevel(nearest_samp, uv, 0.0).r;
 	float2 current_ndc = uv * 2.0 - 1.0;
 	current_ndc.y *= -1.0;
-	float4 world_pos = mul(uniforms.inverse_view_proj, float4(current_ndc, current_depth, 1.0));
+	float4 world_pos = mul(uniforms[pc.frame_index].inverse_view_proj, float4(current_ndc, current_depth, 1.0));
 	world_pos /= world_pos.w;
-	float4 previous_clip = mul(uniforms.prev_view_proj, world_pos);
+	float4 previous_clip = mul(uniforms[pc.frame_index].prev_view_proj, world_pos);
 	float2 previous_ndc = previous_clip.xy / previous_clip.w;
 	current_ndc -= pc.jitter_offset.xy;
 	previous_ndc -= pc.jitter_offset.zw;

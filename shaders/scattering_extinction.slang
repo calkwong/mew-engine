@@ -16,6 +16,7 @@ struct PushConstants
     float height_fog_density_modifier;
     float scattering_factor;
     float height_fog_falloff;
+    uint frame_index;
 };
 
 [[vk::push_constant]]
@@ -60,7 +61,7 @@ void main(
     // fog_noise = saturate(fog_noise * fog_noise); // why?
 
     // add depth fog
-    float dist_meters = length(world_pos - uniforms.camera_pos.xyz) * 0.01;
+    float dist_meters = length(world_pos - uniforms[pc.frame_index].camera_pos.xyz) * 0.01;
     float depth_density = 1.0 - exp(-dist_meters * pc.fog_density_modifier);
     scattering_extinction += scattering_extinction_from_color_density(float3(0.5), depth_density);
 

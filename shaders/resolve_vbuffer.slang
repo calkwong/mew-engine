@@ -40,6 +40,7 @@ struct PushConstants
 	uint blue_noise_tex;
 	float volumetrics_scale;
 	float volumetrics_bias;
+	uint frame_index;
 };
 
 [[vk::push_constant]] PushConstants pc;
@@ -110,9 +111,9 @@ void main(
 	float3 wp1 = rotate_quat(float3(v1.px, v1.py, v1.pz), obj.orientation) * obj.scale + obj.translation;
 	float3 wp2 = rotate_quat(float3(v2.px, v2.py, v2.pz), obj.orientation) * obj.scale + obj.translation;
 
-	float4 p0 = mul(uniforms.view_proj, float4(wp0, 1.0));
-	float4 p1 = mul(uniforms.view_proj, float4(wp1, 1.0));
-	float4 p2 = mul(uniforms.view_proj, float4(wp2, 1.0));
+	float4 p0 = mul(uniforms[pc.frame_index].view_proj, float4(wp0, 1.0));
+	float4 p1 = mul(uniforms[pc.frame_index].view_proj, float4(wp1, 1.0));
+	float4 p2 = mul(uniforms[pc.frame_index].view_proj, float4(wp2, 1.0));
 
     // we want y up here, not y with top left origin
 	float2 pNdc = in_uv * 2.0 - 1.0;
@@ -134,7 +135,7 @@ void main(
 	unpack_tbn(v1.normal, uint(v1.tangent), np1, tp1);
 	unpack_tbn(v2.normal, uint(v2.tangent), np2, tp2);
 
-	float3 V = normalize(uniforms.camera_pos.xyz - world_pos);
+	float3 V = normalize(uniforms[pc.frame_index].camera_pos.xyz - world_pos);
 
 	// alternative: store triangle face bit in visibility buffer
 	float3 e1 = wp1 - wp0;
@@ -192,10 +193,10 @@ void main(
 	perceptual_roughness = max(perceptual_roughness, 0.045); // frostbite engine clamp value for analytical lights (fp32)
 	float roughness = perceptual_roughness * perceptual_roughness;
 
-	float3 L = normalize(uniforms.sunlight_dir.xyz);
+	float3 L = normalize(uniforms[pc.frame_index].sunlight_dir.xyz);
 	float3 H = normalize(L + V);
 
-	float3 light_color = uniforms.sunlight_color.xyz;
+	float3 light_color = uniforms[pc.frame_index].sunlight_color.xyz;
 	BRDFData brdf_data = prepare_brdf_data(N, L, V, albedo.xyz, roughness, metallic);
 	color = eval_brdf(brdf_data, albedo.xyz, roughness, metallic) * light_color * brdf_data.NdotL;
 
@@ -204,8 +205,8 @@ void main(
 	float prefiltered_mip = pc.max_prefiltered_lod * perceptual_roughness;
 
 	float3 irradiance = evaluate_sh(pc.sh_buffer->r_coefficients, pc.sh_buffer->g_coefficients, pc.sh_buffer->b_coefficients, N);
-	float3 radiance = get_sampled_image<TextureCube>(uniforms.prefiltered_id).SampleLevel(cube_samp, R, prefiltered_mip).xyz;
-	float2 brdf_lut = get_sampled_image<Texture2D>(uniforms.brdf_id).SampleLevel(linear_clamp_samp, float2(brdf_data.NdotV, perceptual_roughness), 0.0).rg;
+	float3 radiance = get_sampled_image<TextureCube>(uniforms[pc.frame_index].prefiltered_id).SampleLevel(cube_samp, R, prefiltered_mip).xyz;
+	float2 brdf_lut = get_sampled_image<Texture2D>(uniforms[pc.frame_index].brdf_id).SampleLevel(linear_clamp_samp, float2(brdf_data.NdotV, perceptual_roughness), 0.0).rg;
 
 	float3 ambient = eval_indirect_multiscattering(brdf_data, irradiance, radiance, brdf_lut, albedo.xyz, perceptual_roughness, metallic);
 	float ao = 1.0;
@@ -225,12 +226,12 @@ void main(
 	{
 	    if (pc.shadows_rt == 0)
 		{
-    		float occluded = calculate_shadow(world_pos, cascade_index, pc.shadowmap_id);
+    		float occluded = calculate_shadow(world_pos, cascade_index, pc.shadowmap_id, pc.frame_index);
             color *= occluded;
 		}
 	    else
 		{
-            bool shadowed = in_shadow(world_pos, pc.object_buffer, pc.mesh_buffer, pc.material_buffer, pc.index_buffer, pc.vertex_buffer);
+            bool shadowed = in_shadow(world_pos, pc.object_buffer, pc.mesh_buffer, pc.material_buffer, pc.index_buffer, pc.vertex_buffer, pc.frame_index);
             color = shadowed ? float3(0.0) : color;
 		}
 	}
@@ -258,7 +259,7 @@ void main(
     		float light_radius = point_light.pos.w;
     		float3 light_color = point_light.color.xyz;
 
-    		light_pos = mul(uniforms.light_rot, float4(light_pos, 1.0)).xyz;
+    		light_pos = mul(uniforms[pc.frame_index].light_rot, float4(light_pos, 1.0)).xyz;
     		float3 distance = light_pos - world_pos;
     		float3 L = normalize(distance);
 
@@ -280,8 +281,8 @@ void main(
 	{
 		float2 ndc = in_uv * 2.0 - 1.0;
 		ndc.y *= -1.0;
-		float3 sample_dir = mul(uniforms.inverse_view_proj, float4(ndc, 0.0, 1.0)).xyz;
-		color = get_sampled_image<TextureCube>(uniforms.skybox_id).SampleLevel(cube_samp, sample_dir, 0.0).xyz;
+		float3 sample_dir = mul(uniforms[pc.frame_index].inverse_view_proj, float4(ndc, 0.0, 1.0)).xyz;
+		color = get_sampled_image<TextureCube>(uniforms[pc.frame_index].skybox_id).SampleLevel(cube_samp, sample_dir, 0.0).xyz;
 	}
 
 	uint hash_id;

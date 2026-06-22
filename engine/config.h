@@ -38,6 +38,7 @@
 #define NEAREST_SAMPLER 5 // clamp to edge
 #define LINEAR_CLAMP_SAMPLER 6 // clamp to edge
 
+// note: if this is changed, amend bindings.slang otherwise heap indexing will be broken
 #define MAX_FRAMES_IN_FLIGHT 2
 
 #define VOLUMETRIC_FROXEL_X 160
