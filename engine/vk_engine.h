@@ -327,7 +327,4 @@ private:
     void create_acceleration_structures();
     void register_queries_with_imgui();
     void register_bda_table();
-
-    template <typename T>
-    void push_constants(VkCommandBuffer cmd, T& data, VkPipelineLayout pipeline_layout);
 };
