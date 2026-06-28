@@ -1958,6 +1958,10 @@ void VulkanEngine::init_vulkan()
     ray_query_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR;
     ray_query_features.rayQuery = true;
 
+    VkPhysicalDeviceUnifiedImageLayoutsFeaturesKHR unified_image_layout_features{};
+    unified_image_layout_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_UNIFIED_IMAGE_LAYOUTS_FEATURES_KHR;
+    unified_image_layout_features.unifiedImageLayouts = true;
+
     VkPhysicalDeviceAccelerationStructureFeaturesKHR acceleration_structure_features{};
     acceleration_structure_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR;
     acceleration_structure_features.accelerationStructure = true;
@@ -1981,11 +1985,13 @@ void VulkanEngine::init_vulkan()
             .add_required_extension("VK_KHR_deferred_host_operations")
             .add_required_extension("VK_KHR_acceleration_structure")
             .add_required_extension("VK_EXT_descriptor_heap")
+            .add_required_extension("VK_KHR_unified_image_layouts")
             .add_required_extension_features(mesh_shader_features)
             .add_required_extension_features(fragment_shader_interlock_features)
             .add_required_extension_features(ray_query_features)
             .add_required_extension_features(acceleration_structure_features)
             .add_required_extension_features(desc_heap_features)
+            .add_required_extension_features(unified_image_layout_features)
             .set_surface(surface)
             .select()
             .value();
@@ -2034,6 +2040,7 @@ void VulkanEngine::init_vulkan()
     vkGetPhysicalDeviceProperties2(physical_device, &device_properties);
     assert(device_properties.properties.limits.timestampComputeAndGraphics);
 
+    // TODO: extension and feature checking should be performed after physical device selection, before creation of logical device
     uint32_t extension_count = 0;
     vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &extension_count, nullptr);
     std::vector<VkExtensionProperties> extensions(extension_count);
@@ -2049,7 +2056,7 @@ void VulkanEngine::init_vulkan()
         { VK_KHR_RAY_QUERY_EXTENSION_NAME, false },
         { VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME, false },
         { VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME, false },
-        { VK_EXT_OPACITY_MICROMAP_EXTENSION_NAME, false },
+        // { VK_EXT_OPACITY_MICROMAP_EXTENSION_NAME, false },
         { VK_KHR_UNIFIED_IMAGE_LAYOUTS_EXTENSION_NAME, false },
         { VK_EXT_DESCRIPTOR_HEAP_EXTENSION_NAME, false }
     };
