@@ -125,7 +125,7 @@ public:
     glm::mat4 last_view{};
     glm::mat4 last_proj{};
 
-    VkExtent2D window_extent{ 1700, 900 };
+    VkExtent2D window_extent{ 1280, 700 };
 
     VkInstance instance{}; // vulkan library handle
     VkDebugUtilsMessengerEXT debug_messenger{}; // vulkan debug output handle
