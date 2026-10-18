@@ -3443,7 +3443,8 @@ void VulkanEngine::ready_cull_mesh(RenderScene::MeshPass& pass, CullData& cull_d
     cull_data.near = main_camera.near;
     cull_data.far = main_camera.far;
 
-    cull_data.resolution = glm::vec2(depth_pyramid.extent.width, depth_pyramid.extent.height);
+    cull_data.depth_pyramid_extent = glm::vec2(depth_pyramid.extent.width, depth_pyramid.extent.height);
+    cull_data.depth_buffer_extent = glm::vec2(depth_image.extent.width, depth_image.extent.height);
     cull_data.texture_lod = static_cast<float>(std::floor(std::log2(static_cast<float>(std::max(depth_pyramid.extent.width, depth_pyramid.extent.height)))) + 1);
     cull_data.lod_distance_factor = 2.0f / (cull_data.p11 * static_cast<float>(swapchain.extent.height));
     cull_data.lod_enabled = cvar_system->get_int_cvar("lod");
@@ -3491,7 +3492,8 @@ void VulkanEngine::ready_cull_meshlet(RenderScene::MeshPass& pass, ClusterCullDa
     cull_data.near = main_camera.near;
     cull_data.far = main_camera.far;
 
-    cull_data.resolution = glm::vec2(depth_pyramid.extent.width, depth_pyramid.extent.height);
+    cull_data.depth_pyramid_extent = glm::vec2(depth_pyramid.extent.width, depth_pyramid.extent.height);
+    cull_data.depth_buffer_extent = glm::vec2(depth_image.extent.width, depth_image.extent.height);
     cull_data.texture_lod = static_cast<float>(std::floor(std::log2(static_cast<float>(std::max(depth_pyramid.extent.width, depth_pyramid.extent.height)))) + 1);
     cull_data.lod_distance_factor = 2.0f / (cull_data.p11 * static_cast<float>(swapchain.extent.height));
     cull_data.lod_enabled = cvar_system->get_int_cvar("lod");
@@ -4001,7 +4003,7 @@ void VulkanEngine::execute_hiz_spd(VkCommandBuffer cmd)
     } pc;
 
     pc.spd_counter_buffer = bda_table.spd_counter_buffer;
-    pc.rcp_resolution = glm::vec2(1.0) / glm::vec2(width, height);
+    pc.rcp_resolution = glm::vec2(1.0) / glm::vec2(swapchain.extent.width, swapchain.extent.height);
     pc.mips = depth_pyramid_level_count;
     pc.num_wgs = groupcount_x * groupcount_y;
     pc.src_id = bindless.depth_srv;

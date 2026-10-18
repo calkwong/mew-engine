@@ -74,7 +74,8 @@ struct CullData
     float near{};
     float far{};
 
-    glm::vec2 resolution{};
+    glm::vec2 depth_pyramid_extent{};
+    glm::vec2 depth_buffer_extent{};
     float texture_lod{};
     float lod_distance_factor{};
     uint32_t lod_enabled{};
@@ -102,7 +103,8 @@ struct ClusterCullData
     float near{};
     float far{};
 
-    glm::vec2 resolution{};
+    glm::vec2 depth_pyramid_extent{};
+    glm::vec2 depth_buffer_extent{};
     float texture_lod{};
     float lod_distance_factor{};
     uint32_t lod_enabled{};
