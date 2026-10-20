@@ -54,7 +54,7 @@ public float Fd_Burley(float NdotV, float NdotL, float LdotH, float roughness)
 {
     float f90 = 0.5 + 2.0 * roughness * LdotH * LdotH;
     float light_scatter = F_Schlick(NdotL, 1.0, f90);
-    float view_scatter = F_Schlick(NdotL, 1.0, f90);
+    float view_scatter = F_Schlick(NdotV, 1.0, f90);
     return light_scatter * view_scatter * (1.0 / PI);
 }
 
