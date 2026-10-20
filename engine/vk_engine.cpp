@@ -3040,8 +3040,8 @@ void VulkanEngine::resolve_taa(VkCommandBuffer cmd)
 void VulkanEngine::update_cascade()
 {
     // https://developer.nvidia.com/gpugems/gpugems3/part-ii-light-and-shadows/chapter-10-parallel-split-shadow-maps-programmable-gpus
-    float near = static_cast<float>(cvar_system->get_int_cvar("shadows.distance"));
-    float far = main_camera.far;
+    float near = 0.001;
+    float far = static_cast<float>(cvar_system->get_int_cvar("shadows.distance"));
     float m = static_cast<float>(NUMBER_OF_CASCADES);
     float range = far - near;
     float ratio = far / near;
