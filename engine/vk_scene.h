@@ -82,6 +82,8 @@ struct MaterialData
     float attenuation_distance{};
     float thickness_factor{};
     uint32_t thickness_id{};
+
+    float alpha_cutoff = 0.5;
 };
 
 struct SceneData

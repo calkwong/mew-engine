@@ -58,7 +58,7 @@ void ps_main(
 		if (m.diffuse_id != 0)
 		    albedo *= get_sampled_image<Texture2D>(m.diffuse_id).Sample(samp, in.uv);
 
-		if (albedo.a < 0.5)
+		if (albedo.a < m.alpha_cutoff)
 			discard;
 	}
 }

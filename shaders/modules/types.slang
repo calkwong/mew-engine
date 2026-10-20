@@ -53,6 +53,8 @@ public struct MaterialData
     public float attenuation_distance;
     public float thickness_factor;
     public uint32_t thickness_id;
+
+    public float alpha_cutoff;
 };
 
 public struct ObjectData

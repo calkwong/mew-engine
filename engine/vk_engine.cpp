@@ -61,7 +61,7 @@ VulkanEngine& VulkanEngine::get()
 constexpr bool USE_VALIDATION_LAYERS = true;
 // #endif
 
-#define STRESS_TEST // uncomment if loading a proper scene
+// #define STRESS_TEST // uncomment if loading a proper scene
 
 AutoCVar_Int CVAR_IMGUI{ "imgui", "Imgui", CVarFlags::EditCheckbox | CVarFlags::EditHide, 1 };
 AutoCVar_Int CVAR_DISABLE_CAMERA{ "disable_camera", "Disable camera", CVarFlags::EditCheckbox | CVarFlags::EditHide, 0 };
@@ -84,12 +84,12 @@ AutoCVar_Float CVAR_VOLUMETRIC_FAR_PLANE{ "volumetric.far_plane", "Volumetric fa
 AutoCVar_Int CVAR_Z_SLICE{ "z_slice", "Noise z", CVarFlags::EditSliderInt, 127, 0, 127, 1 };
 AutoCVar_Int CVAR_VBUFFER{ "vbuffer", "Vbuffer path", CVarFlags::EditCheckbox, 1 };
 AutoCVar_Int CVAR_MESH_SHADERS{ "mesh_shaders", "Mesh shaders path", CVarFlags::EditCheckbox, 1 };
-AutoCVar_Int CVAR_ALPHACLIP{ "alphaclip", "Alphaclip", CVarFlags::EditCheckbox, 0 };
+AutoCVar_Int CVAR_ALPHACLIP{ "alphaclip", "Alphaclip", CVarFlags::EditCheckbox, 1 };
 AutoCVar_Int CVAR_TRANSPARENT{ "transparent", "Transparent", CVarFlags::EditCheckbox, 0 };
 AutoCVar_Int CVAR_POINT_LIGHTS{ "point_lights", "Point lights", CVarFlags::EditCheckbox, 0 };
 AutoCVar_Int CVAR_OCCLUSION_CULLING{ "occlusion_culling", "Occlusion culling", CVarFlags::EditCheckbox, 1 };
 AutoCVar_Int CVAR_LOD{ "lod", "LODs", CVarFlags::EditCheckbox, 1 };
-AutoCVar_Int CVAR_SHADOWS{ "shadows", "Shadows", CVarFlags::EditCheckbox, 0 };
+AutoCVar_Int CVAR_SHADOWS{ "shadows", "Shadows", CVarFlags::EditCheckbox, 1 };
 AutoCVar_Int CVAR_SHADOWS_RT{ "shadows_rt", "Ray traced shadows", CVarFlags::EditCheckbox, 0 };
 AutoCVar_Int CVAR_VOLUMETRIC_FOG{ "volumetric_fog", "Volumetric fog", CVarFlags::EditCheckbox, 0 };
 AutoCVar_Int CVAR_TAA{ "taa", "TAA", CVarFlags::EditCheckbox, 0 };
@@ -99,11 +99,11 @@ AutoCVar_Int CVAR_VOLUME{ "volume", "KHR_volume", CVarFlags::EditCheckbox, 1 };
 AutoCVar_Float CVAR_SHADOWS_CASCADE_SPLIT{ "shadows.cascade_split", "Cascades log factor", CVarFlags::EditDragFloat, 0.95f, 0.f, 1.f, 0.005f };
 AutoCVar_Int CVAR_SHADOWS_DISTANCE{ "shadows.distance", "Shadow draw distance", CVarFlags::EditSliderInt, 48, 20, 200, 5 };
 
-AutoCVar_Int CVAR_DEBUG_TEXTURES{ "debug.textures", "Debug textures", CVarFlags::EditSliderInt, 1, 0, DEBUG_COUNT, 1 };
+AutoCVar_Int CVAR_DEBUG_TEXTURES{ "debug.textures", "Debug textures", CVarFlags::EditSliderInt, 0, 0, DEBUG_COUNT, 1 };
 
 AutoCVar_Int CVAR_DRAW_DISTANCE{ "draw_distance", "Draw distance", CVarFlags::EditSliderInt, 1000, 100, 1000, 100 };
 AutoCVar_Int CVAR_AUTOEXPOSURE{ "autoexposure", "Autoexposure", CVarFlags::EditCheckbox, 0 };
-AutoCVar_Int CVAR_TONEMAPPING{ "tonemapping", "Tonemapping", CVarFlags::EditCheckbox, 0 };
+AutoCVar_Int CVAR_TONEMAPPING{ "tonemapping", "Tonemapping", CVarFlags::EditCheckbox, 1 };
 AutoCVar_Int CVAR_TONEMAPPING_FUNC{ "tonemapping_func", "Tonemapping function", CVarFlags::EditSliderInt, 0, 0, 3, 1 };
 AutoCVar_Int CVAR_FREEZE_CAMERA{ "freeze_camera", "Freeze camera", CVarFlags::EditCheckbox, 0 };
 AutoCVar_Int CVAR_HIZ_SPD{ "hiz_spd", "HiZ SPD", CVarFlags::EditCheckbox, 1 };

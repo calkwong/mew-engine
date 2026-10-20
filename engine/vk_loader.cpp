@@ -1006,6 +1006,7 @@ bool load_gltf(
             }
         }
 
+        mat_data.alpha_cutoff = mat.alphaCutoff;
         materials_data.push_back(mat_data);
     }
 

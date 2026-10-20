@@ -180,7 +180,7 @@ void ps_main(
 		SamplerState samp = get_sampler<SamplerState>(LINEAR_SAMPLER);
 		float4 albedo = get_sampled_image<Texture2D>(m.diffuse_id).Sample(samp, in.uv);
 
-		if (albedo.a < 0.5)
+		if (albedo.a < m.alpha_cutoff)
 			discard;
 	}
 
