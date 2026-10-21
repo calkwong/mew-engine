@@ -24,6 +24,7 @@ struct PushConstants
 	uint frame_index;
 	uint count;
 	uint lod_enabled;
+	float lod_distance_factor;
 };
 
 [[vk::push_constant]] PushConstants pc;
@@ -117,13 +118,10 @@ void main(
     uint lod_index = 0;
     if (pc.lod_enabled == 1)
     {
-        float d = max(0.0, length(center) - radius);
-
-        // for orthographic, p11 = 2 / (top - bottom)
-        // lod_distance_factor = 2 / (p11 * height);
-        // we can factor out both the 2s, then top-bottom == 2*top
-        float lod_distance_factor = 2 * cascade_radius / 4096.0;
-        float e = lod_distance_factor / max_scale;
+        // Uses main camera view for LOD selection
+        uint lod_index = 0;
+        float d = max(0.0, distance(center, uniforms[pc.frame_index].camera_pos.xyz) - radius);
+        float e = d * pc.lod_distance_factor / max_scale;
 
         for (uint i = 0; i < mesh.lod_count; i++)
         {

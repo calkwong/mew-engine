@@ -12,7 +12,6 @@ public struct UniformBuffer
 	public float4x4 prev_view_proj;
 	public float4x4 light_rot;
 	public float4x4 shadow_transforms[4];
-	public float4 cascade_splits;
 	public float4 camera_pos;
 	public float4 sunlight_color;
 	public float4 sunlight_dir; // w for sun power

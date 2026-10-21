@@ -30,8 +30,6 @@
 #include <imgui.h>
 #include <imgui_impl_sdl3.h>
 #include <imgui_impl_vulkan.h>
-// #include <tracy/Tracy.hpp>
-// #include <tracy/TracyVulkan.hpp>
 
 #include <algorithm>
 #include <array>
@@ -3040,7 +3038,7 @@ void VulkanEngine::resolve_taa(VkCommandBuffer cmd)
 void VulkanEngine::update_cascade()
 {
     // https://developer.nvidia.com/gpugems/gpugems3/part-ii-light-and-shadows/chapter-10-parallel-split-shadow-maps-programmable-gpus
-    float near = 0.001;
+    float near = main_camera.near;
     float far = static_cast<float>(cvar_system->get_int_cvar("shadows.distance"));
     float m = static_cast<float>(NUMBER_OF_CASCADES);
     float range = far - near;
@@ -3054,7 +3052,6 @@ void VulkanEngine::update_cascade()
         float uniform = near + range * i / m;
         float d = lambda * (log - uniform) + uniform; // world space
         cascade_data[idx].split_ratio = (d - near) / range;
-        scene_data.cascade_splits[idx] = d * -1.0f;
     }
 
     auto light_dir = glm::normalize(glm::vec3(scene_data.sunlight_dir));
@@ -3117,19 +3114,16 @@ void VulkanEngine::update_cascade()
         }
 
         // for shadow culling
-        {
-            scene_data.shadow_views[i] = glm::lookAt(center + radius * light_dir, center, glm::vec3(0, 1, 0));
-            scene_data.shadow_widths[i] = radius;
-        }
+        scene_data.shadow_views[i] = glm::lookAt(center + radius * light_dir, center, glm::vec3(0, 1, 0));
+        scene_data.shadow_widths[i] = radius;
 
         // stable csm via snapping projection matrix - https://github.com/TheRealMJP/Shadows/blob/master/Shadows/SetupShadows.hlsl
         // stable csm via snapping frustum center, less robust - https://alextardif.com/shadowmapping.html
-        glm::mat4 shadow_view = glm::lookAt(center + radius * light_dir, center, glm::vec3(0, 1, 0));
         glm::mat4 shadow_proj = glm::ortho(-radius, radius, -radius, radius, radius * 2.0f, 0.0f);
 
         /*
 		    glm::vec2 shadow_origin = glm::vec2(0.0);
-		    shadow_origin = shadow_proj * shadow_view * glm::vec4(shadow_origin, 0.0, 1.0);
+		    shadow_origin = shadow_proj * scene_data.shadow_views[i] * glm::vec4(shadow_origin, 0.0, 1.0);
 		    shadow_origin *= (SHADOW_MAP_SIZE / 2.0f);
 
 		    glm::vec2 rounded_origin = glm::round(shadow_origin);
@@ -3140,7 +3134,7 @@ void VulkanEngine::update_cascade()
 		    shadow_proj[3][1] += offset.y;
 		*/
 
-        cascade_data[i].viewproj = shadow_proj * shadow_view;
+        cascade_data[i].viewproj = shadow_proj * scene_data.shadow_views[i];
     }
 }
 
@@ -3576,6 +3570,7 @@ void VulkanEngine::execute_shadow_cull(VkCommandBuffer cmd)
         uint32_t frame_index{};
         uint32_t count{};
         uint32_t lod_enabled{};
+        float lod_distance_factor{};
     } pc;
 
     pc.object_buffer_address = bda_table.object_buffer;
@@ -3583,6 +3578,8 @@ void VulkanEngine::execute_shadow_cull(VkCommandBuffer cmd)
     pc.indices_buffer_address = bda_table.indices_buffer;
     pc.draw_buffer_address = bda_table.draw_indirect_buffer;
     pc.frame_index = frame_number % MAX_FRAMES_IN_FLIGHT;
+    auto p11 = scene_data.proj[1][1];
+    pc.lod_distance_factor = 2.0f / (p11 * static_cast<float>(swapchain.extent.height));
 
     std::vector<RenderScene::MeshPass*> passes = { &render_scene.opaque_pass, &render_scene.mask_pass };
     uint32_t cull_count{};
